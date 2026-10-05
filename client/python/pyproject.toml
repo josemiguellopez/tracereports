@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tracereports"
+version = "0.2.0"
+description = "Cliente de TraceReports: reporta tests (steps, capturas, red del backend) a un servidor TraceReports. Incluye plugin de pytest."
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "Apache-2.0"}
+dependencies = []  # solo librería estándar
+
+[project.optional-dependencies]
+pytest = ["pytest>=7"]
+playwright = ["playwright>=1.40"]
+
+[project.entry-points.pytest11]
+tracereports = "tracereports.pytest_plugin"
+
+[tool.setuptools]
+packages = ["tracereports"]
