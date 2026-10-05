@@ -40,6 +40,9 @@ pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # listo, sin cambiar tu código
 ```
 
+¿No usas pytest? TraceReports funciona igual con **Playwright Test**, **Selenium**, **JUnit 5**, **Go** o
+cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en-tu-lenguaje).
+
 <p align="center">
   <img src="./.github/assets/tour.gif" alt="Recorrido por una ejecución real de TraceReports: diagnóstico, triage con IA, timeline, red, locators rotos y escalamiento" width="100%" />
   <br />
