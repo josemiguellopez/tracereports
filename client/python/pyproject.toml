@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tracereports"
-version = "0.2.0"
+version = "0.2.1"
 description = "TraceReports client: reports test steps, screenshots and browser network to a TraceReports server. Includes a pytest plugin."
 readme = "README.md"
 requires-python = ">=3.9"
