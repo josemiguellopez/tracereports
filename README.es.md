@@ -1,7 +1,7 @@
 <a href="https://github.com/josemiguellopez/tracereports"><img src="./.github/assets/banner.es.svg" alt="TraceReports: del fallo a la causa. Pasos, capturas, red y diagnóstico con IA para tus tests." width="100%" /></a>
 
 <p align="center">
-  <a href="https://tracereports.netlify.app/demo/"><img alt="Demo en vivo" src="https://img.shields.io/badge/demo%20en%20vivo-pru%C3%A9bala%20ya-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
+  <a href="https://tracereports.netlify.app/#start"><img alt="Pruébalo ya" src="https://img.shields.io/badge/pru%C3%A9balo%20ya-%E2%86%92-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/stargazers"><img alt="Estrellas en GitHub" src="https://img.shields.io/github/stars/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&color=c9fa6b" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/josemiguellopez/tracereports/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI" /></a>
   <a href="./LICENSE"><img alt="Licencia: Apache-2.0" src="https://img.shields.io/badge/licencia-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
