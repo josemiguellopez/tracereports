@@ -31,6 +31,7 @@ llamada HTTP que hizo el navegador y un diagnóstico con IA que convierte una pa
 puñado de incidentes.
 
 ```bash
+git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports
 docker compose up -d                       # servidor + UI en http://localhost:8080
 pip install pytest pytest-playwright ./client/python
 pytest --tracereports                      # listo, sin cambiar tu código
@@ -179,30 +180,136 @@ opcionales.
 
 ## Inicio rápido
 
-**1. Levanta el servidor.**
+### 1. Levanta el servidor
 
 ```bash
-docker compose up -d     # o: go run ./cmd   (Go 1.26+)
+git clone https://github.com/josemiguellopez/tracereports.git
+cd tracereports
+docker compose up -d        # construye la imagen la primera vez; ¿sin Docker? usa: go run ./cmd  (Go 1.26+)
 ```
 
-**2. Reporta tus tests** con uno de los clientes:
+Abre <http://localhost:8080>. El reporte queda vacío hasta que llegue la primera ejecución.
 
-| Cliente | Qué hace |
+### 2. Corre un ejemplo en tu lenguaje
+
+Todos los ejemplos prueban la [demo pública de OrangeHRM](https://opensource-demo.orangehrmlive.com),
+así que solo necesitas el lenguaje instalado. Ejecuta los comandos desde la raíz del repositorio.
+
+<details open>
+<summary><b>🐍 Python · pytest + Playwright</b></summary>
+
+Requiere Python 3.9+.
+
+```bash
+pip install pytest pytest-playwright ./client/python
+playwright install chromium
+pytest examples/pytest-playwright --tracereports
+```
+
+Para ver el diagnóstico con IA sobre fallos reales, corre el ejemplo de framework que simula un
+backend caído, un 500, un timeout y un selector desactualizado (**falla a propósito**):
+
+```bash
+pip install playwright ./client/python
+python examples/orangehrm/tests/test_orangehrm_errores_backend.py
+```
+
+</details>
+
+<details>
+<summary><b>🟨 JavaScript / TypeScript · Playwright Test</b></summary>
+
+Requiere Node.js 18+ y Chrome instalado.
+
+```bash
+cd examples/playwright-js
+npm install
+npm test
+```
+
+</details>
+
+<details>
+<summary><b>🟨 JavaScript · Selenium WebDriver</b></summary>
+
+Requiere Node.js 18+ y Chrome instalado. Selenium Manager descarga el chromedriver que corresponde.
+
+```bash
+cd examples/selenium-js
+npm install
+npm test
+```
+
+</details>
+
+<details>
+<summary><b>☕ Java · Playwright + JUnit 5</b></summary>
+
+Requiere JDK 17+ y Chrome instalado. En Windows usa `gradlew.bat` en lugar de `./gradlew`.
+
+```bash
+cd examples/playwright-java
+./gradlew test
+```
+
+</details>
+
+<details>
+<summary><b>☕ Java · Selenium + JUnit 5</b></summary>
+
+Requiere JDK 17+ y Chrome instalado. En Windows usa `gradlew.bat` en lugar de `./gradlew`.
+
+```bash
+cd examples/selenium-java
+./gradlew test
+```
+
+</details>
+
+<details>
+<summary><b>🐹 Go · playwright-go</b></summary>
+
+Requiere Go 1.22+. La primera vez descarga el driver de Playwright y Chromium.
+
+```bash
+cd examples/playwright-go
+go test -v ./...
+```
+
+</details>
+
+**Interruptores útiles** para los ejemplos:
+
+| Variable | Qué hace |
 | --- | --- |
-| [`client/python`](client/python) | Plugin de pytest: `pytest --tracereports`. Envío en segundo plano con reintentos y soporte para pytest-xdist. |
-| [`client/js`](client/js) | Reporter y fixtures para Playwright Test, más helpers para Selenium WebDriver. JavaScript y TypeScript. |
-| [`client/java`](client/java) | Extensión de JUnit 5 para Selenium y Playwright para Java. |
-| [`client/go`](client/go) | Cliente de Go, con un ejemplo de playwright-go. |
-| [API REST](docs/es/api.md) | Cualquier otro lenguaje o framework. |
+| `TRACEREPORTS_DEMO_FAIL=1` | Agrega un fallo controlado para ver el diagnóstico con IA y las sugerencias de locators (ejemplos de JavaScript y Java). |
+| `HEADLESS=0` | Muestra el navegador mientras corren los tests (todos los ejemplos menos pytest, que usa `--headed`). |
+| `TRACEREPORTS_URL` | Dirección del servidor, si no es `http://localhost:8080`. |
+| `TRACEREPORTS_TOKEN` | Token del servidor, si lo protegiste. |
 
-**3. (Opcional) Activa la IA.** Define `GEMINI_API_KEY` (capa gratuita) o elige Claude, OpenAI,
-cualquier API compatible u Ollama local en **Configuración**, sin reiniciar.
+En macOS y Linux: `HEADLESS=0 npm test`. En PowerShell: `$env:HEADLESS="0"; npm test`.
 
-**4. (Recomendado si el servidor es compartido) Protégelo** con `TRACEREPORTS_TOKEN`. Mira
-[configuración](docs/es/configuration.md#seguridad).
+### 3. Abre el reporte
 
-En [`examples/`](examples) hay ejemplos ejecutables para cada cliente, todos contra la demo
-pública de OrangeHRM.
+Vuelve a <http://localhost:8080>: la ejecución aparece en vivo, paso a paso. Abre un test fallido
+para ver su captura, sus llamadas de red y el diagnóstico.
+
+### 4. Úsalo en tu propio proyecto
+
+| Cliente | Qué hace | Guía |
+| --- | --- | --- |
+| [`client/python`](client/python) | Plugin de pytest: `pytest --tracereports`. Envío en segundo plano con reintentos y soporte para pytest-xdist. | [Python](docs/es/python.md) |
+| [`client/js`](client/js) | Reporter y fixtures para Playwright Test, más helpers para Selenium WebDriver. JavaScript y TypeScript. | [JavaScript](docs/es/javascript.md) |
+| [`client/java`](client/java) | Extensión de JUnit 5 para Selenium y Playwright para Java. | [Java](docs/es/java.md) |
+| [`client/go`](client/go) | Cliente de Go, con un ejemplo de playwright-go. | [Go](docs/es/go.md) |
+| API REST | Cualquier otro lenguaje o framework. | [API](docs/es/api.md) |
+
+### 5. Opcional: IA y token
+
+- **IA:** define `GEMINI_API_KEY` (capa gratuita) o elige Claude, OpenAI, cualquier API
+  compatible u Ollama local en **Configuración**, sin reiniciar.
+- **Token:** si el servidor es compartido, protégelo con `TRACEREPORTS_TOKEN`. Mira
+  [configuración](docs/es/configuration.md#seguridad).
 
 🚧 *TraceReports está antes de la 1.0: los clientes, la API y la configuración todavía pueden cambiar entre versiones menores.*
 
