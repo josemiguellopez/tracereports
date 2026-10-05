@@ -35,8 +35,7 @@ llamada HTTP que hizo el navegador y un diagnóstico con IA que convierte una pa
 puñado de incidentes.
 
 ```bash
-git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports
-docker compose up -d                       # servidor + UI en http://localhost:8080
+docker run -d -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # servidor + UI en http://localhost:8080
 pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # listo, sin cambiar tu código
 ```
@@ -191,18 +190,24 @@ opcionales.
 
 ### 1. Levanta el servidor
 
+**Con Docker** (recomendado, sin clonar nada):
+
 ```bash
-git clone https://github.com/josemiguellopez/tracereports.git
-cd tracereports
-docker compose up -d        # construye la imagen la primera vez; ¿sin Docker? usa: go run ./cmd  (Go 1.26+)
+docker run -d --name tracereports -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
 ```
+
+**Sin Docker:** descarga el binario para tu sistema desde la [última versión](https://github.com/josemiguellopez/tracereports/releases/latest) (Linux, macOS y
+Windows, amd64 y arm64), descomprímelo y ejecuta `./tracereports` (`tracereports.exe` en Windows).
+
+**Desde el código:** `git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports`, y después `docker compose up -d` o `go run ./cmd` (Go 1.26+).
 
 Abre <http://localhost:8080>. El reporte queda vacío hasta que llegue la primera ejecución.
 
 ### 2. Corre un ejemplo en tu lenguaje
 
 Todos los ejemplos prueban la [demo pública de OrangeHRM](https://opensource-demo.orangehrmlive.com),
-así que solo necesitas el lenguaje instalado. Ejecuta los comandos desde la raíz del repositorio.
+así que solo necesitas el lenguaje instalado. Los ejemplos están en este repositorio: clónalo primero
+(`git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports`) y ejecuta los comandos desde su raíz.
 
 <details open>
 <summary><b>🐍 Python · pytest + Playwright</b></summary>

@@ -34,8 +34,7 @@ TraceReports is a self-hosted test report server. Every step with its screenshot
 the browser made, and an AI diagnosis that turns a wall of red into a handful of incidents.
 
 ```bash
-git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports
-docker compose up -d                       # server + UI on http://localhost:8080
+docker run -d -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # server + UI on http://localhost:8080
 pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # that's it, no code changes
 ```
@@ -188,18 +187,24 @@ The server masks secrets before storing anything, and the AI and webhooks are op
 
 ### 1. Start the server
 
+**With Docker** (recommended, nothing to clone):
+
 ```bash
-git clone https://github.com/josemiguellopez/tracereports.git
-cd tracereports
-docker compose up -d        # builds the image the first time; no Docker? use: go run ./cmd  (Go 1.26+)
+docker run -d --name tracereports -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
 ```
+
+**Without Docker:** download the binary for your OS from the [latest release](https://github.com/josemiguellopez/tracereports/releases/latest) (Linux, macOS and
+Windows, amd64 and arm64), unzip it and run `./tracereports` (`tracereports.exe` on Windows).
+
+**From source:** `git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports`, then `docker compose up -d` or `go run ./cmd` (Go 1.26+).
 
 Open <http://localhost:8080>. The report stays empty until the first run arrives.
 
 ### 2. Run an example in your language
 
 Every example tests the public [OrangeHRM demo](https://opensource-demo.orangehrmlive.com), so you
-only need the language runtime. Run the commands from the repository root.
+only need the language runtime. The examples live in this repository: clone it first
+(`git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports`) and run the commands from its root.
 
 <details open>
 <summary><b>🐍 Python · pytest + Playwright</b></summary>
