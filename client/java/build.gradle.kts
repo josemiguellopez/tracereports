@@ -16,11 +16,11 @@ java {
 repositories { mavenCentral() }
 
 dependencies {
-    compileOnly("org.junit.jupiter:junit-jupiter-api:5.11.4")
-    compileOnly("org.seleniumhq.selenium:selenium-api:4.35.0")
-    compileOnly("com.microsoft.playwright:playwright:1.55.0")
+    compileOnly("org.junit.jupiter:junit-jupiter-api:6.1.3")
+    compileOnly("org.seleniumhq.selenium:selenium-api:4.50.0")
+    compileOnly("com.microsoft.playwright:playwright:1.63.0")
 
-    testImplementation(platform("org.junit:junit-bom:5.11.4"))
+    testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.jupiter:junit-jupiter-params")
     testImplementation("org.junit.platform:junit-platform-testkit")
