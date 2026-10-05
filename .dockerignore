@@ -1,0 +1,11 @@
+.git
+data
+examples
+client
+docs
+*.exe
+**/__pycache__
+# configuración privada: nunca en el contexto de build
+.env
+.env.*
+!.env.example

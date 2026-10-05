@@ -1,0 +1,9 @@
+/data/
+/tracereports
+/tracereports.exe
+__pycache__/
+*.pyc
+/examples/orangehrm/output/
+.env
+*.egg-info/
+.pytest_cache/
