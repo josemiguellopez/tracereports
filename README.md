@@ -9,8 +9,8 @@
 </p>
 
 <p align="center">
-  <b>pytest</b> · <b>Playwright</b> · <b>Selenium</b> · <b>JUnit 5</b> · <b>Go</b> · any language over REST
-  <br />
+  <img src="./.github/assets/works-with.svg" alt="Works with pytest, Playwright, Selenium, JUnit 5, Go and any language over a REST API" width="100%" />
+  <br /><br />
   🌐 <b>English</b> · <a href="README.es.md">Español</a>
 </p>
 
