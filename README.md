@@ -5,12 +5,21 @@
   <a href="./LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <img alt="Single Go binary" src="https://img.shields.io/badge/single-go%20binary-fc9672.svg?style=for-the-badge&logo=go&logoColor=white&labelColor=000000" />
   <img alt="Self-hosted, no telemetry" src="https://img.shields.io/badge/self--hosted-no%20telemetry-eeeee2.svg?style=for-the-badge&labelColor=000000" />
+  <img alt="Status: pre-1.0" src="https://img.shields.io/badge/status-pre--1.0-e7c35a.svg?style=for-the-badge&labelColor=000000" />
 </p>
 
 <p align="center">
   <b>pytest</b> · <b>Playwright</b> · <b>Selenium</b> · <b>JUnit 5</b> · <b>Go</b> · any language over REST
   <br />
   🌐 <b>English</b> · <a href="README.es.md">Español</a>
+</p>
+
+<p align="center">
+  <a href="#quick-start"><b>Quick start</b></a> ·
+  <a href="#whats-inside"><b>Features</b></a> ·
+  <a href="#pick-your-look"><b>Themes</b></a> ·
+  <a href="#how-it-works"><b>How it works</b></a> ·
+  <a href="#documentation"><b>Docs</b></a>
 </p>
 
 # TraceReports
@@ -34,17 +43,46 @@ pytest --tracereports                      # that's it, no code changes
 
 ## The problem
 
-It's 9 a.m. and the nightly run has 15 red tests. A typical report gives you 15 stack traces that
-say `TimeoutError` or `element not found`. Now you open the backend logs, rerun locally and ask on
-Slack whether someone deployed something.
+It's 9 a.m. and the nightly run has 15 red tests. Time to open the backend logs, rerun locally and
+ask on Slack whether someone deployed something.
 
-TraceReports collects the evidence while the test runs, so the report already knows:
+TraceReports collects the evidence while the test runs, so the report already knows what happened:
 
-> **15 tests failed right after `POST /auth/login` returned 500.**
-> Likely cause: the auth service ran out of database connections. Check that first.
+<table>
+  <tr>
+    <th width="50%">😩 A typical report</th>
+    <th width="50%">🕵️ TraceReports</th>
+  </tr>
+  <tr>
+    <td valign="top">
+<pre>
+FAILED test_login_admin
+  TimeoutError: Timeout 30000ms exceeded
+  waiting for "Dashboard" to be visible
+FAILED test_pim_search
+  TimeoutError: Timeout 30000ms exceeded
+FAILED test_employee_list
+  TimeoutError: Timeout 30000ms exceeded
+... 12 more
+</pre>
+    </td>
+    <td valign="top">
+      <b>🔴 1 incident · 15 tests</b>
+      <br /><br />
+      Every failure happened right after <code>POST /auth/login</code> returned <b>500</b>.
+      <br /><br />
+      <b>Likely cause:</b> the auth service ran out of database connections.
+      <br />
+      <b>Check first:</b> the auth service and its connection pool.
+      <br /><br />
+      📸 screenshot · 🌐 failed call with its body · ⏱️ timeline
+    </td>
+  </tr>
+</table>
 
-It shows the screenshot, the failed call with its body and the timeline that ties them together.
 The AI cause is always shown as a hypothesis, next to the evidence it relies on.
+
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
 ## What's inside
 
@@ -110,6 +148,8 @@ And also:
 
 The [full feature tour](README.en.md) covers every option.
 
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
+
 ## Pick your look
 
 Six themes, switchable from the UI: Trace, Trace Dark, Midnight, Paper, Terminal and, of course,
@@ -131,6 +171,8 @@ flowchart LR
 
 Clients send evidence in the background, so a slow or offline server never breaks your tests.
 The server masks secrets before storing anything, and the AI and webhooks are optional.
+
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
 ## Quick start
 
@@ -159,6 +201,8 @@ compatible API or a local Ollama under **Settings**, no restart needed.
 Runnable examples for every client live in [`examples/`](examples), all against the public
 OrangeHRM demo.
 
+🚧 *TraceReports is pre-1.0: clients, API and configuration can still change between minor releases.*
+
 ## Documentation
 
 - [Full feature tour](README.en.md)
@@ -173,10 +217,7 @@ and credentials are masked before anything is stored, whichever client sent them
 leaves your server if you turn on a cloud AI provider (use Ollama to keep it in-house) or a
 Teams/Slack webhook. Screenshots are stored as taken, so avoid showing secrets on screen.
 
-## Status
-
-> [!NOTE]
-> TraceReports is pre-1.0. Clients, API and configuration can still change between minor releases.
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
 ## Support the project
 

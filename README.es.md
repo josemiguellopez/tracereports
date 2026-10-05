@@ -5,12 +5,21 @@
   <a href="./LICENSE"><img alt="Licencia: Apache-2.0" src="https://img.shields.io/badge/licencia-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <img alt="Un solo binario de Go" src="https://img.shields.io/badge/un%20solo-binario%20go-fc9672.svg?style=for-the-badge&logo=go&logoColor=white&labelColor=000000" />
   <img alt="Autohospedado, sin telemetría" src="https://img.shields.io/badge/autohospedado-sin%20telemetr%C3%ADa-eeeee2.svg?style=for-the-badge&labelColor=000000" />
+  <img alt="Estado: pre-1.0" src="https://img.shields.io/badge/estado-pre--1.0-e7c35a.svg?style=for-the-badge&labelColor=000000" />
 </p>
 
 <p align="center">
   <b>pytest</b> · <b>Playwright</b> · <b>Selenium</b> · <b>JUnit 5</b> · <b>Go</b> · cualquier lenguaje vía REST
   <br />
   🌐 <a href="README.md">English</a> · <b>Español</b>
+</p>
+
+<p align="center">
+  <a href="#inicio-rápido"><b>Inicio rápido</b></a> ·
+  <a href="#qué-incluye"><b>Funciones</b></a> ·
+  <a href="#elige-tu-estilo"><b>Temas</b></a> ·
+  <a href="#cómo-funciona"><b>Cómo funciona</b></a> ·
+  <a href="#documentación"><b>Docs</b></a>
 </p>
 
 # TraceReports
@@ -35,17 +44,46 @@ pytest --tracereports                      # listo, sin cambiar tu código
 
 ## El problema
 
-Son las 9 de la mañana y la ejecución nocturna tiene 15 tests en rojo. Un reporte típico te da 15
-stack traces que dicen `TimeoutError` o `element not found`. Toca abrir los logs del backend,
-reproducir en local y preguntar en Slack si alguien hizo un deploy.
+Son las 9 de la mañana y la ejecución nocturna tiene 15 tests en rojo. Toca abrir los logs del
+backend, reproducir en local y preguntar en Slack si alguien hizo un deploy.
 
-TraceReports junta la evidencia mientras el test corre, así que el reporte ya lo sabe:
+TraceReports junta la evidencia mientras el test corre, así que el reporte ya sabe qué pasó:
 
-> **15 tests fallaron justo después de que `POST /auth/login` respondiera 500.**
-> Causa probable: el servicio de autenticación se quedó sin conexiones a la base de datos. Revisa eso primero.
+<table>
+  <tr>
+    <th width="50%">😩 Un reporte típico</th>
+    <th width="50%">🕵️ TraceReports</th>
+  </tr>
+  <tr>
+    <td valign="top">
+<pre>
+FAILED test_login_admin
+  TimeoutError: Timeout 30000ms exceeded
+  waiting for "Dashboard" to be visible
+FAILED test_pim_search
+  TimeoutError: Timeout 30000ms exceeded
+FAILED test_employee_list
+  TimeoutError: Timeout 30000ms exceeded
+... 12 más
+</pre>
+    </td>
+    <td valign="top">
+      <b>🔴 1 incidente · 15 tests</b>
+      <br /><br />
+      Todos los fallos ocurrieron justo después de que <code>POST /auth/login</code> respondiera <b>500</b>.
+      <br /><br />
+      <b>Causa probable:</b> el servicio de autenticación se quedó sin conexiones a la base de datos.
+      <br />
+      <b>Revisa primero:</b> el servicio de autenticación y su pool de conexiones.
+      <br /><br />
+      📸 captura · 🌐 llamada fallida con su body · ⏱️ timeline
+    </td>
+  </tr>
+</table>
 
-Muestra la captura, la llamada fallida con su body y la línea de tiempo que las conecta. La causa
-que sugiere la IA siempre se presenta como hipótesis, junto a la evidencia en que se basa.
+La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evidencia en que se basa.
+
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
 ## Qué incluye
 
@@ -112,6 +150,8 @@ Y además:
 
 La [guía completa](GUIA-COMPLETA.md) cubre todas las opciones.
 
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
+
 ## Elige tu estilo
 
 Seis temas que se cambian desde la interfaz: Trace, Trace Dark, Midnight, Paper, Terminal y, por
@@ -134,6 +174,8 @@ flowchart LR
 Los clientes envían la evidencia en segundo plano, así que un servidor lento o caído nunca rompe
 tus tests. El servidor enmascara los secretos antes de guardar nada, y la IA y los webhooks son
 opcionales.
+
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
 ## Inicio rápido
 
@@ -162,6 +204,8 @@ cualquier API compatible u Ollama local en **Configuración**, sin reiniciar.
 En [`examples/`](examples) hay ejemplos ejecutables para cada cliente, todos contra la demo
 pública de OrangeHRM.
 
+🚧 *TraceReports está antes de la 1.0: los clientes, la API y la configuración todavía pueden cambiar entre versiones menores.*
+
 ## Documentación
 
 - [Guía completa](GUIA-COMPLETA.md)
@@ -177,10 +221,7 @@ evidencia solo sale de tu servidor si activas un proveedor de IA en la nube (usa
 mantenerla en casa) o un webhook de Teams/Slack. Las capturas se guardan tal cual, así que evita
 mostrar secretos en pantalla.
 
-## Estado
-
-> [!NOTE]
-> TraceReports está antes de la 1.0. Los clientes, la API y la configuración todavía pueden cambiar entre versiones menores.
+<p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
 ## Apoya el proyecto
 
