@@ -232,7 +232,7 @@ npm test
 <details>
 <summary><b>🟨 JavaScript · Selenium WebDriver</b></summary>
 
-Requiere Node.js 18+ y Chrome instalado. Selenium Manager descarga el chromedriver que corresponde.
+Requiere Node.js 22+ y Chrome instalado. Selenium Manager descarga el chromedriver que corresponde.
 
 ```bash
 cd examples/selenium-js
