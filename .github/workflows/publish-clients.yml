@@ -1,0 +1,51 @@
+name: Publish clients
+
+# Manual: Actions → Publish clients → Run workflow. Sin tokens: PyPI y npm confían en este
+# workflow (Trusted Publishing con OIDC).
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Registry to publish to
+        type: choice
+        options: [pypi, npm, both]
+        default: both
+
+permissions:
+  contents: read
+
+jobs:
+  pypi:
+    name: PyPI
+    if: inputs.target == 'pypi' || inputs.target == 'both'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build
+      - run: python -m build client/python
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: client/python/dist
+
+  npm:
+    name: npm
+    if: inputs.target == 'npm' || inputs.target == 'both'
+    runs-on: ubuntu-latest
+    environment: npm
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+      - run: npm install -g npm@latest   # Trusted Publishing necesita npm 11.5.1 o superior
+      - run: npm publish --access public
+        working-directory: client/js

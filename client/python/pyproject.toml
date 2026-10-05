@@ -5,11 +5,24 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "tracereports"
 version = "0.2.0"
-description = "Cliente de TraceReports: reporta tests (steps, capturas, red del backend) a un servidor TraceReports. Incluye plugin de pytest."
+description = "TraceReports client: reports test steps, screenshots and browser network to a TraceReports server. Includes a pytest plugin."
 readme = "README.md"
 requires-python = ">=3.9"
 license = {text = "Apache-2.0"}
+authors = [{name = "Jose Lopez"}]
+keywords = ["testing", "test-reporting", "pytest", "playwright", "selenium", "e2e", "qa"]
+classifiers = [
+    "Framework :: Pytest",
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: Apache Software License",
+    "Topic :: Software Development :: Testing",
+]
 dependencies = []  # solo librería estándar
+
+[project.urls]
+Homepage = "https://github.com/josemiguellopez/tracereports"
+Documentation = "https://github.com/josemiguellopez/tracereports/blob/main/docs/en/python.md"
+Issues = "https://github.com/josemiguellopez/tracereports/issues"
 
 [project.optional-dependencies]
 pytest = ["pytest>=7"]

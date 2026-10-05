@@ -2,17 +2,46 @@
   "name": "tracereports",
   "version": "0.1.0",
   "description": "Cliente de TraceReports para JavaScript/TypeScript: Playwright Test (reporter + fixtures), Selenium WebDriver y cualquier runner.",
+  "keywords": [
+    "testing",
+    "test-reporting",
+    "playwright",
+    "selenium",
+    "e2e",
+    "qa",
+    "reporter",
+    "ai"
+  ],
+  "homepage": "https://github.com/josemiguellopez/tracereports#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/josemiguellopez/tracereports.git",
+    "directory": "client/js"
+  },
+  "bugs": {
+    "url": "https://github.com/josemiguellopez/tracereports/issues"
+  },
+  "author": "Jose Lopez",
   "type": "module",
   "main": "./src/index.js",
   "types": "./src/index.d.ts",
   "exports": {
-    ".": { "types": "./src/index.d.ts", "default": "./src/index.js" },
+    ".": {
+      "types": "./src/index.d.ts",
+      "default": "./src/index.js"
+    },
     "./reporter": "./src/reporter.js",
     "./playwright": "./src/playwright.js",
     "./selenium": "./src/selenium.js"
   },
-  "files": ["src", "README.md", "README.es.md"],
-  "engines": { "node": ">=18" },
+  "files": [
+    "src",
+    "README.md",
+    "README.es.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
   "scripts": {
     "test": "node --test \"test/*.test.js\""
   },
@@ -20,7 +49,9 @@
     "@playwright/test": ">=1.40"
   },
   "peerDependenciesMeta": {
-    "@playwright/test": { "optional": true }
+    "@playwright/test": {
+      "optional": true
+    }
   },
   "license": "Apache-2.0"
 }
