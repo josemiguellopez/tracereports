@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Questions and ideas
+    url: https://github.com/josemiguellopez/tracereports/discussions
+    about: Ask how to set something up or share how you use TraceReports.
+  - name: 🔒 Report a vulnerability
+    url: https://github.com/josemiguellopez/tracereports/security/policy
+    about: Please report security issues privately.
+  - name: 📚 Documentation
+    url: https://github.com/josemiguellopez/tracereports#documentation
+    about: Installation, configuration and client guides.

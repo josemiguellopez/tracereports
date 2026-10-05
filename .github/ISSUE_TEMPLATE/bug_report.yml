@@ -1,0 +1,66 @@
+name: 🐛 Bug report
+description: Something doesn't work as expected
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this! You can write in English or Spanish.
+        **Security issues:** please don't report them here, follow the [security policy](https://github.com/josemiguellopez/tracereports/security/policy).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What did you see, and what did you expect to see?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start the server with `docker compose up -d`
+        2. Run `pytest --tracereports`
+        3. Open the failed test…
+    validations:
+      required: true
+  - type: dropdown
+    id: part
+    attributes:
+      label: Which part?
+      options:
+        - Server / web UI
+        - Python client (pytest)
+        - JavaScript client (Playwright Test / Selenium)
+        - Java client (JUnit 5)
+        - Go client
+        - REST API
+        - AI diagnosis
+        - Docs / examples
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Server version or commit, and client version.
+      placeholder: "server v0.1.0, tracereports (pip) 0.2.0"
+  - type: dropdown
+    id: install
+    attributes:
+      label: How do you run the server?
+      options:
+        - Docker / docker compose
+        - Release binary
+        - go run ./cmd
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: OS, browser, test framework and version, AI provider (if relevant).
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Server logs, client output or screenshots. **Remove tokens, passwords and private URLs first.**
+      render: text

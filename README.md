@@ -320,6 +320,13 @@ its screenshot, network calls and diagnosis.
 - [Python](docs/en/python.md) · [JavaScript](docs/en/javascript.md) · [Java](docs/en/java.md) · [Go](docs/en/go.md) · [REST API](docs/en/api.md)
 - [Continuous integration](docs/en/ci.md) · [UI tokens and themes](docs/en/ui-tokens.md)
 
+## Contributing
+
+Bug reports, ideas, docs, translations and code are all welcome, in English or Spanish. Start with
+the [contributing guide](CONTRIBUTING.md) and look for issues labeled
+[`good first issue`](https://github.com/josemiguellopez/tracereports/labels/good%20first%20issue).
+Questions go to [Discussions](https://github.com/josemiguellopez/tracereports/discussions).
+
 ## Privacy
 
 TraceReports runs on your own machine or server and sends no telemetry. Tokens, passwords, cookies

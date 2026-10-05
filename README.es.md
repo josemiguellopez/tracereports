@@ -323,6 +323,13 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 - [Python](docs/es/python.md) · [JavaScript](docs/es/javascript.md) · [Java](docs/es/java.md) · [Go](docs/es/go.md) · [API REST](docs/es/api.md)
 - [Integración continua](docs/es/ci.md) · [Tokens de UI y temas](docs/es/ui-tokens.md)
 
+## Contribuir
+
+Reportes de bugs, ideas, documentación, traducciones y código son bienvenidos, en español o en
+inglés. Empieza por la [guía de contribución](CONTRIBUTING.md) y busca los issues marcados como
+[`good first issue`](https://github.com/josemiguellopez/tracereports/labels/good%20first%20issue).
+Las preguntas van a [Discussions](https://github.com/josemiguellopez/tracereports/discussions).
+
 ## Privacidad
 
 TraceReports corre en tu propia máquina o servidor y no envía telemetría. Tokens, contraseñas,
