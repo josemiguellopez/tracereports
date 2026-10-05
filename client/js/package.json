@@ -1,7 +1,7 @@
 {
   "name": "tracereports",
-  "version": "0.1.0",
-  "description": "Cliente de TraceReports para JavaScript/TypeScript: Playwright Test (reporter + fixtures), Selenium WebDriver y cualquier runner.",
+  "version": "0.1.1",
+  "description": "TraceReports client for JavaScript/TypeScript: Playwright Test reporter and fixtures, Selenium WebDriver helpers and a client for any runner.",
   "keywords": [
     "testing",
     "test-reporting",
