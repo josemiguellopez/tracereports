@@ -1,0 +1,244 @@
+# Configuration
+
+🌐 **English** · [Español](../es/configuration.md)
+
+Everything is configured with environment variables, and all of them are optional. The easiest
+way is a `.env` file (see [`.env.example`](../../.env.example)): both Docker Compose and the
+binary (`./tracereports` or `go run ./cmd`, from the folder you run it in) read it. Variables
+already set in the system take precedence over the file. `TRACEREPORTS_ENV_FILE` changes the file path.
+
+When the Settings screen is read-only, it shows a complete `.env` example (with test data) and the
+steps to apply it.
+
+## Reference
+
+| Variable | Default | What it does |
+|---|---|---|
+| `PORT` | `8080` | HTTP port |
+| `DATA_DIR` | `./data` | SQLite database and screenshots |
+| `TRACEREPORTS_TOKEN` | — | Token required to **write** to the API (the test clients) |
+| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
+| `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
+| `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: with a token and no login, the same machine (no proxy) may change Settings and use the UI actions |
+| `AI_PROVIDER` | inferred from the key | `gemini`, `anthropic`, `openai`, `openai_compatible` or `ollama` |
+| `AI_MODEL` | the provider's default | Model (see the provider table) |
+| `AI_API_KEY` | — | The provider's API key (Ollama does not use one) |
+| `AI_BASE_URL` | the provider's API | API URL: proxy, your own endpoint, a compatible service or a remote Ollama |
+| `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternative to the `AI_*` variables: with just one of these the provider is picked automatically |
+| `TRACEREPORTS_ENV_FILE` | `.env` | `KEY=value` file the server reads on startup |
+| `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: the Settings screen becomes read-only; AI is configured only from the environment |
+| `TEAMS_WEBHOOK_URL` | — | Sends each run's summary to Microsoft Teams |
+| `SLACK_WEBHOOK_URL` | — | Sends each run's summary to Slack |
+| `PUBLIC_URL` | — | Public URL of the server, for the *View report* button in notifications |
+| `NOTIFY_ON` | `always` | `always`, or `failures` to notify only when something failed |
+| `NETWORK_MAX_BODY_KB` | `256` | Maximum stored size of each network *response body*; `0` = store no bodies |
+| `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |
+| `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
+| `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
+| `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
+| `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. `0` = no limit |
+
+## Security
+
+With no configuration the server is **open**: anyone who reaches the port can read and write
+reports. That is fine on your machine, not on a shared server.
+
+```bash
+TRACEREPORTS_TOKEN=a-long-random-token      # generate it with: python -c "import secrets; print(secrets.token_hex(24))"
+TRACEREPORTS_UI_USER=qa
+TRACEREPORTS_UI_PASSWORD=a-strong-password
+```
+
+- **`TRACEREPORTS_TOKEN`**: writes (`POST`/`PATCH`) require `Authorization: Bearer <token>` or the
+  `X-TraceReports-Token` header. The clients read it from the `TRACEREPORTS_TOKEN` variable or, when it
+  is not set, from the project's `.env` (see below). The token also grants read access, for example
+  to download the ZIP from CI.
+- **Settings → Connect your tests** walks you through the token: it generates it in the browser,
+  gives you the `.env` line, the commands for PowerShell, macOS/Linux, GitHub Actions and GitLab CI
+  with your URL, and checks that the server accepts it.
+- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: the browser asks for a user and password to see
+  the UI and the read API.
+- **Settings from the UI** (AI provider, default language): can be changed with the UI login or
+  the token. Without login nor token (local mode), also from the machine where the server runs,
+  connected directly: the real connection is checked and a request that comes through a proxy
+  (`X-Forwarded-For`, `X-Real-IP`, `Forwarded`) never counts as local. With `TRACEREPORTS_TOKEN` the
+  server counts as deployed and the same machine needs the login too, unless you set
+  `TRACEREPORTS_LOCAL_ADMIN=1`. `TRACEREPORTS_SETTINGS_LOCKED=1` locks them completely.
+  **With Docker** the login is needed even if you open `localhost`: the connection comes from
+  Docker's network, not from the same machine.
+- **Allowed Host (DNS rebinding)**: without a UI login, the server only serves requests without
+  credentials that arrive with a local `Host` (`localhost`, `127.0.0.1`, `::1`), the one of
+  `PUBLIC_URL` or one in `TRACEREPORTS_ALLOWED_HOSTS`. That way a malicious page open in your
+  browser cannot read your reports by pointing its domain at your machine. Requests with a valid
+  token, and all of them when there is a UI login, do not depend on the `Host`. If you serve without
+  login under another name (a LAN IP, a proxy with a domain, a CI service alias), add it:
+  `TRACEREPORTS_ALLOWED_HOSTS=reports.lan,192.168.1.10`. The `403 host … is not allowed` response
+  says what is missing.
+- Put the server behind HTTPS (a reverse proxy such as Caddy, nginx or Traefik). HTTP Basic
+  without TLS travels in plain text.
+
+### The project's `.env` in the clients
+
+The Python, JavaScript and Java clients read `TRACEREPORTS_*` from the project's
+`.env` file when the variable is not in the environment, with the same rules as the server. That
+way the token lives in one place, ignored by git, and your tests use it without setting it in every
+terminal or globally on the system.
+
+- It is looked up from the folder you run the tests from upwards, never past the repository root
+  (the folder with `.git`).
+- The environment variable always wins: in CI, pass the token as a *secret* and do not commit the
+  `.env`.
+- Only `TRACEREPORTS_*` keys are used from the file: your AI keys stay there.
+- `TRACEREPORTS_ENV_FILE=path/to/file` uses another file; `TRACEREPORTS_ENV_FILE=off` reads none.
+
+Network captures are masked on the client before being sent: `Authorization`, `Cookie` and
+`Set-Cookie` headers, tokens, passwords and national IDs (RUT). Even so, **do not report real
+personal data** from production environments.
+
+## AI diagnosis
+
+Works with any of these providers:
+
+| Provider | `AI_PROVIDER` | Default model | Notes |
+|---|---|---|---|
+| Google Gemini | `gemini` | `gemini-flash-lite-latest` | Free tier. Key at <https://aistudio.google.com/apikey> |
+| Anthropic Claude | `anthropic` | `claude-opus-5-5` | Most accurate diagnoses, pay as you go. Key at <https://platform.claude.com/settings/keys> |
+| OpenAI | `openai` | `gpt-5-mini` | Pay as you go |
+| OpenAI-compatible | `openai_compatible` | — (required) | Groq, OpenRouter, DeepSeek, Mistral, LM Studio, vLLM… Needs `AI_BASE_URL` ending in `/v1` |
+| Ollama | `ollama` | `llama3.1` | Local: test data **never leaves your network**. No key |
+
+```bash
+# Gemini (simplest: the key is enough)
+GEMINI_API_KEY=...
+
+# Claude
+AI_PROVIDER=anthropic
+AI_API_KEY=sk-ant-...
+# AI_MODEL=claude-sonnet-5-5         # cheaper
+
+# Ollama on your machine (first: ollama pull llama3.1)
+AI_PROVIDER=ollama
+# AI_BASE_URL=http://host.docker.internal:11434   # if TraceReports runs in Docker
+
+# Groq, OpenRouter, LM Studio…
+AI_PROVIDER=openai_compatible
+AI_BASE_URL=https://api.groq.com/openai/v1
+AI_MODEL=llama-3.3-70b-versatile
+AI_API_KEY=...
+```
+
+With Claude, TraceReports enables Anthropic's server-side *fallback*: if the model declines to
+analyze a failure for policy reasons, a fallback model answers within the same call.
+
+### In the `.env` or on the Settings screen?
+
+Both work, and they can be combined:
+
+- **`.env`**: the base configuration. The best option for servers, Docker and CI: it is
+  versioned, reviewed in your infrastructure repository and does not depend on anyone opening the
+  UI.
+- **Settings → Artificial intelligence**: switch provider without restarting the server, with
+  *Test connection* before saving. What you save there **overrides the `.env`**; *Go back to the
+  .env configuration* undoes it. The API key is stored in the server database (`DATA_DIR`) and is
+  never sent to the browser (the UI only shows its last 4 characters).
+
+In production: configure with the `.env` and set `TRACEREPORTS_SETTINGS_LOCKED=1` so nobody can change
+it from the UI. To try providers on your machine, the screen is faster.
+
+The **diagnosis language** (automatic, Spanish or English) is also chosen in Settings.
+
+What it does:
+
+- **Per test** (when it ends in `FAIL`): category (`LOCATOR_CHANGED`, `BACKEND_TIMEOUT`,
+  `LOGIC_BUG`, `INFRA_ERROR`), summary and suggestion. It uses the error message, the stack trace,
+  the last step and the **backend calls that failed**.
+- **Per run** (when it is closed): groups the failures into incidents by likely cause and writes a
+  headline and a summary for the team.
+
+Without an AI provider there is no AI text, but failures **are still grouped** by cause: the
+backend call that failed, the category or the error message.
+
+The analysis runs in the background and shows up in the UI as soon as it finishes. Requests are
+processed a few at a time and retried automatically when a rate limit is hit.
+
+## Interface language
+
+Spanish or English, under **Settings → Appearance**. Each browser remembers its own; whoever can
+edit the settings can set the team's default language. With no choice, the browser's language is
+used.
+
+## Teams and Slack notifications
+
+When each run is closed (`PATCH /runs/{id}/finish`), the server sends:
+
+- status and statistics;
+- the diagnosis headline and the main causes with their suggested action;
+- the comparison with the previous run (new failures, fixed, flaky);
+- a **View report** button if `PUBLIC_URL` is set.
+
+**Microsoft Teams** (Workflows webhook):
+1. In the channel: **⋯ → Workflows → "Post to a channel when a webhook request is received"**.
+2. Pick the team and channel, and copy the generated URL.
+3. Set it in `TEAMS_WEBHOOK_URL`.
+
+**Slack**:
+1. Create an app at <https://api.slack.com/apps> → **Incoming Webhooks** → turn them on.
+2. **Add New Webhook to Workspace**, pick the channel and copy the URL.
+3. Set it in `SLACK_WEBHOOK_URL`.
+
+## History, flaky and comparison
+
+No configuration needed. They are computed from the data that already exists:
+
+- **Identity**: a test is identified by its **key** (the `nodeid` in pytest, `package/Test` in
+  Go), not by its visible name. A test reported without a key (REST API without the field, data
+  from before this version) is identified by its name and the UI marks its history *approximate*.
+- **Context**: only runs of the same **project, environment and branch** are compared. Staging
+  never mixes with production, nor a feature branch with main.
+- **History**: the last execution of that identity in each run of the context.
+- **Stability** (last 20 runs of the context; `WARNING` counts as not failed and `SKIP` is ignored):
+  - **flaky**: flips between passing and failing at least twice in the last 10, or passed only
+    after a retry. With fewer than 5 runs it is shown as *possibly* flaky (little data);
+  - **persistent failure**: fails its last 3 or more runs in a row. A regression, not flakiness;
+  - the percentage shown is the **failure rate**, with its sample (*failed 7 of 20*).
+- **Comparison**: against the previous run of the same context that shares tests. When the branch
+  has none, against the latest of the same project and environment on another branch (the UI says
+  so). You can pick another base in the dashboard.
+
+## Failure grouping (incidents)
+
+Each failure goes to an incident by evidence, never by the AI category alone:
+
+1. **The backend call that explains it**: the one that failed right before the failure (up to 2
+   minutes before). A server-side error wins (no response, 5xx, 408, 429); a 4xx only counts when
+   the application did not keep working with that host afterwards. **Expected** responses never
+   count. The signature includes method, **host**, normalized path and outcome.
+2. Otherwise, the **error signature**: exception type, message without numbers or ids and the
+   innermost frame of the project's code.
+
+Every failure stays in some incident. The AI describes at most the 8 largest (the rest are shown
+with their evidence) and its cause is presented as a **hypothesis**, next to the evidence it relies
+on; when the evidence is not enough, it says so instead of making a cause up.
+
+## Sensitive data and retention
+
+The server masks before storing: credential headers (`Authorization`, `Cookie`, `Set-Cookie`,
+`X-API-Key`…), sensitive keys in JSON, query strings and forms (`password`, `token`, `secret`,
+`api_key`, `session`… and keys ending like that), `Bearer` tokens, JWTs and credentials inside URLs.
+It applies to the network, steps, errors, descriptions, the DOM snapshot and to names and
+identities (test name, key, suite and category; run name, project, environment and branch),
+whatever client sent them. A key carrying a secret is stored masked plus a hash keyed per
+installation, so two tests that only differ in the secret do not merge their history. Since what is stored is already masked, it never reaches the AI, the ZIP or Teams/Slack (and
+prompts and the ZIP go through the same filter too).
+
+Limits: it recognizes secrets by their key or by unambiguous shapes. Sensitive data written as free
+text without a key, or visible in a **screenshot**, is not detected: use `TRACEREPORTS_REDACT_PATTERNS`,
+`--tracereports-no-screenshots`, `--tracereports-no-dom` or `NETWORK_MAX_BODY_KB=0` as needed, and
+`TRACEREPORTS_RETENTION_DAYS` so evidence does not pile up.
+
+## AI diagnosis after a restart
+
+Diagnoses left halfway (*pending*) are resumed when the server starts. The same test is never
+analyzed twice at the same time nor paid again if it already has a diagnosis (except with
+*Re-analyze*). When the run summary was written while diagnoses were still pending, it says so and
+is rewritten when they finish.

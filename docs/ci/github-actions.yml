@@ -1,0 +1,44 @@
+# Ejemplo: suite de pytest + Playwright reportada a un servidor TraceReports desde GitHub Actions.
+# Cópialo a .github/workflows/e2e.yml en el repositorio de tus tests y define los secrets
+# TRACEREPORTS_URL (p. ej. https://tracereports.miempresa.com) y TRACEREPORTS_TOKEN (el TRACEREPORTS_TOKEN del servidor).
+name: E2E
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "0 6 * * 1-5"   # regresión diaria, lunes a viernes
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Dependencias
+        run: |
+          pip install pytest pytest-playwright
+          pip install "tracereports @ git+https://github.com/josemiguellopez/tracereports#subdirectory=client/python"
+          playwright install --with-deps chromium
+
+      - name: Tests E2E (reportados a TraceReports)
+        env:
+          TRACEREPORTS_URL: ${{ secrets.TRACEREPORTS_URL }}
+          TRACEREPORTS_TOKEN: ${{ secrets.TRACEREPORTS_TOKEN }}
+        run: >
+          pytest tests/e2e --tracereports
+          --tracereports-run "E2E ${{ github.ref_name }}"
+          --tracereports-env "github-actions · ${{ github.sha }}"
+          --tracereports-zip reporte
+
+      # El ZIP se abre sin servidor (index.html): útil para adjuntar o archivar.
+      - name: Reporte como artefacto
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: tracereports
+          path: reporte/*.zip
