@@ -1,6 +1,7 @@
 <a href="https://github.com/josemiguellopez/tracereports"><img src="./.github/assets/banner.svg" alt="TraceReports: from failure to root cause. Steps, screenshots, network and AI diagnosis for your tests." width="100%" /></a>
 
 <p align="center">
+  <a href="https://tracereports.netlify.app/demo/"><img alt="Live demo" src="https://img.shields.io/badge/live%20demo-try%20it%20now-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&color=c9fa6b" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/josemiguellopez/tracereports/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI" /></a>
   <a href="./LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
@@ -38,6 +39,8 @@ docker compose up -d                       # server + UI on http://localhost:808
 pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # that's it, no code changes
 ```
+
+👉 **[Try the live demo](https://tracereports.netlify.app/demo/)**: a real report you can click around, no install needed.
 
 Not using pytest? TraceReports works the same with **Playwright Test**, **Selenium**, **JUnit 5**, **Go** or any
 language over the **REST API**: [pick your language](#2-run-an-example-in-your-language).
