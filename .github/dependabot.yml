@@ -1,0 +1,35 @@
+# PRs semanales contra dev, agrupados por ecosistema para no llenar el repo de PRs
+version: 2
+updates:
+  - package-ecosystem: gomod
+    directories: ["/", "/client/go", "/examples/playwright-go"]
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      go: { patterns: ["*"] }
+
+  - package-ecosystem: npm
+    directories: ["/examples/playwright-js", "/examples/selenium-js"]
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      npm: { patterns: ["*"] }
+
+  - package-ecosystem: gradle
+    directories: ["/client/java", "/examples/playwright-java", "/examples/selenium-java"]
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      gradle: { patterns: ["*"] }
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      actions: { patterns: ["*"] }
+
+  - package-ecosystem: docker
+    directory: "/"
+    schedule: { interval: weekly }
+    target-branch: dev
