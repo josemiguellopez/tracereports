@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img src="./.github/assets/works-with.svg" alt="Funciona con pytest, Playwright, Selenium, JUnit 5, Go y cualquier lenguaje vía API REST" width="100%" />
+  <img src="./.github/assets/works-with.es.svg" alt="Funciona con pytest, Playwright, Selenium, JUnit 5, Go y cualquier lenguaje vía API REST" width="100%" />
   <br /><br />
   🌐 <a href="README.md">English</a> · <b>Español</b>
 </p>
