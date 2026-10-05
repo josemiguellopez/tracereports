@@ -193,7 +193,8 @@ Y si quieres invitarme un café mientras sigo construyéndolo:
 
 ## Licencia
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](LICENSE). El gopher de Go en pixel art del banner está adaptado del gopher original de
+Renée French, con licencia [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 <p align="center">
   <a href="https://star-history.com/#josemiguellopez/tracereports&Date">

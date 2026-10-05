@@ -189,7 +189,8 @@ And if you want to buy me a coffee while I keep building it:
 
 ## License
 
-[Apache-2.0](LICENSE).
+[Apache-2.0](LICENSE). The pixel art Go gopher in the banner is adapted from the original Go gopher by
+Renée French, licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
 
 <p align="center">
   <a href="https://star-history.com/#josemiguellopez/tracereports&Date">
