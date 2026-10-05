@@ -332,7 +332,8 @@ func (s *Store) Metrics(q MetricsQuery) (*Metrics, error) {
 		if days <= 0 {
 			days = 30
 		}
-		to, end = now.UnixMilli(), now
+		// +1: el límite es exclusivo y debe incluir lo creado en este mismo milisegundo
+		to, end = now.UnixMilli()+1, now
 		from = now.AddDate(0, 0, -days).UnixMilli()
 	}
 	prevFrom := from - (to - from)
