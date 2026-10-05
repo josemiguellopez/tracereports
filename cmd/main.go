@@ -1,0 +1,184 @@
+// Command tracereports runs the TraceReports server.
+//
+// Environment variables:
+//
+//	PORT            HTTP port (default 8080)
+//	DATA_DIR        data directory for SQLite + screenshots (default ./data)
+//	AI_PROVIDER     gemini | anthropic | openai | openai_compatible | ollama (optional; inferred
+//	                from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST)
+//	AI_MODEL / AI_API_KEY / AI_BASE_URL  model, key and API URL (each provider has defaults)
+//	GEMINI_API_KEY / GEMINI_MODEL / GEMINI_BASE_URL  still supported
+//	TRACEREPORTS_SETTINGS_LOCKED  1 = the Settings screen is read-only (config only from the env)
+//	TRACEREPORTS_ENV_FILE  file with KEY=VALUE lines read at startup (default .env; real env vars win)
+//	TRACEREPORTS_TOKEN   token required to write to the API (optional, recommended)
+//	TRACEREPORTS_UI_USER / TRACEREPORTS_UI_PASSWORD  HTTP Basic login for the UI (optional)
+//	TRACEREPORTS_ALLOWED_HOSTS  hosts served without login besides localhost (comma separated; * = any)
+//	TRACEREPORTS_LOCAL_ADMIN  1 = with a token and no UI login, the same machine (no proxy) may change settings
+//	TEAMS_WEBHOOK_URL / SLACK_WEBHOOK_URL  run summary notifications (optional)
+//	PUBLIC_URL      public base URL, used for links in notifications
+//	NOTIFY_ON       always (default) | failures
+//	NETWORK_MAX_BODY_KB  max stored size of each captured response body (default 256; 0 = no bodies)
+//	TRACEREPORTS_REDACT  off = store secrets as received (default: masked before storing)
+//	TRACEREPORTS_REDACT_HEADERS / TRACEREPORTS_REDACT_KEYS / TRACEREPORTS_REDACT_PATTERNS  extra masking rules
+//	TRACEREPORTS_RETENTION_DAYS  delete runs (and screenshots) older than N days (default: keep all)
+//	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit)
+package main
+
+import (
+	"context"
+	"errors"
+	"io/fs"
+	"log/slog"
+	"net/http"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/josemiguellopez/tracereports"
+	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/api"
+	"github.com/josemiguellopez/tracereports/internal/db"
+	"github.com/josemiguellopez/tracereports/internal/env"
+	"github.com/josemiguellopez/tracereports/internal/live"
+	"github.com/josemiguellopez/tracereports/internal/notify"
+	"github.com/josemiguellopez/tracereports/internal/redact"
+)
+
+func main() {
+	if err := run(); err != nil {
+		slog.Error("fatal", "err", err)
+		os.Exit(1)
+	}
+}
+
+func run() error {
+	// el binario lee el mismo .env que usa Docker Compose (las variables ya definidas mandan)
+	envFile := env.Get("ENV_FILE")
+	if envFile == "" {
+		envFile = ".env"
+	}
+	if n, err := loadDotEnv(envFile); err != nil {
+		return err
+	} else if n > 0 {
+		slog.Info("configuration loaded from file", "file", envFile, "variables", n)
+	}
+	port := envOr("PORT", "8080")
+	dataDir := envOr("DATA_DIR", "./data")
+	// en la imagen el volumen es /data: otra ruta (p. ej. el ./data de un .env pensado para go run)
+	// guarda la base dentro del contenedor y se pierde al recrearlo
+	if env.Get("RUNTIME") == "docker" && filepath.Clean(dataDir) != "/data" {
+		slog.Warn("DATA_DIR is not the /data volume: the data will be lost when the container is recreated (remove DATA_DIR from the .env)", "data_dir", dataDir)
+	}
+	shotsDir := filepath.Join(dataDir, "screenshots")
+	if err := os.MkdirAll(shotsDir, 0o755); err != nil {
+		return err
+	}
+
+	store, err := db.Open(filepath.Join(dataDir, "tracereports.db"))
+	if err != nil {
+		return err
+	}
+	defer store.Close()
+
+	webRoot, err := fs.Sub(tracereports.WebFS, "web")
+	if err != nil {
+		return err
+	}
+
+	notifier := notify.New(store)
+	if notifier.Enabled() {
+		slog.Info("run notifications enabled (Teams/Slack)")
+	}
+	auth := api.Auth{
+		Token:  env.Get("TOKEN"),
+		UIUser: env.Get("UI_USER"),
+		UIPass: env.Get("UI_PASSWORD"),
+		// con token = despliegue: el mismo equipo también necesita credenciales, salvo que se diga
+		LocalAdmin: env.Bool("LOCAL_ADMIN"),
+	}
+	if auth.Token == "" {
+		slog.Warn("TRACEREPORTS_TOKEN not set: anyone who reaches this port can write to the API")
+	}
+	if auth.UIUser == "" || auth.UIPass == "" {
+		slog.Warn("TRACEREPORTS_UI_USER/TRACEREPORTS_UI_PASSWORD not set: the reports are readable without login")
+	}
+
+	hub := live.NewHub()
+	redaction := redact.FromEnv()
+	if !redaction.Enabled() {
+		slog.Warn("TRACEREPORTS_REDACT=off: secrets in the evidence are stored as received")
+	}
+	analyzer := ai.New(store)
+	analyzer.Redact = redaction
+	// los análisis de IA terminan en segundo plano: la UI se entera en vivo por SSE
+	analyzer.OnChange = func(kind string, runID, testID int64) {
+		hub.Publish(live.Event{Type: kind, RunID: runID, TestID: testID})
+	}
+	apiServer := &api.Server{
+		Store:          store,
+		AI:             analyzer,
+		Notify:         notifier,
+		Live:           hub,
+		Auth:           auth,
+		ScreenshotsDir: shotsDir,
+		Web:            webRoot,
+		SettingsLocked: env.Bool("SETTINGS_LOCKED"),
+		Redact:         redaction,
+		// sin login, solo se atiende a Host locales o permitidos (protección contra DNS rebinding)
+		Hosts: api.NewHostPolicy(env.Get("ALLOWED_HOSTS"), os.Getenv("PUBLIC_URL")),
+	}
+	if auth.UIUser == "" || auth.UIPass == "" {
+		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())
+	}
+	// lo guardado desde la pantalla de Ajustes manda sobre el .env
+	if err := apiServer.LoadSettings(); err != nil {
+		return err
+	}
+	if analyzer.Enabled() {
+		slog.Info("AI triage enabled", "provider", analyzer.Provider(), "model", analyzer.Model())
+	} else {
+		slog.Info("AI triage disabled: set AI_PROVIDER/AI_API_KEY (or GEMINI_API_KEY) or configure it in Settings")
+	}
+	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado
+	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
+
+	srv := &http.Server{
+		Addr:              ":" + port,
+		Handler:           apiServer.Router(),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	startRetention(ctx, store, shotsDir)
+
+	errCh := make(chan error, 1)
+	go func() {
+		slog.Info("TraceReports listening", "url", "http://localhost:"+port)
+		errCh <- srv.ListenAndServe()
+	}()
+
+	select {
+	case err := <-errCh:
+		if !errors.Is(err, http.ErrServerClosed) {
+			return err
+		}
+	case <-ctx.Done():
+		slog.Info("shutting down")
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
+	analyzer.Wait(shutdownCtx)
+	return nil
+}
+
+func envOr(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
+}
