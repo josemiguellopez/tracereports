@@ -1,0 +1,25 @@
+# docker compose up -d   →   http://localhost:8080
+# La configuración se lee de un archivo .env junto a este (ver .env.example).
+services:
+  tracereports:
+    build: .
+    image: tracereports:latest
+    ports:
+      # solo accesible desde este equipo (o desde un proxy HTTPS en el mismo servidor), por IPv4 e
+      # IPv6: sin [::1], en Windows cada conexión a "localhost" espera ~2 s antes de caer a IPv4.
+      # Para abrirlo a la red sin proxy usa "8080:8080", siempre con token y login en el .env.
+      - "127.0.0.1:8080:8080"
+      - "[::1]:8080:8080"
+    volumes:
+      - tracereports-data:/data     # base de datos SQLite + capturas
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # siempre en el volumen, aunque el .env traiga el DATA_DIR de go run (environment manda sobre env_file)
+      DATA_DIR: /data
+    restart: unless-stopped
+
+volumes:
+  tracereports-data:
+    name: tracereports-data         # nombre fijo, sin prefijo de carpeta (el mismo que con docker run)
