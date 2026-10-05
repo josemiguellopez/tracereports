@@ -66,7 +66,7 @@ Open <http://localhost:8080>.
 **2. Report your tests.** With pytest there are no code changes:
 
 ```bash
-pip install pytest pytest-playwright ./client/python
+pip install pytest pytest-playwright tracereports
 pytest --tracereports
 ```
 

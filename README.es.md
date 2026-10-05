@@ -6,6 +6,8 @@
   <a href="./LICENSE"><img alt="Licencia: Apache-2.0" src="https://img.shields.io/badge/licencia-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <img alt="Un solo binario de Go" src="https://img.shields.io/badge/un%20solo-binario%20go-fc9672.svg?style=for-the-badge&logo=go&logoColor=white&labelColor=000000" />
   <img alt="Autohospedado, sin telemetría" src="https://img.shields.io/badge/autohospedado-sin%20telemetr%C3%ADa-eeeee2.svg?style=for-the-badge&labelColor=000000" />
+  <a href="https://pypi.org/project/tracereports/"><img alt="PyPI" src="https://img.shields.io/pypi/v/tracereports?style=for-the-badge&labelColor=000000&color=3776ab&label=pypi" /></a>
+  <a href="https://www.npmjs.com/package/tracereports"><img alt="npm" src="https://img.shields.io/npm/v/tracereports?style=for-the-badge&labelColor=000000&color=cb3837&label=npm" /></a>
   <img alt="Estado: pre-1.0" src="https://img.shields.io/badge/estado-pre--1.0-e7c35a.svg?style=for-the-badge&labelColor=000000" />
 </p>
 
@@ -34,7 +36,7 @@ puñado de incidentes.
 ```bash
 git clone https://github.com/josemiguellopez/tracereports.git && cd tracereports
 docker compose up -d                       # servidor + UI en http://localhost:8080
-pip install pytest pytest-playwright ./client/python
+pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # listo, sin cambiar tu código
 ```
 
@@ -297,13 +299,13 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 
 ### 4. Úsalo en tu propio proyecto
 
-| Cliente | Qué hace | Guía |
-| --- | --- | --- |
-| [`client/python`](client/python) | Plugin de pytest: `pytest --tracereports`. Envío en segundo plano con reintentos y soporte para pytest-xdist. | [Python](docs/es/python.md) |
-| [`client/js`](client/js) | Reporter y fixtures para Playwright Test, más helpers para Selenium WebDriver. JavaScript y TypeScript. | [JavaScript](docs/es/javascript.md) |
-| [`client/java`](client/java) | Extensión de JUnit 5 para Selenium y Playwright para Java. | [Java](docs/es/java.md) |
-| [`client/go`](client/go) | Cliente de Go, con un ejemplo de playwright-go. | [Go](docs/es/go.md) |
-| API REST | Cualquier otro lenguaje o framework. | [API](docs/es/api.md) |
+| Cliente | Instalación | Qué hace | Guía |
+| --- | --- | --- | --- |
+| 🐍 Python | `pip install tracereports` | Plugin de pytest: `pytest --tracereports`. Envío en segundo plano con reintentos y soporte para pytest-xdist. | [Python](docs/es/python.md) |
+| 🟨 JavaScript / TypeScript | `npm install -D tracereports` | Reporter y fixtures para Playwright Test, más helpers para Selenium WebDriver. | [JavaScript](docs/es/javascript.md) |
+| ☕ Java | desde [`client/java`](client/java) (pronto en Maven Central) | Extensión de JUnit 5 para Selenium y Playwright para Java. | [Java](docs/es/java.md) |
+| 🐹 Go | `go get github.com/josemiguellopez/tracereports/client/go` | Cliente de Go, con un ejemplo de playwright-go. | [Go](docs/es/go.md) |
+| 🔌 API REST | nada que instalar | Cualquier otro lenguaje o framework. | [API](docs/es/api.md) |
 
 ### 5. Opcional: IA y token
 

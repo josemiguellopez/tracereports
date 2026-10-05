@@ -3,8 +3,10 @@
 🌐 [English](../en/python.md) · **Español**
 
 ```bash
-pip install ./client/python                    # desde la raíz del repositorio
-# o, desde otro proyecto:
+pip install tracereports                       # desde PyPI
+# o, desde una copia de este repositorio:
+pip install ./client/python
+# o, la versión en desarrollo:
 pip install "tracereports @ git+https://github.com/josemiguellopez/tracereports#subdirectory=client/python"
 ```
 

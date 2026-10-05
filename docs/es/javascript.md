@@ -7,7 +7,8 @@ dependencias, ESM con tipos). Sirve para **Playwright Test** (reporter + fixture
 WebDriver** y cualquier runner (node:test, Mocha, Jest…).
 
 ```bash
-npm install --save-dev ../ruta/a/tracereports/client/js     # desde el repositorio
+npm install --save-dev tracereports                         # desde npm
+npm install --save-dev ../ruta/a/tracereports/client/js     # o desde una copia de este repositorio
 ```
 
 Como los otros clientes, nunca rompe ni frena tu suite: la evidencia sale en segundo plano desde una

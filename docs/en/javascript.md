@@ -7,7 +7,8 @@ dependencies, ESM with types). It works with **Playwright Test** (reporter + fix
 WebDriver** and any runner (node:test, Mocha, Jest…).
 
 ```bash
-npm install --save-dev ../path/to/tracereports/client/js     # from the repository
+npm install --save-dev tracereports                          # from npm
+npm install --save-dev ../path/to/tracereports/client/js     # or from a checkout of this repository
 ```
 
 Like the other clients, it never breaks or slows down your suite: the evidence is sent in the

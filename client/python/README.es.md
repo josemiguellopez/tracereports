@@ -2,11 +2,11 @@
 
 🌐 [English](README.md) · **Español**
 
-Cliente del servidor [TraceReports](../../README.es.md). Solo usa la librería estándar.
+Cliente del servidor [TraceReports](https://github.com/josemiguellopez/tracereports). Solo usa la librería estándar.
 
 ```bash
-pip install ./client/python          # desde la raíz del repositorio
+pip install tracereports
 pytest --tracereports                     # reporta tu suite de pytest sin cambiar código
 ```
 
-Documentación completa: [docs/es/python.md](../../docs/es/python.md).
+Documentación completa: [docs/es/python.md](https://github.com/josemiguellopez/tracereports/blob/main/docs/es/python.md).
