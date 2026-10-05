@@ -1,0 +1,12 @@
+{
+  "name": "tracereports-example-selenium-js",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"tests/*.test.js\""
+  },
+  "devDependencies": {
+    "tracereports": "file:../../client/js",
+    "selenium-webdriver": "^4.35.0"
+  }
+}

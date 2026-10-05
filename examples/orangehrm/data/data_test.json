@@ -1,0 +1,25 @@
+{
+  "BASE_URL": "https://opensource-demo.orangehrmlive.com/web/index.php/auth/login",
+  "USER": "Admin",
+  "PASSWORD": "admin123",
+  "PASSWORD_INVALIDA": "clave_incorrecta_qa",
+  "MENSAJE_CREDENCIALES_INVALIDAS": "Invalid credentials",
+  "WIDGETS_ESPERADOS": [
+    "Time at Work",
+    "My Actions",
+    "Quick Launch"
+  ],
+  "COLUMNAS_TABLA_EMPLEADOS": [
+    "Id",
+    "First (& Middle) Name",
+    "Last Name",
+    "Job Title",
+    "Employment Status"
+  ],
+  "MAX_FILAS_SCRAPING": 15,
+  "BASE_HOST": "https://opensource-demo.orangehrmlive.com",
+  "API_SIN_SESION": "/web/index.php/api/v2/pim/employees",
+  "MENSAJE_SESION_EXPIRADA": "Session expired",
+  "PAGINA_PROTEGIDA": "/web/index.php/pim/viewEmployeeList",
+  "RUTA_INEXISTENTE": "/web/index.php/auth/noexiste"
+}
