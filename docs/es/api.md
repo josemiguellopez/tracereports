@@ -95,6 +95,13 @@ propone selectores de reemplazo y la IA elige el más probable. Los clientes ya 
 }
 ```
 
+### Hora real de un evento
+
+Toda escritura acepta el header opcional `X-TraceReports-Timestamp: <epoch en ms>`: la hora en que el
+evento ocurrió de verdad. Lo usan `tracereports report` y `tracereports push` al reproducir una
+[grabación sin servidor](offline.md), para que el reporte conserve las horas originales (inicio y fin
+de la ejecución y de cada test, pasos y capturas). Sin el header, cuenta la hora de llegada.
+
 ### Importar un reporte JUnit XML
 
 `POST /import/junit` crea una ejecución ya terminada a partir de uno o más reportes JUnit XML, el

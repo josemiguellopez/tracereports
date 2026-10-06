@@ -30,6 +30,7 @@ internal/locator     selector suggestions when a locator breaks
 internal/live        live events (Server-Sent Events)
 internal/notify      Teams and Slack notifications
 internal/junit       JUnit XML parser for POST /import/junit
+internal/offline     replays recordings made without a server (tracereports report / push)
 internal/redact      masking of secrets before anything is stored
 web/                 UI: HTML/CSS/JS with no build step, embedded in the binary
 test/web             unit tests of the UI logic (node:test, no dependencies)

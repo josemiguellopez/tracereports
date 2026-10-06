@@ -627,6 +627,33 @@ func (s *Store) SetRunTimes(runID, startedAt, endedAt int64) error {
 	return err
 }
 
+// SetTestStarted sets when a test started (Unix ms): the real time of an event replayed later
+// (X-TraceReports-Timestamp). SetTestEnded, SetRunStarted and SetRunEnded are the same.
+func (s *Store) SetTestStarted(testID, ms int64) error {
+	return s.setTime("tests", "started_at", testID, ms)
+}
+
+// SetTestEnded: see SetTestStarted.
+func (s *Store) SetTestEnded(testID, ms int64) error {
+	return s.setTime("tests", "ended_at", testID, ms)
+}
+
+// SetRunStarted: see SetTestStarted.
+func (s *Store) SetRunStarted(runID, ms int64) error {
+	return s.setTime("runs", "started_at", runID, ms)
+}
+
+// SetRunEnded: see SetTestStarted.
+func (s *Store) SetRunEnded(runID, ms int64) error {
+	return s.setTime("runs", "ended_at", runID, ms)
+}
+
+// setTime updates one time column; table and column are constants of this file, never input.
+func (s *Store) setTime(table, column string, id, ms int64) error {
+	_, err := s.db.Exec(`UPDATE `+table+` SET `+column+`=? WHERE id=?`, ms, id)
+	return err
+}
+
 // FinishTest closes a test. If status is empty it is derived from the logged steps. A result
 // that arrives after its run was closed (spool recovery) is accepted and the run aggregate is
 // recomputed in the same transaction: a closed run never stays PASS with a failed test.

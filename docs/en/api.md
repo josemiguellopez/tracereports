@@ -95,6 +95,13 @@ suggests replacement selectors and the AI picks the most likely one. The clients
 }
 ```
 
+### Real time of an event
+
+Every write accepts the optional header `X-TraceReports-Timestamp: <epoch ms>`: when the event really
+happened. `tracereports report` and `tracereports push` use it when replaying a
+[recording made without a server](offline.md), so the report keeps the original times (start and end
+of the run and of each test, steps and screenshots). Without it, the arrival time counts.
+
 ### Importing a JUnit XML report
 
 `POST /import/junit` creates a finished run from one or more JUnit XML reports, the format almost

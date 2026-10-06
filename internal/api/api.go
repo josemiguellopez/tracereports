@@ -166,6 +166,9 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 	}
 	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: clean(in.Commit, 80), Framework: clean(in.Framework, 60)}
 	id, err := s.Store.CreateRunWithMeta(strings.TrimSpace(s.label(in.Name)), strings.TrimSpace(s.label(in.Environment)), meta)
+	if err == nil && eventTime(r) > 0 {
+		err = s.Store.SetRunStarted(id, eventTime(r))
+	}
 	if err != nil {
 		serverError(w, err)
 		return
@@ -200,6 +203,13 @@ func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
 	run, first, err := s.Store.CloseRun(id, in.Interrupted)
 	if respondErr(w, err, "run") {
 		return
+	}
+	if ts := eventTime(r); ts > 0 && first { // un cierre repetido conserva la hora del primero
+		if err := s.Store.SetRunEnded(id, ts); err != nil {
+			serverError(w, err)
+			return
+		}
+		run.EndedAt = &ts
 	}
 	s.runClosed(id, first)
 	writeJSON(w, http.StatusOK, run)
@@ -249,6 +259,12 @@ func (s *Server) createTest(w http.ResponseWriter, r *http.Request) {
 	if respondErr(w, err, "run") {
 		return
 	}
+	if ts := eventTime(r); ts > 0 {
+		if err := s.Store.SetTestStarted(id, ts); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
 	s.publish("test", runID, id, map[string]string{"action": "created"})
 	writeJSON(w, http.StatusCreated, map[string]any{"test_id": id})
 }
@@ -290,6 +306,9 @@ func (s *Server) addLog(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+	if ts == 0 {
+		ts = eventTime(r)
 	}
 	l, err := s.Store.AddLog(id, status, s.redactor().Text(in.Message), ts, "")
 	if respondErr(w, err, "test") {
@@ -346,7 +365,7 @@ func (s *Server) uploadScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	url := "/screenshots/" + name
-	l, err := s.Store.AddLog(id, status, s.redactor().Text(r.FormValue("message")), 0, url)
+	l, err := s.Store.AddLog(id, status, s.redactor().Text(r.FormValue("message")), eventTime(r), url)
 	if respondErr(w, err, "test") {
 		return
 	}
@@ -382,6 +401,13 @@ func (s *Server) finishTest(w http.ResponseWriter, r *http.Request) {
 	t, change, err := s.Store.FinishTestChange(id, status, s.redactor().Text(in.ErrorMessage), s.redactor().Text(in.ErrorTrace))
 	if respondErr(w, err, "test") {
 		return
+	}
+	if ts := eventTime(r); ts > 0 {
+		if err := s.Store.SetTestEnded(id, ts); err != nil {
+			serverError(w, err)
+			return
+		}
+		t.EndedAt = &ts
 	}
 	if change.Changed {
 		s.AI.Supersede(t.ID) // el análisis del resultado anterior ya no sirve
@@ -447,6 +473,17 @@ func (s *Server) testIdentity(key, name string) (string, error) {
 	mac := hmac.New(sha256.New, salt)
 	mac.Write([]byte(key))
 	return truncate(visible, 980) + " #" + hex.EncodeToString(mac.Sum(nil))[:16], nil
+}
+
+// eventTime is the X-TraceReports-Timestamp header (Unix ms): when the event really happened. A
+// recording made without a server (tracereports report / push) is replayed later, and this keeps
+// its times instead of the replay's. Absent or invalid → 0 (now).
+func eventTime(r *http.Request) int64 {
+	ms, err := strconv.ParseInt(strings.TrimSpace(r.Header.Get("X-TraceReports-Timestamp")), 10, 64)
+	if err != nil || ms <= 0 {
+		return 0
+	}
+	return ms
 }
 
 // parseTimestamp accepts Unix ms / seconds (number) or an RFC 3339 string. Empty → 0 (now).

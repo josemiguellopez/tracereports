@@ -27,6 +27,8 @@ package main
 import (
 	"context"
 	"errors"
+	"flag"
+	"fmt"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -47,6 +49,31 @@ import (
 )
 
 func main() {
+	// subcomandos sin servidor: tracereports report ... / tracereports push ...
+	if len(os.Args) > 1 {
+		var err error
+		switch os.Args[1] {
+		case "report":
+			err = runReport(os.Args[2:])
+		case "push":
+			err = runPush(os.Args[2:])
+		case "-h", "-help", "--help", "help":
+			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
+				"       tracereports report ...   build a static HTML report without a server\n" +
+				"       tracereports push ...     upload a recording made without a server")
+			return
+		default:
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push; no command starts the server)\n", os.Args[1])
+			os.Exit(2)
+		}
+		if err != nil {
+			if !errors.Is(err, flag.ErrHelp) {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+		}
+		return
+	}
 	if err := run(); err != nil {
 		slog.Error("fatal", "err", err)
 		os.Exit(1)
