@@ -83,7 +83,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows a single writer; one connection avoids SQLITE_BUSY under concurrent writes.
 	sqldb.SetMaxOpenConns(1)
-	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema); err != nil {
+	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
@@ -238,6 +238,11 @@ type Test struct {
 	Logs     []Log     `json:"logs,omitempty"`
 	// Quarantine of the test in its project (nil if never quarantined; see Active).
 	Quarantine *Quarantine `json:"quarantine,omitempty"`
+	// Owner (TRACEREPORTS_OWNERS rules), Verdict (classification of this failure) and
+	// PreviousVerdict (of the same test in an earlier run): filled by the API.
+	Owner           string   `json:"owner,omitempty"`
+	Verdict         *Verdict `json:"verdict,omitempty"`
+	PreviousVerdict *Verdict `json:"previous_verdict,omitempty"`
 }
 
 // TestMeta identifies a test beyond its visible name.

@@ -252,6 +252,36 @@ lasts:
 The PR comment tells quarantined failures apart too. Through the API: `POST /api/v1/ui/quarantine`,
 `DELETE /api/v1/ui/quarantine/{test_id}` and `GET /api/v1/quarantine?project=…` (see the [API](api.md)).
 
+## Test owners
+
+Like a CODEOWNERS file: each test gets an owner (team or person) from rules; it shows on the test
+and reaches **Escalate** and tickets as the *owner*. One rule per line, `<pattern> <owner>`, and
+**the last one that matches wins**:
+
+```text
+# TRACEREPORTS_OWNERS_FILE=/config/OWNERS
+*                          @qa-team
+tests/checkout/*           Payments team
+*::test_login*             @auth
+tag:smoke                  @qa-smoke
+suite:"Billing / *"        Billing
+```
+
+- A plain pattern is matched against the test identity (pytest nodeid, `file > title` in
+  Playwright, `package.Class#method` in JUnit…); `tag:` against each tag; `suite:` against the suite.
+- `*` is any text (including `/`); it is case-insensitive and must match the whole value. A
+  pattern with spaces goes in double quotes; the owner is the rest of the line.
+- `TRACEREPORTS_OWNERS_FILE` (a file) and/or `TRACEREPORTS_OWNERS` (inline rules separated by `;`).
+  A missing file or a malformed rule stops the server from starting: better than wrong owners.
+
+## Collaborative failure triage
+
+On a failed test, **Classify this failure** saves a verdict (*product bug*, *broken test*,
+*environment*, *test data*, *flaky* or *other*), a comment and who classified it (remembered in the
+browser). The next time that test fails in the same project, its detail shows *In run #N it was
+classified as…* with **Same verdict** to apply it in one click: nobody investigates the same
+failure twice. Through the API: `POST /api/v1/ui/tests/{id}/verdict` (see the [API](api.md)).
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:

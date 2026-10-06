@@ -186,7 +186,7 @@
 			? `<span class="ai-mini" data-tip="Causa probable según la IA: ${esc(AI_LABEL[t.triage.category] || t.triage.category)}">${icon("i-spark")}${esc(t.triage.category)}</span>` : "";
 		return `<li class="collection-item ${t.id === S.testId ? "active" : ""}" data-test="${t.id}">
 			<div class="test-head"><span class="test-name">${esc(t.name)}</span>${statusLabel(t.status)}</div>
-			<div class="meta"><span>${fmtTime(t.started_at)}</span><span>${fmtDuration(durationOf(t))}</span>${retryChip(t, true)}${flakyChip(t, true)}${driftChip(t, true)}${quarantineChip(t, true)}${ai}${netMini(t)}</div>
+			<div class="meta"><span>${fmtTime(t.started_at)}</span><span>${fmtDuration(durationOf(t))}</span>${retryChip(t, true)}${flakyChip(t, true)}${driftChip(t, true)}${quarantineChip(t, true)}${verdictChip(t)}${ai}${netMini(t)}</div>
 		</li>`;
 	}
 
@@ -220,7 +220,7 @@
 				<span class="label started" title="Comienzo del test">${fmtDateTime(t.started_at)}</span>
 				${t.ended_at ? `<span class="label ended" title="Fin del test">${fmtDateTime(t.ended_at)}</span>` : `<span class="label running">en curso</span>`}
 				<span class="label elapsed" title="Tiempo de ejecución">${fmtDuration(durationOf(t))}</span>
-				${retryChip(t, false)}${flakyChip(runTest(t), false)}${driftChip(runTest(t), false)}${quarantineChip(t, false)}
+				${retryChip(t, false)}${flakyChip(runTest(t), false)}${driftChip(runTest(t), false)}${quarantineChip(t, false)}${ownerChip(t)}
 				${t.worker ? `<span class="label" data-tip="Worker o shard que ejecutó el test (pytest-xdist)">${esc(t.worker)}</span>` : ""}
 				${quarantineButton(t)}
 			</div>
@@ -234,6 +234,7 @@
 			${t.error_message ? `<pre class="error-msg">${esc(t.error_message)}</pre>` : ""}
 			${t.error_trace ? `<details><summary>Ver stack trace</summary><pre>${esc(t.error_trace)}</pre></details>` : ""}
 			${t.network_errors ? `<div class="error-actions"><button class="cf-btn cf-btn-sm cf-btn-mock" data-mock-first data-tip="Crea un stub con la respuesta de la primera llamada que falló, para reproducir este fallo en local sin el backend real">${icon("i-bolt")}Generar mock del backend que falló</button></div>` : ""}
+			${verdictBlock(t)}
 		</div>` : "";
 
 		// La captura va dentro de "Detalle", debajo del texto del step.
@@ -593,6 +594,65 @@
 		const tr = window.TraceReportsI18n.t;
 		const label = t.status === "PASS" ? tr("Pasó tras reintento") : tr("{n} intentos", { n: t.attempts });
 		return `<span class="retry-chip ${compact ? "sm" : ""}" data-tip="${esc(tr("El runner lo ejecutó {n} veces. La evidencia de los intentos fallidos sigue en los pasos.", { n: t.attempts }))}">↻ ${compact && t.status === "PASS" ? tr("reintento") : label}</span>`;
+	}
+
+	const VERDICTS = [["product_bug", "Bug de producto"], ["test_bug", "Test roto"], ["environment", "Ambiente"],
+		["data", "Datos de prueba"], ["flaky", "Flaky"], ["other", "Otro"]];
+	const verdictName = (v) => tr(VERDICTS.find(([id]) => id === v)?.[1] || v);
+
+	function ownerChip(t) {
+		return t.owner ? `<span class="label owner-chip" data-tip="${tr("Dueño del test según las reglas de TRACEREPORTS_OWNERS")}">${tr("Dueño: {o}", { o: t.owner })}</span>` : "";
+	}
+
+	function verdictChip(t) {
+		return t.verdict ? `<span class="verdict-chip sm v-${esc(t.verdict.verdict)}">${esc(verdictName(t.verdict.verdict))}</span>` : "";
+	}
+
+	function readAuthor() {
+		try { return localStorage.getItem("tracereports-author") || ""; } catch { return ""; }
+	}
+
+	/** Clasificación colaborativa del fallo: el veredicto de esta ejecución o el de la anterior. */
+	function verdictBlock(t) {
+		const v = t.verdict, prev = t.previous_verdict;
+		const who = (x) => [x.author, fmtDateTime(x.created_at)].filter(Boolean).join(" · ");
+		const editing = S.verdictEdit === t.id;
+		let body = "";
+		if (v && !editing) {
+			body = `<div class="verdict-now"><span class="verdict-chip v-${esc(v.verdict)}">${esc(verdictName(v.verdict))}</span>
+				${v.comment ? `<span class="verdict-comment" data-no-i18n>${esc(v.comment)}</span>` : ""}<small>${esc(who(v))}</small>
+				${canAct() ? `<button class="cf-btn cf-btn-sm" data-verdict-edit="${t.id}">${tr("Cambiar")}</button>` : ""}</div>`;
+		} else if (!editing) {
+			body = prev ? `<div class="verdict-prev">${tr("En la ejecución #{r} lo clasificaron como", { r: prev.run_id })}
+					<span class="verdict-chip v-${esc(prev.verdict)}">${esc(verdictName(prev.verdict))}</span>
+					${prev.comment ? `<span class="verdict-comment" data-no-i18n>“${esc(prev.comment)}”</span>` : ""}<small>${esc(who(prev))}</small>
+					${canAct() ? `<button class="cf-btn cf-btn-sm" data-verdict-same="${t.id}">${tr("Mismo veredicto")}</button>` : ""}</div>` : "";
+			if (canAct()) body += `<button class="cf-btn cf-btn-sm" data-verdict-edit="${t.id}">${tr("Clasificar este fallo")}</button>`;
+		} else {
+			const cur = v?.verdict || prev?.verdict || "";
+			body = `<form class="verdict-form" data-verdict-form="${t.id}">
+				<div class="verdict-options" role="radiogroup" aria-label="${tr("Veredicto")}">${VERDICTS.map(([id, name]) =>
+					`<label class="verdict-opt v-${id}"><input type="radio" name="verdict" value="${id}" ${cur === id ? "checked" : ""} required><span>${tr(name)}</span></label>`).join("")}</div>
+				<textarea name="comment" rows="2" maxlength="2000" placeholder="${tr("Qué encontraste (opcional): causa, ticket, a quién se avisó…")}">${esc(v?.comment || "")}</textarea>
+				<div class="verdict-row"><input name="author" maxlength="120" value="${esc(readAuthor())}" placeholder="${tr("Tu nombre (opcional)")}">
+					<button type="submit" class="cf-btn cf-btn-sm cf-btn-primary">${tr("Guardar")}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-verdict-cancel>${tr("Cancelar")}</button></div>
+			</form>`;
+		}
+		if (!body) return "";
+		return `<div class="verdict-block"><div class="bloque-titulo">${tr("Clasificación")}</div>${body}</div>`;
+	}
+
+	async function saveVerdict(testId, verdict, comment, author) {
+		try {
+			try { localStorage.setItem("tracereports-author", author || ""); } catch { /* sin almacenamiento */ }
+			await apiSend("POST", `/api/v1/ui/tests/${testId}/verdict`, { verdict, comment, author });
+			S.verdictEdit = null;
+			await loadRun();
+			await loadTest();
+		} catch (err) {
+			alert(err.message);
+		}
 	}
 
 	/** Cuarentena del test: sus fallos no ponen la ejecución en rojo hasta que vence. */
@@ -1358,6 +1418,13 @@
 			renderTests();
 		});
 		$("#test-detail").addEventListener("submit", (e) => {
+			const vf = e.target.closest("[data-verdict-form]");
+			if (vf) {
+				e.preventDefault();
+				const d = new FormData(vf);
+				saveVerdict(Number(vf.dataset.verdictForm), d.get("verdict"), d.get("comment"), d.get("author"));
+				return;
+			}
 			const f = e.target.closest("[data-quar-form]");
 			if (!f) return;
 			e.preventDefault();
@@ -1365,6 +1432,15 @@
 			quarantineAction("POST", "/api/v1/ui/quarantine", { test_id: Number(f.dataset.quarForm), reason: d.get("reason"), owner: d.get("owner"), days: Number(d.get("days")) });
 		});
 		$("#test-detail").addEventListener("click", (e) => {
+			const ve = e.target.closest("[data-verdict-edit]");
+			if (ve) { S.verdictEdit = Number(ve.dataset.verdictEdit); renderTestDetail(); return; }
+			if (e.target.closest("[data-verdict-cancel]")) { S.verdictEdit = null; renderTestDetail(); return; }
+			const same = e.target.closest("[data-verdict-same]");
+			if (same) {
+				const prev = S.test?.previous_verdict;
+				if (prev) saveVerdict(Number(same.dataset.verdictSame), prev.verdict, prev.comment, readAuthor());
+				return;
+			}
 			const open = e.target.closest("[data-quar-open]");
 			if (open) { S.quar = { testId: Number(open.dataset.quarOpen) }; renderTestDetail(); $("[data-quar-form] input")?.focus(); return; }
 			if (e.target.closest("[data-quar-cancel]")) { S.quar = null; renderTestDetail(); return; }

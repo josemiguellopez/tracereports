@@ -45,6 +45,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
+	"github.com/josemiguellopez/tracereports/internal/owners"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
@@ -136,6 +137,14 @@ func run() error {
 		slog.Warn("TRACEREPORTS_UI_USER/TRACEREPORTS_UI_PASSWORD not set: the reports are readable without login")
 	}
 
+	ownerRules, err := owners.FromEnv()
+	if err != nil {
+		return err
+	}
+	if ownerRules.Len() > 0 {
+		slog.Info("test owners enabled", "rules", ownerRules.Len())
+	}
+
 	hub := live.NewHub()
 	redaction := redact.FromEnv()
 	if !redaction.Enabled() {
@@ -163,6 +172,8 @@ func run() error {
 		Trackers: tracker.FromEnv(),
 		// links a los logs y a la traza de cada llamada al backend (Grafana, Kibana, Datadog...)
 		LogsURL: env.Get("LOGS_URL"), TraceURL: env.Get("TRACE_URL"),
+		// dueño de cada test, como CODEOWNERS (TRACEREPORTS_OWNERS / TRACEREPORTS_OWNERS_FILE)
+		Owners: ownerRules,
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())

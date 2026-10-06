@@ -35,3 +35,30 @@ test("poner y quitar la cuarentena de un test que falla", async ({ page, request
 	expect(r.quarantined).toBe(0);
 	expect(errors).toEqual([]);
 });
+
+test("clasificar un fallo: veredicto, comentario y autor", async ({ page, request }) => {
+	const errors = [];
+	page.on("pageerror", (e) => errors.push(e.message));
+	const { run, failId } = seed();
+	await page.goto(`/#run=${run}&view=tests&test=${failId}`);
+	const detail = page.locator("#test-detail");
+	await detail.locator("[data-verdict-edit]").click();
+	const form = detail.locator("[data-verdict-form]");
+	await form.locator('input[value="product_bug"]').check({ force: true });
+	await form.locator('textarea[name="comment"]').fill("el login devuelve 500 desde el deploy de las 9:00");
+	await form.locator('input[name="author"]').fill("Ana QA");
+	await form.locator('button[type="submit"]').click();
+
+	const block = detail.locator(".verdict-block");
+	await expect(block.locator(".verdict-chip")).toHaveText("Bug de producto");
+	await expect(block).toContainText("el login devuelve 500");
+	await expect(block).toContainText("Ana QA");
+	await expect(page.locator("#test-collection .collection-item", { hasText: "test_login_admin" }).locator(".verdict-chip")).toHaveText("Bug de producto");
+	const t = await (await request.get(`/api/v1/tests/${failId}`)).json();
+	expect(t.verdict.verdict).toBe("product_bug");
+	// el autor se recuerda para la próxima clasificación
+	await detail.locator("[data-verdict-edit]").click();
+	await expect(detail.locator('[data-verdict-form] input[name="author"]')).toHaveValue("Ana QA");
+	await detail.locator("[data-verdict-cancel]").click();
+	expect(errors).toEqual([]);
+});

@@ -208,6 +208,7 @@ o, en modo local, el mismo equipo del servidor.
 | POST | `/ui/quarantine` | `{test_id, reason, owner, days}` | Pone en cuarentena el test (en su proyecto) por `days` días (default 14, máx. 180). `reason` es obligatorio. Responde la cuarentena y la ejecución recalculada |
 | DELETE | `/ui/quarantine/{test_id}` | `{}` | Quita la cuarentena del test |
 | GET | `/quarantine?project=…` | — | Cuarentenas del proyecto (`all=1`: de todos), con `active` |
+| POST | `/ui/tests/{test_id}/verdict` | `{verdict, comment, author}` | Clasifica el fallo: `product_bug`, `test_bug`, `environment`, `data`, `flaky` u `other`. Los tests de `GET /runs/{id}` y `/tests/{id}` traen `verdict`, `previous_verdict` (de una ejecución anterior) y `owner` |
 | GET | `/runs/{run_id}/tickets` | — | Tickets de los fallos de la ejecución (también los abiertos desde ejecuciones anteriores del mismo test) |
 
 Lecturas relacionadas: `GET /runs/{run_id}/recurrence` (en cuántas ejecuciones anteriores de la

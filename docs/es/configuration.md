@@ -252,6 +252,37 @@ vencimiento (7, 14, 30 o 90 días). Mientras dura:
 El comentario del PR también distingue los fallos en cuarentena. Por API: `POST /api/v1/ui/quarantine`,
 `DELETE /api/v1/ui/quarantine/{test_id}` y `GET /api/v1/quarantine?project=…` (ver la [API](api.md)).
 
+## Dueños de los tests
+
+Como un archivo CODEOWNERS: cada test recibe un dueño (equipo o persona) según reglas, que se ve
+en el test y llega como *Responsable* a **Escalar** y a los tickets. Una regla por línea,
+`<patrón> <dueño>`, y **gana la última que aplica**:
+
+```text
+# TRACEREPORTS_OWNERS_FILE=/config/OWNERS
+*                          @qa-team
+tests/checkout/*           Equipo pagos
+*::test_login*             @auth
+tag:smoke                  @qa-smoke
+suite:"Billing / *"        Facturación
+```
+
+- Un patrón simple se compara con la identidad del test (nodeid de pytest, `archivo > título` en
+  Playwright, `paquete.Clase#método` en JUnit…); `tag:` con cada tag; `suite:` con la suite.
+- `*` es cualquier texto (también `/`); no distingue mayúsculas y debe calzar con todo el valor.
+  Un patrón con espacios va entre comillas; el dueño es el resto de la línea.
+- `TRACEREPORTS_OWNERS_FILE` (archivo) y/o `TRACEREPORTS_OWNERS` (reglas en línea, separadas por `;`).
+  Un archivo que no existe o una regla mal escrita impide arrancar: mejor que asignar mal.
+
+## Clasificación colaborativa de fallos
+
+En un test que falla, **Clasificar este fallo** guarda un veredicto (*bug de producto*, *test
+roto*, *ambiente*, *datos de prueba*, *flaky* u *otro*), un comentario y el nombre de quien lo
+clasificó (se recuerda en el navegador). La próxima vez que ese test falle en el mismo proyecto,
+su detalle muestra *En la ejecución #N lo clasificaron como…* con **Mismo veredicto** para
+aplicarlo en un clic: nadie investiga dos veces el mismo fallo. Por API:
+`POST /api/v1/ui/tests/{id}/verdict` (ver la [API](api.md)).
+
 ## Historial, flaky y comparación
 
 No requieren configuración. Se calculan con los datos que ya existen:

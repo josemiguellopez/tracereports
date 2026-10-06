@@ -207,6 +207,7 @@ in local mode, the server's own machine.
 | POST | `/ui/quarantine` | `{test_id, reason, owner, days}` | Quarantines the test (in its project) for `days` days (default 14, max 180). `reason` is required. Answers the quarantine and the recomputed run |
 | DELETE | `/ui/quarantine/{test_id}` | `{}` | Lifts the test's quarantine |
 | GET | `/quarantine?project=…` | — | Quarantines of the project (`all=1`: every project), with `active` |
+| POST | `/ui/tests/{test_id}/verdict` | `{verdict, comment, author}` | Classifies the failure: `product_bug`, `test_bug`, `environment`, `data`, `flaky` or `other`. Tests in `GET /runs/{id}` and `/tests/{id}` carry `verdict`, `previous_verdict` (from an earlier run) and `owner` |
 | GET | `/runs/{run_id}/tickets` | — | Tickets of the run's failures (also those opened from earlier runs of the same test) |
 
 Related reads: `GET /runs/{run_id}/recurrence` (in how many previous runs of the same suite each

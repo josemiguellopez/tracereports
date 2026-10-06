@@ -56,6 +56,10 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 	if respondErr(w, err, "run") {
 		return
 	}
+	if err := s.decorate(id, detail.Tests); err != nil {
+		serverError(w, err)
+		return
+	}
 
 	tests := make(map[int64]*db.Test, len(detail.Tests))
 	network := map[int64][]byte{} // test_id -> network/test_<id>.js (loaded on demand by the UI)
@@ -67,6 +71,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
+		t.Owner, t.Verdict, t.PreviousVerdict = summary.Owner, summary.Verdict, summary.PreviousVerdict
 		for i := range t.Logs {
 			if name := screenshotFile(t.Logs[i].Screenshot); name != "" {
 				t.Logs[i].Screenshot = "screenshots/" + name // relative: works from file://

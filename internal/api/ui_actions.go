@@ -209,6 +209,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		e = s.AI.Escalate(ctx, facts, in.RunID, in.TestID, in.Audience, in.Lang)
 	}
+	s.withOwner(e) // el dueño de las reglas manda sobre el que sugiere la IA
 	if raw, err := json.Marshal(e); err == nil && e.Source == "ai" { // la plantilla es gratis: no se guarda
 		if err := s.Store.SaveEscalation(in.RunID, in.TestID, in.Audience, in.Lang, string(raw)); err != nil {
 			slog.Warn("escalation: cache", "err", err)
@@ -229,10 +230,14 @@ func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool
 	if err != nil {
 		return nil, err
 	}
+	var e *ai.Escalation
 	if noAI {
-		return ai.EscalateTemplate(facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang), nil
+		e = ai.EscalateTemplate(facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang)
+	} else {
+		e = s.AI.Escalate(ctx, facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang)
 	}
-	return s.AI.Escalate(ctx, facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang), nil
+	s.withOwner(e)
+	return e, nil
 }
 
 var escalationLabels = map[string]map[string]string{

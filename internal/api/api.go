@@ -25,6 +25,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
+	"github.com/josemiguellopez/tracereports/internal/owners"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
@@ -61,6 +62,8 @@ type Server struct {
 	// LogsURL and TraceURL are link templates that open the backend logs or the trace of a call
 	// (TRACEREPORTS_LOGS_URL, TRACEREPORTS_TRACE_URL; see correlate.Link).
 	LogsURL, TraceURL string
+	// Owners assigns an owner to each test (TRACEREPORTS_OWNERS / _FILE); nil = none.
+	Owners *owners.Rules
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -96,6 +99,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/quarantine", s.setQuarantine)
 		r.Delete("/ui/quarantine/{test_id}", s.removeQuarantine)
 		r.Get("/quarantine", s.listQuarantine)
+		r.Post("/ui/tests/{test_id}/verdict", s.setVerdict)
 		r.Get("/stream", s.stream)
 
 		r.Get("/runs", s.listRuns)
@@ -202,6 +206,10 @@ func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
 	if respondErr(w, err, "run") {
 		return
 	}
+	if err := s.decorate(id, d.Tests); err != nil {
+		serverError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, d)
 }
 
@@ -292,6 +300,10 @@ func (s *Server) getTest(w http.ResponseWriter, r *http.Request) {
 	}
 	t, err := s.Store.GetTest(id)
 	if respondErr(w, err, "test") {
+		return
+	}
+	if err := s.decorateOne(t); err != nil {
+		serverError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, t)

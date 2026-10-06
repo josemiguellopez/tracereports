@@ -822,3 +822,26 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .quar-row { display: grid; grid-template-columns: 1fr 160px; gap: 8px; }
 .quar-actions { display: flex; gap: 6px; }
 @media (max-width: 600px) { .quar-row { grid-template-columns: 1fr; } }
+
+/* dueño del test y clasificación colaborativa del fallo */
+.owner-chip { font-weight: 600; }
+.verdict-block { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); display: grid; gap: 6px; }
+.verdict-now, .verdict-prev { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+.verdict-prev { color: var(--text-muted); }
+.verdict-comment { font-style: italic; }
+.verdict-chip {
+	display: inline-flex; align-items: center; white-space: nowrap; font-size: 12px; font-weight: 700;
+	line-height: 20px; padding: 0 8px; border-radius: 10px; border: 1px solid currentColor;
+}
+.verdict-chip.sm { font-size: 11px; line-height: 17px; padding: 0 6px; }
+.v-product_bug { color: var(--color-danger); }
+.v-test_bug { color: var(--color-accent); }
+.v-environment, .v-data { color: var(--text-muted); }
+.v-flaky, .v-other { color: var(--text-muted); border-style: dashed; }
+.verdict-form { display: grid; gap: 8px; }
+.verdict-options { display: flex; flex-wrap: wrap; gap: 6px; }
+.verdict-opt { display: inline-flex; align-items: center; gap: 4px; padding: 2px 8px; border: 1px solid var(--border); border-radius: 12px; cursor: pointer; font-size: 13px; }
+.verdict-opt:has(input:checked) { border-color: currentColor; font-weight: 700; }
+.verdict-form textarea, .verdict-form input[name="author"] { width: 100%; }
+.verdict-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; }
+@media (max-width: 600px) { .verdict-row { grid-template-columns: 1fr; } }
