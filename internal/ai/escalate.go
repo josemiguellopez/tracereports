@@ -81,6 +81,9 @@ type NetFact struct {
 	Outcome    string `json:"outcome"` // "HTTP 503" | "sin respuesta (net::ERR_…)"
 	DurationMs int64  `json:"duration_ms"`
 	Body       string `json:"body,omitempty"`
+	StartedAt  int64  `json:"started_at,omitempty"`
+	TraceID    string `json:"trace_id,omitempty"`   // para buscarla en los logs del backend
+	RequestID  string `json:"request_id,omitempty"` // X-Request-Id y similares
 }
 
 // FailedFact is one failed test of the run.
@@ -221,7 +224,8 @@ func BuildFacts(store *db.Store, shotsDir string, runID, testID int64) (*Facts, 
 		return nil, err
 	}
 	for _, c := range conns {
-		nf := NetFact{Method: c.Method, Path: c.URL, Status: c.Status, Outcome: fmt.Sprintf("HTTP %d", c.Status), Body: clip(strings.Join(strings.Fields(c.ResponseBody), " "), 240)}
+		nf := NetFact{Method: c.Method, Path: c.URL, Status: c.Status, Outcome: fmt.Sprintf("HTTP %d", c.Status), Body: clip(strings.Join(strings.Fields(c.ResponseBody), " "), 240),
+			StartedAt: c.StartedAt, TraceID: c.TraceID, RequestID: c.RequestID}
 		if u, err := url.Parse(c.URL); err == nil && u.Host != "" {
 			nf.Host, nf.Path = u.Host, u.Path
 		}

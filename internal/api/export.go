@@ -80,6 +80,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 				serverError(w, err)
 				return
 			}
+			s.linkCalls(conns)
 			for i := range conns {
 				if len(conns[i].ResponseBody) > bodyFileMinChars {
 					ext, _ := bodyFileType(&conns[i])

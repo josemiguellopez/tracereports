@@ -3,6 +3,8 @@ package db
 import (
 	"database/sql"
 	"encoding/json"
+
+	"github.com/josemiguellopez/tracereports/internal/correlate"
 )
 
 const networkSchema = `
@@ -66,6 +68,13 @@ type NetConn struct {
 	// Expected: the test declared this response as expected (a negative case checked on
 	// purpose); it is never counted as an error nor proposed as the cause of a failure.
 	Expected bool `json:"expected"`
+	// TraceID and RequestID link the call to the backend logs (traceparent, X-Request-Id...),
+	// read from its headers. LogsURL and TraceURL open them (TRACEREPORTS_LOGS_URL and
+	// TRACEREPORTS_TRACE_URL); the API fills them, the store does not know the templates.
+	TraceID   string `json:"trace_id,omitempty"`
+	RequestID string `json:"request_id,omitempty"`
+	LogsURL   string `json:"logs_url,omitempty"`
+	TraceURL  string `json:"trace_url,omitempty"`
 }
 
 // AddNetwork appends connections to a test (seq continues after the existing ones).
@@ -177,6 +186,8 @@ func (s *Store) queryNetwork(where string, args ...any) ([]NetConn, error) {
 		}
 		_ = json.Unmarshal([]byte(reqH), &c.RequestHeaders)
 		_ = json.Unmarshal([]byte(resH), &c.ResponseHeaders)
+		ids := correlate.Extract(c.RequestHeaders, c.ResponseHeaders)
+		c.TraceID, c.RequestID = ids.TraceID, ids.RequestID
 		out = append(out, c)
 	}
 	return out, rows.Err()

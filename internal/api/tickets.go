@@ -10,14 +10,15 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/correlate"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
 var ticketLabels = map[string]map[string]string{
-	"es": {"error": "Error", "network": "Llamadas al backend que fallaron", "test": "Test", "run": "Ejecución",
+	"es": {"error": "Error", "network": "Llamadas al backend que fallaron", "test": "Test", "run": "Ejecución", "logs": "logs", "trace": "traza",
 		"footer": "Creado desde TraceReports con la evidencia del reporte."},
-	"en": {"error": "Error", "network": "Backend calls that failed", "test": "Test", "run": "Run",
+	"en": {"error": "Error", "network": "Backend calls that failed", "test": "Test", "run": "Run", "logs": "logs", "trace": "trace",
 		"footer": "Created from TraceReports with the report evidence."},
 }
 
@@ -143,6 +144,19 @@ func (s *Server) issueFrom(e *ai.Escalation) *tracker.Issue {
 		c := fmt.Sprintf("%s %s%s → %s", n.Method, n.Host, n.Path, n.Outcome)
 		if n.DurationMs > 0 {
 			c += fmt.Sprintf(" (%d ms)", n.DurationMs)
+		}
+		if n.TraceID != "" {
+			c += " · trace " + n.TraceID
+		}
+		if n.RequestID != "" {
+			c += " · request " + n.RequestID
+		}
+		call := correlate.Call{IDs: correlate.IDs{TraceID: n.TraceID, RequestID: n.RequestID}, Method: n.Method,
+			URL: "https://" + n.Host + n.Path, Status: n.Status, StartedAt: n.StartedAt, Duration: n.DurationMs}
+		for _, l := range []struct{ label, url string }{{tl["logs"], correlate.Link(s.LogsURL, call)}, {tl["trace"], correlate.Link(s.TraceURL, call)}} {
+			if l.url != "" {
+				c += " · " + l.label + ": " + l.url
+			}
 		}
 		calls = append(calls, c)
 	}

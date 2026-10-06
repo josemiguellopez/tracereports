@@ -58,6 +58,9 @@ type Server struct {
 	Hosts *HostPolicy
 	// Trackers where a failure can be turned into a ticket (GitHub, Jira, Azure DevOps).
 	Trackers []tracker.Provider
+	// LogsURL and TraceURL are link templates that open the backend logs or the trace of a call
+	// (TRACEREPORTS_LOGS_URL, TRACEREPORTS_TRACE_URL; see correlate.Link).
+	LogsURL, TraceURL string
 }
 
 // redactor returns the masking policy applied to every incoming text.

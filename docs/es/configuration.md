@@ -213,6 +213,29 @@ Un tracker aparece en la interfaz solo si tiene todas sus variables obligatorias
 `POST /api/v1/ui/tickets` con `{run_id, test_id, provider, audience, lang, force}` y
 `GET /api/v1/runs/{id}/tickets` (ver la [API](api.md)).
 
+## Correlación con los logs del backend
+
+Cuando una llamada trae un id de traza o de request en sus headers, el detalle de la llamada (pestaña
+**Red**) lo muestra con botones **Ver logs** y **Ver traza**, y los tickets lo incluyen. Se
+reconocen W3C `traceparent`/`traceresponse`, B3 (Zipkin), Jaeger `uber-trace-id`, AWS X-Ray,
+Datadog, Google Cloud y `X-Request-Id`, `X-Correlation-Id`, `Request-Id`, `cf-ray` y similares
+(primero los de la respuesta, que son los que usó el backend).
+
+Los links salen de dos plantillas:
+
+| Variable | Ejemplo |
+| --- | --- |
+| `TRACEREPORTS_TRACE_URL` | Jaeger: `https://jaeger.acme.com/trace/{trace_id}` · Datadog APM: `https://app.datadoghq.com/apm/trace/{trace_id}` |
+| `TRACEREPORTS_LOGS_URL` | Datadog: `https://app.datadoghq.com/logs?query=%40http.request_id%3A{request_id}&from_ts={from}&to_ts={to}` · Kibana: `https://kibana.acme.com/app/discover#/?_g=(time:(from:'{from_iso}',to:'{to_iso}'))&_a=(query:(language:kuery,query:'request.id:"{request_id}"'))` |
+
+Valores disponibles (ya codificados para una URL): `{trace_id}`, `{request_id}`, `{from}` y `{to}`
+(epoch en ms: 2 minutos antes y después de la llamada), `{from_s}` y `{to_s}` (en segundos),
+`{from_iso}` y `{to_iso}`, `{host}`, `{path}`, `{method}` y `{status}`. Para Grafana (Loki, Tempo)
+abre Explore con una búsqueda de ejemplo, copia la URL y reemplaza el valor por `{trace_id}`.
+
+Una plantilla que usa un id que la llamada no trae no genera link: nunca abre una búsqueda vacía.
+Los ids y los links también quedan en el reporte exportado.
+
 ## Historial, flaky y comparación
 
 No requieren configuración. Se calculan con los datos que ya existen:

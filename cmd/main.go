@@ -161,6 +161,8 @@ func run() error {
 		Hosts: api.NewHostPolicy(env.Get("ALLOWED_HOSTS"), os.Getenv("PUBLIC_URL")),
 		// GitHub, Jira o Azure DevOps para crear tickets desde un fallo (TRACEREPORTS_GITHUB_* ...)
 		Trackers: tracker.FromEnv(),
+		// links a los logs y a la traza de cada llamada al backend (Grafana, Kibana, Datadog...)
+		LogsURL: env.Get("LOGS_URL"), TraceURL: env.Get("TRACE_URL"),
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())

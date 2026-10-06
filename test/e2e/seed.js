@@ -59,9 +59,10 @@ module.exports = async () => {
 			{
 				method: "POST", url: "https://api.example.com/auth/login?lang=es", status: 500, status_text: "Internal Server Error",
 				mime_type: "application/json", resource_type: "fetch", started_at: Date.now() - 50_000, duration_ms: 812,
-				request_headers: { "Content-Type": "application/json", Authorization: "Bearer E2E-SECRET" },
+				request_headers: { "Content-Type": "application/json", Authorization: "Bearer E2E-SECRET",
+					traceparent: "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01" },
 				post_data: JSON.stringify({ username: "admin", password: "E2E-PASSWORD" }),
-				response_headers: { "content-type": "application/json" },
+				response_headers: { "content-type": "application/json", "x-request-id": "req-e2e-42" },
 				response_body: JSON.stringify({ error: "db pool exhausted" }),
 			},
 			{

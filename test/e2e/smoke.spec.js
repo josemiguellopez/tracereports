@@ -85,6 +85,22 @@ test("red: Copiar como cURL no filtra secretos y conserva los headers enmascarad
 	expect(curl).not.toContain("<masked>");
 });
 
+test("red: correlación con los logs del backend", async ({ page }) => {
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const detail = page.locator("#test-detail");
+	await detail.locator('[data-tab="network"]').click();
+	const card = detail.locator(".net-card-error");
+	await card.locator("summary").click();
+	const corr = card.locator(".bloque.corr");
+	await expect(corr).toContainText("4bf92f3577b34da6a3ce929d0e0e4736");
+	await expect(corr).toContainText("req-e2e-42");
+	await expect(corr.locator('a:has-text("Ver traza")')).toHaveAttribute("href", "https://traces.example/4bf92f3577b34da6a3ce929d0e0e4736");
+	await expect(corr.locator('a:has-text("Ver logs")')).toHaveAttribute("href", /^https:\/\/logs\.example\/search\?q=req-e2e-42&from=\d+$/);
+	// la llamada sin ids no muestra el bloque
+	await expect(detail.locator(".net-card:not(.net-card-error) .bloque.corr")).toHaveCount(0);
+});
+
 test("red: el panel de mocks muestra cada formato", async ({ page }) => {
 	await openRun(page);
 	await openTest(page, "test_login_admin");

@@ -213,6 +213,29 @@ A tracker shows up in the interface only when all its required variables are set
 `POST /api/v1/ui/tickets` with `{run_id, test_id, provider, audience, lang, force}` and
 `GET /api/v1/runs/{id}/tickets` (see the [API](api.md)).
 
+## Correlation with the backend logs
+
+When a call carries a trace or request id in its headers, the call detail (**Network** tab) shows it
+with **Open logs** and **Open trace** buttons, and tickets include it. Recognized: W3C
+`traceparent`/`traceresponse`, B3 (Zipkin), Jaeger `uber-trace-id`, AWS X-Ray, Datadog, Google
+Cloud and `X-Request-Id`, `X-Correlation-Id`, `Request-Id`, `cf-ray` and the like (response headers
+first: they are the ones the backend used).
+
+The links come from two templates:
+
+| Variable | Example |
+| --- | --- |
+| `TRACEREPORTS_TRACE_URL` | Jaeger: `https://jaeger.acme.com/trace/{trace_id}` · Datadog APM: `https://app.datadoghq.com/apm/trace/{trace_id}` |
+| `TRACEREPORTS_LOGS_URL` | Datadog: `https://app.datadoghq.com/logs?query=%40http.request_id%3A{request_id}&from_ts={from}&to_ts={to}` · Kibana: `https://kibana.acme.com/app/discover#/?_g=(time:(from:'{from_iso}',to:'{to_iso}'))&_a=(query:(language:kuery,query:'request.id:"{request_id}"'))` |
+
+Available values (already URL-encoded): `{trace_id}`, `{request_id}`, `{from}` and `{to}` (epoch
+ms: 2 minutes before and after the call), `{from_s}` and `{to_s}` (seconds), `{from_iso}` and
+`{to_iso}`, `{host}`, `{path}`, `{method}` and `{status}`. For Grafana (Loki, Tempo) open Explore
+with a sample search, copy the URL and replace the value with `{trace_id}`.
+
+A template that needs an id the call does not have produces no link: it never opens an empty
+search. Ids and links are kept in the exported report too.
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:

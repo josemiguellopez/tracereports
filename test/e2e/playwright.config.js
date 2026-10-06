@@ -74,6 +74,8 @@ module.exports = defineConfig({
 			// tickets: GitHub falso; Jira y Azure apagados
 			TRACEREPORTS_GITHUB_REPO: "acme/shop", TRACEREPORTS_GITHUB_TOKEN: "e2e-token", TRACEREPORTS_GITHUB_API: process.env.E2E_FAKE_GITHUB,
 			TRACEREPORTS_JIRA_URL: "", TRACEREPORTS_AZURE_URL: "", PUBLIC_URL: process.env.E2E_BASE_URL,
+			// correlación con los logs: plantillas de prueba
+			TRACEREPORTS_LOGS_URL: "https://logs.example/search?q={request_id}&from={from}", TRACEREPORTS_TRACE_URL: "https://traces.example/{trace_id}",
 		},
 	},
 });

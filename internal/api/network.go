@@ -9,6 +9,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/josemiguellopez/tracereports/internal/correlate"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 )
@@ -76,7 +77,29 @@ func (s *Server) listNetwork(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	s.linkCalls(conns)
 	writeJSON(w, http.StatusOK, conns)
+}
+
+// linkCalls fills the links to the backend logs and trace of each call (when configured and
+// the call has what the template needs).
+func (s *Server) linkCalls(conns []db.NetConn) {
+	if s.LogsURL == "" && s.TraceURL == "" {
+		return
+	}
+	for i := range conns {
+		c := callOf(&conns[i])
+		conns[i].LogsURL, conns[i].TraceURL = correlate.Link(s.LogsURL, c), correlate.Link(s.TraceURL, c)
+	}
+}
+
+func callOf(c *db.NetConn) correlate.Call {
+	call := correlate.Call{IDs: correlate.IDs{TraceID: c.TraceID, RequestID: c.RequestID}, Method: c.Method, URL: c.URL,
+		Status: c.Status, StartedAt: c.StartedAt}
+	if c.DurationMs != nil {
+		call.Duration = *c.DurationMs
+	}
+	return call
 }
 
 // networkBody serves the stored response body of one connection, so the UI can link to

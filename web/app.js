@@ -501,6 +501,18 @@
 		return ok;
 	}
 
+	/** Ids que unen la llamada con los logs del backend (traceparent, X-Request-Id...) y sus links. */
+	function correlationBlock(c) {
+		if (!c.trace_id && !c.request_id) return "";
+		const row = (label, id) => id ? `<div class="corr-row"><span class="corr-lbl">${label}</span><code data-no-i18n>${esc(id)}</code>${copyBtn(id, "Copiar")}</div>` : "";
+		const link = (url, label, tip) => url ? `<a class="cf-btn cf-btn-sm" href="${esc(url)}" target="_blank" rel="noopener" data-tip="${tip}">${icon("i-search")}${label} ↗</a>` : "";
+		const links = link(c.logs_url, "Ver logs", "Abre los logs del backend de esta llamada (TRACEREPORTS_LOGS_URL)")
+			+ link(c.trace_url, "Ver traza", "Abre la traza distribuida de esta llamada (TRACEREPORTS_TRACE_URL)");
+		return `<div class="bloque corr"><div class="bloque-titulo">Correlación con el backend</div>
+			${row("Trace ID", c.trace_id)}${row("Request ID", c.request_id)}
+			${links ? `<div class="corr-links">${links}</div>` : ""}</div>`;
+	}
+
 	function netDetail(c) {
 		const isHtml = /html/i.test(c.mime_type || "") || /^\s*<(!doctype html|html)/i.test(c.response_body || "");
 		const truncated = !c.body_truncated ? "" : `<div class="truncado-aviso">El servidor guardó ${fmtBytes((c.response_body || "").length)} de ${fmtBytes(c.body_size)} de este body.
@@ -518,6 +530,7 @@
 		};
 		const loc = bodyLocation(c);
 		return `<div class="net-actions"><button class="cf-btn cf-btn-sm cf-btn-mock" data-mock>${icon("i-bolt")}Generar mock / stub</button><button class="net-curl" data-curl="1">Copiar como cURL</button></div>`
+			+ correlationBlock(c)
 			+ block("General", general)
 			+ block("Request headers", c.request_headers)
 			+ block("Request body" + (c.post_data_via_cdp ? " (recuperado via CDP)" : ""), c.post_data)
