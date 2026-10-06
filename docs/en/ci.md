@@ -87,6 +87,49 @@ Already using Allure? Upload the zipped `allure-results` folder to `/api/v1/impo
 steps and screenshots (see the [API](api.md#importing-allure-results)); or, without a server,
 `tracereports report allure-results -o report`.
 
+## Pull request comment
+
+`tracereports pr-comment` comments on the PR (GitHub) or MR (GitLab) the summary of the commit's
+run: failures, what changed against the previous run (new and fixed failures), flaky tests, the
+incidents with their likely cause and the report link. Each push **updates the same comment** (one
+per suite) instead of adding another, and it never mentions anyone.
+
+```yaml
+# GitHub Actions
+permissions:
+  pull-requests: write
+steps:
+  - run: pytest --tracereports
+  - name: TraceReports comment
+    if: always() && github.event_name == 'pull_request'
+    env:
+      TRACEREPORTS_URL: ${{ secrets.TRACEREPORTS_URL }}
+      TRACEREPORTS_TOKEN: ${{ secrets.TRACEREPORTS_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+    run: docker run --rm -e TRACEREPORTS_URL -e TRACEREPORTS_TOKEN -e GITHUB_TOKEN -e GITHUB_ACTIONS -e GITHUB_REF
+      -e GITHUB_REPOSITORY -e GITHUB_SHA -e GITHUB_API_URL -e GITHUB_EVENT_PATH -v "$GITHUB_EVENT_PATH:$GITHUB_EVENT_PATH:ro"
+      ghcr.io/josemiguellopez/tracereports pr-comment
+```
+
+```yaml
+# GitLab CI (GITLAB_TOKEN: a project token with api scope, as a protected variable)
+tracereports-comment:
+  image: alpine:3
+  rules: [{ if: $CI_MERGE_REQUEST_IID }]
+  script:
+    - apk add --no-cache curl
+    - V=$(curl -s https://api.github.com/repos/josemiguellopez/tracereports/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+    - curl -sL "https://github.com/josemiguellopez/tracereports/releases/download/v$V/tracereports_${V}_linux_amd64.tar.gz" | tar xz tracereports
+    - ./tracereports pr-comment
+```
+
+- It finds the run of the job's commit (`GITHUB_SHA`, the PR head or `CI_COMMIT_SHA`), or use `--run <id>`.
+- It waits up to 90 s (`--wait`) for the run diagnosis to be ready.
+- Without a server: `tracereports pr-comment --from <recording | JUnit XML | allure-results>` builds
+  the same summary (no comparison or link, unless `--link`).
+- Outside a PR it prints the comment; in GitHub Actions it also adds it to the job summary.
+  `--dry-run` only prints it. Language: `--lang es|en` (default: the one in Settings).
+
 ## Starting the server inside the pipeline
 
 If you don't have a permanent server, you can start it as a job service. Reports are lost when the

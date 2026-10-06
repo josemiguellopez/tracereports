@@ -87,6 +87,49 @@ y el DOM los agregan los clientes. Detalle en la [API](api.md#importar-un-report
 pasos y capturas (ver la [API](api.md#importar-resultados-de-allure)); o, sin servidor,
 `tracereports report allure-results -o reporte`.
 
+## Comentario en el pull request
+
+`tracereports pr-comment` comenta en el PR (GitHub) o MR (GitLab) el resumen de la ejecución del
+commit: fallos, qué cambió frente a la ejecución anterior (fallos nuevos y arreglados), flaky, los
+incidentes con su causa probable y el link al reporte. En cada push **actualiza el mismo
+comentario** (uno por suite) en vez de sumar otro, y nunca menciona a nadie.
+
+```yaml
+# GitHub Actions
+permissions:
+  pull-requests: write
+steps:
+  - run: pytest --tracereports
+  - name: Comentario de TraceReports
+    if: always() && github.event_name == 'pull_request'
+    env:
+      TRACEREPORTS_URL: ${{ secrets.TRACEREPORTS_URL }}
+      TRACEREPORTS_TOKEN: ${{ secrets.TRACEREPORTS_TOKEN }}
+      GITHUB_TOKEN: ${{ github.token }}
+    run: docker run --rm -e TRACEREPORTS_URL -e TRACEREPORTS_TOKEN -e GITHUB_TOKEN -e GITHUB_ACTIONS -e GITHUB_REF
+      -e GITHUB_REPOSITORY -e GITHUB_SHA -e GITHUB_API_URL -e GITHUB_EVENT_PATH -v "$GITHUB_EVENT_PATH:$GITHUB_EVENT_PATH:ro"
+      ghcr.io/josemiguellopez/tracereports pr-comment
+```
+
+```yaml
+# GitLab CI (GITLAB_TOKEN: token de proyecto con scope api, como variable protegida)
+tracereports-comment:
+  image: alpine:3
+  rules: [{ if: $CI_MERGE_REQUEST_IID }]
+  script:
+    - apk add --no-cache curl
+    - V=$(curl -s https://api.github.com/repos/josemiguellopez/tracereports/releases/latest | sed -n 's/.*"tag_name": *"v\([^"]*\)".*/\1/p')
+    - curl -sL "https://github.com/josemiguellopez/tracereports/releases/download/v$V/tracereports_${V}_linux_amd64.tar.gz" | tar xz tracereports
+    - ./tracereports pr-comment
+```
+
+- Busca la ejecución del commit del job (`GITHUB_SHA`, el head del PR o `CI_COMMIT_SHA`), o usa `--run <id>`.
+- Espera hasta 90 s (`--wait`) a que el diagnóstico de la ejecución esté listo.
+- Sin servidor: `tracereports pr-comment --from <grabación | JUnit XML | allure-results>` arma el
+  resumen igual (sin comparación ni link, salvo `--link`).
+- Fuera de un PR imprime el comentario; en GitHub Actions lo agrega también al resumen del job.
+  `--dry-run` solo lo imprime. Idioma: `--lang es|en` (default: el de Ajustes).
+
 ## Levantar el servidor dentro del pipeline
 
 Si no tienes un servidor permanente, puedes levantarlo como servicio del job. Los reportes se

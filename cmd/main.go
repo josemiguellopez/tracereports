@@ -58,13 +58,16 @@ func main() {
 			err = runReport(os.Args[2:])
 		case "push":
 			err = runPush(os.Args[2:])
+		case "pr-comment":
+			err = runPRComment(os.Args[2:])
 		case "-h", "-help", "--help", "help":
 			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
 				"       tracereports report ...   build a static HTML report without a server\n" +
-				"       tracereports push ...     upload a recording made without a server")
+				"       tracereports push ...     upload a recording made without a server\n" +
+				"       tracereports pr-comment   comment the run summary on the pull request")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {

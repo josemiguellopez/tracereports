@@ -30,6 +30,7 @@ internal/locator     selector suggestions when a locator breaks
 internal/live        live events (Server-Sent Events)
 internal/notify      Teams and Slack notifications
 internal/tracker     tickets in GitHub Issues, Jira and Azure DevOps
+internal/prcomment   pull/merge request comment (tracereports pr-comment)
 internal/junit       JUnit XML parser for POST /import/junit
 internal/allure      allure-results parser for POST /import/allure
 internal/offline     replays recordings made without a server (tracereports report / push)

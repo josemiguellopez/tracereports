@@ -71,33 +71,12 @@ func runReport(args []string) error {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 
-	tmp, err := os.MkdirTemp("", "tracereports-report-")
+	ls, err := newLocalServer(*useAI)
 	if err != nil {
 		return err
 	}
-	defer os.RemoveAll(tmp)
-	store, err := db.Open(filepath.Join(tmp, "report.db"))
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	shots := filepath.Join(tmp, "screenshots")
-	if err := os.MkdirAll(shots, 0o755); err != nil {
-		return err
-	}
-	webRoot, err := fs.Sub(tracereports.WebFS, "web")
-	if err != nil {
-		return err
-	}
-	analyzer := ai.New(store)
-	analyzer.Redact = redact.FromEnv()
-	if !*useAI {
-		_ = analyzer.SetConfig(ai.Config{}) // sin --ai no sale nada a la red
-	} else if !analyzer.Enabled() {
-		return errors.New("--ai needs an AI provider in the environment (AI_PROVIDER and AI_API_KEY, or GEMINI_API_KEY...)")
-	}
-	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact}
-	local := offline.Target{Doer: offline.Handler{Handler: srv.Router()}}
+	defer ls.close()
+	local, analyzer := ls.target, ls.analyzer
 
 	importQuery := url.Values{}
 	for k, v := range map[string]string{"name": *name, "project": *project, "branch": *branch, "environment": *environment} {
@@ -154,6 +133,47 @@ func runReport(args []string) error {
 		}
 	}
 	return nil
+}
+
+// localServer is a TraceReports server in memory (temporary SQLite, no network): report and
+// pr-comment --from load their inputs into it with the same code as the real server.
+type localServer struct {
+	target   offline.Target
+	analyzer *ai.Analyzer
+	close    func()
+}
+
+func newLocalServer(useAI bool) (*localServer, error) {
+	tmp, err := os.MkdirTemp("", "tracereports-report-")
+	if err != nil {
+		return nil, err
+	}
+	store, err := db.Open(filepath.Join(tmp, "report.db"))
+	if err != nil {
+		os.RemoveAll(tmp)
+		return nil, err
+	}
+	cleanup := func() { store.Close(); os.RemoveAll(tmp) }
+	shots := filepath.Join(tmp, "screenshots")
+	if err := os.MkdirAll(shots, 0o755); err != nil {
+		cleanup()
+		return nil, err
+	}
+	webRoot, err := fs.Sub(tracereports.WebFS, "web")
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	analyzer := ai.New(store)
+	analyzer.Redact = redact.FromEnv()
+	if !useAI {
+		_ = analyzer.SetConfig(ai.Config{}) // sin --ai no sale nada a la red
+	} else if !analyzer.Enabled() {
+		cleanup()
+		return nil, errors.New("--ai needs an AI provider in the environment (AI_PROVIDER and AI_API_KEY, or GEMINI_API_KEY...)")
+	}
+	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact}
+	return &localServer{target: offline.Target{Doer: offline.Handler{Handler: srv.Router()}}, analyzer: analyzer, close: cleanup}, nil
 }
 
 // loadInput replays a recording or imports JUnit XML into the in-process server.
