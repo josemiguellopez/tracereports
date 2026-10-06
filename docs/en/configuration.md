@@ -186,6 +186,33 @@ When each run is closed (`PATCH /runs/{id}/finish`), the server sends:
 2. **Add New Webhook to Workspace**, pick the channel and copy the URL.
 3. Set it in `SLACK_WEBHOOK_URL`.
 
+## Tickets in GitHub, Jira or Azure DevOps
+
+From **Escalate**, the **Ticket** button opens an issue with the summary you are looking at (what
+happened, likely cause, evidence and next steps), the error, the backend calls that failed and the
+report link (with `PUBLIC_URL`). In Jira and Azure DevOps the failure screenshot is attached; in
+GitHub, it is behind the link.
+
+**No duplicates:** if the same test already has a ticket in that tracker (even from another run,
+say last night's), it shows that one and offers *Create another one*. Tokens stay on the server:
+the interface only learns which trackers exist.
+
+| Variable | What it is |
+| --- | --- |
+| `TRACEREPORTS_GITHUB_REPO` / `TRACEREPORTS_GITHUB_TOKEN` | `owner/repo` and a token allowed to write issues |
+| `TRACEREPORTS_GITHUB_API` | GitHub Enterprise API (default `https://api.github.com`) |
+| `TRACEREPORTS_GITHUB_LABELS` | Comma-separated labels (default `bug`) |
+| `TRACEREPORTS_JIRA_URL` / `TRACEREPORTS_JIRA_PROJECT` | `https://yourcompany.atlassian.net` and the project key (`SHOP`) |
+| `TRACEREPORTS_JIRA_TOKEN` + `TRACEREPORTS_JIRA_EMAIL` | Jira Cloud: API token and its owner's email. Jira Server/Data Center: just the personal token (no email) |
+| `TRACEREPORTS_JIRA_ISSUE_TYPE` / `TRACEREPORTS_JIRA_LABELS` | Type (default `Bug`) and labels (default `tracereports`) |
+| `TRACEREPORTS_AZURE_URL` / `TRACEREPORTS_AZURE_PROJECT` | `https://dev.azure.com/yourorg` and the project |
+| `TRACEREPORTS_AZURE_TOKEN` | Personal access token with *Work Items: Read & write* |
+| `TRACEREPORTS_AZURE_TYPE` / `TRACEREPORTS_AZURE_TAGS` | Work item type (default `Bug`: the summary goes in *Repro Steps*) and tags |
+
+A tracker shows up in the interface only when all its required variables are set. Through the API:
+`POST /api/v1/ui/tickets` with `{run_id, test_id, provider, audience, lang, force}` and
+`GET /api/v1/runs/{id}/tickets` (see the [API](api.md)).
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:

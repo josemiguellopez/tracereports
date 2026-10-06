@@ -17,6 +17,25 @@ if (!process.env.E2E_DATA_DIR) {
 }
 process.env.E2E_BASE_URL = `http://localhost:${PORT}`;
 
+// "GitHub" falso para los tickets: guarda lo que recibe y lo devuelve en GET /__requests. Solo lo
+// levanta el proceso principal (los workers heredan E2E_FAKE_GITHUB y no lo repiten).
+const FAKE_PORT = process.env.E2E_FAKE_PORT || "8198";
+if (!process.env.E2E_FAKE_GITHUB) {
+	process.env.E2E_FAKE_GITHUB = `http://127.0.0.1:${FAKE_PORT}`;
+	const requests = [];
+	require("node:http").createServer((req, res) => {
+		let body = "";
+		req.on("data", (c) => { body += c; });
+		req.on("end", () => {
+			res.setHeader("Content-Type", "application/json");
+			if (req.url === "/__requests") return res.end(JSON.stringify(requests));
+			requests.push({ method: req.method, url: req.url, auth: req.headers.authorization, body });
+			res.statusCode = 201;
+			res.end(JSON.stringify({ number: requests.length, html_url: `https://github.example/acme/shop/issues/${requests.length}` }));
+		});
+	}).listen(Number(FAKE_PORT), "127.0.0.1").unref();
+}
+
 module.exports = defineConfig({
 	testDir: ".",
 	timeout: 30_000,
@@ -52,6 +71,9 @@ module.exports = defineConfig({
 			TRACEREPORTS_TOKEN: "", TRACEREPORTS_UI_USER: "", TRACEREPORTS_UI_PASSWORD: "",
 			AI_PROVIDER: "", AI_API_KEY: "", GEMINI_API_KEY: "", ANTHROPIC_API_KEY: "", OPENAI_API_KEY: "", OLLAMA_HOST: "",
 			TEAMS_WEBHOOK_URL: "", SLACK_WEBHOOK_URL: "",
+			// tickets: GitHub falso; Jira y Azure apagados
+			TRACEREPORTS_GITHUB_REPO: "acme/shop", TRACEREPORTS_GITHUB_TOKEN: "e2e-token", TRACEREPORTS_GITHUB_API: process.env.E2E_FAKE_GITHUB,
+			TRACEREPORTS_JIRA_URL: "", TRACEREPORTS_AZURE_URL: "", PUBLIC_URL: process.env.E2E_BASE_URL,
 		},
 	},
 });

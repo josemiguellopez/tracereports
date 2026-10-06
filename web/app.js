@@ -1753,6 +1753,25 @@
 		}
 	}
 
+	/** Crea (o encuentra) el ticket del fallo en un tracker, con el resumen que se está viendo. */
+	async function escTicket(provider, btn, force = false) {
+		const e = S.esc.data;
+		if (!e) return;
+		btn.disabled = true;
+		try {
+			const r = await apiSend("POST", "/api/v1/ui/tickets", { run_id: e.run_id, test_id: e.test_id, audience: e.audience, lang: e.lang,
+				provider, no_ai: e.source !== "ai", force });
+			const k = r.ticket;
+			S.esc.msg = r.existing
+				? { ok: true, text: tr("Este fallo ya tiene un ticket, así que no se creó otro:"), link: k.url, key: k.key, force: provider }
+				: { ok: true, text: tr("Ticket creado:"), link: k.url, key: k.key };
+		} catch (err) {
+			S.esc.msg = { ok: false, text: err.message };
+		}
+		btn.disabled = false;
+		renderEscalate();
+	}
+
 	function renderEscalate() {
 		const el = $("#view-escalate");
 		const r = S.run, st = S.esc;
@@ -1775,6 +1794,9 @@
 				${cfg.teams || cfg.slack ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Enviar")}</span>
 					${cfg.teams ? `<button class="cf-btn cf-btn-sm cf-btn-primary" data-esc-share="teams" data-tip="${tr("Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)")}">${icon("i-megaphone")}Teams</button>` : ""}
 					${cfg.slack ? `<button class="cf-btn cf-btn-sm cf-btn-primary" data-esc-share="slack-send" data-tip="${tr("Publica el resumen en el canal de Slack configurado (SLACK_WEBHOOK_URL)")}">${icon("i-megaphone")}Slack</button>` : ""}
+				</div>` : ""}
+				${cfg.trackers?.length ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Ticket")}</span>
+					${cfg.trackers.map((k) => `<button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(k.id)}" data-tip="${tr("Crea un ticket en {t} con este resumen, la captura y el link al reporte. Si el mismo test ya tiene uno, te muestra ese en vez de duplicarlo.", { t: k.name })}">${icon("i-bug")}${esc(k.name)}</button>`).join("")}
 				</div>` : ""}
 			</div>` : "";
 		const preview = !canAct()
@@ -1812,7 +1834,7 @@
 						: tr("Sin IA configurada se arma con una plantilla a partir de la evidencia. Configura un proveedor en Ajustes para un resumen redactado.")}</p>` : ""}
 					${failed.length ? "" : `<p class="field-help">${tr("Esta ejecución no tiene fallos: el resumen será del resultado general.")}</p>`}
 				</aside>
-				<div class="esc-preview">${st.msg ? `<p class="set-msg ${st.msg.ok ? "ok" : "err"}" role="status">${icon(st.msg.ok ? "i-info" : "i-fail")}<span>${esc(st.msg.text)}</span></p>` : ""}${preview}</div>
+				<div class="esc-preview">${st.msg ? `<p class="set-msg ${st.msg.ok ? "ok" : "err"}" role="status">${icon(st.msg.ok ? "i-info" : "i-fail")}<span>${esc(st.msg.text)}${st.msg.link ? ` <a href="${esc(st.msg.link)}" target="_blank" rel="noopener" data-no-i18n>${esc(st.msg.key || st.msg.link)} ↗</a>` : ""}${st.msg.force ? ` <button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(st.msg.force)}" data-force="1">${tr("Crear otro igual")}</button>` : ""}</span></p>` : ""}${preview}</div>
 			</div>`);
 	}
 
@@ -1854,6 +1876,8 @@
 			if (e.target.closest("[data-esc-gen]")) { generateEscalation(!!S.esc.data); return; }
 			const sh = e.target.closest("[data-esc-share]");
 			if (sh) escShare(sh.dataset.escShare, sh);
+			const tk = e.target.closest("[data-esc-ticket]");
+			if (tk) escTicket(tk.dataset.escTicket, tk, tk.dataset.force === "1");
 		});
 	}
 

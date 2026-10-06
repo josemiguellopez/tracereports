@@ -204,6 +204,8 @@ o, en modo local, el mismo equipo del servidor.
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnostica los fallos sin diagnóstico (o todos con `all`) y el resumen de la ejecución |
 | POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Publica el resumen en `teams` o `slack`. Con `PUBLIC_URL` incluye el link y la captura |
+| POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Crea un ticket en `github`, `jira` o `azure` con el resumen (default para `dev`). `201 {ticket}`; si el mismo fallo ya tiene uno, `200 {ticket, existing: true}` (salvo `force`). Ver [Configuración](configuration.md#tickets-en-github-jira-o-azure-devops) |
+| GET | `/runs/{run_id}/tickets` | — | Tickets de los fallos de la ejecución (también los abiertos desde ejecuciones anteriores del mismo test) |
 
 Lecturas relacionadas: `GET /runs/{run_id}/recurrence` (en cuántas ejecuciones anteriores de la
 misma suite apareció cada incidente) y `GET /runs/{run_id}/escalation?test=&audience=&lang=` (el

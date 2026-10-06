@@ -26,6 +26,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/redact"
+	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
 const (
@@ -55,6 +56,8 @@ type Server struct {
 	Redact *redact.Policy
 	// Hosts accepted on requests without credentials (DNS rebinding); nil checks nothing.
 	Hosts *HostPolicy
+	// Trackers where a failure can be turned into a ticket (GitHub, Jira, Azure DevOps).
+	Trackers []tracker.Provider
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -86,12 +89,14 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/escalate", s.escalate)
 		r.Post("/ui/escalate/send", s.sendEscalation)
+		r.Post("/ui/tickets", s.createTicket)
 		r.Get("/stream", s.stream)
 
 		r.Get("/runs", s.listRuns)
 		r.Post("/runs", s.createRun)
 		r.Get("/runs/{run_id}", s.getRun)
 		r.Get("/runs/{run_id}/export", s.exportRun)
+		r.Get("/runs/{run_id}/tickets", s.listTickets)
 		r.Get("/runs/{run_id}/compare", s.compareRun)
 		r.Get("/runs/{run_id}/baselines", s.runBaselines)
 		r.Get("/runs/{run_id}/endpoints", s.runEndpoints)
@@ -133,7 +138,11 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		teams, slack = s.Notify.Channels()
 		publicURL = s.Notify.PublicURL() != ""
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(),
+	trackers := []map[string]string{} // solo cuáles hay: los tokens nunca salen del servidor
+	for _, p := range s.Trackers {
+		trackers = append(trackers, map[string]string{"id": p.ID(), "name": p.Name()})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(), "trackers": trackers,
 		"ai_provider": s.AI.Provider(), "language": saved[setLanguage],
 		// acciones desde la UI (re-analizar, escalar, enviar) y canales disponibles
 		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL})

@@ -217,6 +217,24 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, e)
 }
 
+// escalationFor returns the summary to share: the cached AI one, or a new one (the template is
+// immediate; with AI configured and noAI false, the AI writes it).
+func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool) (*ai.Escalation, error) {
+	if !noAI {
+		if e, err := s.cachedEscalation(ref); err != nil || e != nil {
+			return e, err
+		}
+	}
+	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, ref.RunID, ref.TestID)
+	if err != nil {
+		return nil, err
+	}
+	if noAI {
+		return ai.EscalateTemplate(facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang), nil
+	}
+	return s.AI.Escalate(ctx, facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang), nil
+}
+
 var escalationLabels = map[string]map[string]string{
 	"es": {"critical": "Severidad crítica", "high": "Severidad alta", "medium": "Severidad media", "low": "Severidad baja",
 		"what": "Qué pasó", "impact": "Impacto", "cause": "Causa probable", "evidence": "Evidencia", "next": "Próximos pasos",
@@ -243,24 +261,9 @@ func (s *Server) sendEscalation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	var e *ai.Escalation
-	var err error
-	if !in.NoAI {
-		if e, err = s.cachedEscalation(in.escalationRef); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
-	if e == nil { // sin IA no hay caché: se arma de nuevo (la plantilla es inmediata)
-		facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, in.RunID, in.TestID)
-		if respondErr(w, err, "run or test") {
-			return
-		}
-		if in.NoAI {
-			e = ai.EscalateTemplate(facts, in.RunID, in.TestID, in.Audience, in.Lang)
-		} else {
-			e = s.AI.Escalate(r.Context(), facts, in.RunID, in.TestID, in.Audience, in.Lang)
-		}
+	e, err := s.escalationFor(r.Context(), in.escalationRef, in.NoAI)
+	if respondErr(w, err, "run or test") {
+		return
 	}
 	l := escalationLabels[in.Lang]
 	msg := &notify.Escalation{Title: e.Title, Severity: l[e.Severity], Critical: e.Severity == "critical" || e.Severity == "high",

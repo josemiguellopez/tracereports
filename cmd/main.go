@@ -46,6 +46,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/redact"
+	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
 func main() {
@@ -155,6 +156,8 @@ func run() error {
 		Redact:         redaction,
 		// sin login, solo se atiende a Host locales o permitidos (protección contra DNS rebinding)
 		Hosts: api.NewHostPolicy(env.Get("ALLOWED_HOSTS"), os.Getenv("PUBLIC_URL")),
+		// GitHub, Jira o Azure DevOps para crear tickets desde un fallo (TRACEREPORTS_GITHUB_* ...)
+		Trackers: tracker.FromEnv(),
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())
@@ -162,6 +165,9 @@ func run() error {
 	// lo guardado desde la pantalla de Ajustes manda sobre el .env
 	if err := apiServer.LoadSettings(); err != nil {
 		return err
+	}
+	for _, t := range apiServer.Trackers {
+		slog.Info("tickets enabled", "tracker", t.Name())
 	}
 	if analyzer.Enabled() {
 		slog.Info("AI triage enabled", "provider", analyzer.Provider(), "model", analyzer.Model())
