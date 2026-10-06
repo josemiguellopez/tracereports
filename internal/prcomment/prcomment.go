@@ -78,12 +78,12 @@ type Comparison struct {
 var labels = map[string]map[string]string{
 	"es": {"passed": "Pasaron", "failed": "Fallaron", "skipped": "Saltados", "duration": "Duración", "allok": "todo en verde",
 		"failing": "{f} de {t} fallaron", "incomplete": "ejecución incompleta", "diagnosis": "Diagnóstico", "incidents": "Incidentes",
-		"tests": "tests", "cause": "Causa probable", "action": "Revisar", "new": "Fallos nuevos frente a #{b}", "fixed": "Arreglados",
+		"test": "test", "tests": "tests", "cause": "Causa probable", "action": "Revisar", "new": "Fallos nuevos frente a #{b}", "fixed": "Arreglados",
 		"flaky": "Flaky (pasan y fallan sin cambios)", "failures": "Fallos", "more": "y {n} más", "report": "Ver el reporte",
 		"retry": "pasó tras reintento", "footer": "Comentario de TraceReports: se actualiza en cada push."},
 	"en": {"passed": "Passed", "failed": "Failed", "skipped": "Skipped", "duration": "Duration", "allok": "all green",
 		"failing": "{f} of {t} failed", "incomplete": "incomplete run", "diagnosis": "Diagnosis", "incidents": "Incidents",
-		"tests": "tests", "cause": "Likely cause", "action": "Check", "new": "New failures since #{b}", "fixed": "Fixed",
+		"test": "test", "tests": "tests", "cause": "Likely cause", "action": "Check", "new": "New failures since #{b}", "fixed": "Fixed",
 		"flaky": "Flaky (pass and fail with no change)", "failures": "Failures", "more": "and {n} more", "report": "Open the report",
 		"retry": "passed on retry", "footer": "TraceReports comment: updated on every push."},
 }
@@ -131,7 +131,11 @@ func Markdown(r *Run, cmp *Comparison, lang, link string) string {
 					fmt.Fprintf(&b, "- _%s_\n", strings.ReplaceAll(l["more"], "{n}", strconv.Itoa(len(s.Incidents)-3)))
 					break
 				}
-				fmt.Fprintf(&b, "- **%s** (%d %s)", md(inc.Title), len(inc.TestNames), l["tests"])
+				unit := l["tests"]
+				if len(inc.TestNames) == 1 {
+					unit = l["test"]
+				}
+				fmt.Fprintf(&b, "- **%s** (%d %s)", md(inc.Title), len(inc.TestNames), unit)
 				if inc.Cause != "" {
 					fmt.Fprintf(&b, " — %s: %s", l["cause"], md(inc.Cause))
 				}

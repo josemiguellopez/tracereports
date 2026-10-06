@@ -43,7 +43,8 @@ func TestMarkdownWithComparison(t *testing.T) {
 		"| 36 | 3 | 1 | 2m5s |",
 		"**Diagnóstico:** POST /auth/login respondió 500 @​team", // sin mencionar a nadie
 		"- **Login 500** (2 tests) — Causa probable: auth sin conexiones · Revisar: pool de BD",
-		"- _y 1 más_", // 4 incidentes: se muestran 3
+		"- **b** (1 test)", // singular
+		"- _y 1 más_",      // 4 incidentes: se muestran 3
 		"**Fallos nuevos frente a #7**\n- `test_pay`",
 		"**Arreglados**\n- `test_old'x`",
 		"- `test_search`", "- `test_coupon (pasó tras reintento)`",
