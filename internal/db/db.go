@@ -614,6 +614,19 @@ func (s *Store) SetAttempts(testID int64, attempts int) error {
 	return err
 }
 
+// SetTestTimes overrides when a finished test started and ended (Unix ms): imported reports
+// (JUnit) carry the real times, not the moment they were uploaded.
+func (s *Store) SetTestTimes(testID, startedAt, endedAt int64) error {
+	_, err := s.db.Exec(`UPDATE tests SET started_at=?, ended_at=? WHERE id=?`, startedAt, endedAt, testID)
+	return err
+}
+
+// SetRunTimes is SetTestTimes for a run.
+func (s *Store) SetRunTimes(runID, startedAt, endedAt int64) error {
+	_, err := s.db.Exec(`UPDATE runs SET started_at=?, ended_at=? WHERE id=?`, startedAt, endedAt, runID)
+	return err
+}
+
 // FinishTest closes a test. If status is empty it is derived from the logged steps. A result
 // that arrives after its run was closed (spool recovery) is accepted and the run aggregate is
 // recomputed in the same transaction: a closed run never stays PASS with a failed test.

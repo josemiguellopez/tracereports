@@ -97,6 +97,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/{run_id}/endpoints", s.runEndpoints)
 		r.Patch("/runs/{run_id}/finish", s.finishRun)
 		r.Post("/runs/{run_id}/tests", s.createTest)
+		r.Post("/import/junit", s.importJUnit)
 
 		r.Get("/tests/{test_id}", s.getTest)
 		r.Post("/tests/{test_id}/logs", s.addLog)
@@ -200,8 +201,14 @@ func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
 	if respondErr(w, err, "run") {
 		return
 	}
-	// Diagnóstico de la ejecución completa y, al terminar, aviso a Teams/Slack. Solo en el primer
-	// cierre: un cierre repetido (reintento, spool) no vuelve a gastar IA ni a notificar.
+	s.runClosed(id, first)
+	writeJSON(w, http.StatusOK, run)
+}
+
+// runClosed starts what follows closing a run: the diagnosis of the whole run and then the
+// Teams/Slack notice. Only on the first close: a repeated close (retry, spool) does not spend AI
+// or notify again.
+func (s *Server) runClosed(id int64, first bool) {
 	if first {
 		s.AI.AnalyzeRunAsync(id, func() {
 			if s.Notify != nil {
@@ -210,7 +217,6 @@ func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 	s.publish("run", id, 0, map[string]string{"action": "finished"})
-	writeJSON(w, http.StatusOK, run)
 }
 
 // ---------- Handlers: tests ----------

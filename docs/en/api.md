@@ -95,6 +95,35 @@ suggests replacement selectors and the AI picks the most likely one. The clients
 }
 ```
 
+### Importing a JUnit XML report
+
+`POST /import/junit` creates a finished run from one or more JUnit XML reports, the format almost
+every runner writes (pytest `--junitxml`, Maven Surefire, Gradle, Playwright, Jest, Cypress,
+gotestsum, .NET…). No client and no change to the tests are needed.
+
+```bash
+# one file as the body
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/xml" --data-binary @report.xml \
+  "$URL/api/v1/import/junit?name=Nightly&project=shop&branch=main&commit=$SHA"
+# several files: one "file" field per report
+curl -H "Authorization: Bearer $TOKEN" -F file=@target/surefire-reports/TEST-A.xml -F file=@TEST-B.xml \
+  "$URL/api/v1/import/junit?name=Nightly"
+```
+
+- Query (all optional): `name` (defaults to the suite name when there is only one, or `JUnit`),
+  `environment`, `project`, `branch`, `commit`, `framework` (defaults to `junit`).
+- Response `201 {run_id, status, tests, passed, failed, skipped, report}`; `report` is the link to
+  the report (absolute when `PUBLIC_URL` is set).
+- Each `<testcase>` becomes a test identified by `classname#name`: importing the same report every
+  night builds its history, flaky detection and comparison. `<failure>` and `<error>` are `FAIL`,
+  `<skipped>` is `SKIP`; Surefire reruns (`<flakyFailure>`, `<rerunFailure>`…) count as attempts.
+  `<system-out>` and `<system-err>` become steps (up to 16 KB each).
+- The report's times and durations are used (`timestamp` and `time`); without a `timestamp`, the
+  run ends at the moment of the import.
+- It goes through the same masking as everything else, and failures are diagnosed by the AI and
+  notified like in a normal run. Limit: 50 MB per import. It brings no screenshots or network:
+  the clients add those.
+
 ## Reads (used by the UI)
 
 | Method | Path | Description |

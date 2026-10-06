@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" name="com.acme.LoginTest" time="4.5" tests="3" errors="0" skipped="0" failures="1">
+  <properties><property name="java.version" value="17"/></properties>
+  <testcase name="loginOk" classname="com.acme.LoginTest" time="1.5"/>
+  <testcase name="loginFlaky" classname="com.acme.LoginTest" time="1,000.25">
+    <flakyFailure message="expected: &lt;200&gt; but was: &lt;503&gt;" type="org.opentest4j.AssertionFailedError">
+      <stackTrace>org.opentest4j.AssertionFailedError: expected 200</stackTrace>
+    </flakyFailure>
+  </testcase>
+  <testcase name="loginBroken" classname="com.acme.LoginTest" time="2">
+    <failure message="expected: &lt;200&gt; but was: &lt;500&gt;" type="org.opentest4j.AssertionFailedError">org.opentest4j.AssertionFailedError: expected: &lt;200&gt; but was: &lt;500&gt;
+	at com.acme.LoginTest.loginBroken(LoginTest.java:30)</failure>
+    <rerunFailure message="again" type="org.opentest4j.AssertionFailedError"/>
+    <rerunFailure message="again" type="org.opentest4j.AssertionFailedError"/>
+  </testcase>
+</testsuite>

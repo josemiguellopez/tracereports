@@ -64,6 +64,25 @@ TRACEREPORTS_URL=... TRACEREPORTS_TOKEN=... go test ./e2e/...
 The [`examples/playwright-go`](../../examples/playwright-go) example prints the report link at the
 end. For the ZIP: `curl -H "Authorization: Bearer $TRACEREPORTS_TOKEN" -o report.zip $TRACEREPORTS_URL/api/v1/runs/<id>/export`.
 
+## Any framework: importing JUnit XML
+
+If your runner has no client (TestNG, Cucumber, Cypress, .NET, Jest…) or you want to try TraceReports
+without touching the tests, upload the JUnit XML your pipeline already writes. At the end of the
+job, even when tests failed:
+
+```yaml
+- name: Upload results to TraceReports
+  if: always()
+  run: |
+    curl -fsS -H "Authorization: Bearer $TRACEREPORTS_TOKEN" -H "Content-Type: application/xml" \
+      --data-binary @report.xml \
+      "$TRACEREPORTS_URL/api/v1/import/junit?name=E2E%20main&project=$GITHUB_REPOSITORY&branch=$GITHUB_REF_NAME&commit=$GITHUB_SHA"
+```
+
+With several files (Maven, Gradle), one `-F file=@…` per report. You get history, flaky detection,
+comparison, error grouping, AI diagnosis and the Teams/Slack notice; screenshots, network and DOM
+come from the clients. Details in the [API](api.md#importing-a-junit-xml-report).
+
 ## Starting the server inside the pipeline
 
 If you don't have a permanent server, you can start it as a job service. Reports are lost when the
