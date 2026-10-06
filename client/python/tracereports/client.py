@@ -11,7 +11,11 @@ Zero dependencies (stdlib only). Designed to never break or slow down a test sui
   for a while instead of waiting their timeout in every test;
 - ``end_run()`` waits for the queue (``flush_timeout``) and, if something could not be sent,
   saves it to ``spool_dir`` (``$TRACEREPORTS_SPOOL_DIR``) to resend later with
-  ``python -m tracereports.resend <dir>``, or reports it as lost in ``cr.delivery``.
+  ``python -m tracereports.resend <dir>``, or reports it as lost in ``cr.delivery``;
+- if the run cannot be created (no server, unreachable, wrong token), everything is recorded in
+  ``offline_dir`` instead (``$TRACEREPORTS_OFFLINE_DIR``, default ``./tracereports-offline``):
+  ``tracereports report <dir>`` turns it into a static HTML report and ``tracereports push <dir>``
+  uploads it later. ``offline="always"`` records without trying a server, ``"off"`` disables it.
 
 Quick start::
 
@@ -48,6 +52,8 @@ import json
 import logging
 import mimetypes
 import os
+import shutil
+import subprocess
 import threading
 import time
 import traceback
@@ -58,6 +64,7 @@ from typing import Any, Callable, Iterator, Optional, Union
 
 from ._env import env
 from .context import detect_branch, detect_commit
+from .offline import Recorder, new_session_dir
 from .transport import Sender
 
 __all__ = ["TraceReports"]
@@ -93,6 +100,8 @@ class TraceReports:
         flush_timeout: Optional[float] = None,
         max_queue_items: int = 5000,
         max_queue_mb: int = 64,
+        offline_dir: Optional[str] = None,
+        offline: Optional[str] = None,
     ) -> None:
         """
         :param base_url: server URL. Defaults to $TRACEREPORTS_URL or http://localhost:8080.
@@ -108,6 +117,10 @@ class TraceReports:
         :param flush_timeout: max seconds end_run waits for the queue (default $TRACEREPORTS_FLUSH_TIMEOUT or 30).
         :param max_queue_items / max_queue_mb: queue limits; when full, new events are dropped
             (counted in ``delivery["dropped"]``) and the already queued ones are kept.
+        :param offline_dir: where to record when there is no server (default $TRACEREPORTS_OFFLINE_DIR;
+            without it, a new folder per session inside ./tracereports-offline).
+        :param offline: "auto" (default, $TRACEREPORTS_OFFLINE): record only if the run cannot be
+            created; "always": record without trying a server; "off": never record.
         """
         self.base_url = (base_url or env("URL") or "http://localhost:8080").rstrip("/")
         self.timeout = timeout
@@ -128,6 +141,59 @@ class TraceReports:
         self._local = threading.local()  # current test id per thread
         self._expect: "dict[int, list[dict]]" = {}  # test_id -> respuestas esperadas
         self._lock = threading.Lock()
+
+        self.offline_mode = (offline or env("OFFLINE", "auto")).strip().lower()
+        if self.offline_mode in ("1", "true", "yes", "on"):
+            self.offline_mode = "always"
+        elif self.offline_mode in ("0", "false", "no"):
+            self.offline_mode = "off"
+        explicit = offline_dir or env("OFFLINE_DIR") or ""
+        self._offline_base = explicit or "tracereports-offline"
+        self._offline_explicit = bool(explicit)
+        self.offline_dir: Optional[str] = None  # carpeta donde se está grabando (None: se envía al servidor)
+        self.offline_report: Optional[str] = None  # index.html generado al cerrar, si el binario está
+        if self.enabled and self.offline_mode == "always":
+            self._go_offline("offline mode")
+
+    # ------------------------------------------------------------- offline
+
+    @property
+    def recording(self) -> bool:
+        """True when the evidence is recorded locally instead of sent (no server)."""
+        return self.offline_dir is not None
+
+    def _go_offline(self, reason: str) -> None:
+        directory = self._offline_base if self._offline_explicit else new_session_dir(self._offline_base)
+        try:
+            self._sender = Recorder(directory)
+        except OSError as err:
+            log.warning("tracereports: could not record locally in %s: %s", directory, err)
+            return
+        self.offline_dir = directory
+        if reason != "offline mode":
+            log.warning("tracereports: %s; recording the evidence in %s (build the report with "
+                        "`tracereports report %s`, or upload it later with `tracereports push %s`)",
+                        reason, directory, directory, directory)
+
+    def _offline_finish(self) -> None:
+        """Closes the recording and, if the tracereports binary is installed, builds the report."""
+        if not isinstance(self._sender, Recorder):
+            return
+        self._sender.close()
+        binary = env("BIN") or shutil.which("tracereports")
+        if not binary or env("OFFLINE_REPORT", "1") in ("0", "false", "no"):
+            log.warning("tracereports: evidence recorded in %s. Report without a server: "
+                        "`tracereports report %s -o report`; upload it: `tracereports push %s`",
+                        self.offline_dir, self.offline_dir, self.offline_dir)
+            return
+        out = os.path.join(self.offline_dir, "report")
+        try:
+            subprocess.run([binary, "report", "-o", out, self.offline_dir], check=True, timeout=300,
+                           stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            self.offline_report = os.path.join(out, "index.html")
+            log.warning("tracereports: no server; static report in %s", self.offline_report)
+        except (OSError, subprocess.SubprocessError) as err:
+            log.warning("tracereports: could not build the report (%s); run `tracereports report %s`", err, self.offline_dir)
 
     # -------------------------------------------------------------- delivery
 
@@ -179,6 +245,11 @@ class TraceReports:
             if resent:
                 log.info("tracereports: reenviando %d eventos guardados de una ejecución anterior", resent)
         res = self._request("POST", "/api/v1/runs", payload)
+        if not res and self.enabled and self.offline_mode == "auto" and not self.recording:
+            # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
+            self._go_offline(f"could not create the run at {self.base_url} (server down or wrong token)")
+            if self.recording:
+                res = self._request("POST", "/api/v1/runs", payload)
         self.run_id = res.get("run_id") if res else None
         self.run_created = bool(self.run_id)
         if self.enabled and not self.run_id:
@@ -189,9 +260,14 @@ class TraceReports:
             )
         return self.run_id
 
-    def join_run(self, run_id: Optional[int]) -> Optional[int]:
+    def join_run(self, run_id: Optional[int], offline_dir: Optional[str] = None) -> Optional[int]:
         """Report into a run created elsewhere (pytest-xdist controller, CI shards with
-        $TRACEREPORTS_RUN_ID). The client that created it is the one that closes it."""
+        $TRACEREPORTS_RUN_ID). The client that created it is the one that closes it. A negative
+        run_id is a run being recorded without a server: pass the same ``offline_dir``."""
+        if run_id and int(run_id) < 0 and self.enabled and not self.recording:
+            if offline_dir:
+                self._offline_base, self._offline_explicit = offline_dir, True
+            self._go_offline("offline mode")
         self.run_id = int(run_id) if run_id else None
         self.run_created = False
         return self.run_id
@@ -213,6 +289,8 @@ class TraceReports:
             # el servidor no respondió: el cierre también va al spool (se reenvía con lo demás)
             self._sender.enqueue("PATCH", f"/api/v1/runs/{rid}/finish", json.dumps(payload).encode(), "application/json", self.timeout)
             self._sender.drain_to_spool()
+        if self.recording:
+            self._offline_finish()
         return res
 
     def download_report(self, dest_dir: str = ".", run_id: Optional[int] = None, timeout: float = 60.0) -> Optional[str]:
@@ -221,6 +299,8 @@ class TraceReports:
         e.g. to attach it to an email from CI. Call after end_run(). Returns the ZIP path or None.
         """
         rid = run_id or self.run_id
+        if self.recording:
+            return self._offline_zip(dest_dir)
         if not rid or not self.enabled or self._sender.server_down():
             return None
         req = urllib.request.Request(f"{self.base_url}/api/v1/runs/{rid}/export", headers=self._headers())
@@ -235,6 +315,22 @@ class TraceReports:
             return path
         except (urllib.error.URLError, OSError) as err:
             log.warning("tracereports: could not download report for run %s: %s", rid, err)
+            return None
+
+    def _offline_zip(self, dest_dir: str) -> Optional[str]:
+        """download_report without a server: the binary builds the ZIP from the recording."""
+        binary = env("BIN") or shutil.which("tracereports")
+        if not binary:
+            log.warning("tracereports: no server and no tracereports binary: run `tracereports report %s --zip report.zip`", self.offline_dir)
+            return None
+        os.makedirs(dest_dir, exist_ok=True)
+        path = os.path.join(dest_dir, "tracereports_" + os.path.basename(os.path.normpath(self.offline_dir)) + ".zip")
+        try:
+            subprocess.run([binary, "report", "-o", os.path.join(self.offline_dir, "report"), "--zip", path, self.offline_dir],
+                           check=True, timeout=300, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            return path
+        except (OSError, subprocess.SubprocessError) as err:
+            log.warning("tracereports: could not build the report ZIP: %s", err)
             return None
 
     # ----------------------------------------------------------------- tests

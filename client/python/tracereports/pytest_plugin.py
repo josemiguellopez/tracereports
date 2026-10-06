@@ -35,6 +35,10 @@ Configuración por variables de entorno equivalentes: TRACEREPORTS_URL, TRACEREP
 TRACEREPORTS_ENV, TRACEREPORTS_PROJECT, TRACEREPORTS_RUN_ID (unirse a una ejecución ya creada, p. ej. shards de
 CI), TRACEREPORTS_SPOOL_DIR, TRACEREPORTS_STRICT. Con --tracereports-zip DIR el reporte queda además en un ZIP
 (se abre sin servidor ni internet), ideal para adjuntarlo como artefacto del pipeline.
+
+Sin servidor (no responde, o el token es incorrecto) la evidencia no se pierde: se graba en
+./tracereports-offline/<sesión> ($TRACEREPORTS_OFFLINE_DIR) y `tracereports report <carpeta>` arma el reporte
+HTML; `tracereports push <carpeta>` la sube después. --tracereports-offline DIR graba siempre, sin servidor.
 """
 
 import os
@@ -75,6 +79,7 @@ def pytest_addoption(parser):
     group.addoption("--tracereports-no-dom", action="store_true", help="no enviar el snapshot del DOM al fallar")
     group.addoption("--tracereports-zip", default=None, metavar="DIR", help="al terminar, guardar el reporte en ZIP en DIR (útil como artefacto de CI)")
     group.addoption("--tracereports-spool", default=None, metavar="DIR", help="carpeta donde guardar la evidencia que no se pudo enviar (default: $TRACEREPORTS_SPOOL_DIR)")
+    group.addoption("--tracereports-offline", default=None, metavar="DIR", help="grabar la evidencia en DIR sin usar un servidor (reporte con `tracereports report DIR`)")
     group.addoption("--tracereports-strict", action="store_true", help="falla la sesión si parte de la evidencia no llegó al servidor (default: $TRACEREPORTS_STRICT)")
 
 
@@ -105,7 +110,9 @@ def _identity(item):
 class TraceReportsPlugin:
     def __init__(self, config):
         self.config = config
-        self.cr = TraceReports(config.getoption("--tracereports-url"), spool_dir=config.getoption("--tracereports-spool"))
+        offline_dir = config.getoption("--tracereports-offline")
+        self.cr = TraceReports(config.getoption("--tracereports-url"), spool_dir=config.getoption("--tracereports-spool"),
+                               offline_dir=offline_dir, offline="always" if offline_dir else None)
         self.capture_network = not config.getoption("--tracereports-no-network")
         self.capture_screenshots = not config.getoption("--tracereports-no-screenshots")
         self.capture_dom = not config.getoption("--tracereports-no-dom")
@@ -121,7 +128,7 @@ class TraceReportsPlugin:
         if self.cr.run_id:
             return
         if self.workerinput is not None:
-            self.cr.join_run(self.workerinput.get("tracereports_run_id"))
+            self.cr.join_run(self.workerinput.get("tracereports_run_id"), offline_dir=self.workerinput.get("tracereports_offline_dir"))
             return
         shared = env("RUN_ID")
         if shared:
@@ -140,7 +147,9 @@ class TraceReportsPlugin:
     def pytest_configure_node(self, node):
         """xdist (controlador): todos los workers reportan en la misma ejecución."""
         self._ensure_run()
-        node.workerinput["tracereports_run_id"] = self.cr.run_id
+        # como texto: execnet manda los int como 32 bits y un id local (sin servidor) no cabe
+        node.workerinput["tracereports_run_id"] = str(self.cr.run_id) if self.cr.run_id else None
+        node.workerinput["tracereports_offline_dir"] = self.cr.offline_dir
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_testnodedown(self, node, error):
@@ -155,6 +164,8 @@ class TraceReportsPlugin:
             # worker: entrega su evidencia; el controlador cierra la ejecución
             self.cr.flush()
             self.cr._sender.drain_to_spool()
+            if self.cr.recording:
+                self.cr._sender.close()  # el controlador arma el reporte con todos los archivos
             self.config.workeroutput["tracereports_problems"] = self.cr.delivery_problems()
             return
         if not self.cr.run_id:
@@ -171,6 +182,8 @@ class TraceReportsPlugin:
         else:
             self.cr.flush()
             self.cr._sender.drain_to_spool()
+        if self.cr.recording and self.cr.offline_mode == "auto":
+            self.problems.append(f"sin servidor: la evidencia quedó grabada en {self.cr.offline_dir}")
         lost = self.cr.delivery_problems() + self.worker_problems
         if lost:
             self.problems.append(f"{lost} eventos de evidencia no llegaron al servidor")
@@ -185,7 +198,11 @@ class TraceReportsPlugin:
     def pytest_terminal_summary(self, terminalreporter):
         if self.workerinput is not None:
             return
-        if self.cr.run_id:
+        if self.cr.recording:
+            where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir} -o reporte`"
+            terminalreporter.write_line(f"TraceReports (sin servidor): evidencia en {self.cr.offline_dir}; reporte: {where}; "
+                                        f"para subirla: `tracereports push {self.cr.offline_dir}`")
+        elif self.cr.run_id:
             terminalreporter.write_line(f"TraceReports: {self.cr.base_url}/#run={self.cr.run_id}&view=dashboard")
         if getattr(self, "zip_path", None):
             terminalreporter.write_line(f"TraceReports ZIP: {self.zip_path}")

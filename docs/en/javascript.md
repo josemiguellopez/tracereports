@@ -16,6 +16,10 @@ background from a queue with retries and `Idempotency-Key` (a retry never duplic
 server does not answer, methods are no-ops and `cr.delivery` tells you what did not arrive. There is no
 disk queue: whatever could not be sent at the end is counted in `delivery.lost`.
 
+**Without a server**: if the run cannot be created (server down or wrong token), the evidence is not
+lost: it is recorded in `./tracereports-offline/<session>` and `tracereports report <folder>` builds the
+HTML report, or `tracereports push <folder>` uploads it later. See [Without a server](offline.md).
+
 Variables it reads: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACEREPORTS_TOKEN`,
 `TRACEREPORTS_DISABLED=1`, `TRACEREPORTS_PROJECT`, `TRACEREPORTS_RUN_NAME`, `TRACEREPORTS_ENV`, `TRACEREPORTS_RUN_ID` (join an
 existing run, e.g. shards), `TRACEREPORTS_FLUSH_TIMEOUT` (seconds), `TRACEREPORTS_STRICT=1` and the branch and

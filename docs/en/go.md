@@ -23,6 +23,10 @@ a step— and, after 3 connection failures in a row, stops trying for 30 s inste
 timeout in every test. Unlike the Python one, sends are synchronous (no background queue). A nil
 `*tracereports.Test` is safe to use, so if the server does not answer your tests keep running.
 
+**Without a server**: if the run cannot be created (server down or wrong token), the evidence is not
+lost: it is recorded in `./tracereports-offline/<session>` and `tracereports report <folder>` builds the
+HTML report, or `tracereports push <folder>` uploads it later. See [Without a server](offline.md).
+
 It reads `TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`, `TRACEREPORTS_DISABLED`, `TRACEREPORTS_PROJECT`, `TRACEREPORTS_RUN_ID`
 (join an existing run) and the branch and commit from `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT`, the
 most common CI variables or `git`.

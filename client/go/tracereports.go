@@ -10,6 +10,11 @@
 // The run context (project, branch, commit) comes from $TRACEREPORTS_PROJECT and the CI variables
 // or git: history and comparisons only use runs of the same project, environment and branch.
 //
+// If the run cannot be created (no server, unreachable, wrong token) the evidence is recorded in
+// a folder instead ($TRACEREPORTS_OFFLINE_DIR, default ./tracereports-offline/<session>):
+// `tracereports report <dir>` builds a static HTML report and `tracereports push <dir>` uploads
+// it later. Client.Offline = "always" records without a server, "off" disables it.
+//
 //	c := tracereports.New("")                       // $TRACEREPORTS_URL or http://localhost:8080
 //	c.StartRun("Regresión web", "staging")
 //	t, _ := c.StartTestWithKey("login/TestAdmin", "Login", "smoke", "El admin entra al Dashboard")
@@ -65,7 +70,14 @@ type Client struct {
 	RunID   int64
 	// Run context (defaults: $TRACEREPORTS_PROJECT, and branch/commit from the CI variables or git).
 	Project, Branch, Commit string
+	// OfflineDir is where to record without a server (default $TRACEREPORTS_OFFLINE_DIR; empty: a
+	// new folder per session inside ./tracereports-offline). Offline is "auto" (default: record
+	// only if the run cannot be created), "always" or "off" (default $TRACEREPORTS_OFFLINE).
+	OfflineDir, Offline string
+	// OfflineReport is the index.html built when a recording finishes (needs the binary).
+	OfflineReport string
 
+	rec       *recorder
 	mu        sync.Mutex
 	failures  int
 	downUntil time.Time
@@ -84,13 +96,15 @@ func New(baseURL string) *Client {
 	}
 	d := getenv("DISABLED")
 	return &Client{
-		BaseURL:  strings.TrimRight(baseURL, "/"),
-		Token:    getenv("TOKEN"),
-		HTTP:     &http.Client{Timeout: 3 * time.Second},
-		Project:  getenv("PROJECT"),
-		Branch:   firstEnv("TRACEREPORTS_BRANCH", "GITHUB_HEAD_REF", "GITHUB_REF_NAME", "CI_COMMIT_REF_NAME", "BITBUCKET_BRANCH", "BUILD_SOURCEBRANCHNAME", "BRANCH_NAME", "CIRCLE_BRANCH", "GIT_BRANCH"),
-		Commit:   firstEnv("TRACEREPORTS_COMMIT", "GITHUB_SHA", "CI_COMMIT_SHA", "BITBUCKET_COMMIT", "BUILD_SOURCEVERSION", "CIRCLE_SHA1", "GIT_COMMIT"),
-		disabled: d == "1" || d == "true",
+		BaseURL:    strings.TrimRight(baseURL, "/"),
+		Token:      getenv("TOKEN"),
+		HTTP:       &http.Client{Timeout: 3 * time.Second},
+		Project:    getenv("PROJECT"),
+		Branch:     firstEnv("TRACEREPORTS_BRANCH", "GITHUB_HEAD_REF", "GITHUB_REF_NAME", "CI_COMMIT_REF_NAME", "BITBUCKET_BRANCH", "BUILD_SOURCEBRANCHNAME", "BRANCH_NAME", "CIRCLE_BRANCH", "GIT_BRANCH"),
+		Commit:     firstEnv("TRACEREPORTS_COMMIT", "GITHUB_SHA", "CI_COMMIT_SHA", "BITBUCKET_COMMIT", "BUILD_SOURCEVERSION", "CIRCLE_SHA1", "GIT_COMMIT"),
+		disabled:   d == "1" || d == "true",
+		OfflineDir: getenv("OFFLINE_DIR"),
+		Offline:    getenv("OFFLINE"),
 	}
 }
 
@@ -117,11 +131,19 @@ func git(args ...string) string {
 }
 
 // StartRun creates the run (suite execution) that the following tests belong to. With
-// $TRACEREPORTS_RUN_ID set it joins that run instead (CI shards); the creator closes it.
+// $TRACEREPORTS_RUN_ID set it joins that run instead (CI shards); the creator closes it. If the
+// run cannot be created, the evidence is recorded locally (see the package doc).
 func (c *Client) StartRun(name, environment string) (int64, error) {
-	if id, err := strconv.ParseInt(getenv("RUN_ID"), 10, 64); err == nil && id > 0 {
+	if id, err := strconv.ParseInt(getenv("RUN_ID"), 10, 64); err == nil && id != 0 {
+		// negativo: una ejecución que otro proceso graba sin servidor ($TRACEREPORTS_OFFLINE_DIR)
+		if id < 0 && !c.disabled && !c.Recording() {
+			c.startRecording("")
+		}
 		c.RunID, c.ownsRun = id, false
 		return id, nil
+	}
+	if c.offlineMode() == "always" && !c.disabled && !c.Recording() {
+		c.startRecording("")
 	}
 	if c.Branch == "" {
 		if b := git("rev-parse", "--abbrev-ref", "HEAD"); b != "HEAD" {
@@ -134,8 +156,18 @@ func (c *Client) StartRun(name, environment string) (int64, error) {
 	var out struct {
 		RunID int64 `json:"run_id"`
 	}
-	err := c.do(http.MethodPost, "/api/v1/runs", map[string]string{"name": name, "environment": environment,
-		"project": c.Project, "branch": c.Branch, "commit": c.Commit, "framework": "go"}, &out)
+	payload := map[string]string{"name": name, "environment": environment,
+		"project": c.Project, "branch": c.Branch, "commit": c.Commit, "framework": "go"}
+	err := c.do(http.MethodPost, "/api/v1/runs", payload, &out)
+	if out.RunID == 0 && !c.disabled && c.offlineMode() == "auto" && !c.Recording() {
+		// sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
+		if c.startRecording(fmt.Sprintf("could not create the run at %s (%v)", c.BaseURL, err)) {
+			c.mu.Lock()
+			c.failures, c.downUntil = 0, time.Time{}
+			c.mu.Unlock()
+			err = c.do(http.MethodPost, "/api/v1/runs", payload, &out)
+		}
+	}
 	c.RunID, c.ownsRun = out.RunID, out.RunID != 0
 	return out.RunID, err
 }
@@ -153,13 +185,26 @@ func (c *Client) finishRun(interrupted bool) error {
 		return ErrDisabled
 	}
 	if !c.ownsRun {
+		c.mu.Lock()
+		if c.rec != nil { // grabando para una ejecución de otro proceso: el dueño arma el reporte
+			c.rec.close()
+		}
+		c.mu.Unlock()
 		return nil
 	}
-	return c.do(http.MethodPatch, fmt.Sprintf("/api/v1/runs/%d/finish", c.RunID), map[string]bool{"interrupted": interrupted}, nil)
+	err := c.do(http.MethodPatch, fmt.Sprintf("/api/v1/runs/%d/finish", c.RunID), map[string]bool{"interrupted": interrupted}, nil)
+	if c.Recording() {
+		c.finishRecording()
+	}
+	return err
 }
 
-// ReportURL is the link to the run in the web UI.
+// ReportURL is the link to the run in the web UI. When recording without a server it is the
+// static report built at FinishRun ("" if the tracereports binary is not installed).
 func (c *Client) ReportURL() string {
+	if c.Recording() {
+		return c.OfflineReport
+	}
 	return fmt.Sprintf("%s/#run=%d&view=dashboard", c.BaseURL, c.RunID)
 }
 
@@ -232,6 +277,9 @@ func (t *Test) Screenshot(png []byte, message, status string) (string, error) {
 	}
 	if err := t.c.send(http.MethodPost, fmt.Sprintf("/api/v1/tests/%d/screenshot", t.ID), body.Bytes(), w.FormDataContentType(), &out, 10*time.Second); err != nil {
 		return "", err
+	}
+	if out.URL == "" { // grabando sin servidor: todavía no tiene URL
+		return "", nil
 	}
 	return t.c.BaseURL + out.URL, nil
 }
@@ -346,7 +394,15 @@ func retryable(code int) bool {
 func (c *Client) send(method, path string, body []byte, contentType string, out any, timeout time.Duration) error {
 	c.mu.Lock()
 	off := c.disabled || time.Now().Before(c.downUntil)
+	rec := c.rec
 	c.mu.Unlock()
+	if rec != nil && !c.disabled {
+		raw, err := rec.record(method, path, body, contentType)
+		if err == nil && out != nil && len(raw) > 0 {
+			err = json.Unmarshal(raw, out)
+		}
+		return err
+	}
 	if off {
 		return ErrDisabled
 	}

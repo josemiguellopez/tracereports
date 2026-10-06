@@ -25,6 +25,9 @@ Solo usa la librería estándar. El cliente nunca rompe ni frena tu suite:
   por tandas (un spool más grande que la cola también avanza), en orden y sin duplicar; varios
   procesos pueden compartir la carpeta (cada archivo lo toma uno solo, y el de un proceso que murió
   se retoma a los 10 minutos). Devuelve 0 solo si no queda nada pendiente;
+- **sin servidor**: si la ejecución no se puede crear (servidor caído o token incorrecto), todo se
+  graba en `./tracereports-offline/<sesión>`; `tracereports report <carpeta>` arma el reporte HTML y
+  `tracereports push <carpeta>` la sube después (ver [Sin servidor](offline.md));
 - **cola llena** (5000 eventos o 64 MB): se descartan los eventos nuevos, se conservan los ya
   encolados y se cuenta en `cr.delivery["dropped"]`.
 

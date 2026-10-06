@@ -23,6 +23,10 @@ plano con reintentos e `Idempotency-Key`; si el servidor no responde, los métod
 `delivery()` dice qué no llegó, incluido `runNotClosed` si el servidor no confirmó el cierre de la
 ejecución (la extensión lo advierte al terminar).
 
+**Sin servidor**: si la ejecución no se puede crear (servidor caído o token incorrecto), la evidencia no
+se pierde: se graba en `./tracereports-offline/<sesión>` y `tracereports report <carpeta>` arma el reporte
+HTML, o `tracereports push <carpeta>` la sube después. Ver [Sin servidor](offline.md).
+
 Configuración: `TRACEREPORTS_URL` (o `-Dtracereports.url`), `TRACEREPORTS_TOKEN` (o `-Dtracereports.token`),
 `TRACEREPORTS_DISABLED=1`, `TRACEREPORTS_RUN_NAME` (default: la carpeta del proyecto), `TRACEREPORTS_ENV`,
 `TRACEREPORTS_PROJECT`, `TRACEREPORTS_RUN_ID`, `TRACEREPORTS_FLUSH_TIMEOUT` y la rama y el commit del CI o `git`.

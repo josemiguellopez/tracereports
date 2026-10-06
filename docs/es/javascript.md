@@ -16,6 +16,10 @@ cola con reintentos e `Idempotency-Key` (un reintento no duplica pasos); si el s
 los métodos son no-op y `cr.delivery` dice qué no llegó. No tiene cola en disco: lo que no se pudo
 enviar al cerrar se cuenta en `delivery.lost`.
 
+**Sin servidor**: si la ejecución no se puede crear (servidor caído o token incorrecto), la evidencia no
+se pierde: se graba en `./tracereports-offline/<sesión>` y `tracereports report <carpeta>` arma el reporte
+HTML, o `tracereports push <carpeta>` la sube después. Ver [Sin servidor](offline.md).
+
 Variables que lee: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACEREPORTS_TOKEN`,
 `TRACEREPORTS_DISABLED=1`, `TRACEREPORTS_PROJECT`, `TRACEREPORTS_RUN_NAME`, `TRACEREPORTS_ENV`, `TRACEREPORTS_RUN_ID` (unirse
 a una ejecución ya creada, p. ej. shards), `TRACEREPORTS_FLUSH_TIMEOUT` (segundos), `TRACEREPORTS_STRICT=1` y

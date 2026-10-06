@@ -12,12 +12,17 @@
 //   await cr.finishRun();                                  // espera la cola y cierra la ejecución
 //
 // Nunca rompe ni frena la suite: la evidencia sale en segundo plano con reintentos e
-// Idempotency-Key (sin duplicados); si el servidor no responde, los métodos siguen funcionando
-// como no-op y `cr.delivery` dice qué no llegó.
+// Idempotency-Key (sin duplicados); `cr.delivery` dice qué no llegó. Si la ejecución no se puede
+// crear (sin servidor, caído o con el token equivocado) la evidencia se graba en una carpeta
+// ($TRACEREPORTS_OFFLINE_DIR, default ./tracereports-offline/<sesión>) en vez de perderse:
+// `tracereports report <carpeta>` arma el reporte HTML y `tracereports push <carpeta>` la sube.
 
+import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 import path from "node:path";
 import { detectBranch, detectCommit } from "./context.js";
 import { env } from "./env.js";
+import { Recorder, newSessionDir } from "./offline.js";
 import { Sender } from "./transport.js";
 
 export const VERSION = "0.1.0";
@@ -35,6 +40,10 @@ export class TraceReports {
    * @param {number} [opts.flushTimeoutMs]  cuánto espera finishRun la cola (default $TRACEREPORTS_FLUSH_TIMEOUT s o 30 s)
    * @param {number} [opts.maxQueueItems]   default 5000
    * @param {number} [opts.maxQueueMB]      default 64
+   * @param {string} [opts.offlineDir] dónde grabar sin servidor (default $TRACEREPORTS_OFFLINE_DIR; sin
+   *   ella, una carpeta nueva por sesión dentro de ./tracereports-offline)
+   * @param {"auto"|"always"|"off"} [opts.offline] auto (default, $TRACEREPORTS_OFFLINE): grabar solo si
+   *   la ejecución no se puede crear; always: grabar sin intentar un servidor; off: nunca
    */
   constructor(opts = {}) {
     this.baseUrl = (opts.baseUrl || env("URL") || "http://localhost:8080").replace(/\/+$/, "");
@@ -51,6 +60,57 @@ export class TraceReports {
     this.runCreated = false;
     this.runNotClosed = false;
     this.unregisteredTests = 0;
+
+    let mode = String(opts.offline ?? env("OFFLINE", "auto")).trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(mode)) mode = "always";
+    if (["0", "false", "no"].includes(mode)) mode = "off";
+    this.offlineMode = mode;
+    const explicit = opts.offlineDir || env("OFFLINE_DIR") || "";
+    this.offlineBase = explicit || "tracereports-offline";
+    this.offlineExplicit = Boolean(explicit);
+    this.offlineDir = null; // carpeta donde se graba (null: se envía al servidor)
+    this.offlineReport = null; // index.html generado al cerrar, si el binario está
+    if (this.enabled && mode === "always") this.goOffline();
+  }
+
+  /** true si la evidencia se graba localmente (sin servidor). */
+  get recording() {
+    return this.offlineDir != null;
+  }
+
+  goOffline(reason = "") {
+    const dir = this.offlineExplicit ? this.offlineBase : newSessionDir(this.offlineBase);
+    try {
+      this.sender = new Recorder(dir);
+    } catch (err) {
+      console.warn(`tracereports: no se pudo grabar en ${dir}: ${err.message}`);
+      return;
+    }
+    this.offlineDir = dir;
+    if (reason) {
+      console.warn(`tracereports: ${reason}; la evidencia se graba en ${dir} (reporte: \`tracereports report ${dir}\`; ` +
+        `subirla después: \`tracereports push ${dir}\`)`);
+    }
+  }
+
+  /** Con el binario instalado ($TRACEREPORTS_BIN o en el PATH), arma el reporte HTML de la grabación. */
+  buildOfflineReport({ zip } = {}) {
+    const bin = env("BIN") || findInPath("tracereports");
+    if (!bin || ["0", "false", "no"].includes(String(env("OFFLINE_REPORT", "1")).toLowerCase())) {
+      console.warn(`tracereports: evidencia grabada en ${this.offlineDir}. Reporte sin servidor: ` +
+        `\`tracereports report ${this.offlineDir} -o reporte\`; subirla: \`tracereports push ${this.offlineDir}\``);
+      return null;
+    }
+    const out = path.join(this.offlineDir, "report");
+    const args = ["report", "-o", out, ...(zip ? ["--zip", zip] : []), this.offlineDir];
+    const res = spawnSync(bin, args, { timeout: 300_000, encoding: "utf8" });
+    if (res.status !== 0) {
+      console.warn(`tracereports: no se pudo armar el reporte (${(res.stderr || res.error?.message || "").trim()}); ` +
+        `usa \`tracereports report ${this.offlineDir}\``);
+      return null;
+    }
+    this.offlineReport = path.join(out, "index.html");
+    return this.offlineReport;
   }
 
   headers() {
@@ -76,6 +136,7 @@ export class TraceReports {
   }
 
   get reportUrl() {
+    if (this.recording) return this.offlineReport || "";
     return this.runId ? `${this.baseUrl}/#run=${this.runId}&view=dashboard` : "";
   }
 
@@ -99,15 +160,22 @@ export class TraceReports {
    */
   async startRun(name, { environment = "", project, branch, commit, framework = "" } = {}) {
     if (env("RUN_ID")) return this.joinRun(env("RUN_ID"));
-    const res = await this.request("POST", "/api/v1/runs", {
+    const payload = {
       name,
       environment,
       project: project ?? env("PROJECT") ?? path.basename(process.cwd()),
       branch: branch ?? detectBranch(),
       commit: commit ?? detectCommit(),
       framework,
-    });
-    this.runId = res?.run_id ?? null;
+    };
+    const res = await this.request("POST", "/api/v1/runs", payload);
+    let created = res;
+    if (!created && this.enabled && this.offlineMode === "auto" && !this.recording) {
+      // sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
+      this.goOffline(`no se pudo crear la ejecución en ${this.baseUrl} (servidor caído o token incorrecto)`);
+      if (this.recording) created = await this.request("POST", "/api/v1/runs", payload);
+    }
+    this.runId = created?.run_id ?? null;
     this.runCreated = Boolean(this.runId);
     if (this.enabled && !this.runId) {
       console.warn(`tracereports: no se pudo crear la ejecución en ${this.baseUrl}; los tests siguen sin reporte.`);
@@ -115,8 +183,18 @@ export class TraceReports {
     return this.runId;
   }
 
-  /** Reporta en una ejecución creada en otro proceso; quien la creó la cierra. */
-  joinRun(runId) {
+  /**
+   * Reporta en una ejecución creada en otro proceso; quien la creó la cierra. Un runId negativo es
+   * una ejecución que se graba sin servidor: pasa la misma `offlineDir`.
+   */
+  joinRun(runId, { offlineDir } = {}) {
+    if (runId && Number(runId) < 0 && this.enabled && !this.recording) {
+      if (offlineDir || env("OFFLINE_DIR")) {
+        this.offlineBase = offlineDir || env("OFFLINE_DIR");
+        this.offlineExplicit = true;
+      }
+      this.goOffline();
+    }
     this.runId = runId ? Number(runId) : null;
     this.runCreated = false;
     return this.runId;
@@ -131,6 +209,10 @@ export class TraceReports {
     const res = await this.sender.sendNow("PATCH", `/api/v1/runs/${this.runId}/finish`,
       JSON.stringify({ interrupted }), "application/json", this.timeoutMs, 4, { ignoreCircuit: true });
     this.runNotClosed = res == null;
+    if (this.recording) {
+      this.buildOfflineReport();
+      return res;
+    }
     if (this.runNotClosed) {
       console.warn(`tracereports: el servidor no confirmó el cierre de la ejecución #${this.runId}: quedó abierta ` +
         `(ciérrala con PATCH ${this.baseUrl}/api/v1/runs/${this.runId}/finish)`);
@@ -294,3 +376,17 @@ export class TraceTest {
 
 export { DOM_SCRIPT, domSnapshotInPage } from "./dom.js";
 
+function findInPath(name) {
+  const exts = process.platform === "win32" ? (process.env.PATHEXT || ".EXE").split(";") : [""];
+  for (const dir of (process.env.PATH || "").split(path.delimiter)) {
+    for (const ext of exts) {
+      const file = path.join(dir, name + ext.toLowerCase());
+      try {
+        if (dir && fs.statSync(file).isFile()) return file;
+      } catch {
+        // no está aquí
+      }
+    }
+  }
+  return null;
+}

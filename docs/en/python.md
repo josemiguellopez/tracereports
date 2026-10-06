@@ -25,6 +25,9 @@ Standard library only. The client never breaks or slows down your suite:
   goes in batches (a spool larger than the queue also makes progress), in order and without
   duplicates; several processes can share the folder (each file is taken by one, and a dead
   process's file is resumed after 10 minutes). It exits 0 only when nothing is left;
+- **without a server**: if the run cannot be created (server down or wrong token), everything is
+  recorded in `./tracereports-offline/<session>`; `tracereports report <folder>` builds the HTML report
+  and `tracereports push <folder>` uploads it later (see [Without a server](offline.md));
 - **full queue** (5000 events or 64 MB): new events are dropped, the queued ones are kept and it is
   counted in `cr.delivery["dropped"]`.
 

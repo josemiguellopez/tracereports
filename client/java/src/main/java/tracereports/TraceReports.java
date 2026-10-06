@@ -1,6 +1,8 @@
 package tracereports;
 
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.LinkedHashMap;
@@ -23,8 +25,14 @@ import java.util.logging.Logger;
  * }</pre>
  *
  * <p>Nunca rompe ni frena la suite: la evidencia sale en segundo plano con reintentos e
- * Idempotency-Key (sin duplicados); si el servidor no responde, los métodos siguen funcionando como
- * no-op y {@link #delivery()} dice qué no llegó. Con JUnit 5, usa {@code tracereports.junit.TraceReportsExtension}.
+ * Idempotency-Key (sin duplicados); {@link #delivery()} dice qué no llegó. Con JUnit 5, usa
+ * {@code tracereports.junit.TraceReportsExtension}.
+ *
+ * <p>Si la ejecución no se puede crear (sin servidor, caído o con el token equivocado), la evidencia se
+ * graba en una carpeta en vez de perderse: {@code TRACEREPORTS_OFFLINE_DIR} (o {@code -Dtracereports.offlineDir};
+ * default {@code ./tracereports-offline/<sesión>}). {@code tracereports report <carpeta>} arma el reporte
+ * HTML y {@code tracereports push <carpeta>} la sube. {@code TRACEREPORTS_OFFLINE=always} graba sin
+ * servidor y {@code off} lo desactiva.
  */
 public final class TraceReports {
     private static final Logger LOG = Logger.getLogger("tracereports");
@@ -41,6 +49,10 @@ public final class TraceReports {
     private volatile boolean runCreated;
     private final AtomicInteger unregisteredTests = new AtomicInteger();
     private volatile boolean runNotClosed;
+    private final String offlineMode;
+    private Path offlineBase;
+    private boolean offlineExplicit;
+    private volatile Path offlineReport;
 
     /**
      * Configuración desde las propiedades {@code -Dtracereports.url} / {@code -Dtracereports.token} o el entorno:
@@ -67,6 +79,85 @@ public final class TraceReports {
         }
         this.flushTimeout = Duration.ofSeconds(flush);
         this.sender = new Sender(this.baseUrl, this::headers, 5000, 64L << 20);
+        String mode = Context.property("offline", Context.env("TRACEREPORTS_OFFLINE")).trim().toLowerCase();
+        this.offlineMode = switch (mode) {
+            case "1", "true", "yes", "on", "always" -> "always";
+            case "0", "false", "no", "off" -> "off";
+            default -> "auto";
+        };
+        String dir = Context.property("offlineDir", Context.env("TRACEREPORTS_OFFLINE_DIR"));
+        this.offlineExplicit = !dir.isBlank();
+        this.offlineBase = Path.of(offlineExplicit ? dir : "tracereports-offline");
+        if (enabled && offlineMode.equals("always")) goOffline(null);
+    }
+
+    // ─── sin servidor ────────────────────────────────────────────────────
+
+    /** true si la evidencia se graba localmente (sin servidor). */
+    public boolean recording() { return sender.recorder != null; }
+
+    /** Carpeta donde se graba, o null si se envía al servidor. */
+    public Path offlineDir() {
+        Recorder r = sender.recorder;
+        return r == null ? null : r.dir;
+    }
+
+    /** index.html armado al cerrar una grabación (necesita el binario tracereports), o null. */
+    public Path offlineReport() { return offlineReport; }
+
+    private void goOffline(String reason) {
+        Path dir = offlineExplicit ? offlineBase : Recorder.newSessionDir(offlineBase);
+        try {
+            sender.recorder = new Recorder(dir);
+        } catch (IOException e) {
+            LOG.warning("tracereports: no se pudo grabar en " + dir + ": " + e);
+            return;
+        }
+        if (reason != null) {
+            LOG.warning("tracereports: " + reason + "; la evidencia se graba en " + dir + " (reporte: `tracereports report "
+                    + dir + "`; subirla después: `tracereports push " + dir + "`)");
+        }
+    }
+
+    /** Cierra la grabación y, con el binario instalado ($TRACEREPORTS_BIN o en el PATH), arma el reporte. */
+    private void finishRecording() {
+        Recorder rec = sender.recorder;
+        rec.close();
+        String bin = Context.property("bin", Context.env("TRACEREPORTS_BIN"));
+        if (bin.isBlank()) bin = findInPath("tracereports");
+        String auto = Context.property("offlineReport", Context.env("TRACEREPORTS_OFFLINE_REPORT")).toLowerCase();
+        if (bin == null || auto.equals("0") || auto.equals("false") || auto.equals("no")) {
+            LOG.warning("tracereports: evidencia grabada en " + rec.dir + ". Reporte sin servidor: `tracereports report "
+                    + rec.dir + " -o reporte`; subirla: `tracereports push " + rec.dir + "`");
+            return;
+        }
+        Path out = rec.dir.resolve("report");
+        try {
+            Process p = new ProcessBuilder(bin, "report", "-o", out.toString(), rec.dir.toString())
+                    .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
+            if (p.waitFor() == 0) {
+                offlineReport = out.resolve("index.html");
+                LOG.warning("tracereports: sin servidor; reporte estático en " + offlineReport);
+                return;
+            }
+        } catch (IOException e) {
+            // abajo
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        LOG.warning("tracereports: no se pudo armar el reporte; usa `tracereports report " + rec.dir + "`");
+    }
+
+    private static String findInPath(String name) {
+        String[] exts = System.getProperty("os.name", "").toLowerCase().contains("win") ? new String[]{".exe", ".cmd", ""} : new String[]{""};
+        for (String d : System.getenv().getOrDefault("PATH", "").split(java.io.File.pathSeparator)) {
+            for (String ext : exts) {
+                if (d.isBlank()) continue;
+                Path f = Path.of(d, name + ext);
+                if (Files.isRegularFile(f)) return f.toString();
+            }
+        }
+        return null;
     }
 
     Map<String, String> headers() {
@@ -85,6 +176,7 @@ public final class TraceReports {
 
     /** Link a la ejecución en la interfaz web. */
     public String reportUrl() {
+        if (recording()) return offlineReport == null ? "" : offlineReport.toString();
         return runId == 0 ? "" : baseUrl + "/#run=" + runId + "&view=dashboard";
     }
 
@@ -132,6 +224,11 @@ public final class TraceReports {
         p.put("commit", info.commit != null ? info.commit : Context.commit());
         p.put("framework", info.framework);
         runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
+        if (runId == 0 && enabled && offlineMode.equals("auto") && !recording()) {
+            // sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
+            goOffline("no se pudo crear la ejecución en " + baseUrl + " (servidor caído o token incorrecto)");
+            if (recording()) runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
+        }
         runCreated = runId != 0;
         if (enabled && runId == 0) {
             LOG.warning("tracereports: no se pudo crear la ejecución en " + baseUrl + "; los tests siguen sin reporte.");
@@ -139,8 +236,12 @@ public final class TraceReports {
         return runId;
     }
 
-    /** Reporta en una ejecución creada en otro proceso; quien la creó la cierra. */
+    /**
+     * Reporta en una ejecución creada en otro proceso; quien la creó la cierra. Un id negativo es una
+     * ejecución que se graba sin servidor: usa la misma carpeta (TRACEREPORTS_OFFLINE_DIR).
+     */
     public long joinRun(long id) {
+        if (id < 0 && enabled && !recording()) goOffline(null);
         runId = id;
         runCreated = false;
         return runId;
@@ -155,11 +256,16 @@ public final class TraceReports {
     public void finishRun(boolean interrupted) {
         flush(flushTimeout);
         sender.abandon();
+        if (recording() && (runId == 0 || !runCreated)) sender.recorder.close(); // el dueño arma el reporte
         if (runId == 0 || !runCreated || !enabled) return; // unido a una ejecución ajena: la cierra su dueño
         // el cierre importa más que un paso: más reintentos (misma Idempotency-Key), aunque el circuito esté abierto
         String res = sender.sendNow("PATCH", "/api/v1/runs/" + runId + "/finish",
                 Json.write(Map.of("interrupted", interrupted)).getBytes(StandardCharsets.UTF_8), "application/json", timeout, 4, true);
         runNotClosed = res == null;
+        if (recording()) {
+            finishRecording();
+            return;
+        }
         if (runNotClosed) {
             LOG.warning("tracereports: el servidor no confirmó el cierre de la ejecución #" + runId + ": quedó abierta");
         }

@@ -67,6 +67,7 @@ func TestClientFlow(t *testing.T) {
 
 func TestUnreachableServerDisablesClient(t *testing.T) {
 	c := New("http://127.0.0.1:1") // nadie escucha
+	c.Offline = "off"              // sin grabación local: la grabación tiene sus tests en offline_test.go
 	for i := 0; i < maxConsecutiveFailures; i++ {
 		c.StartRun("x", "")
 	}

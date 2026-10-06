@@ -23,6 +23,10 @@ background thread with retries and `Idempotency-Key`; when the server does not a
 no-ops and `delivery()` tells you what did not arrive, including `runNotClosed` when the server did not
 confirm the run was closed (the extension warns about it at the end).
 
+**Without a server**: if the run cannot be created (server down or wrong token), the evidence is not
+lost: it is recorded in `./tracereports-offline/<session>` and `tracereports report <folder>` builds the
+HTML report, or `tracereports push <folder>` uploads it later. See [Without a server](offline.md).
+
 Configuration: `TRACEREPORTS_URL` (or `-Dtracereports.url`), `TRACEREPORTS_TOKEN` (or `-Dtracereports.token`),
 `TRACEREPORTS_DISABLED=1`, `TRACEREPORTS_RUN_NAME` (default: the project folder), `TRACEREPORTS_ENV`,
 `TRACEREPORTS_PROJECT`, `TRACEREPORTS_RUN_ID`, `TRACEREPORTS_FLUSH_TIMEOUT` and the branch and commit from the CI or

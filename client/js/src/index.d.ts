@@ -4,11 +4,17 @@ export interface Delivery {
   sent: number; retried: number; rejected: number; dropped: number; lost: number; pending: number; unregisteredTests: number;
   /** 1 si el servidor no confirmó el cierre de la ejecución. */
   runNotClosed: number;
+  /** Events recorded locally instead of sent (offline mode). */
+  recorded?: number;
 }
 
 export interface TraceReportsOptions {
   baseUrl?: string; token?: string; enabled?: boolean; timeoutMs?: number; uploadTimeoutMs?: number;
   flushTimeoutMs?: number; maxQueueItems?: number; maxQueueMB?: number;
+  /** Where to record when there is no server (default $TRACEREPORTS_OFFLINE_DIR or ./tracereports-offline/<session>). */
+  offlineDir?: string;
+  /** auto (default): record only if the run cannot be created; always: never use a server; off: never record. */
+  offline?: "auto" | "always" | "off";
 }
 
 export interface RunOptions { environment?: string; project?: string; branch?: string; commit?: string; framework?: string }
@@ -32,9 +38,13 @@ export class TraceReports {
   baseUrl: string; runId: number | null; runCreated: boolean; enabled: boolean;
   readonly delivery: Delivery;
   readonly reportUrl: string;
+  /** True when the evidence is recorded locally (no server, unreachable or wrong token). */
+  readonly recording: boolean;
+  offlineDir: string | null;
+  offlineReport: string | null;
   deliveryProblems(): number;
   startRun(name: string, opts?: RunOptions): Promise<number | null>;
-  joinRun(runId: number | string): number | null;
+  joinRun(runId: number | string, opts?: { offlineDir?: string }): number | null;
   finishRun(opts?: { interrupted?: boolean }): Promise<unknown>;
   flush(timeoutMs?: number): Promise<number>;
   startTest(name: string, opts?: TestOptions): Promise<TraceTest>;

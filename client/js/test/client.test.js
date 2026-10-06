@@ -68,7 +68,8 @@ test("los 503 se reintentan con la misma Idempotency-Key y sin perder el orden",
 });
 
 test("con el servidor caído nada se rompe ni se bloquea, y se informa", async () => {
-  const cr = new TraceReports({ baseUrl: "http://127.0.0.1:9", timeoutMs: 300, flushTimeoutMs: 300 });
+  // sin grabación local (offline: "off"); la grabación tiene sus propios tests en offline.test.js
+  const cr = new TraceReports({ baseUrl: "http://127.0.0.1:9", timeoutMs: 300, flushTimeoutMs: 300, offline: "off" });
   const t0 = Date.now();
   assert.equal(await cr.startRun("x"), null);
   const t = await cr.startTest("y");
@@ -79,7 +80,7 @@ test("con el servidor caído nada se rompe ni se bloquea, y se informa", async (
   assert.ok(Date.now() - t0 < 3000, "fails fast");
   assert.ok(cr.deliveryProblems() === 0 && !cr.runId);
 
-  const cr2 = new TraceReports({ baseUrl: "http://127.0.0.1:9", timeoutMs: 200, flushTimeoutMs: 200, maxQueueItems: 3 });
+  const cr2 = new TraceReports({ baseUrl: "http://127.0.0.1:9", timeoutMs: 200, flushTimeoutMs: 200, maxQueueItems: 3, offline: "off" });
   cr2.runId = 1;
   const t2 = new (await import("../src/index.js")).TraceTest(cr2, 5);
   for (let i = 0; i < 6; i++) t2.info(`paso ${i}`);

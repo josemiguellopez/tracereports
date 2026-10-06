@@ -1,5 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import TraceReportsReporter from "../src/reporter.js";
 import { limits } from "../src/transport.js";
@@ -82,7 +84,9 @@ test("reporter: una ejecución, identidad, reintentos, pasos, capturas, red y ci
 
 test("reporter: TRACEREPORTS_STRICT hace fallar la corrida si la evidencia no llegó", async () => {
   limits.circuitMs = 200;
-  const rep = new TraceReportsReporter({ url: "http://127.0.0.1:9", strict: true });
+  process.env.TRACEREPORTS_OFFLINE_REPORT = "0";
+  const offlineDir = fs.mkdtempSync(path.join(os.tmpdir(), "tr-strict-"));
+  const rep = new TraceReportsReporter({ url: "http://127.0.0.1:9", strict: true, offlineDir });
   rep.cr.timeoutMs = 200;
   rep.onBegin({ rootDir: root, projects: [] }, { allTests: () => [] });
   assert.deepEqual(await rep.onEnd({ status: "passed" }), { status: "failed" });

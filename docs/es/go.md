@@ -24,6 +24,10 @@ esperar el timeout en cada test. A diferencia del de Python, los envíos son sí
 en segundo plano). Un `*tracereports.Test` nil es seguro de usar, así que si el servidor no responde los
 tests siguen corriendo.
 
+**Sin servidor**: si la ejecución no se puede crear (servidor caído o token incorrecto), la evidencia no
+se pierde: se graba en `./tracereports-offline/<sesión>` y `tracereports report <carpeta>` arma el reporte
+HTML, o `tracereports push <carpeta>` la sube después. Ver [Sin servidor](offline.md).
+
 Lee `TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`, `TRACEREPORTS_DISABLED`, `TRACEREPORTS_PROJECT`, `TRACEREPORTS_RUN_ID` (unirse
 a una ejecución ya creada) y la rama y el commit de `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT`, de las
 variables de los CI más comunes o de `git`.

@@ -68,7 +68,14 @@ class TraceReportsTest {
 
     @Test
     void conElServidorCaidoNadaSeRompe() {
-        TraceReports cr = new TraceReports("http://127.0.0.1:9", "");
+        // sin grabación local; la grabación tiene sus propios tests en OfflineTest
+        System.setProperty("tracereports.offline", "off");
+        TraceReports cr;
+        try {
+            cr = new TraceReports("http://127.0.0.1:9", "");
+        } finally {
+            System.clearProperty("tracereports.offline");
+        }
         long t0 = System.currentTimeMillis();
         assertEquals(0, cr.startRun("x", ""));
         TraceTest t = cr.startTest("y");

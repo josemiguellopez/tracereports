@@ -68,10 +68,10 @@ final class Json {
         b.append('"');
     }
 
-    /** Valor numérico de "key" en un JSON plano (p. ej. {"run_id": 7}), o 0. */
+    /** Valor numérico de "key" en un JSON plano (p. ej. {"run_id": 7}; negativo: id local sin servidor), o 0. */
     static long number(String json, String key) {
         if (json == null) return 0;
-        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(\\d+)").matcher(json);
+        Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(-?\\d+)").matcher(json);
         return m.find() ? Long.parseLong(m.group(1)) : 0;
     }
 }

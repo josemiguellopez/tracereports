@@ -1,0 +1,104 @@
+package tracereports;
+
+import java.io.IOException;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.FileAlreadyExistsException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.UUID;
+
+/**
+ * Grabación local cuando no hay servidor (no responde o rechaza el token): en vez de perder la
+ * evidencia, el cliente escribe en una carpeta las mismas llamadas a la API que habría hecho.
+ * Después {@code tracereports report <carpeta>} arma el reporte HTML y {@code tracereports push
+ * <carpeta>} la sube. Mismo formato que los clientes Python, JavaScript y Go.
+ */
+final class Recorder {
+    static final String MARKER = "tracereports-offline.json";
+
+    final Path dir;
+    private final OutputStream events;
+    private final String tag = UUID.randomUUID().toString().substring(0, 8);
+    private final long pid = ProcessHandle.current().pid();
+    private long seq;
+    private long nextId;
+    long recorded;
+
+    Recorder(Path dir) throws IOException {
+        this.dir = dir;
+        Files.createDirectories(dir.resolve("bodies"));
+        try { // el primer proceso crea el marcador
+            Files.writeString(dir.resolve(MARKER), Json.write(Map.of("format", "tracereports-offline", "version", 1,
+                    "id", UUID.randomUUID().toString().replace("-", ""))), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+        } catch (FileAlreadyExistsException ignored) {
+            // otro proceso ya lo creó
+        }
+        this.events = Files.newOutputStream(dir.resolve("events-" + pid + "-" + tag + ".jsonl"),
+                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+    }
+
+    /** Carpeta nueva para una sesión dentro de {@code base} (no mezcla corridas distintas). */
+    static Path newSessionDir(Path base) {
+        String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
+        return base.resolve(stamp + "-" + UUID.randomUUID().toString().substring(0, 6));
+    }
+
+    /** Id local negativo, único entre procesos que graban en la misma carpeta. */
+    private long localId() {
+        nextId++;
+        return -((pid % 1_000_000) * 100_000 + nextId);
+    }
+
+    /** Graba la llamada y devuelve el JSON que habría respondido el servidor (ids locales). */
+    synchronized String record(String method, String path, byte[] body, String contentType) {
+        seq++;
+        Map<String, Object> e = new LinkedHashMap<>();
+        e.put("seq", seq);
+        e.put("ts", System.currentTimeMillis());
+        e.put("method", method);
+        e.put("path", path);
+        e.put("content_type", contentType);
+        String raw = null;
+        try {
+            if (contentType.startsWith("application/json") && body.length > 0) {
+                raw = new String(body, StandardCharsets.UTF_8); // ya es JSON (lo escribió Json.write)
+            } else {
+                String name = "bodies/" + pid + "-" + tag + "-" + seq + ".bin";
+                Files.write(dir.resolve(name), body);
+                e.put("body_file", name);
+            }
+            String out = "";
+            if ("POST".equals(method) && "/api/v1/runs".equals(path)) {
+                long id = localId();
+                e.put("local_id", id);
+                out = "{\"run_id\":" + id + "}";
+            } else if ("POST".equals(method) && path.startsWith("/api/v1/runs/") && path.endsWith("/tests")) {
+                long id = localId();
+                e.put("local_id", id);
+                out = "{\"test_id\":" + id + "}";
+            }
+            String line = Json.write(e);
+            if (raw != null) line = line.substring(0, line.length() - 1) + ",\"body\":" + raw + "}";
+            events.write((line + "\n").getBytes(StandardCharsets.UTF_8));
+            events.flush(); // si el proceso muere, lo escrito queda
+            recorded++;
+            return out;
+        } catch (IOException err) {
+            return null;
+        }
+    }
+
+    synchronized void close() {
+        try {
+            events.close();
+        } catch (IOException ignored) {
+            // nada que hacer
+        }
+    }
+}

@@ -11,9 +11,12 @@
 //   testInfo.attach con imagen) y, con los fixtures de `tracereports/playwright`, la red y el DOM.
 // - Al terminar espera la cola y cierra la ejecución; imprime el link. TRACEREPORTS_STRICT=1 hace fallar
 //   la corrida si parte de la evidencia no llegó al servidor.
+// - Sin servidor (no responde o el token es incorrecto) la evidencia se graba en
+//   ./tracereports-offline/<sesión>: `tracereports report <carpeta>` arma el reporte HTML.
 //
 // Opciones (o variables): url (TRACEREPORTS_URL), token (TRACEREPORTS_TOKEN), runName (TRACEREPORTS_RUN_NAME),
-// environment (TRACEREPORTS_ENV), project (TRACEREPORTS_PROJECT), strict (TRACEREPORTS_STRICT).
+// environment (TRACEREPORTS_ENV), project (TRACEREPORTS_PROJECT), strict (TRACEREPORTS_STRICT),
+// offlineDir (TRACEREPORTS_OFFLINE_DIR), offline: "auto" | "always" | "off" (TRACEREPORTS_OFFLINE).
 
 import fs from "node:fs";
 import path from "node:path";
@@ -26,7 +29,7 @@ const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase(
 export default class TraceReportsReporter {
   constructor(options = {}) {
     this.options = options;
-    this.cr = new TraceReports({ baseUrl: options.url, token: options.token });
+    this.cr = new TraceReports({ baseUrl: options.url, token: options.token, offlineDir: options.offlineDir, offline: options.offline });
     this.tests = new Map(); // test.id -> { ct: Promise<TraceTest>, lastError }
     this.steps = new Map(); // test.id -> intento -> pasos (test.step)
     this.strict = options.strict ?? truthy(env("STRICT"));
@@ -161,9 +164,13 @@ export default class TraceReportsReporter {
     await this.started;
     const interrupted = result.status === "interrupted" || result.status === "timedout";
     await this.cr.finishRun({ interrupted });
-    const problems = this.cr.deliveryProblems();
-    if (this.cr.runId) console.log(`TraceReports: ${this.cr.reportUrl}`);
-    if (problems) {
+    const problems = this.cr.deliveryProblems() + (this.cr.recording && this.cr.offlineMode === "auto" ? 1 : 0);
+    if (this.cr.recording) {
+      console.log(`TraceReports (sin servidor): evidencia en ${this.cr.offlineDir}; reporte: ` +
+        (this.cr.reportUrl || `\`tracereports report ${this.cr.offlineDir} -o reporte\``) +
+        `; para subirla: \`tracereports push ${this.cr.offlineDir}\``);
+    } else if (this.cr.runId) console.log(`TraceReports: ${this.cr.reportUrl}`);
+    if (problems && !this.cr.recording) {
       const d = this.cr.delivery;
       console.warn(`TraceReports: atención: ${problems - d.runNotClosed} eventos de evidencia no llegaron al servidor ` +
         `(enviados ${d.sent}, rechazados ${d.rejected}, descartados ${d.dropped}, perdidos ${d.lost})` +

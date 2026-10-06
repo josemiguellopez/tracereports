@@ -57,6 +57,8 @@ final class Sender {
     private volatile long downUntil;
 
     int sent, retried, rejected, dropped, lost;
+    /** Grabando sin servidor: las llamadas se escriben en una carpeta en vez de enviarse. */
+    volatile Recorder recorder;
 
     Sender(String baseUrl, Supplier<Map<String, String>> headers, int maxItems, long maxBytes) {
         this.baseUrl = baseUrl;
@@ -106,6 +108,8 @@ final class Sender {
 
     /** Llamada cuya respuesta se necesita (ids): reintentos cortos con la misma Idempotency-Key. */
     String sendNow(String method, String path, byte[] body, String contentType, Duration timeout, int retries, boolean ignoreCircuit) {
+        Recorder rec = recorder;
+        if (rec != null) return rec.record(method, path, body, contentType);
         if (serverDown() && !ignoreCircuit) return null;
         Item item = new Item(method, path, body, contentType, timeout);
         long[] backoff = {300, 1000, 2000};
@@ -124,6 +128,8 @@ final class Sender {
 
     /** Encola un evento de evidencia; false si la cola está llena. */
     synchronized boolean enqueue(String method, String path, byte[] body, String contentType, Duration timeout) {
+        Recorder rec = recorder;
+        if (rec != null) return rec.record(method, path, body, contentType) != null;
         if (pending() + 1 > maxItems || bytes + body.length > maxBytes) {
             if (dropped++ == 0) {
                 LOG.warning("tracereports: la cola de envío está llena (" + maxItems + " eventos); se descartan los eventos nuevos");
