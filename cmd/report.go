@@ -37,6 +37,7 @@ needed. Each INPUT is one of:
   a recording folder   what a client saved when there was no server (or the token was wrong)
   a JUnit XML file     pytest --junitxml, Maven/Gradle, Playwright, Jest, Cypress, .NET...
   a folder of *.xml    several JUnit XML reports, imported together as one run
+  allure-results       an Allure results folder (or a ZIP of it): steps, screenshots, retries
 
 Flags:
 `
@@ -55,10 +56,10 @@ func runReport(args []string) error {
 	fl.Usage = func() { fmt.Fprint(fl.Output(), reportUsage); fl.PrintDefaults() }
 	out := fl.String("o", "tracereports-report", "output folder")
 	zipOut := fl.String("zip", "", "also write the report as a ZIP file (for CI artifacts or email)")
-	name := fl.String("name", "", "run name for JUnit XML inputs (default: the suite name)")
-	project := fl.String("project", "", "project for JUnit XML inputs")
-	branch := fl.String("branch", "", "branch for JUnit XML inputs")
-	environment := fl.String("environment", "", "environment for JUnit XML inputs")
+	name := fl.String("name", "", "run name for JUnit XML and Allure inputs (default: the suite or build name)")
+	project := fl.String("project", "", "project for JUnit XML and Allure inputs")
+	branch := fl.String("branch", "", "branch for JUnit XML and Allure inputs")
+	environment := fl.String("environment", "", "environment for JUnit XML and Allure inputs")
 	useAI := fl.Bool("ai", false, "diagnose failures with the AI configured in the environment (AI_PROVIDER, AI_API_KEY...)")
 	inputs, err := parseInterspersed(fl, args)
 	if err != nil {
@@ -98,15 +99,15 @@ func runReport(args []string) error {
 	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact}
 	local := offline.Target{Doer: offline.Handler{Handler: srv.Router()}}
 
-	junitQuery := url.Values{}
+	importQuery := url.Values{}
 	for k, v := range map[string]string{"name": *name, "project": *project, "branch": *branch, "environment": *environment} {
 		if v != "" {
-			junitQuery.Set(k, v)
+			importQuery.Set(k, v)
 		}
 	}
 	var runs []int64
 	for _, in := range inputs {
-		ids, err := loadInput(local, in, junitQuery)
+		ids, err := loadInput(local, in, importQuery)
 		if err != nil {
 			return fmt.Errorf("%s: %w", in, err)
 		}
@@ -156,7 +157,7 @@ func runReport(args []string) error {
 }
 
 // loadInput replays a recording or imports JUnit XML into the in-process server.
-func loadInput(t offline.Target, in string, junitQuery url.Values) ([]int64, error) {
+func loadInput(t offline.Target, in string, importQuery url.Values) ([]int64, error) {
 	info, err := os.Stat(in)
 	if err != nil {
 		return nil, err
@@ -175,11 +176,25 @@ func loadInput(t offline.Target, in string, junitQuery url.Values) ([]int64, err
 		}
 		return res.Runs, nil
 	}
+	if allureResults, _ := filepath.Glob(filepath.Join(in, "*-result.json")); info.IsDir() && len(allureResults) > 0 {
+		data, err := zipFolder(in)
+		if err != nil {
+			return nil, err
+		}
+		return importZip(t, "/api/v1/import/allure", data, importQuery)
+	}
+	if !info.IsDir() && strings.EqualFold(filepath.Ext(in), ".zip") {
+		data, err := os.ReadFile(in)
+		if err != nil {
+			return nil, err
+		}
+		return importZip(t, "/api/v1/import/allure", data, importQuery)
+	}
 	var files []string
 	if info.IsDir() {
 		files, _ = filepath.Glob(filepath.Join(in, "*.xml"))
 		if len(files) == 0 {
-			return nil, errors.New("not a recording folder and it has no *.xml files")
+			return nil, errors.New("not a recording, an allure-results folder or a folder with *.xml files")
 		}
 	} else {
 		files = []string{in}
@@ -195,7 +210,7 @@ func loadInput(t offline.Target, in string, junitQuery url.Values) ([]int64, err
 		w.Write(data)
 	}
 	mw.Close()
-	req, _ := http.NewRequest(http.MethodPost, "/api/v1/import/junit?"+junitQuery.Encode(), &body)
+	req, _ := http.NewRequest(http.MethodPost, "/api/v1/import/junit?"+importQuery.Encode(), &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	resp, err := t.Doer.Do(req)
 	if err != nil {
@@ -213,6 +228,58 @@ func loadInput(t offline.Target, in string, junitQuery url.Values) ([]int64, err
 		return nil, err
 	}
 	return []int64{res.RunID}, nil
+}
+
+// importZip posts a ZIP (an allure-results folder) to an import endpoint of the in-process server.
+func importZip(t offline.Target, endpoint string, data []byte, q url.Values) ([]int64, error) {
+	req, _ := http.NewRequest(http.MethodPost, endpoint+"?"+q.Encode(), bytes.NewReader(data))
+	req.Header.Set("Content-Type", "application/zip")
+	resp, err := t.Doer.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusCreated {
+		return nil, fmt.Errorf("import: %s", apiError(raw))
+	}
+	var res struct {
+		RunID int64 `json:"run_id"`
+	}
+	if err := json.Unmarshal(raw, &res); err != nil {
+		return nil, err
+	}
+	return []int64{res.RunID}, nil
+}
+
+// zipFolder compresses the files of a folder (not its subfolders) in memory.
+func zipFolder(dir string) ([]byte, error) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for _, e := range entries {
+		if !e.Type().IsRegular() {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return nil, err
+		}
+		w, err := zw.Create(e.Name())
+		if err != nil {
+			return nil, err
+		}
+		if _, err := w.Write(data); err != nil {
+			return nil, err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
 }
 
 func exportZip(t offline.Target, runID int64) ([]byte, error) {

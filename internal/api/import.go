@@ -1,21 +1,150 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
+	"github.com/josemiguellopez/tracereports/internal/allure"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/junit"
 )
 
 const (
-	maxImportBody   = 50 << 20 // 50 MiB entre todos los archivos
-	maxImportOutput = 16 << 10 // system-out / system-err por test que se guarda como paso
+	maxImportBody   = 50 << 20  // 50 MiB entre todos los archivos JUnit
+	maxAllureBody   = 200 << 20 // 200 MiB: un allure-results comprimido trae capturas
+	maxAllureFiles  = 50_000    // entradas del ZIP (protección contra ZIPs patológicos)
+	maxImportOutput = 16 << 10  // system-out / system-err / adjunto de texto que se guarda como paso
 )
+
+// ---------- partes comunes de las importaciones ----------
+
+// importRun is a run being imported: created with the context of the query string, closed with
+// the times written in the report.
+type importRun struct {
+	s          *Server
+	id         int64
+	start, end time.Time
+	counts     map[string]int
+	total      int
+}
+
+// newImportRun creates the run. Query: name, environment, project, branch, commit, framework.
+func (s *Server) newImportRun(q url.Values, defaultName, defaultFramework string) (*importRun, error) {
+	name := strings.TrimSpace(q.Get("name"))
+	if name == "" {
+		name = defaultName
+	}
+	framework := strings.TrimSpace(q.Get("framework"))
+	if framework == "" {
+		framework = defaultFramework
+	}
+	meta := db.RunMeta{Project: clean(s.label(q.Get("project")), 200), Branch: clean(s.label(q.Get("branch")), 200),
+		Commit: clean(q.Get("commit"), 80), Framework: clean(framework, 60)}
+	id, err := s.Store.CreateRunWithMeta(clean(s.label(name), 500), clean(s.label(q.Get("environment")), 200), meta)
+	if err != nil {
+		return nil, err
+	}
+	s.publish("run", id, 0, map[string]string{"action": "created"})
+	return &importRun{s: s, id: id, counts: map[string]int{}}, nil
+}
+
+// test creates one finished-to-be test of the run.
+func (ir *importRun) test(key, name, category, description, suite, params string) (int64, error) {
+	s := ir.s
+	identity, err := s.testIdentity(clean(key, 1000), name)
+	if err != nil {
+		return 0, err
+	}
+	meta := db.TestMeta{Key: identity, Suite: clean(s.label(suite), 500), Params: clean(s.redactor().Text(params), 500)}
+	return s.Store.CreateTestWithMeta(ir.id, clean(s.label(name), 1000), clean(s.label(category), 500), s.redactor().Text(clean(description, 4000)), meta)
+}
+
+// finishTest closes a test with its result and its real times, and queues its AI diagnosis.
+func (ir *importRun) finishTest(id int64, status, message, trace string, attempts int, start, end time.Time) error {
+	s := ir.s
+	if attempts > 1 {
+		if err := s.Store.SetAttempts(id, min(attempts, 100)); err != nil {
+			return err
+		}
+	}
+	red := s.redactor()
+	errMsg := ""
+	if status == "FAIL" {
+		errMsg = message
+	}
+	t, _, err := s.Store.FinishTestChange(id, status, red.Text(errMsg), red.Text(trace))
+	if err != nil {
+		return err
+	}
+	if end.Before(start) {
+		end = start
+	}
+	if err := s.Store.SetTestTimes(id, start.UnixMilli(), end.UnixMilli()); err != nil {
+		return err
+	}
+	if ir.start.IsZero() || start.Before(ir.start) {
+		ir.start = start
+	}
+	if end.After(ir.end) {
+		ir.end = end
+	}
+	ir.counts[t.Status]++
+	ir.total++
+	if t.Status == "FAIL" {
+		s.AI.AnalyzeAsync(id)
+	}
+	s.publish("test", ir.id, id, map[string]string{"action": "finished", "status": t.Status})
+	return nil
+}
+
+// abort closes a run whose import failed halfway: it does not stay open forever.
+func (ir *importRun) abort() {
+	if _, first, err := ir.s.Store.CloseRun(ir.id, true); err == nil {
+		ir.s.runClosed(ir.id, first)
+	}
+}
+
+// finish closes the run with the report's times and answers the import.
+func (ir *importRun) finish(w http.ResponseWriter) {
+	s := ir.s
+	run, first, err := s.Store.CloseRun(ir.id, false)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if !ir.start.IsZero() {
+		if err := s.Store.SetRunTimes(ir.id, ir.start.UnixMilli(), ir.end.UnixMilli()); err != nil {
+			serverError(w, err)
+			return
+		}
+	}
+	s.runClosed(ir.id, first)
+	report := fmt.Sprintf("/#run=%d&view=tests", ir.id)
+	if s.Notify != nil && s.Notify.PublicURL() != "" {
+		report = strings.TrimRight(s.Notify.PublicURL(), "/") + report
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"run_id": ir.id, "status": run.Status, "tests": ir.total,
+		"passed": ir.counts["PASS"], "failed": ir.counts["FAIL"], "skipped": ir.counts["SKIP"], "report": report})
+}
+
+// importBodyError answers a body that could not be read (too large or invalid).
+func importBodyError(w http.ResponseWriter, err error, limit int) {
+	var tooBig *http.MaxBytesError
+	if errors.As(err, &tooBig) {
+		writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the upload is larger than %d MiB", limit>>20))
+		return
+	}
+	writeError(w, http.StatusBadRequest, err.Error())
+}
+
+// ---------- JUnit XML ----------
 
 // importJUnit creates a finished run from one or more JUnit XML reports: the body itself, or the
 // "file" fields of a multipart form. Run context comes in the query string (name, environment,
@@ -26,56 +155,33 @@ func (s *Server) importJUnit(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxImportBody)
 	suites, err := readJUnit(r)
 	if err != nil {
-		var tooBig *http.MaxBytesError
-		if errors.As(err, &tooBig) {
-			writeError(w, http.StatusRequestEntityTooLarge, fmt.Sprintf("the reports are larger than %d MiB", maxImportBody>>20))
-			return
-		}
-		writeError(w, http.StatusBadRequest, err.Error())
+		importBodyError(w, err, maxImportBody)
 		return
 	}
 	total := 0
+	var span time.Duration // se suman los tests y no el time de cada suite: los generadores no siempre coinciden
 	for _, su := range suites {
 		total += len(su.Cases)
+		for _, c := range su.Cases {
+			span += c.Duration
+		}
 	}
 	if total == 0 {
 		writeError(w, http.StatusBadRequest, "the report has no test cases")
 		return
 	}
-
-	q := r.URL.Query()
-	name := strings.TrimSpace(q.Get("name"))
-	if name == "" {
-		name = "JUnit"
-		if len(suites) == 1 && suites[0].Name != "" {
-			name = suites[0].Name
-		}
+	name := "JUnit"
+	if len(suites) == 1 && suites[0].Name != "" {
+		name = suites[0].Name
 	}
-	framework := q.Get("framework")
-	if strings.TrimSpace(framework) == "" {
-		framework = "junit"
-	}
-	meta := db.RunMeta{Project: clean(s.label(q.Get("project")), 200), Branch: clean(s.label(q.Get("branch")), 200),
-		Commit: clean(q.Get("commit"), 80), Framework: clean(framework, 60)}
-	runID, err := s.Store.CreateRunWithMeta(clean(s.label(name), 500), clean(s.label(q.Get("environment")), 200), meta)
+	ir, err := s.newImportRun(r.URL.Query(), name, "junit")
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	s.publish("run", runID, 0, map[string]string{"action": "created"})
-
 	// Horario: cada suite empieza en su timestamp (o donde terminó la anterior) y sus tests van
 	// uno tras otro. Sin ningún timestamp, la ejecución termina ahora.
-	// (se suman los tests y no el time de cada suite: los generadores no siempre coinciden)
-	var span time.Duration
-	for _, su := range suites {
-		for _, c := range su.Cases {
-			span += c.Duration
-		}
-	}
 	cursor := time.Now().Add(-span)
-	runStart, runEnd := time.Time{}, time.Time{}
-	counts := map[string]int{}
 	for _, su := range suites {
 		if !su.Timestamp.IsZero() {
 			cursor = su.Timestamp
@@ -83,54 +189,23 @@ func (s *Server) importJUnit(w http.ResponseWriter, r *http.Request) {
 		for _, c := range su.Cases {
 			start, end := cursor, cursor.Add(c.Duration)
 			cursor = end
-			if runStart.IsZero() || start.Before(runStart) {
-				runStart = start
-			}
-			if end.After(runEnd) {
-				runEnd = end
-			}
-			if err := s.importCase(runID, su, c, start, end); err != nil {
-				// la ejecución no queda abierta para siempre: se cierra incompleta
-				if _, first, cerr := s.Store.CloseRun(runID, true); cerr == nil {
-					s.runClosed(runID, first)
-				}
+			if err := s.importCase(ir, su, c, start, end); err != nil {
+				ir.abort()
 				serverError(w, err)
 				return
 			}
-			counts[c.Status]++
 		}
 	}
-
-	run, first, err := s.Store.CloseRun(runID, false)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
-	if err := s.Store.SetRunTimes(runID, runStart.UnixMilli(), runEnd.UnixMilli()); err != nil {
-		serverError(w, err)
-		return
-	}
-	s.runClosed(runID, first)
-	report := fmt.Sprintf("/#run=%d&view=tests", runID)
-	if s.Notify != nil && s.Notify.PublicURL() != "" {
-		report = strings.TrimRight(s.Notify.PublicURL(), "/") + report
-	}
-	writeJSON(w, http.StatusCreated, map[string]any{"run_id": runID, "status": run.Status, "tests": total,
-		"passed": counts[junit.Pass], "failed": counts[junit.Fail], "skipped": counts[junit.Skip], "report": report})
+	ir.finish(w)
 }
 
-// importCase stores one test case as a finished test with its output and result as steps.
-func (s *Server) importCase(runID int64, su junit.Suite, c junit.Case, start, end time.Time) error {
-	key, err := s.testIdentity(clean(c.Key(), 1000), c.Name)
-	if err != nil {
-		return err
-	}
+// importCase stores one JUnit test case with its output and result as steps.
+func (s *Server) importCase(ir *importRun, su junit.Suite, c junit.Case, start, end time.Time) error {
 	suite := su.Name
 	if suite == "" {
 		suite = c.Classname
 	}
-	meta := db.TestMeta{Key: key, Suite: clean(s.label(suite), 500)}
-	id, err := s.Store.CreateTestWithMeta(runID, clean(s.label(c.Name), 1000), "", s.redactor().Text(clean(c.File, 1000)), meta)
+	id, err := ir.test(c.Key(), c.Name, "", c.File, suite, "")
 	if err != nil {
 		return err
 	}
@@ -151,27 +226,7 @@ func (s *Server) importCase(runID int64, su junit.Suite, c junit.Case, start, en
 			return err
 		}
 	}
-	if c.Attempts > 1 {
-		if err := s.Store.SetAttempts(id, min(c.Attempts, 100)); err != nil {
-			return err
-		}
-	}
-	errMsg := ""
-	if c.Status == junit.Fail {
-		errMsg = c.Message
-	}
-	t, _, err := s.Store.FinishTestChange(id, c.Status, red.Text(errMsg), red.Text(c.Trace))
-	if err != nil {
-		return err
-	}
-	if err := s.Store.SetTestTimes(id, start.UnixMilli(), end.UnixMilli()); err != nil {
-		return err
-	}
-	if t.Status == "FAIL" {
-		s.AI.AnalyzeAsync(id)
-	}
-	s.publish("test", runID, id, map[string]string{"action": "finished", "status": t.Status})
-	return nil
+	return ir.finishTest(id, c.Status, c.Message, c.Trace, c.Attempts, start, end)
 }
 
 // readJUnit parses the request body, or every "file" field when it is a multipart form.
@@ -200,4 +255,161 @@ func readJUnit(r *http.Request) ([]junit.Suite, error) {
 		all = append(all, suites...)
 	}
 	return all, nil
+}
+
+// ---------- Allure ----------
+
+// importAllure creates a finished run from an allure-results folder sent as a ZIP (the body, or
+// the "file" field of a multipart form). Same query and treatment as importJUnit, plus the
+// steps (nested), screenshots and text attachments of each test.
+func (s *Server) importAllure(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxAllureBody)
+	data, err := readUpload(r)
+	if err != nil {
+		importBodyError(w, err, maxAllureBody)
+		return
+	}
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "send the allure-results folder as a ZIP: "+err.Error())
+		return
+	}
+	if len(zr.File) > maxAllureFiles {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("the ZIP has more than %d files", maxAllureFiles))
+		return
+	}
+	rep, err := allure.Parse(zr)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if len(rep.Results) == 0 {
+		writeError(w, http.StatusBadRequest, "the allure results have no tests")
+		return
+	}
+	name, framework := rep.Build, "allure"
+	if name == "" {
+		name = "Allure"
+	}
+	if f := rep.Results[0].Framework; f != "" {
+		framework = f
+	}
+	ir, err := s.newImportRun(r.URL.Query(), name, framework)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	now := time.Now()
+	for _, res := range rep.Results {
+		if err := s.importResult(ir, res, now); err != nil {
+			ir.abort()
+			serverError(w, err)
+			return
+		}
+	}
+	ir.finish(w)
+}
+
+// importResult stores one Allure result: its steps (indented by depth), attachments and result.
+func (s *Server) importResult(ir *importRun, res allure.Result, now time.Time) error {
+	start, end := msTime(res.Start, now), msTime(res.Stop, now)
+	if res.Start == 0 {
+		start = end
+	}
+	id, err := ir.test(res.Key(), res.Name, strings.Join(res.Tags, ","), res.Description, res.Suite, res.Params)
+	if err != nil {
+		return err
+	}
+	if err := s.importSteps(id, res.Steps, 0, start); err != nil {
+		return err
+	}
+	if err := s.importAttachments(id, res.Attachments, "INFO", end); err != nil {
+		return err
+	}
+	if res.Status != allure.Pass && res.Message != "" {
+		if _, err := s.Store.AddLog(id, res.Status, s.redactor().Text(res.Message), end.UnixMilli(), ""); err != nil {
+			return err
+		}
+	}
+	return ir.finishTest(id, res.Status, res.Message, res.Trace, res.Attempts, start, end)
+}
+
+func (s *Server) importSteps(testID int64, steps []allure.Step, depth int, fallback time.Time) error {
+	red := s.redactor()
+	for _, st := range steps {
+		at := msTime(st.Start, fallback)
+		msg := strings.Repeat("  ", depth) + st.Name
+		if st.Message != "" && st.Status != allure.Pass {
+			msg += ": " + st.Message
+		}
+		if _, err := s.Store.AddLog(testID, st.Status, red.Text(truncate(msg, maxImportOutput)), at.UnixMilli(), ""); err != nil {
+			return err
+		}
+		if err := s.importSteps(testID, st.Steps, depth+1, at); err != nil {
+			return err
+		}
+		status := "INFO"
+		if st.Status == allure.Fail {
+			status = allure.Fail
+		}
+		if err := s.importAttachments(testID, st.Attachments, status, msTime(st.Stop, at)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// importAttachments stores images as screenshots and short text attachments as steps; anything
+// else (videos, traces, HTML) is only mentioned. A missing or unreadable file is skipped.
+func (s *Server) importAttachments(testID int64, atts []allure.Attachment, status string, at time.Time) error {
+	for _, a := range atts {
+		name := a.Name
+		if name == "" {
+			name = a.Source
+		}
+		data, err := a.Read()
+		switch {
+		case err != nil:
+			continue
+		case a.IsImage():
+			if _, err := s.storeScreenshot(testID, data, status, name, at.UnixMilli()); err != nil && !errors.Is(err, errNotImage) {
+				return err
+			}
+			continue
+		}
+		msg := "Attachment: " + name
+		if a.Type != "" {
+			msg += " (" + a.Type + ")"
+		}
+		if strings.HasPrefix(a.Type, "text/") || a.Type == "application/json" {
+			msg = name + ":\n" + truncate(string(data), maxImportOutput)
+		}
+		if _, err := s.Store.AddLog(testID, "INFO", s.redactor().Text(msg), at.UnixMilli(), ""); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func msTime(ms int64, fallback time.Time) time.Time {
+	if ms <= 0 {
+		return fallback
+	}
+	return time.UnixMilli(ms)
+}
+
+// readUpload returns the body, or the "file" field when it is a multipart form.
+func readUpload(r *http.Request) ([]byte, error) {
+	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		return io.ReadAll(r.Body)
+	}
+	if err := r.ParseMultipartForm(32 << 20); err != nil {
+		return nil, fmt.Errorf("invalid multipart form: %w", err)
+	}
+	f, _, err := r.FormFile("file")
+	if err != nil {
+		return nil, errors.New(`multipart field "file" is required`)
+	}
+	defer f.Close()
+	return io.ReadAll(f)
 }

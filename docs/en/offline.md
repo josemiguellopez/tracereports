@@ -10,11 +10,12 @@ CI), the clients **do not lose the evidence**: they record it in a folder. With 
   cURL, locators and replay;
 - **upload it to the server later**: `tracereports push <folder>`, once you have the right token.
 
-The same `report` command also builds the report from **JUnit XML**, without a server:
+The same `report` command also builds the report from **JUnit XML** or **Allure**, without a server:
 
 ```bash
-tracereports report results.xml -o report/              # one file
+tracereports report results.xml -o report/              # one JUnit XML file
 tracereports report target/surefire-reports -o report/  # a folder of *.xml (one run)
+tracereports report allure-results -o report/           # Allure results (or their ZIP)
 ```
 
 ## How it works

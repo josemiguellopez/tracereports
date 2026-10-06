@@ -83,6 +83,10 @@ With several files (Maven, Gradle), one `-F file=@…` per report. You get histo
 comparison, error grouping, AI diagnosis and the Teams/Slack notice; screenshots, network and DOM
 come from the clients. Details in the [API](api.md#importing-a-junit-xml-report).
 
+Already using Allure? Upload the zipped `allure-results` folder to `/api/v1/import/allure` and keep
+steps and screenshots (see the [API](api.md#importing-allure-results)); or, without a server,
+`tracereports report allure-results -o report`.
+
 ## Starting the server inside the pipeline
 
 If you don't have a permanent server, you can start it as a job service. Reports are lost when the

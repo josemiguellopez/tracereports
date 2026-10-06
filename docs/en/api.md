@@ -131,6 +131,28 @@ curl -H "Authorization: Bearer $TOKEN" -F file=@target/surefire-reports/TEST-A.x
   notified like in a normal run. Limit: 50 MB per import. It brings no screenshots or network:
   the clients add those.
 
+### Importing Allure results
+
+`POST /import/allure` creates a finished run from an `allure-results` folder (allure-pytest,
+allure-junit5, allure-testng, allure-playwright, allure-cucumber…) compressed as a ZIP, as the body
+(`Content-Type: application/zip`) or in the `file` field of a multipart form:
+
+```bash
+cd allure-results && zip -qr ../allure.zip . && cd ..
+curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data-binary @allure.zip \
+  "$URL/api/v1/import/allure?project=shop&branch=main"
+```
+
+- Same query and response as `/import/junit`. Default name: the `buildName` of `executor.json`, or
+  `Allure`; framework: the `framework` label of the results.
+- Each `*-result.json` is a test identified by `fullName [parameters]`. `failed` and `broken` are
+  `FAIL`, `skipped` (and `unknown`) is `SKIP`. Executions with the same `historyId` (retries) are
+  merged into one test with its attempts, keeping the result of the last one.
+- Steps (nested, indented), with their status and time, become test steps; image attachments become
+  screenshots; text or JSON ones a step with their content (up to 16 KB). The `tag`, `feature`,
+  `story` and `epic` labels are the categories; `parentSuite / suite / subSuite`, the suite.
+- Limit: 200 MB per ZIP and 15 MB per attachment.
+
 ## Reads (used by the UI)
 
 | Method | Path | Description |

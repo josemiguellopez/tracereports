@@ -10,11 +10,12 @@ el CI), los clientes **no pierden la evidencia**: la graban en una carpeta. Con 
   locators y replay;
 - **subirla al servidor después**: `tracereports push <carpeta>`, cuando tengas el token correcto.
 
-El mismo comando `report` también arma el reporte desde **JUnit XML**, sin servidor:
+El mismo comando `report` también arma el reporte desde **JUnit XML** o **Allure**, sin servidor:
 
 ```bash
-tracereports report results.xml -o reporte/           # un archivo
+tracereports report results.xml -o reporte/              # un archivo JUnit XML
 tracereports report target/surefire-reports -o reporte/  # una carpeta de *.xml (una ejecución)
+tracereports report allure-results -o reporte/           # resultados de Allure (o su ZIP)
 ```
 
 ## Cómo funciona

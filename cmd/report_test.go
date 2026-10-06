@@ -135,3 +135,36 @@ func TestReportFlagsAfterTheInput(t *testing.T) {
 	}
 	readReport(t, out)
 }
+
+func TestReportFromAllureFolderAndZip(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "")
+	folder := filepath.Join("..", "internal", "allure", "testdata", "allure-results")
+	out := filepath.Join(t.TempDir(), "rep")
+	if err := runReport([]string{folder, "-o", out}); err != nil {
+		t.Fatal(err)
+	}
+	data := readReport(t, out)
+	for _, want := range []string{"Nightly #42", "test_pay_with_card", "Pagar: 500 en /api/pay", "screenshots/"} {
+		if !strings.Contains(data, want) {
+			t.Errorf("allure report misses %q", want)
+		}
+	}
+	shots, _ := filepath.Glob(filepath.Join(out, "screenshots", "*"))
+	if len(shots) != 1 {
+		t.Fatalf("the step screenshot travels in the report: %v", shots)
+	}
+	// el mismo resultado como ZIP
+	zipped, err := zipFolder(folder)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipPath := filepath.Join(t.TempDir(), "allure.zip")
+	os.WriteFile(zipPath, zipped, 0o644)
+	out2 := filepath.Join(t.TempDir(), "rep2")
+	if err := runReport([]string{"-o", out2, "-name", "Desde ZIP", zipPath}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readReport(t, out2), "Desde ZIP") {
+		t.Fatal("zip input with -name")
+	}
+}

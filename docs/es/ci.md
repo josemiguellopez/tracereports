@@ -83,6 +83,10 @@ Con varios archivos (Maven, Gradle), un `-F file=@…` por reporte. Tienes histo
 comparación, agrupación de errores, diagnóstico con IA y aviso a Teams/Slack; las capturas, la red
 y el DOM los agregan los clientes. Detalle en la [API](api.md#importar-un-reporte-junit-xml).
 
+¿Ya usas Allure? Sube la carpeta `allure-results` comprimida a `/api/v1/import/allure` y conservas
+pasos y capturas (ver la [API](api.md#importar-resultados-de-allure)); o, sin servidor,
+`tracereports report allure-results -o reporte`.
+
 ## Levantar el servidor dentro del pipeline
 
 Si no tienes un servidor permanente, puedes levantarlo como servicio del job. Los reportes se

@@ -98,6 +98,7 @@ func (s *Server) Router() http.Handler {
 		r.Patch("/runs/{run_id}/finish", s.finishRun)
 		r.Post("/runs/{run_id}/tests", s.createTest)
 		r.Post("/import/junit", s.importJUnit)
+		r.Post("/import/allure", s.importAllure)
 
 		r.Get("/tests/{test_id}", s.getTest)
 		r.Post("/tests/{test_id}/logs", s.addLog)
@@ -342,8 +343,7 @@ func (s *Server) uploadScreenshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "could not read file")
 		return
 	}
-	ext, ok := imageExt[http.DetectContentType(data)]
-	if !ok {
+	if _, ok := imageExt[http.DetectContentType(data)]; !ok {
 		writeError(w, http.StatusUnsupportedMediaType, "only PNG, JPEG, GIF or WEBP images are accepted")
 		return
 	}
@@ -359,18 +359,28 @@ func (s *Server) uploadScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	name := fmt.Sprintf("t%d_%d%s", id, time.Now().UnixNano(), ext)
-	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o644); err != nil {
-		serverError(w, err)
-		return
-	}
-	url := "/screenshots/" + name
-	l, err := s.Store.AddLog(id, status, s.redactor().Text(r.FormValue("message")), eventTime(r), url)
+	l, err := s.storeScreenshot(id, data, status, r.FormValue("message"), eventTime(r))
 	if respondErr(w, err, "test") {
 		return
 	}
 	s.publishTest("log", id, l)
-	writeJSON(w, http.StatusCreated, map[string]any{"url": url, "log": l})
+	writeJSON(w, http.StatusCreated, map[string]any{"url": l.Screenshot, "log": l})
+}
+
+// errNotImage: the bytes are not a PNG, JPEG, GIF or WEBP image.
+var errNotImage = errors.New("only PNG, JPEG, GIF or WEBP images are accepted")
+
+// storeScreenshot saves an image of a test and records it as a step (ts 0 = now).
+func (s *Server) storeScreenshot(testID int64, data []byte, status, message string, ts int64) (*db.Log, error) {
+	ext, ok := imageExt[http.DetectContentType(data)]
+	if !ok {
+		return nil, errNotImage
+	}
+	name := fmt.Sprintf("t%d_%d%s", testID, time.Now().UnixNano(), ext)
+	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o644); err != nil {
+		return nil, err
+	}
+	return s.Store.AddLog(testID, status, s.redactor().Text(message), ts, "/screenshots/"+name)
 }
 
 func (s *Server) finishTest(w http.ResponseWriter, r *http.Request) {
