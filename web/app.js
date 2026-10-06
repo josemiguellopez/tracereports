@@ -501,16 +501,6 @@
 		return ok;
 	}
 
-	function curlOf(c) {
-		const q = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
-		const parts = [`curl -X ${c.method || "GET"} ${q(c.url)}`];
-		for (const [k, v] of Object.entries(c.request_headers || {})) {
-			if (v !== "<masked>" && !k.startsWith(":")) parts.push(`-H ${q(`${k}: ${v}`)}`);
-		}
-		if (c.post_data) parts.push(`--data-raw ${q(c.post_data)}`);
-		return parts.join(" \\\n  ");
-	}
-
 	function netDetail(c) {
 		const isHtml = /html/i.test(c.mime_type || "") || /^\s*<(!doctype html|html)/i.test(c.response_body || "");
 		const truncated = !c.body_truncated ? "" : `<div class="truncado-aviso">El servidor guardó ${fmtBytes((c.response_body || "").length)} de ${fmtBytes(c.body_size)} de este body.
@@ -1321,7 +1311,7 @@
 			const curl = e.target.closest("[data-curl]");
 			if (curl) {
 				const c = S.net.list?.[Number(curl.closest("[data-net-idx]").dataset.netIdx)];
-				if (c) copyText(curlOf(c), curl);
+				if (c) copyText(CF.curlOf(c), curl);
 				return;
 			}
 			const copy = e.target.closest("[data-copy]");

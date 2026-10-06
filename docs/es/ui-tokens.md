@@ -90,6 +90,7 @@ reglas específicas si el tema cambia la tipografía: Pixel, por ejemplo, agrand
 | `new TimeTravelPlayer(contenedor, pasos, {start, index, speed, onChange, onLightbox})` | Reproductor de pasos: `play()`, `pause()`, `toggle()`, `go(i)`, `setSpeed(1\|2)`, `setSteps(pasos, i)`, `destroy()` |
 | `new LiveStream(url, {onEvent, onStatus})` | Cliente SSE con reconexión: `start()`, `stop()`. Estados: `live`, `reconnecting`, `off` |
 | `MockGenerator.open(conexión, {subtitle})` | Drawer con el stub en Playwright (Python/JS), Cypress y WireMock |
+| `curlOf(conexión)` | Comando cURL (bash) que repite el request (también se importa en Postman); los headers enmascarados pasan a variables de entorno |
 | `maskValue(valor, clave)` | Enmascara RUT, contraseñas, tokens y similares |
 | `Tips.init()` | Tooltips de ayuda para todo elemento con `data-tip` (más `data-tip-title`, `data-tip-keys` y `data-tip-pos="right\|top"`). Aparecen con hover y con el foco del teclado |
 

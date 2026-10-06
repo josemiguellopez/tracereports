@@ -5,6 +5,7 @@
  *   TraceReportsFeatures.TimeTravelPlayer              replay de pasos con capturas (1 FPS, 2x)
  *   TraceReportsFeatures.LiveStream                    cliente SSE con reconexión silenciosa
  *   TraceReportsFeatures.MockGenerator                 mocks/stubs: Playwright, Cypress, WireMock
+ *   TraceReportsFeatures.curlOf(conn)                  "Copiar como cURL" con secretos enmascarados
  *   TraceReportsFeatures.sparkline(statuses)           barras mínimas de las últimas ejecuciones
  *
  * Cada módulo crea su propio DOM y lo actualiza en el lugar (no re-renderiza el árbol).
@@ -366,6 +367,33 @@
 		return v;
 	}
 
+	/**
+	 * Comando cURL (bash) que repite el request capturado; también se importa en Postman.
+	 * Los headers enmascarados pasan a variables de entorno ($AUTHORIZATION) en vez de perderse.
+	 */
+	function curlOf(conn) {
+		const q = (v) => `'${String(v).replace(/'/g, `'\\''`)}'`;
+		let url = String(conn.url || "");
+		try {
+			const u = new URL(url);
+			u.searchParams.forEach((v, k) => { if (SENSITIVE_KEY.test(k)) u.searchParams.set(k, MASK); });
+			url = u.href;
+		} catch { /* URL relativa: se deja como vino */ }
+		url = url.replace(/<masked>|%3Cmasked%3E/gi, MASK);
+		const parts = [`curl -X ${conn.method || "GET"} ${q(url)}`];
+		for (const [k, v] of Object.entries(conn.request_headers || {})) {
+			if (k.startsWith(":")) continue;
+			if (v === "<masked>" || SENSITIVE_KEY.test(k)) parts.push(`-H "${k}: $${k.toUpperCase().replace(/\W+/g, "_")}"`);
+			else parts.push(`-H ${q(`${k}: ${v}`)}`);
+		}
+		if (conn.post_data) {
+			let body = conn.post_data.replace(RUT, MASK).replace(/<masked>|<rut>/g, MASK);
+			try { body = JSON.stringify(maskValue(JSON.parse(conn.post_data))); } catch { /* no es JSON */ }
+			parts.push(`--data-raw ${q(body)}`);
+		}
+		return parts.join(" \\\n  ");
+	}
+
 	const MockGenerator = {
 		FORMATS: [
 			{ id: "pw-py", label: "Playwright (Python)", ext: "py", lang: "python" },
@@ -574,5 +602,5 @@ cy.intercept('${m.method}', '${m.glob}', {
 		return { init, hide };
 	})();
 
-	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, maskValue, esc, Tips };
+	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, curlOf, maskValue, esc, Tips };
 })();

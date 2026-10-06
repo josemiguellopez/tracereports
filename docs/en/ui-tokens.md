@@ -90,6 +90,7 @@ enlarges code in `features.css` because its bitmap font reads small.
 | `new TimeTravelPlayer(container, steps, {start, index, speed, onChange, onLightbox})` | Step player: `play()`, `pause()`, `toggle()`, `go(i)`, `setSpeed(1\|2)`, `setSteps(steps, i)`, `destroy()` |
 | `new LiveStream(url, {onEvent, onStatus})` | SSE client with reconnection: `start()`, `stop()`. States: `live`, `reconnecting`, `off` |
 | `MockGenerator.open(connection, {subtitle})` | Drawer with the stub in Playwright (Python/JS), Cypress and WireMock |
+| `curlOf(connection)` | Bash cURL command that replays the request (also imports into Postman); masked headers become environment variables |
 | `maskValue(value, key)` | Masks national IDs (RUT), passwords, tokens and the like |
 | `Tips.init()` | Help tooltips for every element with `data-tip` (plus `data-tip-title`, `data-tip-keys` and `data-tip-pos="right\|top"`). Shown on hover and on keyboard focus |
 
