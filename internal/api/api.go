@@ -93,6 +93,9 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/escalate", s.escalate)
 		r.Post("/ui/escalate/send", s.sendEscalation)
 		r.Post("/ui/tickets", s.createTicket)
+		r.Post("/ui/quarantine", s.setQuarantine)
+		r.Delete("/ui/quarantine/{test_id}", s.removeQuarantine)
+		r.Get("/quarantine", s.listQuarantine)
 		r.Get("/stream", s.stream)
 
 		r.Get("/runs", s.listRuns)

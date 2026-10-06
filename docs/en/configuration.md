@@ -236,6 +236,22 @@ with a sample search, copy the URL and replace the value with `{trace_id}`.
 A template that needs an id the call does not have produces no link: it never opens an empty
 search. Ids and links are kept in the exported report too.
 
+## Quarantine of flaky tests
+
+A known flaky test can be **quarantined** from its detail (*Quarantine* button, on tests that fail
+or are marked flaky): a required reason, an owner and an expiry (7, 14, 30 or 90 days). While it
+lasts:
+
+- its failures **are still shown and counted**, but they do not turn the run red: if only
+  quarantined tests fail, the run is yellow (`WARNING`), with the `quarantined` counter;
+- it applies to the next runs of the same **project** (by the test identity) and to the run you are
+  looking at, recomputed right away;
+- when it **expires** it stops applying by itself: a test cannot stay hidden forever. The chip
+  becomes *Quarantine expired*.
+
+The PR comment tells quarantined failures apart too. Through the API: `POST /api/v1/ui/quarantine`,
+`DELETE /api/v1/ui/quarantine/{test_id}` and `GET /api/v1/quarantine?project=…` (see the [API](api.md)).
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:

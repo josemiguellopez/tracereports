@@ -236,6 +236,22 @@ abre Explore con una búsqueda de ejemplo, copia la URL y reemplaza el valor por
 Una plantilla que usa un id que la llamada no trae no genera link: nunca abre una búsqueda vacía.
 Los ids y los links también quedan en el reporte exportado.
 
+## Cuarentena de tests flaky
+
+Un test inestable conocido se puede poner **en cuarentena** desde su detalle (botón *Poner en
+cuarentena*, en tests que fallan o están marcados como flaky): motivo obligatorio, dueño y
+vencimiento (7, 14, 30 o 90 días). Mientras dura:
+
+- sus fallos **se siguen viendo y contando**, pero no ponen la ejecución en rojo: si solo fallan
+  tests en cuarentena, la ejecución queda en amarillo (`WARNING`), con el contador `quarantined`;
+- aplica a las siguientes ejecuciones del mismo **proyecto** (por la identidad del test) y a la que
+  estás viendo, que se recalcula al momento;
+- al **vencer** deja de aplicar sola: un test no puede quedar escondido para siempre. El chip
+  pasa a *Cuarentena vencida*.
+
+El comentario del PR también distingue los fallos en cuarentena. Por API: `POST /api/v1/ui/quarantine`,
+`DELETE /api/v1/ui/quarantine/{test_id}` y `GET /api/v1/quarantine?project=…` (ver la [API](api.md)).
+
 ## Historial, flaky y comparación
 
 No requieren configuración. Se calculan con los datos que ya existen:

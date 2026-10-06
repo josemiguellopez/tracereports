@@ -807,3 +807,18 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .bloque.corr .corr-lbl { min-width: 84px; color: var(--text-muted); font-size: .85em; }
 .bloque.corr code { font-size: .85em; word-break: break-all; }
 .bloque.corr .corr-links { display: flex; gap: 6px; flex-wrap: wrap; padding-top: 6px; }
+
+/* cuarentena de tests flaky */
+.quar-chip {
+	display: inline-flex; align-items: center; white-space: nowrap; cursor: default;
+	font-size: 12px; font-weight: 700; line-height: 20px; padding: 0 8px; border-radius: 10px;
+	color: var(--text-muted); background: color-mix(in srgb, var(--text-muted) 12%, transparent);
+	border: 1px dashed color-mix(in srgb, var(--text-muted) 55%, transparent);
+}
+.quar-chip.sm { font-size: 11px; line-height: 17px; padding: 0 6px; }
+.quar-chip.expired { text-decoration: line-through; opacity: .75; }
+.quar-form { display: grid; gap: 8px; margin-top: 10px; padding: 12px; }
+.quar-form input, .quar-form select { width: 100%; }
+.quar-row { display: grid; grid-template-columns: 1fr 160px; gap: 8px; }
+.quar-actions { display: flex; gap: 6px; }
+@media (max-width: 600px) { .quar-row { grid-template-columns: 1fr; } }

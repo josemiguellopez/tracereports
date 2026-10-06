@@ -38,6 +38,7 @@ type Run struct {
 	Passed      int    `json:"passed"`
 	Failed      int    `json:"failed"`
 	Skipped     int    `json:"skipped"`
+	Quarantined int    `json:"quarantined"` // fallos de tests en cuarentena: no ponen la ejecución en rojo
 	Tests       []struct {
 		ID           int64  `json:"id"`
 		Name         string `json:"name"`
@@ -80,12 +81,12 @@ var labels = map[string]map[string]string{
 		"failing": "{f} de {t} fallaron", "incomplete": "ejecución incompleta", "diagnosis": "Diagnóstico", "incidents": "Incidentes",
 		"test": "test", "tests": "tests", "cause": "Causa probable", "action": "Revisar", "new": "Fallos nuevos frente a #{b}", "fixed": "Arreglados",
 		"flaky": "Flaky (pasan y fallan sin cambios)", "failures": "Fallos", "more": "y {n} más", "report": "Ver el reporte",
-		"retry": "pasó tras reintento", "footer": "Comentario de TraceReports: se actualiza en cada push."},
+		"retry": "pasó tras reintento", "quarantined": "{n} en cuarentena", "footer": "Comentario de TraceReports: se actualiza en cada push."},
 	"en": {"passed": "Passed", "failed": "Failed", "skipped": "Skipped", "duration": "Duration", "allok": "all green",
 		"failing": "{f} of {t} failed", "incomplete": "incomplete run", "diagnosis": "Diagnosis", "incidents": "Incidents",
 		"test": "test", "tests": "tests", "cause": "Likely cause", "action": "Check", "new": "New failures since #{b}", "fixed": "Fixed",
 		"flaky": "Flaky (pass and fail with no change)", "failures": "Failures", "more": "and {n} more", "report": "Open the report",
-		"retry": "passed on retry", "footer": "TraceReports comment: updated on every push."},
+		"retry": "passed on retry", "quarantined": "{n} quarantined", "footer": "TraceReports comment: updated on every push."},
 }
 
 const maxItems = 10
@@ -104,8 +105,14 @@ func Markdown(r *Run, cmp *Comparison, lang, link string) string {
 	var b strings.Builder
 	b.WriteString(Marker(r) + "\n")
 	icon, state := "✅", l["allok"]
-	if r.Failed > 0 {
-		icon, state = "❌", strings.NewReplacer("{f}", strconv.Itoa(r.Failed), "{t}", strconv.Itoa(r.Total)).Replace(l["failing"])
+	if real := r.Failed - r.Quarantined; real > 0 {
+		icon, state = "❌", strings.NewReplacer("{f}", strconv.Itoa(real), "{t}", strconv.Itoa(r.Total)).Replace(l["failing"])
+	}
+	if r.Quarantined > 0 { // se ven, pero no ponen la ejecución en rojo
+		if icon == "✅" {
+			icon = "⚠️"
+		}
+		state += " · " + strings.ReplaceAll(l["quarantined"], "{n}", strconv.Itoa(r.Quarantined))
 	}
 	if r.Incomplete {
 		icon, state = "⚠️", state+" · "+l["incomplete"]

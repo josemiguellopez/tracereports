@@ -186,7 +186,7 @@
 			? `<span class="ai-mini" data-tip="Causa probable según la IA: ${esc(AI_LABEL[t.triage.category] || t.triage.category)}">${icon("i-spark")}${esc(t.triage.category)}</span>` : "";
 		return `<li class="collection-item ${t.id === S.testId ? "active" : ""}" data-test="${t.id}">
 			<div class="test-head"><span class="test-name">${esc(t.name)}</span>${statusLabel(t.status)}</div>
-			<div class="meta"><span>${fmtTime(t.started_at)}</span><span>${fmtDuration(durationOf(t))}</span>${retryChip(t, true)}${flakyChip(t, true)}${driftChip(t, true)}${ai}${netMini(t)}</div>
+			<div class="meta"><span>${fmtTime(t.started_at)}</span><span>${fmtDuration(durationOf(t))}</span>${retryChip(t, true)}${flakyChip(t, true)}${driftChip(t, true)}${quarantineChip(t, true)}${ai}${netMini(t)}</div>
 		</li>`;
 	}
 
@@ -220,9 +220,11 @@
 				<span class="label started" title="Comienzo del test">${fmtDateTime(t.started_at)}</span>
 				${t.ended_at ? `<span class="label ended" title="Fin del test">${fmtDateTime(t.ended_at)}</span>` : `<span class="label running">en curso</span>`}
 				<span class="label elapsed" title="Tiempo de ejecución">${fmtDuration(durationOf(t))}</span>
-				${retryChip(t, false)}${flakyChip(runTest(t), false)}${driftChip(runTest(t), false)}
+				${retryChip(t, false)}${flakyChip(runTest(t), false)}${driftChip(runTest(t), false)}${quarantineChip(t, false)}
 				${t.worker ? `<span class="label" data-tip="Worker o shard que ejecutó el test (pytest-xdist)">${esc(t.worker)}</span>` : ""}
+				${quarantineButton(t)}
 			</div>
+			${quarantineForm(t)}
 			${t.description ? `<div class="test-desc">${esc(t.description)}</div>` : ""}
 			${tags ? `<div class="test-attributes">${tags}</div>` : ""}
 			${historyStrip(t)}
@@ -591,6 +593,54 @@
 		const tr = window.TraceReportsI18n.t;
 		const label = t.status === "PASS" ? tr("Pasó tras reintento") : tr("{n} intentos", { n: t.attempts });
 		return `<span class="retry-chip ${compact ? "sm" : ""}" data-tip="${esc(tr("El runner lo ejecutó {n} veces. La evidencia de los intentos fallidos sigue en los pasos.", { n: t.attempts }))}">↻ ${compact && t.status === "PASS" ? tr("reintento") : label}</span>`;
+	}
+
+	/** Cuarentena del test: sus fallos no ponen la ejecución en rojo hasta que vence. */
+	function quarantineChip(t, compact) {
+		const q = t.quarantine;
+		if (!q) return "";
+		const tr = window.TraceReportsI18n.t;
+		const until = fmtDateTime(q.until);
+		const tip = q.active
+			? tr("En cuarentena hasta {d}{o}. Motivo: {r}. Sus fallos se ven, pero no ponen la ejecución en rojo.", { d: until, o: q.owner ? ` · ${q.owner}` : "", r: q.reason })
+			: tr("La cuarentena venció el {d}: sus fallos vuelven a contar.", { d: until });
+		return `<span class="quar-chip ${q.active ? "" : "expired"} ${compact ? "sm" : ""}" data-tip="${esc(tip)}">${q.active ? tr("En cuarentena") : tr("Cuarentena vencida")}</span>`;
+	}
+
+	function quarantineButton(t) {
+		if (!canAct()) return "";
+		if (t.quarantine?.active) return `<button class="cf-btn cf-btn-sm" data-quar-remove="${t.id}">${tr("Quitar cuarentena")}</button>`;
+		if (t.status !== "FAIL" && !runTest(t).flaky) return "";
+		return `<button class="cf-btn cf-btn-sm" data-quar-open="${t.id}" data-tip="${tr("Para un test inestable conocido: sus fallos se siguen viendo, pero no ponen las ejecuciones en rojo hasta la fecha que elijas.")}">${tr("Poner en cuarentena")}</button>`;
+	}
+
+	function quarantineForm(t) {
+		if (S.quar?.testId !== t.id) return "";
+		const m = S.quar.msg;
+		return `<form class="card quar-form" data-quar-form="${t.id}">
+			<label class="field"><span class="field-label">${tr("Motivo")}</span>
+				<input name="reason" required maxlength="500" placeholder="${tr("Ej.: timeout intermitente del proveedor de pagos (ticket SHOP-34)")}"></label>
+			<div class="quar-row">
+				<label class="field"><span class="field-label">${tr("Dueño")}</span><input name="owner" maxlength="200" placeholder="${tr("Equipo o persona")}"></label>
+				<label class="field"><span class="field-label">${tr("Vence en")}</span><select name="days">
+					${[7, 14, 30, 90].map((d) => `<option value="${d}" ${d === 14 ? "selected" : ""}>${tr("{n} días", { n: d })}</option>`).join("")}</select></label>
+			</div>
+			${m ? `<p class="set-msg err" role="status">${esc(m)}</p>` : ""}
+			<div class="quar-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary">${tr("Poner en cuarentena")}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-quar-cancel>${tr("Cancelar")}</button></div>
+		</form>`;
+	}
+
+	async function quarantineAction(method, path, body) {
+		try {
+			await apiSend(method, path, body);
+			S.quar = null;
+			await loadRun();
+			await loadTest();
+		} catch (err) {
+			S.quar = { ...(S.quar || {}), msg: err.message };
+			renderTestDetail();
+		}
 	}
 
 	/** 🐢 Latencia +420ms: el p95 de su red empeoró frente a su historial. */
@@ -1307,7 +1357,19 @@
 			S.status = b.dataset.status;
 			renderTests();
 		});
+		$("#test-detail").addEventListener("submit", (e) => {
+			const f = e.target.closest("[data-quar-form]");
+			if (!f) return;
+			e.preventDefault();
+			const d = new FormData(f);
+			quarantineAction("POST", "/api/v1/ui/quarantine", { test_id: Number(f.dataset.quarForm), reason: d.get("reason"), owner: d.get("owner"), days: Number(d.get("days")) });
+		});
 		$("#test-detail").addEventListener("click", (e) => {
+			const open = e.target.closest("[data-quar-open]");
+			if (open) { S.quar = { testId: Number(open.dataset.quarOpen) }; renderTestDetail(); $("[data-quar-form] input")?.focus(); return; }
+			if (e.target.closest("[data-quar-cancel]")) { S.quar = null; renderTestDetail(); return; }
+			const rm = e.target.closest("[data-quar-remove]");
+			if (rm) { quarantineAction("DELETE", `/api/v1/ui/quarantine/${rm.dataset.quarRemove}`); return; }
 			const b = e.target.closest("[data-step-filter]");
 			if (!b) return;
 			S.stepFilter = b.dataset.stepFilter;

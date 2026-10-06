@@ -83,7 +83,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows a single writer; one connection avoids SQLITE_BUSY under concurrent writes.
 	sqldb.SetMaxOpenConns(1)
-	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema); err != nil {
+	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
@@ -180,6 +180,9 @@ type Counters struct {
 	Skipped int `json:"skipped"`
 	Warning int `json:"warning"`
 	Running int `json:"running"`
+	// Quarantined: failed tests whose quarantine was active when the run was counted; they are
+	// part of Failed but do not make the run FAIL.
+	Quarantined int `json:"quarantined"`
 }
 
 // Run is a test execution / suite.
@@ -233,6 +236,8 @@ type Test struct {
 	NetDrift *NetDrift `json:"net_drift,omitempty"`
 	Triage   *Triage   `json:"triage"`
 	Logs     []Log     `json:"logs,omitempty"`
+	// Quarantine of the test in its project (nil if never quarantined; see Active).
+	Quarantine *Quarantine `json:"quarantine,omitempty"`
 }
 
 // TestMeta identifies a test beyond its visible name.
@@ -305,13 +310,14 @@ func countersOf(q querier, runID int64) (Counters, error) {
 	var c Counters
 	err := q.QueryRow(`
 		SELECT COUNT(*),
-		       COALESCE(SUM(status='PASS'),0),
-		       COALESCE(SUM(status='FAIL'),0),
-		       COALESCE(SUM(status='SKIP'),0),
-		       COALESCE(SUM(status='WARNING'),0),
-		       COALESCE(SUM(status='RUNNING'),0)
-		FROM tests WHERE run_id = ?`, runID).
-		Scan(&c.Total, &c.Passed, &c.Failed, &c.Skipped, &c.Warning, &c.Running)
+		       COALESCE(SUM(t.status='PASS'),0),
+		       COALESCE(SUM(t.status='FAIL'),0),
+		       COALESCE(SUM(t.status='SKIP'),0),
+		       COALESCE(SUM(t.status='WARNING'),0),
+		       COALESCE(SUM(t.status='RUNNING'),0),
+		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
+		FROM tests t JOIN runs r ON r.id = t.run_id WHERE t.run_id = ?`, NowMs(), runID).
+		Scan(&c.Total, &c.Passed, &c.Failed, &c.Skipped, &c.Warning, &c.Running, &c.Quarantined)
 	return c, err
 }
 
@@ -321,13 +327,14 @@ const InterruptedMessage = "Interrumpido: el test no terminó antes de cerrar la
 // FinishRun closes a run and persists consolidated counters.
 func (s *Store) FinishRun(runID int64) (*Run, error) { return s.FinishRunWith(runID, false) }
 
-// runStatus is the aggregate status of a closed run. Any FAIL wins; an incomplete run (interrupted
-// now or in an earlier close) or one with tests still RUNNING is never green.
+// runStatus is the aggregate status of a closed run. Any FAIL wins, except quarantined ones (they
+// leave it WARNING); an incomplete run (interrupted now or in an earlier close) or one with tests
+// still RUNNING is never green.
 func runStatus(c Counters, incomplete bool) string {
 	switch {
-	case c.Failed > 0:
+	case c.Failed > c.Quarantined:
 		return "FAIL"
-	case incomplete || c.Running > 0 || c.Warning > 0:
+	case incomplete || c.Running > 0 || c.Warning > 0 || c.Quarantined > 0:
 		return "WARNING"
 	case c.Total > 0 && c.Skipped == c.Total:
 		return "SKIP"
@@ -523,8 +530,11 @@ const testSelect = `
 	       t.error_message, t.error_trace, t.test_key, t.suite, t.params, t.worker, t.attempts,
 	       (SELECT COUNT(*) FROM network n WHERE n.test_id = t.id),
 	       (SELECT COUNT(*) FROM network n WHERE n.test_id = t.id AND (n.failed = 1 OR n.status >= 400) AND n.expected = 0),
-	       a.state, a.category, a.summary, a.suggestion, a.error, a.updated_at, a.locator_pick, a.locator_reason
-	FROM tests t LEFT JOIN ai_triage a ON a.test_id = t.id`
+	       a.state, a.category, a.summary, a.suggestion, a.error, a.updated_at, a.locator_pick, a.locator_reason,
+	       q.reason, q.owner, q.until, q.created_at
+	FROM tests t LEFT JOIN ai_triage a ON a.test_id = t.id
+	JOIN runs r ON r.id = t.run_id
+	LEFT JOIN quarantine q ON q.project = r.project AND q.test_key = t.test_key`
 
 type scanner interface{ Scan(dest ...any) error }
 
@@ -532,9 +542,16 @@ func scanTest(sc scanner) (*Test, error) {
 	var t Test
 	var aState, aCat, aSum, aSug, aErr, aPick, aReason sql.NullString
 	var aUpd sql.NullInt64
+	var qReason, qOwner sql.NullString
+	var qUntil, qCreated sql.NullInt64
 	if err := sc.Scan(&t.ID, &t.RunID, &t.Name, &t.Category, &t.Description, &t.Status, &t.StartedAt, &t.EndedAt,
-		&t.ErrorMessage, &t.ErrorTrace, &t.Key, &t.Suite, &t.Params, &t.Worker, &t.Attempts, &t.NetworkTotal, &t.NetworkErrors, &aState, &aCat, &aSum, &aSug, &aErr, &aUpd, &aPick, &aReason); err != nil {
+		&t.ErrorMessage, &t.ErrorTrace, &t.Key, &t.Suite, &t.Params, &t.Worker, &t.Attempts, &t.NetworkTotal, &t.NetworkErrors, &aState, &aCat, &aSum, &aSug, &aErr, &aUpd, &aPick, &aReason,
+		&qReason, &qOwner, &qUntil, &qCreated); err != nil {
 		return nil, err
+	}
+	if qUntil.Valid {
+		t.Quarantine = &Quarantine{Key: t.Key, Reason: qReason.String, Owner: qOwner.String, Until: qUntil.Int64,
+			CreatedAt: qCreated.Int64, Active: qUntil.Int64 > NowMs()}
 	}
 	t.KeyApprox = strings.HasPrefix(t.Key, "name:")
 	if aState.Valid {

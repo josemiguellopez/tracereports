@@ -92,6 +92,17 @@ func TestMarkdownGreenAndIncomplete(t *testing.T) {
 	}
 }
 
+func TestMarkdownQuarantined(t *testing.T) {
+	only := run(t, `{"name":"E2E","project":"p","total":10,"passed":9,"failed":1,"quarantined":1}`)
+	if md := Markdown(only, nil, "es", ""); !strings.Contains(md, "### ⚠️ TraceReports · E2E — todo en verde · 1 en cuarentena") {
+		t.Fatalf("only quarantined failures:\n%s", md)
+	}
+	mixed := run(t, `{"name":"E2E","project":"p","total":10,"passed":7,"failed":3,"quarantined":1}`)
+	if md := Markdown(mixed, nil, "en", ""); !strings.Contains(md, "### ❌ TraceReports · E2E — 2 of 10 failed · 1 quarantined") {
+		t.Fatalf("real failures plus quarantined:\n%s", md)
+	}
+}
+
 func env(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
 func TestDetect(t *testing.T) {

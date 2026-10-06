@@ -204,6 +204,9 @@ in local mode, the server's own machine.
 | POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Summary for `business`, `qa` or `dev` (`test_id` 0 = the whole run). Cached when written by AI |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Posts the summary to `teams` or `slack`. With `PUBLIC_URL` it includes the link and the screenshot |
 | POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Creates a ticket in `github`, `jira` or `azure` with the summary (default for `dev`). `201 {ticket}`; if the same failure already has one, `200 {ticket, existing: true}` (unless `force`). See [Configuration](configuration.md#tickets-in-github-jira-or-azure-devops) |
+| POST | `/ui/quarantine` | `{test_id, reason, owner, days}` | Quarantines the test (in its project) for `days` days (default 14, max 180). `reason` is required. Answers the quarantine and the recomputed run |
+| DELETE | `/ui/quarantine/{test_id}` | `{}` | Lifts the test's quarantine |
+| GET | `/quarantine?project=…` | — | Quarantines of the project (`all=1`: every project), with `active` |
 | GET | `/runs/{run_id}/tickets` | — | Tickets of the run's failures (also those opened from earlier runs of the same test) |
 
 Related reads: `GET /runs/{run_id}/recurrence` (in how many previous runs of the same suite each
