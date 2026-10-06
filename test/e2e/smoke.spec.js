@@ -1,0 +1,159 @@
+// Recorrido de humo por la UI: cada vista y cada pestaña debe dibujarse sin errores de JavaScript
+// ni respuestas 5xx del servidor. Si una funcionalidad nueva rompe otra pantalla, falla aquí.
+const { test, expect } = require("@playwright/test");
+
+const seed = () => JSON.parse(process.env.E2E_SEED);
+
+// Errores de la página: excepciones sin capturar, console.error y respuestas 5xx de la API.
+test.beforeEach(async ({ page }, info) => {
+	const errors = [];
+	info.errors_ = errors;
+	page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
+	page.on("console", (m) => { if (m.type() === "error") errors.push(`console.error: ${m.text()}`); });
+	page.on("response", (r) => { if (r.status() >= 500) errors.push(`${r.status()} ${r.request().method()} ${r.url()}`); });
+});
+
+test.afterEach(async ({}, info) => {
+	expect(info.errors_, "la página no debe tener errores").toEqual([]);
+});
+
+/** Abre la ejecución actual y espera a que la lista de tests esté dibujada. */
+async function openRun(page) {
+	await page.goto("/");
+	const { run } = seed();
+	// la ejecución más reciente se abre sola; si no, se elige en el selector
+	const select = page.locator("#run-select");
+	if ((await select.inputValue()) !== String(run)) await select.selectOption(String(run));
+	await expect(page.locator("#report-name")).toHaveText("E2E actual");
+	await expect(page.locator("#test-collection .collection-item")).toHaveCount(3);
+}
+
+/** Abre el detalle de un test por nombre. */
+async function openTest(page, name) {
+	await page.locator("#test-collection .collection-item", { hasText: name }).click();
+	await expect(page.locator("#test-detail")).toContainText(name);
+}
+
+test("carga la ejecución con sus tests y filtros", async ({ page }) => {
+	await openRun(page);
+	await page.locator("#search-tests").fill("buscar");
+	await expect(page.locator("#test-collection .collection-item")).toHaveCount(1);
+	await page.locator("#search-tests").fill("");
+	await expect(page.locator("#test-collection .collection-item")).toHaveCount(3);
+});
+
+test("detalle de un test fallido: pasos, timeline, replay y red", async ({ page }) => {
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const detail = page.locator("#test-detail");
+
+	await detail.locator('[data-tab="steps"]').click();
+	await expect(detail).toContainText("El Dashboard no apareció");
+
+	await detail.locator('[data-tab="timeline"]').click();
+	await expect(detail.locator('[data-tab="timeline"]')).toHaveClass(/active/);
+
+	await detail.locator('[data-tab="replay"]').click();
+	await expect(detail.locator('[data-tab="replay"]')).toHaveClass(/active/);
+	// arranca en el primer paso (sin captura); en el último se ve la captura
+	await expect(detail.locator(".tt-player")).toBeVisible();
+	await detail.locator(".tt-player").focus();
+	await page.keyboard.press("End");
+	await expect(detail.locator("img.tt-frame")).toBeVisible();
+	await expect(detail.locator("img.tt-frame")).toHaveJSProperty("complete", true);
+	expect(await detail.locator("img.tt-frame").evaluate((img) => img.naturalWidth)).toBeGreaterThan(0);
+
+	await detail.locator('[data-tab="network"]').click();
+	await expect(detail.locator(".net-card")).toHaveCount(2);
+	await expect(detail.locator(".net-card-error")).toHaveCount(1);
+});
+
+test("red: Copiar como cURL no filtra secretos y conserva los headers enmascarados", async ({ page }) => {
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const detail = page.locator("#test-detail");
+	await detail.locator('[data-tab="network"]').click();
+	const card = detail.locator(".net-card-error");
+	await card.locator("summary").click();
+	await card.locator("[data-curl]").click();
+	const curl = await page.evaluate(() => navigator.clipboard.readText());
+	expect(curl).toContain("curl -X POST 'https://api.example.com/auth/login?lang=es'");
+	expect(curl).toContain('-H "Authorization: $AUTHORIZATION"');
+	expect(curl).toContain('"password":"***"');
+	expect(curl).not.toContain("E2E-SECRET");
+	expect(curl).not.toContain("E2E-PASSWORD");
+	expect(curl).not.toContain("<masked>");
+});
+
+test("red: el panel de mocks muestra cada formato", async ({ page }) => {
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const detail = page.locator("#test-detail");
+	await detail.locator('[data-tab="network"]').click();
+	await detail.locator(".net-card-error [data-mock]").first().click();
+	const drawer = page.locator(".cf-mock");
+	await expect(drawer).toBeVisible();
+	const tabs = drawer.locator('[role="tab"]');
+	await expect(tabs).toHaveText(["Playwright (Python)", "Playwright (JS)", "Cypress", "WireMock"]);
+	for (let i = 0; i < 4; i++) {
+		await tabs.nth(i).click();
+		await expect(tabs.nth(i)).toHaveAttribute("aria-selected", "true");
+		await expect(drawer.locator(".cf-code")).toContainText("db pool exhausted");
+	}
+	await expect(drawer.locator(".cf-code")).not.toContainText("E2E-PASSWORD");
+	await page.keyboard.press("Escape");
+	await expect(drawer).toBeHidden();
+});
+
+for (const [view, expected] of [
+	["categories", "login"],
+	["exceptions", "TimeoutError"],
+	["dashboard", null],
+	["ai", null],
+	["escalate", null],
+	["metrics", null],
+	["settings", null],
+]) {
+	test(`vista ${view} se dibuja`, async ({ page }) => {
+		await openRun(page);
+		await page.locator(`nav [data-view="${view}"], [data-view="${view}"]`).first().click();
+		const section = page.locator(`#view-${view}`);
+		await expect(section).toBeVisible();
+		await expect(section).not.toBeEmpty();
+		if (expected) await expect(section).toContainText(expected);
+		// volver a Tests sigue funcionando
+		await page.locator('[data-view="tests"]').first().click();
+		await expect(page.locator("#view-tests")).toBeVisible();
+	});
+}
+
+test("temas: cada uno se aplica", async ({ page }) => {
+	await openRun(page);
+	await page.locator("#theme-btn").click();
+	const options = page.locator("#theme-menu .theme-option");
+	const count = await options.count();
+	expect(count).toBeGreaterThanOrEqual(6);
+	for (let i = 0; i < count; i++) {
+		if (i > 0) await page.locator("#theme-btn").click();
+		const id = await options.nth(i).getAttribute("data-theme-id");
+		await options.nth(i).click();
+		await expect(page.locator("body")).toHaveAttribute("data-theme", id);
+	}
+});
+
+test("inglés: la navegación se traduce", async ({ page }) => {
+	await page.addInitScript(() => { try { localStorage.setItem("tracereports-lang", "en"); } catch {} });
+	await openRun(page);
+	await expect(page.locator('[data-view="categories"]').first()).toContainText("Categories");
+	await expect(page.locator('[data-view="settings"]').first()).toContainText("Settings");
+});
+
+test("exportar ZIP responde un archivo zip", async ({ page, request }) => {
+	await openRun(page);
+	const href = await page.locator("#export-btn").getAttribute("href");
+	expect(href).toBe(`/api/v1/runs/${seed().run}/export`);
+	const res = await request.get(href);
+	expect(res.status()).toBe(200);
+	const body = await res.body();
+	expect(body.subarray(0, 2).toString()).toBe("PK");
+});

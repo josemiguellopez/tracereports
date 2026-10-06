@@ -1,0 +1,11 @@
+{
+  "name": "tracereports-e2e",
+  "private": true,
+  "description": "Smoke tests of the web UI against a real server (Playwright).",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.56.0"
+  }
+}

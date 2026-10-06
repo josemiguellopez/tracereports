@@ -9,7 +9,7 @@ updates:
       go: { patterns: ["*"] }
 
   - package-ecosystem: npm
-    directories: ["/examples/playwright-js", "/examples/selenium-js"]
+    directories: ["/examples/playwright-js", "/examples/selenium-js", "/test/e2e"]
     schedule: { interval: weekly }
     target-branch: dev
     groups:

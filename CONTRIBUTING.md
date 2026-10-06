@@ -31,6 +31,8 @@ internal/live        live events (Server-Sent Events)
 internal/notify      Teams and Slack notifications
 internal/redact      masking of secrets before anything is stored
 web/                 UI: HTML/CSS/JS with no build step, embedded in the binary
+test/web             unit tests of the UI logic (node:test, no dependencies)
+test/e2e             UI smoke tests against a real server (Playwright)
 client/python        Python client + pytest plugin
 client/js            JavaScript/TypeScript client + Playwright Test reporter
 client/java          Java client + JUnit 5 extension
@@ -50,6 +52,8 @@ You only need the toolchain of the part you are changing.
 | JavaScript client | Node.js 22+ | — | `cd client/js && npm test` |
 | Java client | JDK 17+ | — | `cd client/java && ./gradlew test` |
 | Go client | Go 1.22+ | — | `cd client/go && go test ./...` |
+| UI logic | Node.js 22+ | — | `node --test "test/web/*.test.js"` |
+| UI smoke (end to end) | Go 1.26+, Node.js 22+ | — | `cd test/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
 To see your changes with real data, start the server and run one of the
 [examples](examples) against it.
