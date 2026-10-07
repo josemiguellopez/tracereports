@@ -602,5 +602,52 @@ cy.intercept('${m.method}', '${m.glob}', {
 		return { init, hide };
 	})();
 
-	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, curlOf, maskValue, esc, Tips };
+	// ─── reproducir en local ─────────────────────────────────────────────────
+	const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
+	const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+	/**
+	 * Comandos para correr un test en local según el framework de la ejecución y la identidad del
+	 * test (la key que reportó el cliente). Devuelve [{label, cmd}] (vacío si no se puede deducir).
+	 * Con commit, el primero hace checkout de esa versión.
+	 */
+	function reproCommands({ framework = "", key = "", name = "", commit = "" } = {}) {
+		const fw = lower(framework);
+		const out = [];
+		if (!key || key.startsWith("name:")) return out;
+		if (fw === "pytest") {
+			out.push({ label: "pytest", cmd: `pytest ${shq(key)}` });
+		} else if (fw === "playwright") {
+			// "tests/login.spec.js > Login > admin entra [chromium]"
+			const m = key.match(/^(.*?) > (.*?)(?: \[([^\]]+)\])?$/);
+			if (m) {
+				const title = m[2].split(" > ").pop();
+				out.push({ label: "Playwright", cmd: `npx playwright test ${shq(m[1])} -g ${shq(`^${reEsc(title)}$`)}${m[3] ? ` --project=${shq(m[3])}` : ""}` });
+			}
+		} else if (["junit5", "junit", "maven", "gradle", "testng"].includes(fw)) {
+			// "com.acme.LoginTest#adminEntra(String)" o "com.acme.LoginTest#loginOk"
+			const m = key.match(/^([\w.$]+)#([\w$]+)/);
+			if (m) {
+				const cls = m[1].split(".").pop();
+				out.push({ label: "Maven", cmd: `mvn test -Dtest=${shq(`${cls}#${m[2]}`)}` });
+				out.push({ label: "Gradle", cmd: `./gradlew test --tests ${shq(`${m[1]}.${m[2]}`)}` });
+			}
+		} else if (fw === "go") {
+			// "shop/checkout/TestPay/visa": paquete hasta el primer Test*
+			const parts = key.split("/");
+			const i = parts.findIndex((p) => /^Test/.test(p));
+			if (i >= 0) {
+				const pkg = parts.slice(0, i).join("/");
+				const run = parts.slice(i).map((p) => `^${reEsc(p)}$`).join("/");
+				out.push({ label: "Go", cmd: `go test ./${pkg}${pkg ? "/" : ""}... -run ${shq(run)}` });
+			}
+		}
+		if (commit && out.length) {
+			const c = String(commit).slice(0, 12);
+			for (const o of out) o.cmd = `git checkout ${c} && ${o.cmd}`;
+		}
+		return out;
+	}
+
+	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, curlOf, reproCommands, maskValue, esc, Tips };
 })();

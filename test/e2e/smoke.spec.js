@@ -85,6 +85,16 @@ test("red: Copiar como cURL no filtra secretos y conserva los headers enmascarad
 	expect(curl).not.toContain("<masked>");
 });
 
+test("reproducir en local: el comando de pytest con el commit", async ({ page }) => {
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const repro = page.locator("#test-detail details.repro");
+	await repro.locator("summary").click();
+	await expect(repro.locator("code")).toHaveText("git checkout bbb222 && pytest 'test_login_admin'");
+	await repro.locator(".copy-btn").click();
+	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("git checkout bbb222 && pytest 'test_login_admin'");
+});
+
 test("red: correlación con los logs del backend", async ({ page }) => {
 	await openRun(page);
 	await openTest(page, "test_login_admin");

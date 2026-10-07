@@ -853,3 +853,10 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .art-video figcaption, .art-name { font-size: 13px; color: var(--text-muted); }
 .art-trace { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .art-cmd { font-size: 12px; word-break: break-all; }
+
+/* reproducir un test en local */
+.repro { margin-top: 8px; font-size: 13px; }
+.repro summary { cursor: pointer; color: var(--text-muted); }
+.repro-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
+.repro-lbl { min-width: 70px; color: var(--text-muted); }
+.repro-row code { word-break: break-all; }

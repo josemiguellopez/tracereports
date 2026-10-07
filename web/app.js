@@ -227,6 +227,7 @@
 			${quarantineForm(t)}
 			${t.description ? `<div class="test-desc">${esc(t.description)}</div>` : ""}
 			${tags ? `<div class="test-attributes">${tags}</div>` : ""}
+			${reproBlock(t)}
 			${historyStrip(t)}
 		</div>`;
 
@@ -594,6 +595,16 @@
 		const tr = window.TraceReportsI18n.t;
 		const label = t.status === "PASS" ? tr("Pasó tras reintento") : tr("{n} intentos", { n: t.attempts });
 		return `<span class="retry-chip ${compact ? "sm" : ""}" data-tip="${esc(tr("El runner lo ejecutó {n} veces. La evidencia de los intentos fallidos sigue en los pasos.", { n: t.attempts }))}">↻ ${compact && t.status === "PASS" ? tr("reintento") : label}</span>`;
+	}
+
+	/** Comandos para correr este test en local (según el framework y la identidad del test). */
+	function reproBlock(t) {
+		const cmds = CF.reproCommands({ framework: S.run?.framework, key: t.key, name: t.name, commit: S.run?.commit });
+		if (!cmds.length) return "";
+		return `<details class="repro"><summary>${tr("Reproducir en local")}</summary>
+			${cmds.map((c) => `<div class="repro-row"><span class="repro-lbl">${esc(c.label)}</span><code data-no-i18n>${esc(c.cmd)}</code>
+				<button class="copy-btn" data-copy="${esc(c.cmd)}">${tr("Copiar")}</button></div>`).join("")}
+		</details>`;
 	}
 
 	/** Trace y video de Playwright: el video se ve aquí; el trace se descarga o se abre en el Trace Viewer. */
