@@ -174,6 +174,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/drift` | p95 per endpoint of the test vs. the median of its previous runs |
 | GET | `/stream?run={id}` | Live events (Server-Sent Events): `run`, `test`, `log`, `network`, `triage`, `summary` |
 | GET | `/network/{id}/body` | Full stored body (JSON or plain text, never executable HTML) |
+| GET | `/network/{id}/baseline` | The same call in the last run where the test passed (`{conn, run_id, test_id, same_context}`), or `204` |
 | GET | `/screenshots/{file}` | Screenshot (outside `/api/v1`) |
 
 ## Settings (Settings screen)

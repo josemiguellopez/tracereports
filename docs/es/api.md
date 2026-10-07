@@ -175,6 +175,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/drift` | p95 por endpoint del test frente a la mediana de sus ejecuciones anteriores |
 | GET | `/stream?run={id}` | Eventos en vivo (Server-Sent Events): `run`, `test`, `log`, `network`, `triage`, `summary` |
 | GET | `/network/{id}/body` | Body guardado completo (JSON o texto plano, nunca HTML ejecutable) |
+| GET | `/network/{id}/baseline` | La misma llamada en la última ejecución donde el test pasó (`{conn, run_id, test_id, same_context}`), o `204` |
 | GET | `/screenshots/{archivo}` | Captura (fuera de `/api/v1`) |
 
 ## Ajustes (pantalla de Ajustes)
