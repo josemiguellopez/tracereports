@@ -6,7 +6,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { fakeServer } from "./fake-server.js";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -72,6 +72,38 @@ test("Playwright real: fallo esperado, pase inesperado, skip, timeout y reintent
     assert.ok(byName["step under expected failure"].logs.some((l) => l.startsWith("WARNING paso que falla") && l.includes("error esperado")),
       byName["step under expected failure"].logs.join(" | "));
     assert.equal(srv.paths().at(-1), "PATCH /api/v1/runs/7/finish");
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+    await srv.close();
+  }
+});
+
+const BROWSER_SPEC = (fixtures) => `
+import { test, expect } from ${JSON.stringify(fixtures)};
+process.env.TRACEREPORTS_ENV_FILE = "off";
+test("consola del navegador", async ({ page }) => {
+  await page.setContent("<script>console.log('ruido'); console.warn('API deprecada'); console.error('Fallo al cargar /api/cart: 500');" +
+    "setTimeout(() => { throw new TypeError('reading total of undefined'); }, 0);</script>");
+  await page.waitForTimeout(300);
+  expect(1).toBe(2);
+});
+`;
+
+test("Playwright real con navegador: el fixture captura la consola y el reporter la sube", { skip: !fs.existsSync(cli) && "sin node_modules en examples/playwright-js" }, async (t) => {
+  const srv = await fakeServer({ distinctIds: true });
+  const dir = fs.mkdtempSync(path.join(example, ".tracereports-int-"));
+  try {
+    const fixtures = pathToFileURL(path.resolve(here, "../src/playwright.js")).href;
+    fs.writeFileSync(path.join(dir, "console.spec.mjs"), BROWSER_SPEC(fixtures));
+    fs.writeFileSync(path.join(dir, "playwright.config.mjs"),
+      `export default { testDir: ".", workers: 1, reporter: [[${JSON.stringify(reporter)}, { runName: "consola" }]] };`);
+    const { out } = await run(dir, { TRACEREPORTS_URL: srv.url, TRACEREPORTS_RUN_ID: "" });
+    if (/Executable doesn.t exist|browserType.launch/.test(out)) return t.skip("sin Chromium para esta versión de Playwright");
+    const sent = srv.json("/api/v1/tests/100/console");
+    assert.equal(sent.length, 1, out);
+    const levels = sent[0].entries.map((e) => e.level);
+    assert.deepEqual(levels, ["warning", "error", "pageerror"], out);
+    assert.ok(sent[0].entries[2].text.includes("reading total of undefined"));
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
     await srv.close();

@@ -147,6 +147,16 @@ public final class TraceTest {
      * status_text, resource_type, failed, error_text, started_at, duration_ms, request_headers,
      * post_data, response_headers, response_body... Antes de finish.
      */
+    /**
+     * Consola del navegador del test (pestaña "Consola"): mapas con level (error, warning, pageerror,
+     * info, log o debug), text, location y timestamp. Con {@code PlaywrightEvidence.attach} se captura sola.
+     */
+    public void console(List<Map<String, Object>> entries) {
+        if (!active() || entries == null || entries.isEmpty()) return;
+        List<Map<String, Object>> batch = entries.size() > 500 ? entries.subList(0, 500) : entries;
+        cr.emitJson("POST", "/api/v1/tests/" + id + "/console", Map.of("entries", batch));
+    }
+
     public void network(List<Map<String, Object>> connections) {
         if (!active() || connections == null || connections.isEmpty()) return;
         List<Map<String, Object>> batch = new ArrayList<>();

@@ -284,6 +284,34 @@ func (t *Test) Screenshot(png []byte, message, status string) (string, error) {
 	return t.c.BaseURL + out.URL, nil
 }
 
+// ConsoleEntry is one browser console message: Level is error, warning, pageerror, info, log or
+// debug; Timestamp is Unix ms.
+type ConsoleEntry struct {
+	Level     string `json:"level"`
+	Text      string `json:"text"`
+	Location  string `json:"location,omitempty"`
+	Timestamp int64  `json:"timestamp,omitempty"`
+}
+
+// Console uploads the browser console of the test (its "Consola" tab). With playwright-go:
+// page.OnConsole and page.OnPageError (see examples/playwright-go).
+func (t *Test) Console(entries []ConsoleEntry) error {
+	if t == nil {
+		return ErrDisabled
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	if len(entries) > 500 {
+		entries = entries[:500]
+	}
+	raw, err := json.Marshal(map[string]any{"entries": entries})
+	if err != nil {
+		return err
+	}
+	return t.c.send(http.MethodPost, fmt.Sprintf("/api/v1/tests/%d/console", t.ID), raw, "application/json", nil, 10*time.Second)
+}
+
 // Artifact attaches the Playwright trace (kind "trace", the trace.zip) or the video of the test
 // (kind "video", WebM or MP4), up to 100 MB. The report plays the video and opens the trace in
 // the Playwright Trace Viewer (playwright-go: context.Tracing().Stop(path)).

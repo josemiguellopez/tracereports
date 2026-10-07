@@ -178,6 +178,23 @@ class OfflineTest {
     }
 
     @Test
+    void consolaSeGraba() throws Exception {
+        System.setProperty("tracereports.offline", "always");
+        System.setProperty("tracereports.offlineDir", tmp.toString());
+        System.setProperty("tracereports.offlineReport", "0");
+        TraceReports cr = new TraceReports("http://127.0.0.1:9", "");
+        cr.startRun("Consola", "");
+        TraceTest t = cr.startTest("t");
+        t.console(List.of(Map.of("level", "pageerror", "text", "TypeError: x is undefined", "timestamp", 1L)));
+        t.console(List.of()); // vacío: nada
+        t.finish(Status.FAIL);
+        cr.finishRun();
+        List<String> sent = lines(tmp).stream().filter(l -> l.contains("/console\"")).toList();
+        assertEquals(1, sent.size());
+        assertTrue(sent.get(0).contains("\"level\":\"pageerror\"") && sent.get(0).contains("TypeError: x is undefined"), sent.get(0));
+    }
+
+    @Test
     void artifactSeGrabaComoMultipart() throws Exception {
         System.setProperty("tracereports.offline", "always");
         System.setProperty("tracereports.offlineDir", tmp.toString());

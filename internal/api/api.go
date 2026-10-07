@@ -119,6 +119,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/tests/{test_id}/logs", s.addLog)
 		r.Post("/tests/{test_id}/screenshot", s.uploadScreenshot)
 		r.Post("/tests/{test_id}/artifact", s.uploadArtifact)
+		r.Post("/tests/{test_id}/console", s.addConsole)
 		r.Patch("/tests/{test_id}/finish", s.finishTest)
 		r.Get("/tests/{test_id}/history", s.testHistory)
 		r.Get("/tests/{test_id}/locator", s.testLocator)

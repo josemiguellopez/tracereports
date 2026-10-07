@@ -78,6 +78,33 @@ def attach_listeners(
     page._network_evidence = []
     page._network_by_request = {}
     page._network_reported_idx = 0
+    # consola del navegador: errores y advertencias, y errores de JavaScript sin manejar
+    page._console_evidence = []
+    page._console_reported_idx = 0
+
+    def _on_console(msg):
+        try:
+            level = {"warn": "warning"}.get(msg.type, msg.type)
+            if level not in ("error", "warning"):
+                return
+            loc = msg.location or {}
+            where = f"{loc.get('url', '')}:{loc.get('lineNumber', '')}:{loc.get('columnNumber', '')}" if loc.get("url") else ""
+            page._console_evidence.append({"level": level, "text": _mask_sensitive(msg.text), "location": where,
+                                           "timestamp": int(time.time() * 1000)})
+        except Exception as e:
+            if logger:
+                logger.debug(f"No se pudo leer un mensaje de consola: {e}")
+
+    def _on_pageerror(err):
+        page._console_evidence.append({"level": "pageerror", "text": _mask_sensitive(str(err)), "location": "",
+                                       "timestamp": int(time.time() * 1000)})
+
+    try:
+        page.on("console", _on_console)
+        page.on("pageerror", _on_pageerror)
+    except Exception as e:
+        if logger:
+            logger.debug(f"Sin captura de consola: {e}")
     page._network_postdata_cdp_pendientes = {}
     page._network_conexiones_esperando_postdata = []
 
@@ -286,6 +313,13 @@ def reportar_red(page, cr, test_id=None, esperar_en_vuelo_ms=2000, logger=None, 
                 logger.warning(f"No se pudo guardar la evidencia de red local: {e}")
     if nuevas:
         cr.attach_network(nuevas, test_id=test_id)
+    consola = getattr(page, "_console_evidence", None)
+    if consola is not None:
+        desde_consola = getattr(page, "_console_reported_idx", 0)
+        nuevas_consola = consola[desde_consola:]
+        page._console_reported_idx = desde_consola + len(nuevas_consola)
+        if nuevas_consola:
+            cr.attach_console(nuevas_consola, test_id=test_id)
     if logger:
         logger.info(f"Red reportada: {resumen}")
     return resumen

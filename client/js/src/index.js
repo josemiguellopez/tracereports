@@ -307,6 +307,16 @@ export class TraceTest {
   }
 
   /**
+   * Consola del navegador del test (pestaña "Consola"): [{level: "error"|"warning"|"pageerror"|...,
+   * text, location, timestamp}]. Con los fixtures de `tracereports/playwright` se captura sola.
+   */
+  console(entries) {
+    if (!this.active || !entries?.length) return false;
+    return this.cr.emit("POST", `/api/v1/tests/${this.id}/console`, JSON.stringify({ entries: entries.slice(0, 500) }), "application/json",
+      Math.max(this.cr.uploadTimeoutMs, 10_000));
+  }
+
+  /**
    * Adjunta el trace de Playwright (`kind: "trace"`, el trace.zip) o el video del test
    * (`kind: "video"`, WebM o MP4): Buffer o ruta. Hasta 100 MB; el reporte muestra el video y abre el
    * trace en el Trace Viewer.

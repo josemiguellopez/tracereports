@@ -52,7 +52,11 @@ export class TraceReports {
   test<T>(name: string, opts: TestOptions, fn: (t: TraceTest) => T | Promise<T>): Promise<T>;
 }
 
+export interface ConsoleEntry { level: "error" | "warning" | "pageerror" | "info" | "log" | "debug"; text: string; location?: string; timestamp?: number }
+
 export class TraceTest {
+  /** Browser console of the test (its "Console" tab). Captured by the tracereports/playwright fixtures. */
+  console(entries: ConsoleEntry[]): boolean;
   /** Attaches the Playwright trace (trace.zip) or the test video (WebM/MP4): a Buffer or a file path. */
   artifact(kind: "trace" | "video", data: Buffer | Uint8Array | string, name?: string): boolean;
   readonly id: number | null; readonly active: boolean; attempts: number;

@@ -83,7 +83,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows a single writer; one connection avoids SQLITE_BUSY under concurrent writes.
 	sqldb.SetMaxOpenConns(1)
-	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema); err != nil {
+	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
@@ -229,6 +229,8 @@ type Test struct {
 	// Conexiones de red capturadas y cuántas no terminaron OK (HTTP >= 400 o sin respuesta).
 	NetworkTotal  int `json:"network_total"`
 	NetworkErrors int `json:"network_errors"`
+	// ConsoleErrors: console.error and uncaught page errors of the browser during the test.
+	ConsoleErrors int `json:"console_errors"`
 	// Flaky: en sus últimas ejecuciones (mismo nombre) alterna entre pasar y fallar.
 	Flaky     bool       `json:"flaky"`
 	FlakyInfo *FlakyInfo `json:"flaky_info,omitempty"`
@@ -245,6 +247,8 @@ type Test struct {
 	PreviousVerdict *Verdict `json:"previous_verdict,omitempty"`
 	// Artifacts: Playwright trace and video (only in the test detail, GetTest).
 	Artifacts []Artifact `json:"artifacts,omitempty"`
+	// Console: browser console of the test (only in the test detail, GetTest).
+	Console []ConsoleEntry `json:"console,omitempty"`
 }
 
 // TestMeta identifies a test beyond its visible name.
@@ -537,6 +541,7 @@ const testSelect = `
 	       t.error_message, t.error_trace, t.test_key, t.suite, t.params, t.worker, t.attempts,
 	       (SELECT COUNT(*) FROM network n WHERE n.test_id = t.id),
 	       (SELECT COUNT(*) FROM network n WHERE n.test_id = t.id AND (n.failed = 1 OR n.status >= 400) AND n.expected = 0),
+	       (SELECT COUNT(*) FROM console c WHERE c.test_id = t.id AND c.level IN ('error', 'pageerror')),
 	       a.state, a.category, a.summary, a.suggestion, a.error, a.updated_at, a.locator_pick, a.locator_reason,
 	       q.reason, q.owner, q.until, q.created_at
 	FROM tests t LEFT JOIN ai_triage a ON a.test_id = t.id
@@ -552,7 +557,7 @@ func scanTest(sc scanner) (*Test, error) {
 	var qReason, qOwner sql.NullString
 	var qUntil, qCreated sql.NullInt64
 	if err := sc.Scan(&t.ID, &t.RunID, &t.Name, &t.Category, &t.Description, &t.Status, &t.StartedAt, &t.EndedAt,
-		&t.ErrorMessage, &t.ErrorTrace, &t.Key, &t.Suite, &t.Params, &t.Worker, &t.Attempts, &t.NetworkTotal, &t.NetworkErrors, &aState, &aCat, &aSum, &aSug, &aErr, &aUpd, &aPick, &aReason,
+		&t.ErrorMessage, &t.ErrorTrace, &t.Key, &t.Suite, &t.Params, &t.Worker, &t.Attempts, &t.NetworkTotal, &t.NetworkErrors, &t.ConsoleErrors, &aState, &aCat, &aSum, &aSug, &aErr, &aUpd, &aPick, &aReason,
 		&qReason, &qOwner, &qUntil, &qCreated); err != nil {
 		return nil, err
 	}
@@ -614,6 +619,9 @@ func (s *Store) GetTest(testID int64) (*Test, error) {
 		return nil, err
 	}
 	if t.Artifacts, err = s.ArtifactsOf(testID); err != nil {
+		return nil, err
+	}
+	if t.Console, err = s.ConsoleOf(testID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.Query(`SELECT id, test_id, status, message, timestamp, screenshot FROM logs WHERE test_id=? ORDER BY timestamp, id`, testID)

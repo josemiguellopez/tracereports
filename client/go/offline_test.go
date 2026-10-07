@@ -228,6 +228,35 @@ func chdir(t *testing.T, dir string) {
 	t.Cleanup(func() { os.Chdir(prev) })
 }
 
+func TestConsoleIsRecorded(t *testing.T) {
+	t.Setenv("TRACEREPORTS_OFFLINE_REPORT", "0")
+	dir := t.TempDir()
+	c := New("")
+	c.Offline, c.OfflineDir = "always", dir
+	c.StartRun("Consola", "")
+	tt, _ := c.StartTest("t", "", "")
+	if err := tt.Console([]ConsoleEntry{{Level: "error", Text: "boom", Timestamp: 1}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Console(nil); err != nil {
+		t.Fatal(err)
+	}
+	tt.Finish(Fail, "x", "")
+	c.FinishRun()
+	n := 0
+	for _, e := range readEvents(t, dir) {
+		if strings.HasSuffix(e.Path, "/console") {
+			n++
+			if !strings.Contains(string(e.Body), `"level":"error"`) {
+				t.Fatalf("body: %s", e.Body)
+			}
+		}
+	}
+	if n != 1 {
+		t.Fatalf("console events: %d", n)
+	}
+}
+
 func TestArtifactIsRecorded(t *testing.T) {
 	t.Setenv("TRACEREPORTS_OFFLINE_REPORT", "0")
 	dir := t.TempDir()

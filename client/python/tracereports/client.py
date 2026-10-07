@@ -534,6 +534,19 @@ class TraceReports:
         body, content_type = _multipart(fields={"kind": kind, "name": safe}, file_field="file", filename="artifact", data=data)
         return self._emit_raw("POST", f"/api/v1/tests/{tid}/artifact", body, content_type, max(self.upload_timeout, 60.0))
 
+    def attach_console(self, entries: list, test_id: Optional[int] = None) -> bool:
+        """
+        Upload the browser console of the test (its "Consola" tab): a list of
+        ``{"level": "error"|"warning"|"pageerror"|..., "text": ..., "location": ..., "timestamp": ms}``.
+        With pytest-playwright the plugin captures it by itself (console errors and warnings, and
+        uncaught page errors).
+        """
+        tid = test_id or self.current_test_id
+        if not tid or not entries or not self.enabled:
+            return False
+        body = json.dumps({"entries": entries[:500]}).encode()
+        return self._emit_raw("POST", f"/api/v1/tests/{tid}/console", body, "application/json", max(self.upload_timeout, 10.0))
+
     def attach_network(
         self,
         connections: list,

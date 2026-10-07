@@ -135,6 +135,7 @@ export default class TraceReportsReporter {
         if (!body) continue;
         if (att.name === "tracereports-network") ct.network(JSON.parse(body.toString()));
         else if (att.name === "tracereports-dom") ct.dom(JSON.parse(body.toString()));
+        else if (att.name === "tracereports-console") ct.console(JSON.parse(body.toString()));
         else if (att.contentType?.startsWith("image/")) ct.screenshot(body, att.name === "screenshot" ? "Captura al fallar" : att.name,
           unexpected ? "FAIL" : "INFO");
         // trace: "on" / "retain-on-failure" / "on-first-retry"; video: lo mismo en use.video

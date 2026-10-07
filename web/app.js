@@ -211,7 +211,9 @@
 		}
 		const tags = tagsOf(t).map((c) => `<span class="label tag">${esc(c)}</span>`).join("");
 		const shots = t.logs.filter((l) => l.screenshot).length;
+		const consoleList = t.console || [];
 		const tab = S.detailTab === "network" && t.network_total > 0 ? "network"
+			: S.detailTab === "console" && consoleList.length ? "console"
 			: S.detailTab === "timeline" ? "timeline"
 			: S.detailTab === "replay" && shots > 0 ? "replay" : "steps";
 		const head = `<div class="card detail-head">
@@ -258,10 +260,13 @@
 			${shots ? `<button data-tab="replay" class="${tab === "replay" ? "active" : ""}" data-tip-title="Replay" data-tip="Reproduce el test como un video, paso a paso, con la captura de cada momento. Útil para ver cómo llegó la pantalla al fallo." data-tip-keys="Espacio: play/pausa · ← →: pasos">${icon("i-play")}Replay <span class="tab-count">${shots}</span></button>` : ""}
 			${t.network_total > 0 ? `<button data-tab="network" class="${tab === "network" ? "active" : ""}" data-tip-title="Red" data-tip="Las llamadas al backend que hizo la página durante el test: status, tiempos, headers y body. Desde una llamada con error puedes generar un mock.">${icon("i-network")}Red <span class="tab-count">${t.network_total}</span>
 				${t.network_errors ? `<span class="tab-err">${t.network_errors} con error</span>` : `<span class="tab-ok">OK</span>`}</button>` : ""}
+			${consoleList.length ? `<button data-tab="console" class="${tab === "console" ? "active" : ""}" data-tip-title="${tr("Consola")}" data-tip="${tr("Errores y advertencias de la consola del navegador durante el test, y los errores de JavaScript que la página no manejó.")}">${icon("i-warning")}${tr("Consola")} <span class="tab-count">${consoleList.length}</span>
+				${t.console_errors ? `<span class="tab-err">${tr(t.console_errors === 1 ? "1 error" : "{n} errores", { n: t.console_errors })}</span>` : ""}</button>` : ""}
 		</div>`;
 		const panel = tab === "network" ? `<div class="net-panel" id="net-panel"></div>`
 			: tab === "timeline" ? `<div class="timeline" id="timeline-panel"></div>`
-			: tab === "replay" ? `<div class="replay-panel" id="replay-panel"></div>` : steps;
+			: tab === "replay" ? `<div class="replay-panel" id="replay-panel"></div>`
+			: tab === "console" ? consolePanel(consoleList) : steps;
 		const body = `<div class="card content-card">${tabs}${panel}</div>`;
 
 		if (setHTML(el, head + aiCard(t) + error + artifactsBlock(t) + body)) { S.rendered["net-list"] = null; S.rendered["timeline-panel"] = null; }
@@ -597,6 +602,19 @@
 		const tr = window.TraceReportsI18n.t;
 		const label = t.status === "PASS" ? tr("Pasó tras reintento") : tr("{n} intentos", { n: t.attempts });
 		return `<span class="retry-chip ${compact ? "sm" : ""}" data-tip="${esc(tr("El runner lo ejecutó {n} veces. La evidencia de los intentos fallidos sigue en los pasos.", { n: t.attempts }))}">↻ ${compact && t.status === "PASS" ? tr("reintento") : label}</span>`;
+	}
+
+	const CONSOLE_LEVEL = { pageerror: ["fail", "Error no manejado"], error: ["fail", "Error"], warning: ["warning", "Advertencia"],
+		info: ["info", "Info"], log: ["info", "Log"], debug: ["info", "Debug"] };
+
+	/** Consola del navegador del test, en orden de aparición. */
+	function consolePanel(list) {
+		return `<table class="table-results console-table"><thead><tr><th>${tr("Nivel")}</th><th>${tr("Hora")}</th><th>${tr("Mensaje")}</th></tr></thead><tbody>
+			${list.map((e) => {
+				const [cls, name] = CONSOLE_LEVEL[e.level] || ["info", e.level];
+				return `<tr class="console-${esc(e.level)}"><td><span class="label ${cls}">${tr(name)}</span></td><td>${fmtTime(e.timestamp)}</td>
+					<td><pre class="console-text" data-no-i18n>${esc(e.text)}</pre>${e.location ? `<small class="console-loc" data-no-i18n>${esc(e.location)}</small>` : ""}</td></tr>`;
+			}).join("")}</tbody></table>`;
 	}
 
 	/** Panel con lo que cambió en una llamada fallida frente a la última vez que el test pasó. */

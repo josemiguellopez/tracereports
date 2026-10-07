@@ -34,6 +34,7 @@ async function addTest(runId, t) {
 	}
 	for (const s of t.shots || []) await screenshot(id, s);
 	if (t.network) await api("POST", `/tests/${id}/network`, { connections: t.network });
+	if (t.console) await api("POST", `/tests/${id}/console`, { entries: t.console });
 	await api("PATCH", `/tests/${id}/finish`, { status: t.status, error_message: t.error || "" });
 	return id;
 }
@@ -63,6 +64,10 @@ module.exports = async () => {
 		error: "TimeoutError: Timeout 30000ms exceeded waiting for \"Dashboard\" to be visible",
 		steps: [["INFO", "Abrir la página de login"], ["PASS", "Escribir usuario y clave"], ["FAIL", "El Dashboard no apareció"]],
 		shots: ["Formulario de login", "Pantalla al fallar"],
+		console: [
+			{ level: "warning", text: "API deprecada: usa /v2/auth", location: "https://app.example.com/main.js:10:5" },
+			{ level: "pageerror", text: "TypeError: Cannot read properties of undefined (reading 'dashboard')" },
+		],
 		network: [
 			{
 				method: "POST", url: "https://api.example.com/auth/login?lang=es", status: 500, status_text: "Internal Server Error",

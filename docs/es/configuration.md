@@ -312,6 +312,12 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   hay, del proyecto), y muestra qué cambió: status, duración, headers de respuesta (sin los que
   cambian siempre, como `date` o `etag`) y los bodies de la respuesta y del request, campo por campo
   cuando son JSON. Por API: `GET /api/v1/network/{id}/baseline`.
+- **Consola del navegador**: la pestaña **Consola** de un test muestra los `console.error`,
+  `console.warn` y los errores de JavaScript que la página no manejó (un "el botón no apareció" suele
+  ser un `TypeError` un segundo antes). Los errores también van al diagnóstico con IA. Se captura
+  solo con pytest-playwright, los fixtures de `tracereports/playwright` y `PlaywrightEvidence.attach`
+  (Java); en Go, `t.Console(...)`. Máximo 500 entradas por test, con el texto enmascarado.
+  Por API: `POST /api/v1/tests/{id}/console` con `{entries: [{level, text, location, timestamp}]}`.
 
 ## Historial, flaky y comparación
 

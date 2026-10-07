@@ -872,3 +872,9 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .diff-text { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
 .diff-text pre { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; }
 @media (max-width: 600px) { .diff-text { grid-template-columns: 1fr; } }
+
+/* consola del navegador */
+.console-table td { vertical-align: top; }
+.console-text { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; }
+.console-loc { color: var(--text-muted); word-break: break-all; }
+.console-pageerror .console-text, .console-error .console-text { color: var(--color-danger); }

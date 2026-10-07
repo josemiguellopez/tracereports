@@ -12,6 +12,8 @@
 // Con la `page` del test:
 //   - captura las llamadas HTTP que hace el navegador (pestaña "Red"; es el tráfico visto desde el
 //     navegador, no los logs del backend);
+//   - captura la consola: console.error, console.warn y los errores de JavaScript sin manejar
+//     (pestaña "Consola");
 //   - si el test falla: snapshot del DOM (recomendador de locators) y una captura si el proyecto
 //     no tiene `screenshot: "only-on-failure"`.
 // Todo viaja como attachments del test; el reporter `tracereports/reporter` los sube.
@@ -99,6 +101,32 @@ export function captureNetwork(page, { apiPatterns = ["/api/"] } = {}) {
   };
 }
 
+/**
+ * Engancha la captura de la consola a una página: errores y advertencias, y los errores de
+ * JavaScript que la página no manejó. Devuelve un colector con `drain()`.
+ */
+export function captureConsole(page) {
+  const entries = [];
+  let reported = 0;
+  page.on("console", (msg) => {
+    const level = msg.type() === "warning" ? "warning" : msg.type();
+    if (level !== "error" && level !== "warning") return;
+    const loc = msg.location?.() || {};
+    entries.push({ level, text: msg.text(), location: loc.url ? `${loc.url}:${loc.lineNumber}:${loc.columnNumber}` : "", timestamp: Date.now() });
+  });
+  page.on("pageerror", (err) => {
+    entries.push({ level: "pageerror", text: err?.stack || String(err), location: "", timestamp: Date.now() });
+  });
+  return {
+    entries,
+    drain() {
+      const out = entries.slice(reported);
+      reported = entries.length;
+      return out;
+    },
+  };
+}
+
 /** Snapshot de los elementos de la página, o null si ya no está disponible. */
 export async function captureDom(page) {
   try {
@@ -122,11 +150,16 @@ export function withTraceReports(baseTest) {
 const fixtures = {
   page: async ({ page }, use, testInfo) => {
     const net = captureNetwork(page);
+    const cons = captureConsole(page);
     await use(page);
     await net.settle(2000).catch(() => {});
     const conns = net.drain();
     if (conns.length) {
       await testInfo.attach("tracereports-network", { body: JSON.stringify(conns), contentType: "application/json" });
+    }
+    const logs = cons.drain();
+    if (logs.length) {
+      await testInfo.attach("tracereports-console", { body: JSON.stringify(logs.slice(0, 500)), contentType: "application/json" });
     }
     if (testInfo.status !== testInfo.expectedStatus) {
       const snap = await captureDom(page);

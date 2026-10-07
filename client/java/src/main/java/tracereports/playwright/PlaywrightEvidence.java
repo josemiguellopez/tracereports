@@ -118,6 +118,41 @@ public final class PlaywrightEvidence {
         return new NetworkCapture(page);
     }
 
+    /** Captura la consola de una página: console.error, console.warn y errores de JavaScript sin manejar. */
+    public static final class ConsoleCapture {
+        private final List<Map<String, Object>> entries = new ArrayList<>();
+        private int reported;
+
+        ConsoleCapture(Page page) {
+            page.onConsoleMessage(msg -> {
+                String level = "warning".equals(msg.type()) ? "warning" : msg.type();
+                if (!"error".equals(level) && !"warning".equals(level)) return;
+                add(level, msg.text(), msg.location() == null ? "" : msg.location());
+            });
+            page.onPageError(error -> add("pageerror", error, ""));
+        }
+
+        private synchronized void add(String level, String text, String location) {
+            Map<String, Object> e = new LinkedHashMap<>();
+            e.put("level", level);
+            e.put("text", text == null ? "" : text);
+            e.put("location", location);
+            e.put("timestamp", System.currentTimeMillis());
+            entries.add(e);
+        }
+
+        /** Entradas nuevas desde el último drain. */
+        public synchronized List<Map<String, Object>> drain() {
+            List<Map<String, Object>> out = new ArrayList<>(entries.subList(reported, entries.size()));
+            reported = entries.size();
+            return out;
+        }
+    }
+
+    public static ConsoleCapture captureConsole(Page page) {
+        return new ConsoleCapture(page);
+    }
+
     /** Snapshot de los elementos de la página (recomendador de locators), o null. */
     public static Object dom(Page page) {
         try {
@@ -142,12 +177,14 @@ public final class PlaywrightEvidence {
      */
     public static NetworkCapture attach(TraceTest t, Page page) {
         NetworkCapture net = captureNetwork(page);
+        ConsoleCapture console = captureConsole(page);
         t.beforeFinish(failed -> {
             if (failed) {
                 t.screenshot(screenshot(page), "Captura al fallar", Status.FAIL);
                 t.dom(dom(page));
             }
             t.network(net.drain());
+            t.console(console.drain());
         });
         return net;
     }

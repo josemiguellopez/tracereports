@@ -384,7 +384,7 @@ func (a *Analyzer) analyze(ctx context.Context, testID, rev int64) error {
 	if err != nil {
 		return err
 	}
-	res, err := a.classify(ctx, buildPrompt(t, lastStep, netErrors, a.language())+locatorPromptSection(failed, cands), cands)
+	res, err := a.classify(ctx, buildPrompt(t, lastStep, netErrors, a.language())+consolePromptSection(t.Console)+locatorPromptSection(failed, cands), cands)
 	if err != nil {
 		return err
 	}
@@ -403,6 +403,36 @@ func languageInstruction(lang string) string {
 		return "Answer in English."
 	}
 	return "Answer in the same language as the test name/description when it is clearly not English; otherwise English."
+}
+
+// maxConsoleInPrompt is how many browser console errors go to the model.
+const maxConsoleInPrompt = 10
+
+// consolePromptSection lists the browser console errors of the test (uncaught page errors first):
+// a JavaScript error is often why "the element never appeared". "" when there are none.
+func consolePromptSection(entries []db.ConsoleEntry) string {
+	var lines []string
+	for _, pass := range []string{"pageerror", "error"} {
+		for _, e := range entries {
+			if e.Level != pass || len(lines) >= maxConsoleInPrompt {
+				continue
+			}
+			text := strings.Join(strings.Fields(e.Text), " ")
+			if len(text) > 300 {
+				text = text[:300] + "..."
+			}
+			line := fmt.Sprintf("- [%s] %s", e.Level, text)
+			if e.Location != "" {
+				line += " (" + e.Location + ")"
+			}
+			lines = append(lines, line)
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return "\n\nBrowser console errors during the test (an uncaught JavaScript error often explains a UI that\n" +
+		"did not update, which is a LOGIC_BUG rather than a changed locator):\n" + strings.Join(lines, "\n")
 }
 
 func buildPrompt(t *db.Test, lastStep string, netErrors []db.NetConn, lang string) string {

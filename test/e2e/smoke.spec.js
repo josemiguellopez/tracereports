@@ -86,6 +86,21 @@ test("red: Copiar como cURL no filtra secretos y conserva los headers enmascarad
 	expect(curl).not.toContain("<masked>");
 });
 
+test("consola del navegador: pestaña con el error de JavaScript", async ({ page }) => {
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const detail = page.locator("#test-detail");
+	const tab = detail.locator('[data-tab="console"]');
+	await expect(tab).toContainText("1 error");
+	await expect(tab).not.toContainText("1 errores");
+	await tab.click();
+	const rows = detail.locator(".console-table tbody tr");
+	await expect(rows).toHaveCount(2);
+	await expect(rows.nth(1)).toContainText("Error no manejado");
+	await expect(rows.nth(1)).toContainText("reading 'dashboard'");
+	await expect(rows.nth(0)).toContainText("main.js:10:5");
+});
+
 test("reproducir en local: el comando de pytest con el commit", async ({ page }) => {
 	await openRun(page);
 	await openTest(page, "test_login_admin");
