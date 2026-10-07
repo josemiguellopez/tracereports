@@ -45,6 +45,10 @@ El reporte funciona sin servidor y sin internet: los graficos y las fuentes van
 incluidos. El idioma se cambia en Ajustes.
 `
 
+// maxExportArtifacts caps the traces and videos copied into an exported ZIP (the rest stay on the
+// server).
+const maxExportArtifacts = 100 << 20
+
 // exportRun streams a self-contained ZIP (HTML + data + screenshots) of a run,
 // viewable offline by opening index.html — meant to be shared by email.
 func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
@@ -65,6 +69,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 	network := map[int64][]byte{} // test_id -> network/test_<id>.js (loaded on demand by the UI)
 	bodies := map[string][]byte{} // network/bodies/<id>.<ext> for bodies larger than the UI preview
 	var shots []string
+	var artifactBytes int64
 	for _, summary := range detail.Tests {
 		t, err := s.Store.GetTest(summary.ID)
 		if err != nil {
@@ -78,6 +83,17 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 				shots = append(shots, name)
 			}
 		}
+		// traces y videos, mientras quepan: un ZIP para adjuntar a un correo no puede pesar 1 GB
+		kept := t.Artifacts[:0]
+		for _, a := range t.Artifacts {
+			if name := screenshotFile(a.URL); name != "" && artifactBytes+a.Size <= maxExportArtifacts {
+				artifactBytes += a.Size
+				a.URL = "screenshots/" + name
+				shots = append(shots, name)
+				kept = append(kept, a)
+			}
+		}
+		t.Artifacts = kept
 		tests[t.ID] = t
 		if t.NetworkTotal > 0 {
 			conns, err := s.Store.ListNetwork(t.ID)

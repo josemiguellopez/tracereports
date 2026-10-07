@@ -1,12 +1,15 @@
 package db
 
 // PurgeRunsBefore deletes the finished runs that started before cutoff (Unix ms) with all their
-// evidence (tests, steps, network, DOM, diagnoses, escalations: ON DELETE CASCADE). It returns
-// how many runs were deleted and the screenshot URLs ("/screenshots/<file>") they referenced, so
-// the caller can delete the files.
+// evidence (tests, steps, network, DOM, diagnoses, escalations, artifacts: ON DELETE CASCADE). It
+// returns how many runs were deleted and the URLs ("/screenshots/<file>") of the screenshots and
+// artifacts (traces, videos) they referenced, so the caller can delete the files.
 func (s *Store) PurgeRunsBefore(cutoff int64) (int, []string, error) {
 	rows, err := s.db.Query(`SELECT l.screenshot FROM logs l JOIN tests t ON t.id = l.test_id JOIN runs r ON r.id = t.run_id
-		WHERE r.started_at < ? AND r.status != 'RUNNING' AND l.screenshot != ''`, cutoff)
+		WHERE r.started_at < ? AND r.status != 'RUNNING' AND l.screenshot != ''
+		UNION ALL
+		SELECT a.url FROM artifacts a JOIN tests t ON t.id = a.test_id JOIN runs r ON r.id = t.run_id
+		WHERE r.started_at < ? AND r.status != 'RUNNING'`, cutoff, cutoff)
 	if err != nil {
 		return 0, nil, err
 	}

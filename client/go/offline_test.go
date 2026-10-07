@@ -227,3 +227,40 @@ func chdir(t *testing.T, dir string) {
 	}
 	t.Cleanup(func() { os.Chdir(prev) })
 }
+
+func TestArtifactIsRecorded(t *testing.T) {
+	t.Setenv("TRACEREPORTS_OFFLINE_REPORT", "0")
+	dir := t.TempDir()
+	c := New("")
+	c.Offline, c.OfflineDir = "always", dir
+	c.StartRun("Artefactos", "")
+	tt, _ := c.StartTest("t", "", "")
+	if err := tt.Artifact("trace", []byte("PK\x03\x04zip"), "trace.zip"); err != nil {
+		t.Fatal(err)
+	}
+	if err := tt.Artifact("har", []byte("x"), ""); err == nil {
+		t.Fatal("only trace or video")
+	}
+	if err := tt.Artifact("video", nil, ""); err == nil {
+		t.Fatal("empty data")
+	}
+	var nilTest *Test
+	if nilTest.Artifact("trace", []byte("PK"), "") != ErrDisabled {
+		t.Fatal("nil test is safe")
+	}
+	tt.Finish(Fail, "x", "")
+	c.FinishRun()
+	var uploads []event
+	for _, e := range readEvents(t, dir) {
+		if strings.HasSuffix(e.Path, "/artifact") {
+			uploads = append(uploads, e)
+		}
+	}
+	if len(uploads) != 1 {
+		t.Fatalf("uploads: %d", len(uploads))
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, uploads[0].BodyFile))
+	if !strings.Contains(string(b), "name=\"kind\"\r\n\r\ntrace") || !strings.Contains(string(b), "trace.zip") {
+		t.Fatalf("multipart body: %q", b)
+	}
+}

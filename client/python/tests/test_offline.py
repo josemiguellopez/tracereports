@@ -179,3 +179,37 @@ def test_end_to_end_report_without_server(unauthorized_server, tmp_path, monkeyp
     out = tmp_path / "manual"
     subprocess.run([binary(), "report", "-o", str(out), cr.offline_dir], check=True, capture_output=True)
     assert (out / "index.html").exists()
+
+
+def test_attach_artifact_is_recorded(tmp_path, monkeypatch):
+    monkeypatch.setenv("TRACEREPORTS_OFFLINE_REPORT", "0")
+    cr = TraceReports(offline="always", offline_dir=str(tmp_path))
+    cr.start_run("Artefactos")
+    cr.start_test("t")
+    trace = tmp_path / "trace.zip"
+    trace.write_bytes(b"PK\x03\x04zip")
+    assert cr.attach_artifact(str(trace), "trace")
+    assert cr.attach_artifact(b"\x1a\x45\xdf\xa3webm", "video", name="grabación")
+    assert not cr.attach_artifact(b"x", "har")  # solo trace o video
+    assert not cr.attach_artifact(str(tmp_path / "missing.zip"), "trace")
+    cr.end_test(status="FAIL")
+    cr.end_run()
+    uploads = [e for e in events(str(tmp_path)) if e["path"].endswith("/artifact")]
+    assert len(uploads) == 2
+    first = (tmp_path / uploads[0]["body_file"]).read_bytes()
+    assert b'name="kind"\r\n\r\ntrace' in first and b"trace.zip" in first and b"PK\x03\x04zip" in first
+    assert "grabación".encode() in (tmp_path / uploads[1]["body_file"]).read_bytes()
+
+
+@pytest.mark.skipif(not binary(), reason="needs the tracereports binary ($TRACEREPORTS_BIN or PATH)")
+def test_artifact_reaches_the_static_report(tmp_path, monkeypatch):
+    monkeypatch.delenv("TRACEREPORTS_OFFLINE_REPORT", raising=False)
+    cr = TraceReports(offline="always", offline_dir=str(tmp_path / "rec"))
+    cr.start_run("Con video")
+    cr.start_test("t")
+    cr.attach_artifact(b"\x1a\x45\xdf\xa3" + b"\x00" * 64, "video")
+    cr.end_test(status="FAIL", error_message="x")
+    cr.end_run()
+    report_dir = os.path.dirname(cr.offline_report)
+    videos = [n for n in os.listdir(os.path.join(report_dir, "screenshots")) if n.endswith(".webm")]
+    assert len(videos) == 1

@@ -83,7 +83,7 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows a single writer; one connection avoids SQLITE_BUSY under concurrent writes.
 	sqldb.SetMaxOpenConns(1)
-	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema); err != nil {
+	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
@@ -243,6 +243,8 @@ type Test struct {
 	Owner           string   `json:"owner,omitempty"`
 	Verdict         *Verdict `json:"verdict,omitempty"`
 	PreviousVerdict *Verdict `json:"previous_verdict,omitempty"`
+	// Artifacts: Playwright trace and video (only in the test detail, GetTest).
+	Artifacts []Artifact `json:"artifacts,omitempty"`
 }
 
 // TestMeta identifies a test beyond its visible name.
@@ -609,6 +611,9 @@ func (s *Store) GetTest(testID int64) (*Test, error) {
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		return nil, err
+	}
+	if t.Artifacts, err = s.ArtifactsOf(testID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.Query(`SELECT id, test_id, status, message, timestamp, screenshot FROM logs WHERE test_id=? ORDER BY timestamp, id`, testID)

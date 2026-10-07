@@ -493,6 +493,47 @@ class TraceReports:
         self._sender.enqueue("POST", path, body, content_type, max(self.upload_timeout, 10.0))
         return None
 
+    def attach_artifact(
+        self,
+        bytes_or_path: BytesOrPath,
+        kind: str,
+        name: str = "",
+        test_id: Optional[int] = None,
+    ) -> bool:
+        """
+        Attach the Playwright trace (``kind="trace"``, the trace.zip) or the video of the test
+        (``kind="video"``, WebM or MP4), as bytes or a file path; up to 100 MB. The report plays the
+        video and opens the trace in the Playwright Trace Viewer. With pytest-playwright::
+
+            pytest --tracing retain-on-failure --video retain-on-failure --tracereports
+
+        and, in a fixture after the test, ``tracereports.attach_artifact(path, "trace")`` for each
+        file it left in ``test-results/``.
+        """
+        tid = test_id or self.current_test_id
+        if not tid or not self.enabled or kind not in ("trace", "video"):
+            return False
+        try:
+            if isinstance(bytes_or_path, (bytes, bytearray)):
+                data = bytes(bytes_or_path)
+            else:
+                path = os.fspath(bytes_or_path)
+                if os.path.getsize(path) > 100 << 20:
+                    log.warning("tracereports: %s is larger than 100 MB: not attached", path)
+                    return False
+                with open(path, "rb") as fh:
+                    data = fh.read()
+                name = name or os.path.basename(path)
+        except OSError as err:
+            log.warning("tracereports: cannot read %s %r: %s", kind, bytes_or_path, err)
+            return False
+        if len(data) > 100 << 20:
+            log.warning("tracereports: the %s is larger than 100 MB: not attached", kind)
+            return False
+        safe = (name or kind).replace('"', "'").replace("\r", " ").replace("\n", " ")
+        body, content_type = _multipart(fields={"kind": kind, "name": safe}, file_field="file", filename="artifact", data=data)
+        return self._emit_raw("POST", f"/api/v1/tests/{tid}/artifact", body, content_type, max(self.upload_timeout, 60.0))
+
     def attach_network(
         self,
         connections: list,

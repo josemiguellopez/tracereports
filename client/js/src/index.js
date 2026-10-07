@@ -307,6 +307,37 @@ export class TraceTest {
   }
 
   /**
+   * Adjunta el trace de Playwright (`kind: "trace"`, el trace.zip) o el video del test
+   * (`kind: "video"`, WebM o MP4): Buffer o ruta. Hasta 100 MB; el reporte muestra el video y abre el
+   * trace en el Trace Viewer.
+   */
+  artifact(kind, data, name = "") {
+    if (!this.active || !data) return false;
+    let body = data;
+    if (typeof data === "string") {
+      try {
+        body = fs.readFileSync(data);
+        name ||= path.basename(data);
+      } catch {
+        return false;
+      }
+    }
+    if (body.length > 100 << 20) {
+      console.warn(`tracereports: ${name || kind} pesa más de 100 MB: no se adjunta`);
+      return false;
+    }
+    const boundary = `----tracereports${Math.random().toString(16).slice(2)}`;
+    const part = (n, v) => `--${boundary}\r\nContent-Disposition: form-data; name="${n}"\r\n\r\n${v}\r\n`;
+    const multipart = Buffer.concat([
+      Buffer.from(part("kind", kind) + part("name", String(name).replace(/[\r\n"]/g, " "))),
+      Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="artifact"\r\nContent-Type: application/octet-stream\r\n\r\n`),
+      Buffer.from(body),
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    return this.cr.emit("POST", `/api/v1/tests/${this.id}/artifact`, multipart, `multipart/form-data; boundary=${boundary}`, Math.max(this.cr.uploadTimeoutMs, 60_000));
+  }
+
+  /**
    * Declara una respuesta negativa que el test verifica a propósito (p. ej. un 401 con
    * credenciales inválidas): no cuenta como error ni como causa del fallo. `url`: texto contenido
    * o glob con `*`.

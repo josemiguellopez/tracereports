@@ -132,6 +132,7 @@
 		"Qué encontraste (opcional): causa, ticket, a quién se avisó…": "What you found (optional): cause, ticket, who was told…",
 		"En la ejecución #{r} lo clasificaron como": "In run #{r} it was classified as", "Dueño: {o}": "Owner: {o}",
 		"Dueño del test según las reglas de TRACEREPORTS_OWNERS": "Test owner according to the TRACEREPORTS_OWNERS rules",
+		"Trace y video": "Trace and video", "Descargar trace": "Download trace", "Abrir en Trace Viewer": "Open in Trace Viewer",
 		"Formato del mock": "Mock format", "datos sensibles enmascarados": "sensitive data masked", "Dato sensible enmascarado": "Masked sensitive data",
 		"Descargar": "Download", "Abrir contenido completo": "Open full content",
 		"Response body (código fuente)": "Response body (source)", "Response body: vista previa (como se vería en el navegador)": "Response body: preview (as a browser would render it)",

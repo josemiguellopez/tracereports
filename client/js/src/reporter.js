@@ -137,6 +137,9 @@ export default class TraceReportsReporter {
         else if (att.name === "tracereports-dom") ct.dom(JSON.parse(body.toString()));
         else if (att.contentType?.startsWith("image/")) ct.screenshot(body, att.name === "screenshot" ? "Captura al fallar" : att.name,
           unexpected ? "FAIL" : "INFO");
+        // trace: "on" / "retain-on-failure" / "on-first-retry"; video: lo mismo en use.video
+        else if (att.name === "trace" && att.contentType === "application/zip") ct.artifact("trace", body, `trace-${result.retry + 1}.zip`);
+        else if (att.contentType?.startsWith("video/")) ct.artifact("video", body, att.name === "video" ? `video-${result.retry + 1}` : att.name);
       }
       const final = asExpected || skipped || result.retry >= test.retries;
       if (!final) {

@@ -72,6 +72,36 @@ public final class TraceTest {
         cr.emit("POST", "/api/v1/tests/" + id + "/screenshot", body.toByteArray(), "multipart/form-data; boundary=" + boundary, cr.uploadTimeout);
     }
 
+    /**
+     * Adjunta el trace de Playwright ({@code kind = "trace"}, el trace.zip) o el video del test
+     * ({@code kind = "video"}, WebM o MP4), hasta 100 MB. El reporte muestra el video y abre el trace
+     * en el Trace Viewer. Devuelve false si no se adjuntó.
+     */
+    public boolean artifact(String kind, byte[] data, String name) {
+        if (!active() || data == null || data.length == 0 || !("trace".equals(kind) || "video".equals(kind))) return false;
+        if (data.length > (100 << 20)) return false;
+        String boundary = "----tracereports" + UUID.randomUUID().toString().replace("-", "");
+        String label = name == null || name.isBlank() ? kind : name.replaceAll("[\"\r\n]", " ");
+        ByteArrayOutputStream body = new ByteArrayOutputStream();
+        String head = part(boundary, "kind", kind) + part(boundary, "name", label)
+                + "--" + boundary + "\r\nContent-Disposition: form-data; name=\"file\"; filename=\"artifact\"\r\n"
+                + "Content-Type: application/octet-stream\r\n\r\n";
+        body.writeBytes(head.getBytes(StandardCharsets.UTF_8));
+        body.writeBytes(data);
+        body.writeBytes(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+        return cr.emit("POST", "/api/v1/tests/" + id + "/artifact", body.toByteArray(), "multipart/form-data; boundary=" + boundary,
+                cr.uploadTimeout.plusSeconds(45));
+    }
+
+    /** {@link #artifact(String, byte[], String)} desde un archivo (Playwright: {@code tracing().stop(new Tracing.StopOptions().setPath(...))}). */
+    public boolean artifact(String kind, java.nio.file.Path file) {
+        try {
+            return artifact(kind, java.nio.file.Files.readAllBytes(file), file.getFileName().toString());
+        } catch (java.io.IOException e) {
+            return false;
+        }
+    }
+
     private static String part(String boundary, String name, String value) {
         return "--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + name + "\"\r\n\r\n" + value + "\r\n";
     }

@@ -282,6 +282,22 @@ browser). The next time that test fails in the same project, its detail shows *I
 classified as…* with **Same verdict** to apply it in one click: nobody investigates the same
 failure twice. Through the API: `POST /api/v1/ui/tests/{id}/verdict` (see the [API](api.md)).
 
+## Playwright trace and video
+
+The test detail shows its **video** (it plays right there) and its Playwright **trace**: download
+it, open it with `npx playwright show-trace <file>` or, when the report is published over HTTPS
+(`PUBLIC_URL`), with **Open in Trace Viewer** (the official viewer downloads the trace from your
+browser; the server lets it read `.zip` files only).
+
+- **Playwright Test (JS):** with `use: { trace: "retain-on-failure", video: "retain-on-failure" }`
+  the reporter uploads them by itself.
+- **Python:** `tracereports.attach_artifact(path, "trace")` or `"video"` (for example in a fixture
+  after the test, with what pytest-playwright left in `test-results/`).
+- **Java:** `test.artifact("trace", Path.of("trace.zip"))`. **Go:** `t.Artifact("trace", data, "trace.zip")`.
+
+Only traces (ZIP) and videos (WebM or MP4) are accepted, validated by their content, up to 100 MB
+each. Retention deletes them with their run, and the exported ZIP includes up to 100 MB of them.
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:

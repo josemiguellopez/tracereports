@@ -284,6 +284,32 @@ func (t *Test) Screenshot(png []byte, message, status string) (string, error) {
 	return t.c.BaseURL + out.URL, nil
 }
 
+// Artifact attaches the Playwright trace (kind "trace", the trace.zip) or the video of the test
+// (kind "video", WebM or MP4), up to 100 MB. The report plays the video and opens the trace in
+// the Playwright Trace Viewer (playwright-go: context.Tracing().Stop(path)).
+func (t *Test) Artifact(kind string, data []byte, name string) error {
+	if t == nil {
+		return ErrDisabled
+	}
+	if kind != "trace" && kind != "video" {
+		return fmt.Errorf("tracereports: artifact kind must be trace or video, not %q", kind)
+	}
+	if len(data) == 0 || len(data) > 100<<20 {
+		return fmt.Errorf("tracereports: artifact must have between 1 byte and 100 MB")
+	}
+	if name == "" {
+		name = kind
+	}
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	_ = w.WriteField("kind", kind)
+	_ = w.WriteField("name", name)
+	part, _ := w.CreateFormFile("file", "artifact")
+	_, _ = part.Write(data)
+	_ = w.Close()
+	return t.c.send(http.MethodPost, fmt.Sprintf("/api/v1/tests/%d/artifact", t.ID), body.Bytes(), w.FormDataContentType(), nil, 2*time.Minute)
+}
+
 // Conn is one captured network call (see the playwright-go example for the capture).
 type Conn struct {
 	Method          string            `json:"method"`

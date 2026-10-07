@@ -30,6 +30,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 | POST | `/runs/{run_id}/tests` | `{name, category, description, key, suite, params, worker}` | `201 {test_id}` |
 | POST | `/tests/{test_id}/logs` | `{status, message, timestamp}` | `201` created step |
 | POST | `/tests/{test_id}/screenshot` | multipart: `file` (PNG/JPEG/GIF/WEBP), `message`, `status` | `201 {url, log}` |
+| POST | `/tests/{test_id}/artifact` | multipart: `file`, `kind` (`trace` or `video`), `name` | `201` artifact. Playwright trace (ZIP) or video (WebM/MP4), up to 100 MB |
 | POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (up to 5000 per batch) | `201 {stored, errors}` |
 | POST | `/tests/{test_id}/dom` | Page snapshot on failure (see below), up to 4 MB / 2000 elements | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |

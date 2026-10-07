@@ -53,6 +53,8 @@ export class TraceReports {
 }
 
 export class TraceTest {
+  /** Attaches the Playwright trace (trace.zip) or the test video (WebM/MP4): a Buffer or a file path. */
+  artifact(kind: "trace" | "video", data: Buffer | Uint8Array | string, name?: string): boolean;
   readonly id: number | null; readonly active: boolean; attempts: number;
   log(status: Status, message: string, timestamp?: number): void;
   info(message: string): void; pass(message: string): void; fail(message: string): void; warn(message: string): void; skip(message: string): void;

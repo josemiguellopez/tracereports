@@ -125,3 +125,31 @@ test("reporter: lee los adjuntos y anotaciones tracereports-* del test", async (
     await srv.close();
   }
 });
+
+test("reporter: sube el trace y el video que adjunta Playwright", async () => {
+  const srv = await fakeServer();
+  try {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tr-art-"));
+    const tracePath = path.join(dir, "trace.zip");
+    fs.writeFileSync(tracePath, Buffer.from("PK\u0003\u0004trace"));
+    const rep = new TraceReportsReporter({ url: srv.url, runName: "Artefactos" });
+    rep.onBegin({ rootDir: root, projects: [] }, { allTests: () => [1] });
+    const t = fakeTest("a1", "con trace");
+    rep.onTestBegin(t, { retry: 0, workerIndex: 0 });
+    rep.onTestEnd(t, {
+      status: "failed", retry: 0, errors: [{ message: "boom" }],
+      attachments: [
+        { name: "trace", contentType: "application/zip", path: tracePath },
+        { name: "video", contentType: "video/webm", body: Buffer.from([0x1a, 0x45, 0xdf, 0xa3, 1, 2]) },
+        { name: "trace", contentType: "application/zip", path: path.join(dir, "no-existe.zip") }, // sin archivo: se ignora
+      ],
+    });
+    await rep.onEnd({ status: "failed" });
+    const uploads = srv.requests.filter((r) => r.path.endsWith("/artifact")).map((r) => r.body.toString("latin1"));
+    assert.equal(uploads.length, 2);
+    assert.ok(uploads[0].includes('name="kind"\r\n\r\ntrace') && uploads[0].includes("trace-1.zip") && uploads[0].includes("PK\u0003\u0004trace"));
+    assert.ok(uploads[1].includes('name="kind"\r\n\r\nvideo') && uploads[1].includes("video-1"));
+  } finally {
+    await srv.close();
+  }
+});

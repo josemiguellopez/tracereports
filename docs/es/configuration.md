@@ -283,6 +283,22 @@ su detalle muestra *En la ejecución #N lo clasificaron como…* con **Mismo ver
 aplicarlo en un clic: nadie investiga dos veces el mismo fallo. Por API:
 `POST /api/v1/ui/tests/{id}/verdict` (ver la [API](api.md)).
 
+## Trace y video de Playwright
+
+El detalle de un test muestra su **video** (se reproduce ahí mismo) y su **trace** de Playwright:
+se descarga, se abre con `npx playwright show-trace <archivo>` o, si el reporte está publicado en
+HTTPS (`PUBLIC_URL`), con **Abrir en Trace Viewer** (el visor oficial descarga el trace desde tu
+navegador; el servidor le permite leer solo los `.zip`).
+
+- **Playwright Test (JS):** con `use: { trace: "retain-on-failure", video: "retain-on-failure" }`
+  el reporter los sube solo.
+- **Python:** `tracereports.attach_artifact(ruta, "trace")` o `"video"` (por ejemplo, en un fixture
+  después del test, con lo que pytest-playwright dejó en `test-results/`).
+- **Java:** `test.artifact("trace", Path.of("trace.zip"))`. **Go:** `t.Artifact("trace", datos, "trace.zip")`.
+
+Solo se aceptan traces (ZIP) y videos (WebM o MP4), validados por su contenido, hasta 100 MB cada
+uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta 100 MB de ellos.
+
 ## Historial, flaky y comparación
 
 No requieren configuración. Se calculan con los datos que ya existen:

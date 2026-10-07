@@ -118,6 +118,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/tests/{test_id}", s.getTest)
 		r.Post("/tests/{test_id}/logs", s.addLog)
 		r.Post("/tests/{test_id}/screenshot", s.uploadScreenshot)
+		r.Post("/tests/{test_id}/artifact", s.uploadArtifact)
 		r.Patch("/tests/{test_id}/finish", s.finishTest)
 		r.Get("/tests/{test_id}/history", s.testHistory)
 		r.Get("/tests/{test_id}/locator", s.testLocator)
@@ -128,7 +129,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/network/{conn_id}/body", s.networkBody)
 	})
 
-	r.Handle("/screenshots/*", http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir)))))
+	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))
 	r.Handle("/*", http.FileServer(http.FS(s.Web)))
 	return r
 }

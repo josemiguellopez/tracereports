@@ -263,7 +263,7 @@
 			: tab === "replay" ? `<div class="replay-panel" id="replay-panel"></div>` : steps;
 		const body = `<div class="card content-card">${tabs}${panel}</div>`;
 
-		if (setHTML(el, head + aiCard(t) + error + body)) { S.rendered["net-list"] = null; S.rendered["timeline-panel"] = null; }
+		if (setHTML(el, head + aiCard(t) + error + artifactsBlock(t) + body)) { S.rendered["net-list"] = null; S.rendered["timeline-panel"] = null; }
 		if (tab === "network") ensureNetworkPanel(t);
 		if (tab === "timeline") ensureTimeline(t);
 		if (tab === "replay") mountReplay(t); else if (S.player) { S.player.destroy(); S.player = null; }
@@ -594,6 +594,22 @@
 		const tr = window.TraceReportsI18n.t;
 		const label = t.status === "PASS" ? tr("Pasó tras reintento") : tr("{n} intentos", { n: t.attempts });
 		return `<span class="retry-chip ${compact ? "sm" : ""}" data-tip="${esc(tr("El runner lo ejecutó {n} veces. La evidencia de los intentos fallidos sigue en los pasos.", { n: t.attempts }))}">↻ ${compact && t.status === "PASS" ? tr("reintento") : label}</span>`;
+	}
+
+	/** Trace y video de Playwright: el video se ve aquí; el trace se descarga o se abre en el Trace Viewer. */
+	function artifactsBlock(t) {
+		const list = t.artifacts || [];
+		if (!list.length) return "";
+		const abs = (u) => new URL(u, location.href).href;
+		// el Trace Viewer oficial descarga el trace desde el navegador: necesita una URL https
+		const viewer = location.protocol === "https:";
+		const items = list.map((a) => a.kind === "video"
+			? `<figure class="art-video"><video controls preload="metadata" src="${esc(a.url)}"></video><figcaption data-no-i18n>${esc(a.name)}</figcaption></figure>`
+			: `<div class="art-trace"><span class="art-name" data-no-i18n>${esc(a.name)}</span>
+				<a class="cf-btn cf-btn-sm" href="${esc(a.url)}" download>${icon("i-download")}${tr("Descargar trace")}</a>
+				${viewer ? `<a class="cf-btn cf-btn-sm cf-btn-primary" target="_blank" rel="noopener" href="https://trace.playwright.dev/?trace=${encodeURIComponent(abs(a.url))}">${icon("i-play")}${tr("Abrir en Trace Viewer")} ↗</a>` : ""}
+				<code class="art-cmd" data-no-i18n>npx playwright show-trace ${esc(a.url.split("/").pop())}</code></div>`).join("");
+		return `<div class="card artifacts"><div class="bloque-titulo">${tr("Trace y video")}</div>${items}</div>`;
 	}
 
 	const VERDICTS = [["product_bug", "Bug de producto"], ["test_bug", "Test roto"], ["environment", "Ambiente"],

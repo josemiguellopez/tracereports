@@ -845,3 +845,11 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .verdict-form textarea, .verdict-form input[name="author"] { width: 100%; }
 .verdict-row { display: grid; grid-template-columns: 1fr auto auto; gap: 6px; align-items: center; }
 @media (max-width: 600px) { .verdict-row { grid-template-columns: 1fr; } }
+
+/* trace y video de Playwright */
+.artifacts { display: grid; gap: 10px; padding: 12px; }
+.art-video { margin: 0; display: grid; gap: 4px; }
+.art-video video { width: 100%; max-height: 420px; border-radius: 6px; background: #000; }
+.art-video figcaption, .art-name { font-size: 13px; color: var(--text-muted); }
+.art-trace { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.art-cmd { font-size: 12px; word-break: break-all; }

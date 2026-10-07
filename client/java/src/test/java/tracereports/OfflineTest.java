@@ -176,4 +176,27 @@ class OfflineTest {
             assertFalse(data.contains("SECRET"), "masking runs without a server too");
         }
     }
+
+    @Test
+    void artifactSeGrabaComoMultipart() throws Exception {
+        System.setProperty("tracereports.offline", "always");
+        System.setProperty("tracereports.offlineDir", tmp.toString());
+        System.setProperty("tracereports.offlineReport", "0");
+        TraceReports cr = new TraceReports("http://127.0.0.1:9", "");
+        cr.startRun("Artefactos", "");
+        TraceTest t = cr.startTest("t");
+        Path trace = tmp.resolve("trace.zip");
+        Files.write(trace, new byte[]{'P', 'K', 3, 4, 'z'});
+        assertTrue(t.artifact("trace", trace));
+        assertTrue(t.artifact("video", new byte[]{0x1A, 0x45, (byte) 0xDF, (byte) 0xA3}, "video \"1\""));
+        assertFalse(t.artifact("har", new byte[]{1}, "x"));
+        assertFalse(t.artifact("trace", tmp.resolve("missing.zip")));
+        t.finish(Status.FAIL);
+        cr.finishRun();
+        List<String> uploads = lines(tmp).stream().filter(l -> l.contains("/artifact\"")).toList();
+        assertEquals(2, uploads.size());
+        String file = uploads.get(0).replaceAll(".*\"body_file\":\"([^\"]+)\".*", "$1");
+        String body = new String(Files.readAllBytes(tmp.resolve(file)), StandardCharsets.ISO_8859_1);
+        assertTrue(body.contains("name=\"kind\"\r\n\r\ntrace") && body.contains("trace.zip"), body);
+    }
 }
