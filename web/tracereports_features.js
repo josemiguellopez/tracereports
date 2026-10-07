@@ -602,6 +602,62 @@ cy.intercept('${m.method}', '${m.glob}', {
 		return { init, hide };
 	})();
 
+	// ─── comparar una llamada con la última vez que el test pasó ──────────────
+	// headers que cambian en cada respuesta: compararlos solo agrega ruido
+	const VOLATILE_HEADERS = new Set(["date", "age", "etag", "last-modified", "expires", "content-length", "x-request-id", "x-correlation-id",
+		"request-id", "traceparent", "traceresponse", "server-timing", "cf-ray", "x-amzn-requestid", "x-amzn-trace-id", "x-response-time", "set-cookie"]);
+	const MAX_DIFFS = 60;
+
+	/** Diferencias entre dos valores JSON: [{path, kind: added|removed|changed, before, after}]. */
+	function jsonDiff(before, after, path = "", out = []) {
+		if (out.length >= MAX_DIFFS) return out;
+		const isObj = (v) => v !== null && typeof v === "object";
+		if (isObj(before) && isObj(after) && Array.isArray(before) === Array.isArray(after)) {
+			const keys = Array.isArray(before)
+				? [...Array(Math.max(before.length, after.length)).keys()]
+				: [...new Set([...Object.keys(before), ...Object.keys(after)])];
+			for (const k of keys) {
+				const p = Array.isArray(before) ? `${path}[${k}]` : path ? `${path}.${k}` : String(k);
+				if (!(k in before)) out.push({ path: p, kind: "added", after: after[k] });
+				else if (!(k in after)) out.push({ path: p, kind: "removed", before: before[k] });
+				else jsonDiff(before[k], after[k], p, out);
+				if (out.length >= MAX_DIFFS) break;
+			}
+			return out;
+		}
+		if (JSON.stringify(before) !== JSON.stringify(after)) out.push({ path: path || "(raíz)", kind: "changed", before, after });
+		return out;
+	}
+
+	const parseJSON = (s) => { try { return JSON.parse(s); } catch { return undefined; } };
+
+	function bodyDiff(before = "", after = "") {
+		if ((before || "") === (after || "")) return null;
+		const a = parseJSON(before), b = parseJSON(after);
+		if (a !== undefined && b !== undefined) return { json: jsonDiff(a, b) };
+		return { text: { before: String(before || "").slice(0, 4000), after: String(after || "").slice(0, 4000) } };
+	}
+
+	/**
+	 * Qué cambió en una llamada al backend entre la última vez que el test pasó (then) y ahora
+	 * (now): status, headers de respuesta (sin los volátiles), body de la respuesta y del request.
+	 */
+	function diffCalls(now, then) {
+		const lowerKeys = (h) => Object.fromEntries(Object.entries(h || {}).map(([k, v]) => [lower(k), v]));
+		const hn = lowerKeys(now.response_headers), ht = lowerKeys(then.response_headers);
+		const headers = [...new Set([...Object.keys(hn), ...Object.keys(ht)])].sort()
+			.filter((k) => !VOLATILE_HEADERS.has(k) && hn[k] !== ht[k])
+			.map((k) => ({ name: k, before: ht[k], after: hn[k] }));
+		const statusOf = (c) => (c.failed || !c.status ? `sin respuesta${c.error_text ? ` (${c.error_text})` : ""}` : String(c.status));
+		return {
+			status: { before: statusOf(then), after: statusOf(now), changed: statusOf(then) !== statusOf(now) },
+			durationMs: { before: then.duration_ms ?? null, after: now.duration_ms ?? null },
+			headers,
+			response: bodyDiff(then.response_body, now.response_body),
+			request: bodyDiff(then.post_data, now.post_data),
+		};
+	}
+
 	// ─── reproducir en local ─────────────────────────────────────────────────
 	const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 	const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -649,5 +705,5 @@ cy.intercept('${m.method}', '${m.glob}', {
 		return out;
 	}
 
-	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, curlOf, reproCommands, maskValue, esc, Tips };
+	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, curlOf, reproCommands, diffCalls, jsonDiff, maskValue, esc, Tips };
 })();

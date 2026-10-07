@@ -860,3 +860,15 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .repro-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
 .repro-lbl { min-width: 70px; color: var(--text-muted); }
 .repro-row code { word-break: break-all; }
+
+/* qué cambió en una llamada desde que el test pasó */
+.baseline-diff { display: grid; gap: 10px; font-size: 13px; }
+.baseline-diff h6 { margin: 6px 0 0; }
+.diff-table { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.diff-table th, .diff-table td { text-align: left; vertical-align: top; padding: 4px 6px; border-bottom: 1px solid var(--border); word-break: break-word; }
+.diff-table td:first-child { width: 28%; }
+.diff-changed td:nth-child(3), .diff-added td:nth-child(3) { color: var(--color-danger); font-weight: 600; }
+.diff-removed td:nth-child(2) { text-decoration: line-through; color: var(--text-muted); }
+.diff-text { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.diff-text pre { margin: 0; max-height: 240px; overflow: auto; white-space: pre-wrap; }
+@media (max-width: 600px) { .diff-text { grid-template-columns: 1fr; } }

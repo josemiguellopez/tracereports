@@ -298,6 +298,20 @@ browser; the server lets it read `.zip` files only).
 Only traces (ZIP) and videos (WebM or MP4) are accepted, validated by their content, up to 100 MB
 each. Retention deletes them with their run, and the exported ZIP includes up to 100 MB of them.
 
+## For whoever fixes it: reproduce and compare
+
+- **Run it locally**: a test's detail has the command to run it on your machine, at the run's exact
+  version (`git checkout <commit> && …`): `pytest '<nodeid>'`,
+  `npx playwright test <file> -g '<title>' --project=<project>`, Maven/Gradle for JUnit or
+  `go test ./<package>/... -run '^TestX$'`. It comes from the test identity, so the client must
+  report it (all of them do).
+- **Compare with the last time it passed**: on a failed call (**Network** tab), it finds the same
+  call (same method, host and path, with ids normalized: `/orders/123` = `/orders/456`) in the most
+  recent run where the test passed, in the same project, environment and branch (or, if none, the
+  project), and shows what changed: status, duration, response headers (without the ones that always
+  change, like `date` or `etag`) and the response and request bodies, field by field when they are
+  JSON. Through the API: `GET /api/v1/network/{id}/baseline`.
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:

@@ -533,7 +533,9 @@
 			...(c.evidence_file ? { "Evidencia local": c.evidence_file } : {}),
 		};
 		const loc = bodyLocation(c);
-		return `<div class="net-actions"><button class="cf-btn cf-btn-sm cf-btn-mock" data-mock>${icon("i-bolt")}Generar mock / stub</button><button class="net-curl" data-curl="1">Copiar como cURL</button></div>`
+		const compare = isNetError(c) && !STATIC
+			? `<button class="cf-btn cf-btn-sm" data-baseline data-tip="${tr("Busca esta misma llamada en la última ejecución donde el test pasó y muestra qué cambió: status, headers y body.")}">${icon("i-timeline")}${tr("Comparar con la última vez que pasó")}</button>` : "";
+		return `<div class="net-actions">${compare}<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock>${icon("i-bolt")}Generar mock / stub</button><button class="net-curl" data-curl="1">Copiar como cURL</button></div>`
 			+ correlationBlock(c)
 			+ block("General", general)
 			+ block("Request headers", c.request_headers)
@@ -595,6 +597,47 @@
 		const tr = window.TraceReportsI18n.t;
 		const label = t.status === "PASS" ? tr("Pasó tras reintento") : tr("{n} intentos", { n: t.attempts });
 		return `<span class="retry-chip ${compact ? "sm" : ""}" data-tip="${esc(tr("El runner lo ejecutó {n} veces. La evidencia de los intentos fallidos sigue en los pasos.", { n: t.attempts }))}">↻ ${compact && t.status === "PASS" ? tr("reintento") : label}</span>`;
+	}
+
+	/** Panel con lo que cambió en una llamada fallida frente a la última vez que el test pasó. */
+	async function openBaseline(c, btn) {
+		btn.disabled = true;
+		let b = null;
+		try {
+			const res = await fetch(`/api/v1/network/${c.id}/baseline`, { headers: { Accept: "application/json" } });
+			if (res.status === 200) b = await res.json();
+			else if (res.status !== 204) throw new Error(`${res.status}`);
+		} catch (err) {
+			btn.disabled = false;
+			alert(err.message);
+			return;
+		}
+		btn.disabled = false;
+		const v = (x) => (x === undefined ? "—" : esc(typeof x === "string" ? x : JSON.stringify(x)));
+		let html;
+		if (!b) {
+			html = `<p class="m-hint">${tr("No hay una ejecución anterior donde este test haya pasado con esta llamada, así que no hay con qué comparar.")}</p>`;
+		} else {
+			const d = CF.diffCalls(c, b.conn);
+			const bodyHTML = (title, diff) => !diff ? "" : `<h6>${title}</h6>` + (diff.json
+				? (diff.json.length ? `<table class="diff-table"><tbody>${diff.json.map((x) => `<tr class="diff-${x.kind}"><td><code>${esc(x.path)}</code></td>
+					<td>${x.kind === "added" ? "—" : v(x.before)}</td><td>${x.kind === "removed" ? "—" : v(x.after)}</td></tr>`).join("")}</tbody></table>`
+					: `<p class="m-hint">${tr("Mismo contenido (cambió solo el formato).")}</p>`)
+				: `<div class="diff-text"><pre>${esc(diff.text.before) || "—"}</pre><pre>${esc(diff.text.after) || "—"}</pre></div>`);
+			html = `<p class="m-hint">${tr("Comparado con la ejecución #{r}, donde el test pasó.", { r: b.run_id })}
+					${b.same_context ? "" : ` ${tr("Es de otra rama o ambiente del proyecto: no había una en verde en este mismo contexto.")}`}
+					<a href="#run=${b.run_id}&view=tests&test=${b.test_id}">${tr("Abrir esa ejecución")}</a></p>
+				<table class="diff-table"><thead><tr><th></th><th>${tr("Cuando pasó")}</th><th>${tr("Ahora")}</th></tr></thead><tbody>
+					<tr class="${d.status.changed ? "diff-changed" : ""}"><td>Status</td><td>${esc(d.status.before)}</td><td>${esc(d.status.after)}</td></tr>
+					<tr><td>${tr("Duración")}</td><td>${d.durationMs.before ?? "—"} ms</td><td>${d.durationMs.after ?? "—"} ms</td></tr>
+					<tr><td>URL</td><td data-no-i18n>${esc(b.conn.url)}</td><td data-no-i18n>${esc(c.url)}</td></tr>
+				</tbody></table>
+				${d.headers.length ? `<h6>${tr("Headers de respuesta que cambiaron")}</h6><table class="diff-table"><tbody>${d.headers.map((h) =>
+					`<tr class="diff-${h.before === undefined ? "added" : h.after === undefined ? "removed" : "changed"}"><td><code>${esc(h.name)}</code></td><td>${v(h.before)}</td><td>${v(h.after)}</td></tr>`).join("")}</tbody></table>` : ""}
+				${bodyHTML(tr("Body de la respuesta"), d.response)}${bodyHTML(tr("Body del request"), d.request)}
+				${!d.status.changed && !d.headers.length && !d.response && !d.request ? `<p class="m-hint">${tr("La llamada es igual a cuando el test pasó: la causa del fallo probablemente está en otro lado.")}</p>` : ""}`;
+		}
+		CF.Drawer.open({ title: tr("Qué cambió desde que pasó"), subtitle: `${c.method} ${c.url}`, body: `<div class="baseline-diff">${html}</div>` });
 	}
 
 	/** Comandos para correr este test en local (según el framework y la identidad del test). */
@@ -1486,6 +1529,12 @@
 			if (tabBtn) { S.detailTab = tabBtn.dataset.tab; renderTestDetail(); return; }
 			const f = e.target.closest("[data-net-filter]");
 			if (f) { S.netFilter = f.dataset.netFilter; renderNetList(); return; }
+			const base = e.target.closest("[data-baseline]");
+			if (base) {
+				const c = S.net.list?.[Number(base.closest("[data-net-idx]").dataset.netIdx)];
+				if (c) openBaseline(c, base);
+				return;
+			}
 			const curl = e.target.closest("[data-curl]");
 			if (curl) {
 				const c = S.net.list?.[Number(curl.closest("[data-net-idx]").dataset.netIdx)];

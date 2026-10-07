@@ -127,6 +127,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/tests/{test_id}/network", s.listNetwork)
 		r.Post("/tests/{test_id}/network", s.addNetwork)
 		r.Get("/network/{conn_id}/body", s.networkBody)
+		r.Get("/network/{conn_id}/baseline", s.networkBaseline)
 	})
 
 	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))

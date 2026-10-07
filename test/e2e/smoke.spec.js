@@ -30,7 +30,8 @@ async function openRun(page) {
 
 /** Abre el detalle de un test por nombre. */
 async function openTest(page, name) {
-	await page.locator("#test-collection .collection-item", { hasText: name }).click();
+	// en el nombre: el centro de la fila puede caer sobre un chip (latencia, veredicto) que abre otro panel
+	await page.locator("#test-collection .collection-item", { hasText: name }).locator(".test-name").click();
 	await expect(page.locator("#test-detail")).toContainText(name);
 }
 
@@ -93,6 +94,22 @@ test("reproducir en local: el comando de pytest con el commit", async ({ page })
 	await expect(repro.locator("code")).toHaveText("git checkout bbb222 && pytest 'test_login_admin'");
 	await repro.locator(".copy-btn").click();
 	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("git checkout bbb222 && pytest 'test_login_admin'");
+});
+
+test("red: comparar con la última vez que el test pasó", async ({ page }) => {
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const detail = page.locator("#test-detail");
+	await detail.locator('[data-tab="network"]').click();
+	const card = detail.locator(".net-card-error");
+	await card.locator("summary").click();
+	await card.locator("[data-baseline]").click();
+	const drawer = page.locator(".baseline-diff");
+	await expect(drawer).toContainText("Comparado con la ejecución #1");
+	await expect(drawer.locator("tr.diff-changed").first()).toContainText("500");
+	await expect(drawer).toContainText("db pool exhausted");
+	await expect(drawer.locator("code", { hasText: "x-api-version" })).toBeVisible(); // header que ya no viene
+	await page.keyboard.press("Escape");
 });
 
 test("red: correlación con los logs del backend", async ({ page }) => {

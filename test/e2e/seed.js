@@ -44,7 +44,15 @@ module.exports = async () => {
 	// ejecución anterior: todo en verde (para comparación, historial y métricas)
 	const { run_id: prev } = await api("POST", "/runs", { ...RUN, name: "E2E anterior", commit: "aaa111" });
 	for (const name of ["test_login_admin", "test_buscar_empleado", "test_reporte_mensual"]) {
-		await addTest(prev, { name, category: "smoke", status: "PASS", steps: [["PASS", `${name} ok`]] });
+		await addTest(prev, { name, category: "smoke", status: "PASS", steps: [["PASS", `${name} ok`]],
+			// la misma llamada del login, cuando funcionaba: base para "comparar con la última vez que pasó"
+			network: name !== "test_login_admin" ? undefined : [{
+				method: "POST", url: "https://api.example.com/auth/login?lang=es", status: 200, status_text: "OK",
+				mime_type: "application/json", resource_type: "fetch", started_at: Date.now() - 120_000, duration_ms: 95,
+				request_headers: { "Content-Type": "application/json" }, post_data: JSON.stringify({ username: "admin", password: "x" }),
+				response_headers: { "content-type": "application/json", "x-api-version": "1.4" },
+				response_body: JSON.stringify({ ok: true, user: "admin" }),
+			}] });
 	}
 	await api("PATCH", `/runs/${prev}/finish`, {});
 

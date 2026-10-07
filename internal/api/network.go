@@ -81,6 +81,27 @@ func (s *Server) listNetwork(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, conns)
 }
 
+// networkBaseline returns the same call in the last run where the test passed (204 if none):
+// the UI compares status, headers and body between "it worked" and "it failed".
+func (s *Server) networkBaseline(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "conn_id")
+	if !ok {
+		return
+	}
+	b, err := s.Store.BaselineFor(id)
+	if respondErr(w, err, "network call") {
+		return
+	}
+	if b == nil {
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	one := []db.NetConn{b.Conn}
+	s.linkCalls(one)
+	b.Conn = one[0]
+	writeJSON(w, http.StatusOK, b)
+}
+
 // linkCalls fills the links to the backend logs and trace of each call (when configured and
 // the call has what the template needs).
 func (s *Server) linkCalls(conns []db.NetConn) {

@@ -299,6 +299,20 @@ navegador; el servidor le permite leer solo los `.zip`).
 Solo se aceptan traces (ZIP) y videos (WebM o MP4), validados por su contenido, hasta 100 MB cada
 uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta 100 MB de ellos.
 
+## Para quien corrige: reproducir y comparar
+
+- **Reproducir en local**: el detalle de un test trae el comando para correrlo en tu máquina, en la
+  versión exacta de la ejecución (`git checkout <commit> && …`): `pytest '<nodeid>'`,
+  `npx playwright test <archivo> -g '<título>' --project=<proyecto>`, Maven/Gradle para JUnit o
+  `go test ./<paquete>/... -run '^TestX$'`. Sale de la identidad del test, así que necesita que el
+  cliente la reporte (todos lo hacen).
+- **Comparar con la última vez que pasó**: en una llamada con error (pestaña **Red**), busca la
+  misma llamada (mismo método, host y ruta, con los ids normalizados: `/orders/123` = `/orders/456`)
+  en la ejecución más reciente donde el test pasó, del mismo proyecto, ambiente y rama (o, si no
+  hay, del proyecto), y muestra qué cambió: status, duración, headers de respuesta (sin los que
+  cambian siempre, como `date` o `etag`) y los bodies de la respuesta y del request, campo por campo
+  cuando son JSON. Por API: `GET /api/v1/network/{id}/baseline`.
+
 ## Historial, flaky y comparación
 
 No requieren configuración. Se calculan con los datos que ya existen:
