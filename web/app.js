@@ -2230,6 +2230,7 @@
 		const headChanged = setHTML(el, `<div class="page-head">
 				<div><h4 class="page-title">Métricas de calidad</h4>
 				<p class="page-sub">Todas las ejecuciones terminadas del período, no solo la actual. Para ver la tendencia, detectar los tests que más tiempo hacen perder y decidir qué estabilizar primero.</p></div>
+				${canAct() ? `<button class="cf-btn cf-btn-sm" data-weekly data-tip="${tr("El resumen de los últimos 7 días para el equipo: tendencia, lo que más falla y lo que se arregló. Con TRACEREPORTS_WEEKLY_SUMMARY se envía solo a Teams/Slack cada semana.")}">${icon("i-megaphone")}${tr("Resumen semanal")}</button>` : ""}
 			</div>
 			<div class="m-filters" role="toolbar" aria-label="Filtros de métricas">
 				<div class="seg" role="group" aria-label="Período">
@@ -3025,9 +3026,37 @@
 		});
 	}
 
+	/** Vista previa del resumen semanal, con el botón para enviarlo ahora a Teams/Slack. */
+	async function openWeekly(send = false) {
+		let r;
+		try {
+			r = await apiSend("POST", "/api/v1/ui/summary/weekly", { send, lang: I18N.lang });
+		} catch (err) {
+			if (!send) { alert(err.message); return; }
+			r = { summary: S.weekly, error: err.message };
+		}
+		const e = S.weekly = r.summary;
+		const cfg = S.config;
+		const lists = (e.Lists || []).map(([title, items]) => `<h6>${esc(title)}</h6><ul>${items.map((i) => `<li data-no-i18n>${esc(i)}</li>`).join("")}</ul>`).join("");
+		const html = `<div class="weekly">
+			<p class="weekly-period">${esc(e.Severity || "")}</p>
+			<p class="weekly-headline ${e.Critical ? "down" : ""}">${esc(e.Headline)}</p>
+			${(e.Sections || []).length ? `<table class="diff-table"><tbody>${e.Sections.map(([k, v]) => `<tr><td>${esc(k)}</td><td>${esc(v)}</td></tr>`).join("")}</tbody></table>` : ""}
+			${lists}
+			${r.error ? `<p class="set-msg err" role="status">${esc(r.error)}</p>` : ""}
+			${r.sent?.length ? `<p class="set-msg ok" role="status">${tr("Enviado a {c}.", { c: r.sent.join(", ") })}</p>` : ""}
+			${cfg.teams || cfg.slack
+				? `<button class="cf-btn cf-btn-primary" data-weekly-send>${icon("i-megaphone")}${tr("Enviar ahora a Teams/Slack")}</button>`
+				: `<p class="m-hint">${tr("Configura TEAMS_WEBHOOK_URL o SLACK_WEBHOOK_URL para enviarlo, y TRACEREPORTS_WEEKLY_SUMMARY (por ejemplo 'mon 09:00') para que salga solo cada semana.")}</p>`}
+		</div>`;
+		CF.Drawer.open({ title: e.Title, subtitle: tr("Lo que recibe el equipo"), body: html });
+		$("[data-weekly-send]")?.addEventListener("click", (ev) => { ev.currentTarget.disabled = true; openWeekly(true); });
+	}
+
 	function bindMetricsEvents() {
 		const root = $("#view-metrics");
 		root.addEventListener("click", (e) => {
+			if (e.target.closest("[data-weekly]")) { openWeekly(); return; }
 			const b = e.target.closest("[data-m-days]");
 			if (b && (Number(b.dataset.mDays) !== S.metrics.days || S.metrics.custom)) { S.metrics.days = Number(b.dataset.mDays); S.metrics.custom = null; S.rendered["m-body"] = null; loadMetrics(); renderMetrics(); }
 		});

@@ -86,6 +86,19 @@ test("red: Copiar como cURL no filtra secretos y conserva los headers enmascarad
 	expect(curl).not.toContain("<masked>");
 });
 
+test("métricas: vista previa del resumen semanal", async ({ page }) => {
+	await openRun(page);
+	await page.locator('[data-view="metrics"]').first().click();
+	await page.locator("[data-weekly]").click();
+	const weekly = page.locator(".weekly");
+	await expect(page.locator("#cf-drawer-title")).toHaveText("Resumen semanal de pruebas");
+	await expect(weekly.locator(".weekly-headline")).toContainText("%");
+	await expect(weekly).toContainText("Lo que más falla");
+	// sin Teams ni Slack en este servidor: explica cómo configurarlo en vez de ofrecer enviar
+	await expect(weekly.locator("[data-weekly-send]")).toHaveCount(0);
+	await expect(weekly).toContainText("TRACEREPORTS_WEEKLY_SUMMARY");
+});
+
 test("release: decisión, criterios y funcionalidades", async ({ page }) => {
 	await openRun(page);
 	await page.locator('[data-view="release"]').first().click();

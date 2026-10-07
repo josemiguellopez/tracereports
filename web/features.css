@@ -901,3 +901,11 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .rel-feature-name { font-weight: 700; display: flex; gap: 6px; align-items: baseline; }
 .rel-crit { color: var(--color-danger); font-size: 11px; text-transform: uppercase; }
 .rel-feature-state { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+/* resumen semanal */
+.weekly { display: grid; gap: 10px; font-size: 14px; }
+.weekly-period { margin: 0; color: var(--text-muted); font-size: 12px; text-transform: uppercase; }
+.weekly-headline { margin: 0; font-size: 18px; font-weight: 700; }
+.weekly-headline.down { color: var(--color-danger); }
+.weekly h6 { margin: 6px 0 0; }
+.weekly ul { margin: 0; padding-left: 18px; }

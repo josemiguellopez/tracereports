@@ -186,6 +186,13 @@ When each run is closed (`PATCH /runs/{id}/finish`), the server sends:
 2. **Add New Webhook to Workspace**, pick the channel and copy the URL.
 3. Set it in `SLACK_WEBHOOK_URL`.
 
+**Weekly summary**: with `TRACEREPORTS_WEEKLY_SUMMARY=mon 09:00` (day `sun`…`sat` and server
+time) the configured channels get, every week, a summary of the last 7 days: whether the pass rate
+went up or down against the previous week, runs, failed tests, flaky tests, what fails the most,
+what already got fixed and the flaky tests to watch, with the link to **Metrics** (with
+`PUBLIC_URL`). **Metrics → Weekly summary** shows the preview and can send it right away.
+Language: the one in **Settings**.
+
 ## Tickets in GitHub, Jira or Azure DevOps
 
 From **Escalate**, the **Ticket** button opens an issue with the summary you are looking at (what

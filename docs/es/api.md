@@ -208,6 +208,7 @@ o, en modo local, el mismo equipo del servidor.
 | POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Publica el resumen en `teams` o `slack`. Con `PUBLIC_URL` incluye el link y la captura |
 | POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Crea un ticket en `github`, `jira` o `azure` con el resumen (default para `dev`). `201 {ticket}`; si el mismo fallo ya tiene uno, `200 {ticket, existing: true}` (salvo `force`). Ver [Configuración](configuration.md#tickets-en-github-jira-o-azure-devops) |
+| POST | `/ui/summary/weekly` | `{send, lang}` | Resumen de los últimos 7 días: `{summary, sent}`. Con `send: true` lo publica en Teams/Slack |
 | POST | `/ui/quarantine` | `{test_id, reason, owner, days}` | Pone en cuarentena el test (en su proyecto) por `days` días (default 14, máx. 180). `reason` es obligatorio. Responde la cuarentena y la ejecución recalculada |
 | DELETE | `/ui/quarantine/{test_id}` | `{}` | Quita la cuarentena del test |
 | GET | `/quarantine?project=…` | — | Cuarentenas del proyecto (`all=1`: de todos), con `active` |

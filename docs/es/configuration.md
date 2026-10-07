@@ -186,6 +186,13 @@ Al cerrar cada ejecución (`PATCH /runs/{id}/finish`) se envía:
 2. **Add New Webhook to Workspace**, elige el canal y copia la URL.
 3. Defínela en `SLACK_WEBHOOK_URL`.
 
+**Resumen semanal**: con `TRACEREPORTS_WEEKLY_SUMMARY=mon 09:00` (día `sun`…`sat` y hora del
+servidor) llega cada semana a los canales configurados un resumen de los últimos 7 días: si la
+tasa de éxito subió o bajó frente a la semana anterior, ejecuciones, tests que fallaron, flaky, lo
+que más falla, lo que ya se arregló y los inestables a vigilar, con el link a **Métricas** (con
+`PUBLIC_URL`). Desde **Métricas → Resumen semanal** se ve la vista previa y se puede enviar en el
+momento. Idioma: el de **Ajustes**.
+
 ## Tickets en GitHub, Jira o Azure DevOps
 
 Desde **Escalar**, el botón **Ticket** abre un issue con el resumen que estás viendo (qué pasó,
