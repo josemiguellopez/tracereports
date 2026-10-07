@@ -212,6 +212,7 @@ in local mode, the server's own machine.
 | GET | `/quarantine?project=…` | — | Quarantines of the project (`all=1`: every project), with `active` |
 | POST | `/ui/tests/{test_id}/verdict` | `{verdict, comment, author}` | Classifies the failure: `product_bug`, `test_bug`, `environment`, `data`, `flaky` or `other`. Tests in `GET /runs/{id}` and `/tests/{id}` carry `verdict`, `previous_verdict` (from an earlier run) and `owner` |
 | GET | `/runs/{run_id}/tickets` | — | Tickets of the run's failures (also those opened from earlier runs of the same test) |
+| GET | `/runs/{run_id}/release` | — | Can we ship? `{decision: go|risk|no_go, pass_rate, gate, checks, features}` (`TRACEREPORTS_RELEASE_GATE`) |
 
 Related reads: `GET /runs/{run_id}/recurrence` (in how many previous runs of the same suite each
 incident showed up) and `GET /runs/{run_id}/escalation?test=&audience=&lang=` (the saved summary,

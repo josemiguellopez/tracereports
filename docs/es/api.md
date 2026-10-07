@@ -213,6 +213,7 @@ o, en modo local, el mismo equipo del servidor.
 | GET | `/quarantine?project=…` | — | Cuarentenas del proyecto (`all=1`: de todos), con `active` |
 | POST | `/ui/tests/{test_id}/verdict` | `{verdict, comment, author}` | Clasifica el fallo: `product_bug`, `test_bug`, `environment`, `data`, `flaky` u `other`. Los tests de `GET /runs/{id}` y `/tests/{id}` traen `verdict`, `previous_verdict` (de una ejecución anterior) y `owner` |
 | GET | `/runs/{run_id}/tickets` | — | Tickets de los fallos de la ejecución (también los abiertos desde ejecuciones anteriores del mismo test) |
+| GET | `/runs/{run_id}/release` | — | ¿Podemos salir? `{decision: go|risk|no_go, pass_rate, gate, checks, features}` (`TRACEREPORTS_RELEASE_GATE`) |
 
 Lecturas relacionadas: `GET /runs/{run_id}/recurrence` (en cuántas ejecuciones anteriores de la
 misma suite apareció cada incidente) y `GET /runs/{run_id}/escalation?test=&audience=&lang=` (el

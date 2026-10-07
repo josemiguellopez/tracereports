@@ -86,6 +86,18 @@ test("red: Copiar como cURL no filtra secretos y conserva los headers enmascarad
 	expect(curl).not.toContain("<masked>");
 });
 
+test("release: decisión, criterios y funcionalidades", async ({ page }) => {
+	await openRun(page);
+	await page.locator('[data-view="release"]').first().click();
+	const view = page.locator("#view-release");
+	// 1 de 2 tests pasa (el skip no cuenta): 50% < 95% por defecto, y hay un fallo nuevo
+	await expect(view.locator(".rel-banner")).toContainText("No salir todavía");
+	await expect(view.locator(".rel-check.block")).toContainText("Tasa de éxito 50% (mínimo 95%)");
+	await expect(view.locator(".rel-check.warn").first()).toContainText("1 fallo nuevo frente a la ejecución anterior");
+	await expect(view.locator(".rel-feature.fail")).toContainText("login");
+	await expect(view.locator(".rel-feature.ok")).toContainText("smoke");
+});
+
 test("consola del navegador: pestaña con el error de JavaScript", async ({ page }) => {
 	await openRun(page);
 	await openTest(page, "test_login_admin");
@@ -167,6 +179,7 @@ for (const [view, expected] of [
 	["categories", "login"],
 	["exceptions", "TimeoutError"],
 	["dashboard", null],
+	["release", "No salir"],
 	["ai", null],
 	["escalate", null],
 	["metrics", null],

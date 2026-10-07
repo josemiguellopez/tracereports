@@ -162,7 +162,7 @@
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
 		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
 		({ tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
-			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, settings: renderSettings }[S.view] || renderTests)();
+			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
 	}
 
 	// only touch the DOM when content actually changed (keeps scroll position & avoids flicker while polling)
@@ -615,6 +615,63 @@
 				return `<tr class="console-${esc(e.level)}"><td><span class="label ${cls}">${tr(name)}</span></td><td>${fmtTime(e.timestamp)}</td>
 					<td><pre class="console-text" data-no-i18n>${esc(e.text)}</pre>${e.location ? `<small class="console-loc" data-no-i18n>${esc(e.location)}</small>` : ""}</td></tr>`;
 			}).join("")}</tbody></table>`;
+	}
+
+	// ---------- release: ¿podemos salir a producción? ----------
+	const RELEASE_TEXT = {
+		go: ["ok", "Listo para salir", "Ningún criterio del equipo se incumple."],
+		risk: ["warn", "Se puede salir, con riesgos", "Nada bloquea, pero hay puntos que alguien debería revisar antes."],
+		no_go: ["fail", "No salir todavía", "Se incumple al menos un criterio que bloquea la salida."],
+	};
+
+	/** Frase de negocio para cada criterio (detail trae los números). */
+	function releaseCheckText(c) {
+		const [a, b] = String(c.detail || "").split("/");
+		const tests = c.tests?.length ? ` ${tr("({t})", { t: c.tests.slice(0, 5).join(", ") + (c.tests.length > 5 ? "…" : "") })}` : "";
+		switch (c.id) {
+		case "complete": return c.ok ? tr("La ejecución terminó completa.") : tr("La ejecución quedó incompleta: hay tests que no llegaron a terminar.");
+		case "critical": return (c.ok ? tr("Ninguna funcionalidad crítica falló ({f}).", { f: c.detail }) : tr("Falló una funcionalidad crítica")) + (c.ok ? "" : tests);
+		case "pass_rate": return tr("Tasa de éxito {p}% (mínimo {m}%).", { p: Number(a).toLocaleString(), m: Number(b).toLocaleString() });
+		case "new_failures": return tr(a === "1" ? "1 fallo nuevo frente a la ejecución anterior (se toleran {m})." : "{n} fallos nuevos frente a la ejecución anterior (se toleran {m}).", { n: a, m: b }) + tests;
+		case "quarantined": return (c.ok ? tr("Sin fallos en cuarentena.")
+			: tr(a === "1" ? "1 fallo conocido en cuarentena: no bloquea, pero sigue pendiente." : "{n} fallos conocidos en cuarentena: no bloquean, pero siguen pendientes.", { n: a })) + (c.ok ? "" : tests);
+		case "flaky": return tr(a === "1" ? "1 test inestable (se toleran {m})." : "{n} tests inestables (se toleran {m}).", { n: a, m: b }) + (c.ok ? "" : tests);
+		}
+		return c.id;
+	}
+
+	async function renderRelease() {
+		const el = $("#view-release");
+		const r = S.run;
+		const key = `${r.id}:${r.status}:${r.total}:${r.failed}:${r.quarantined || 0}`;
+		if (S.release?.key !== key) {
+			S.release = { key, data: null };
+			try {
+				S.release.data = await api(`/api/v1/runs/${r.id}/release`);
+			} catch (err) {
+				S.release.error = err.message;
+			}
+			if (S.view !== "release") return;
+		}
+		const d = S.release.data;
+		if (!d) {
+			setHTML(el, `<div class="card m-empty">${icon("i-warning")}<p>${esc(S.release.error || tr("Cargando…"))}</p></div>`);
+			return;
+		}
+		const [cls, title, sub] = RELEASE_TEXT[d.decision] || RELEASE_TEXT.risk;
+		const checks = d.checks.map((c) => `<li class="rel-check ${c.ok ? "ok" : c.severity}">
+			<span class="rel-dot" aria-hidden="true"></span><span>${esc(releaseCheckText(c))}</span>
+			${c.ok ? "" : `<small>${c.severity === "block" ? tr("bloquea") : tr("riesgo")}</small>`}</li>`).join("");
+		const features = d.features.map((f) => `<div class="rel-feature ${esc(f.status)}">
+			<div class="rel-feature-name">${f.name ? `<span data-no-i18n>${esc(f.name)}</span>` : tr("Sin categoría")}${f.critical ? `<small class="rel-crit">${tr("crítica")}</small>` : ""}</div>
+			<div class="rel-feature-state">${{ ok: "✓", fail: "✗", warn: "!", skip: "–" }[f.status] || ""} ${tr("{p} de {t} pasan", { p: f.passed, t: f.total })}${f.quarantined ? ` · ${tr("{q} en cuarentena", { q: f.quarantined })}` : ""}</div>
+		</div>`).join("");
+		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("¿Podemos salir a producción?")}</h4>
+				<p class="page-sub">${tr("Decisión sobre esta ejecución según los criterios del equipo (TRACEREPORTS_RELEASE_GATE).")}</p></div></div>
+			<div class="card rel-banner ${cls}"><div class="rel-title">${tr(title)}</div><p>${tr(sub)}</p>
+				<div class="rel-rate">${tr("Tasa de éxito")}: <b>${Number(d.pass_rate).toLocaleString()}%</b></div></div>
+			<div class="card rel-checks"><h5>${tr("Criterios")}</h5><ul>${checks}</ul></div>
+			<div class="card"><h5>${tr("Funcionalidades")}</h5><div class="rel-features">${features}</div></div>`);
 	}
 
 	/** Panel con lo que cambió en una llamada fallida frente a la última vez que el test pasó. */
@@ -3038,6 +3095,7 @@
 		applyTheme(initialTheme(), false);
 		$(".nav-global").hidden = !!STATIC; // las métricas cruzan ejecuciones: no van en el ZIP
 		$(".nav-server").hidden = !!STATIC; // escalar necesita el servidor (IA, Teams/Slack)
+		$(".nav-release").hidden = !!STATIC; // la decisión compara con ejecuciones anteriores: necesita el servidor
 		readHash();
 		bindEvents();
 		CF.Tips.init();

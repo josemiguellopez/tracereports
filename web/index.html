@@ -90,6 +90,7 @@
 		<a href="#" data-view="categories" data-tip-pos="right" data-tip-title="Categorías" data-tip="Resultados agrupados por tag (login, smoke…): qué área de la aplicación está fallando."><svg><use href="#i-tag"/></svg><span>Categorías</span></a>
 		<a href="#" data-view="exceptions" data-tip-pos="right" data-tip-title="Errores" data-tip="Los fallos agrupados por mensaje de error: un mismo error que rompe varios tests aparece una sola vez."><svg><use href="#i-bug"/></svg><span>Errores</span></a>
 		<a href="#" data-view="dashboard" data-tip-pos="right" data-tip-title="Análisis" data-tip="Dashboard de la ejecución: diagnóstico global, gráficos, comparación con la anterior y endpoints más lentos."><svg><use href="#i-target"/></svg><span>Análisis</span></a>
+		<a href="#" data-view="release" class="nav-release" data-tip-pos="right" data-tip-title="Release" data-tip="¿Podemos salir a producción? La decisión según los criterios del equipo y el estado de cada funcionalidad."><svg><use href="#i-check"/></svg><span>Release</span></a>
 		<a href="#" data-view="ai" data-tip-pos="right" data-tip-title="IA" data-tip="Análisis con IA de los fallos de esta ejecución: causas, recurrencia con ejecuciones anteriores y qué hacer. Permite volver a analizar."><svg><use href="#i-spark"/></svg><span>IA</span></a>
 		<a href="#" data-view="escalate" class="nav-server" data-tip-pos="right" data-tip-title="Escalar" data-tip="Resume un fallo para Negocio, QA o Desarrollo, con su evidencia, y compártelo por Teams, Slack o correo como texto o imagen."><svg><use href="#i-megaphone"/></svg><span>Escalar</span></a>
 		<a href="#" data-view="metrics" class="nav-global" data-tip-pos="right" data-tip-title="Métricas" data-tip="Calidad en el tiempo, entre todas las ejecuciones: tendencia de la tasa de éxito, tests que más fallan, flaky, más lentos y causas de los fallos."><svg><use href="#i-chart"/></svg><span>Métricas</span></a>
@@ -188,6 +189,9 @@
 				<div class="card insight-card" id="endpoints-card"></div>
 			</div>
 		</section>
+
+		<!-- release: ¿podemos salir a producción? -->
+		<section id="view-release" class="view release-view" hidden></section>
 
 		<!-- análisis con IA de la ejecución -->
 		<section id="view-ai" class="view ai-view" hidden></section>

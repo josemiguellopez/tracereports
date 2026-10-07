@@ -33,6 +33,7 @@ internal/tracker     tickets in GitHub Issues, Jira and Azure DevOps
 internal/prcomment   pull/merge request comment (tracereports pr-comment)
 internal/correlate   trace/request ids of a call and links to the backend logs
 internal/owners      CODEOWNERS-like rules that give each test an owner
+internal/release     go / risk / no_go release decision (TRACEREPORTS_RELEASE_GATE)
 internal/junit       JUnit XML parser for POST /import/junit
 internal/allure      allure-results parser for POST /import/allure
 internal/offline     replays recordings made without a server (tracereports report / push)

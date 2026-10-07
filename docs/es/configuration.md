@@ -319,6 +319,25 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   (Java); en Go, `t.Console(...)`. Máximo 500 entradas por test, con el texto enmascarado.
   Por API: `POST /api/v1/tests/{id}/console` con `{entries: [{level, text, location, timestamp}]}`.
 
+## Release: ¿podemos salir a producción?
+
+La vista **Release** responde esa pregunta para la ejecución que estás viendo, en una pantalla que
+entiende cualquiera: **Listo para salir**, **Se puede salir, con riesgos** o **No salir todavía**,
+los criterios detrás de la decisión y el estado de cada funcionalidad (los tags de los tests).
+
+| Criterio | Default | Si no se cumple |
+| --- | --- | --- |
+| La ejecución terminó completa | — | bloquea |
+| Ningún test con un tag crítico falló | sin tags críticos | bloquea |
+| Tasa de éxito mínima (sin contar omitidos ni fallos en cuarentena) | 95 % | bloquea |
+| Fallos nuevos frente a la ejecución anterior | 0 | riesgo |
+| Fallos en cuarentena | — | riesgo |
+| Tests flaky | 3 | riesgo |
+
+Se configura con `TRACEREPORTS_RELEASE_GATE`, por ejemplo
+`min_pass_rate=98; critical=smoke,checkout,login; max_new_failures=0; max_flaky=2`. Un criterio
+mal escrito impide arrancar. Por API: `GET /api/v1/runs/{id}/release`.
+
 ## Historial, flaky y comparación
 
 No requieren configuración. Se calculan con los datos que ya existen:

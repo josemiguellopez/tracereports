@@ -47,6 +47,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/owners"
 	"github.com/josemiguellopez/tracereports/internal/redact"
+	"github.com/josemiguellopez/tracereports/internal/release"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
@@ -145,6 +146,11 @@ func run() error {
 		slog.Info("test owners enabled", "rules", ownerRules.Len())
 	}
 
+	gate, err := release.Parse(env.Get("RELEASE_GATE"))
+	if err != nil {
+		return err
+	}
+
 	hub := live.NewHub()
 	redaction := redact.FromEnv()
 	if !redaction.Enabled() {
@@ -174,6 +180,8 @@ func run() error {
 		LogsURL: env.Get("LOGS_URL"), TraceURL: env.Get("TRACE_URL"),
 		// dueño de cada test, como CODEOWNERS (TRACEREPORTS_OWNERS / TRACEREPORTS_OWNERS_FILE)
 		Owners: ownerRules,
+		// criterios de "¿podemos salir a producción?" (TRACEREPORTS_RELEASE_GATE)
+		ReleaseGate: &gate,
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())

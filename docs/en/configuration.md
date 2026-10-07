@@ -318,6 +318,25 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
   `t.Console(...)`. At most 500 entries per test, with the text masked. Through the API:
   `POST /api/v1/tests/{id}/console` with `{entries: [{level, text, location, timestamp}]}`.
 
+## Release: can we ship to production?
+
+The **Release** view answers that question for the run you are looking at, on one screen anyone
+understands: **Ready to ship**, **Can ship, with risks** or **Do not ship yet**, the criteria behind
+the decision and the state of each functional area (the tests' tags).
+
+| Criterion | Default | When broken |
+| --- | --- | --- |
+| The run finished complete | — | blocks |
+| No test with a critical tag failed | no critical tags | blocks |
+| Minimum pass rate (skipped and quarantined failures do not count) | 95 % | blocks |
+| New failures against the previous run | 0 | risk |
+| Quarantined failures | — | risk |
+| Flaky tests | 3 | risk |
+
+Set it with `TRACEREPORTS_RELEASE_GATE`, for example
+`min_pass_rate=98; critical=smoke,checkout,login; max_new_failures=0; max_flaky=2`. A malformed
+criterion stops the server from starting. Through the API: `GET /api/v1/runs/{id}/release`.
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:

@@ -27,6 +27,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/owners"
 	"github.com/josemiguellopez/tracereports/internal/redact"
+	"github.com/josemiguellopez/tracereports/internal/release"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
@@ -64,6 +65,8 @@ type Server struct {
 	LogsURL, TraceURL string
 	// Owners assigns an owner to each test (TRACEREPORTS_OWNERS / _FILE); nil = none.
 	Owners *owners.Rules
+	// ReleaseGate are the "can we ship?" criteria (TRACEREPORTS_RELEASE_GATE); nil = defaults.
+	ReleaseGate *release.Gate
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -107,6 +110,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/{run_id}", s.getRun)
 		r.Get("/runs/{run_id}/export", s.exportRun)
 		r.Get("/runs/{run_id}/tickets", s.listTickets)
+		r.Get("/runs/{run_id}/release", s.runRelease)
 		r.Get("/runs/{run_id}/compare", s.compareRun)
 		r.Get("/runs/{run_id}/baselines", s.runBaselines)
 		r.Get("/runs/{run_id}/endpoints", s.runEndpoints)

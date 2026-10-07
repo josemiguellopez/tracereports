@@ -878,3 +878,26 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .console-text { margin: 0; white-space: pre-wrap; word-break: break-word; font-size: 12.5px; }
 .console-loc { color: var(--text-muted); word-break: break-all; }
 .console-pageerror .console-text, .console-error .console-text { color: var(--color-danger); }
+
+/* release: ¿podemos salir a producción? */
+.release-view { display: grid; gap: 14px; align-content: start; }
+.rel-banner { padding: 18px 20px; border-left: 6px solid var(--text-muted); }
+.rel-banner.ok { border-left-color: var(--color-success, #2e7d32); }
+.rel-banner.warn { border-left-color: var(--color-warning, #ed6c02); }
+.rel-banner.fail { border-left-color: var(--color-danger); }
+.rel-title { font-size: 26px; font-weight: 800; }
+.rel-banner p { margin: 4px 0 8px; color: var(--text-muted); }
+.rel-checks ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.rel-check { display: grid; grid-template-columns: 14px 1fr auto; align-items: baseline; gap: 8px; }
+.rel-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--color-success, #2e7d32); }
+.rel-check.block .rel-dot { background: var(--color-danger); }
+.rel-check.warn .rel-dot { background: var(--color-warning, #ed6c02); }
+.rel-check small { color: var(--text-muted); text-transform: uppercase; font-size: 11px; }
+.rel-features { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.rel-feature { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; border-top: 4px solid var(--text-muted); }
+.rel-feature.ok { border-top-color: var(--color-success, #2e7d32); }
+.rel-feature.fail { border-top-color: var(--color-danger); }
+.rel-feature.warn { border-top-color: var(--color-warning, #ed6c02); }
+.rel-feature-name { font-weight: 700; display: flex; gap: 6px; align-items: baseline; }
+.rel-crit { color: var(--color-danger); font-size: 11px; text-transform: uppercase; }
+.rel-feature-state { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
