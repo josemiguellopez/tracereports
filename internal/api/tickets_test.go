@@ -17,12 +17,14 @@ import (
 // fakeTracker records the issues it is asked to create.
 type fakeTracker struct {
 	id     string
+	target string // repositorio o proyecto destino
 	issues []*tracker.Issue
 	fail   error
 }
 
-func (f *fakeTracker) ID() string   { return f.id }
-func (f *fakeTracker) Name() string { return strings.ToUpper(f.id) }
+func (f *fakeTracker) ID() string     { return f.id }
+func (f *fakeTracker) Name() string   { return strings.ToUpper(f.id) }
+func (f *fakeTracker) Target() string { return f.id + ":" + f.target }
 func (f *fakeTracker) Create(_ context.Context, is *tracker.Issue) (*tracker.Ticket, error) {
 	if f.fail != nil {
 		return nil, f.fail

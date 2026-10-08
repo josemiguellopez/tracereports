@@ -68,6 +68,10 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	testKey := ""
+	run, err := s.Store.GetRun(in.RunID)
+	if respondErr(w, err, "run") {
+		return
+	}
 	if in.TestID != 0 {
 		t, err := s.Store.GetTest(in.TestID)
 		if respondErr(w, err, "test") {
@@ -78,11 +82,9 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		testKey = t.Key
-	} else if _, err := s.Store.GetRun(in.RunID); respondErr(w, err, "run") {
-		return
 	}
 	if !in.Force {
-		existing, err := s.Store.ExistingTicket(in.RunID, in.TestID, testKey, p.ID())
+		existing, err := s.Store.ExistingTicket(in.RunID, in.TestID, testKey, run.Project, p.ID(), p.Target())
 		if err != nil {
 			serverError(w, err)
 			return
@@ -103,7 +105,8 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadGateway, p.Name()+": "+err.Error())
 		return
 	}
-	t := &db.Ticket{RunID: in.RunID, TestID: in.TestID, TestKey: testKey, Provider: p.ID(), Key: created.Key, URL: created.URL}
+	t := &db.Ticket{RunID: in.RunID, TestID: in.TestID, TestKey: testKey, Project: run.Project, Target: p.Target(),
+		Provider: p.ID(), Key: created.Key, URL: created.URL}
 	if err := s.Store.SaveTicket(t); err != nil {
 		serverError(w, err)
 		return

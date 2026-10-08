@@ -268,6 +268,13 @@ A tracker shows up in the interface only when all its required variables are set
 `POST /api/v1/ui/tickets` with `{run_id, test_id, provider, audience, lang, force}` and
 `GET /api/v1/runs/{id}/tickets` (see the [API](api.md)).
 
+A ticket is reused only for the same test **of the same project** and the same tracker destination
+(GitHub repository, Jira or Azure DevOps project): two projects with a test of the same key do not
+share tickets, and if the tracker starts pointing to another repository a new one is created.
+Tickets created by earlier versions get their project back from their run; if that run was already
+deleted, the ticket is kept and still shown in it, but it is not offered for other runs (the prudent
+choice: better a new ticket than one of another project).
+
 ## Correlation with the backend logs
 
 When a call carries a trace or request id in its headers, the call detail (**Network** tab) shows it

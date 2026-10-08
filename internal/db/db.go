@@ -111,13 +111,16 @@ func Open(path string) (*Store, error) {
 		{"run_triage", "pending_tests", "INTEGER NOT NULL DEFAULT 0"},
 		// la clave de idempotencia vive lo mismo que la evidencia de su ejecución
 		{"idempotency", "run_id", "INTEGER REFERENCES runs(id) ON DELETE CASCADE"},
+		// un ticket se reutiliza solo en el mismo proyecto y destino del tracker
+		{"tickets", "project", "TEXT"},
+		{"tickets", "target", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
-	if _, err := sqldb.Exec(migrations); err != nil {
+	if _, err := sqldb.Exec(migrations + ticketMigrations); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}

@@ -65,6 +65,9 @@ type Ticket struct {
 type Provider interface {
 	ID() string   // github | jira | azure
 	Name() string // GitHub | Jira | Azure DevOps
+	// Target identifies where tickets go (server + repository or project), so a ticket is not
+	// reused after the tracker points somewhere else.
+	Target() string
 	Create(ctx context.Context, is *Issue) (*Ticket, error)
 }
 
@@ -115,6 +118,9 @@ type GitHub struct {
 
 func (g *GitHub) ID() string   { return "github" }
 func (g *GitHub) Name() string { return "GitHub" }
+func (g *GitHub) Target() string {
+	return "github:" + strings.ToLower(strings.TrimRight(or(g.API, "https://api.github.com"), "/")+"/"+g.Repo)
+}
 
 func (g *GitHub) Create(ctx context.Context, is *Issue) (*Ticket, error) {
 	body := map[string]any{"title": clip(is.Title, 250), "body": Markdown(is)}
@@ -179,6 +185,9 @@ type Jira struct {
 
 func (j *Jira) ID() string   { return "jira" }
 func (j *Jira) Name() string { return "Jira" }
+func (j *Jira) Target() string {
+	return "jira:" + strings.ToLower(strings.TrimRight(j.URL, "/")+"/"+j.Project)
+}
 
 func (j *Jira) auth() string {
 	if j.Email != "" {
@@ -272,6 +281,9 @@ type Azure struct {
 
 func (a *Azure) ID() string   { return "azure" }
 func (a *Azure) Name() string { return "Azure DevOps" }
+func (a *Azure) Target() string {
+	return "azure:" + strings.ToLower(strings.TrimRight(a.URL, "/")+"/"+a.Project)
+}
 
 func (a *Azure) auth() string {
 	return "Basic " + base64.StdEncoding.EncodeToString([]byte(":"+a.Token))
