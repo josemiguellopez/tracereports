@@ -54,8 +54,9 @@ func (s *Server) newImportRun(q url.Values, defaultName, defaultFramework string
 	if framework == "" {
 		framework = defaultFramework
 	}
+	commit, _ := runCommit(q.Get("commit")) // un commit que no es un id de Git no se guarda
 	meta := db.RunMeta{Project: clean(s.label(q.Get("project")), 200), Branch: clean(s.label(q.Get("branch")), 200),
-		Commit: clean(q.Get("commit"), 80), Framework: clean(framework, 60)}
+		Commit: commit, Framework: clean(framework, 60)}
 	id, err := s.Store.CreateRunWithMeta(clean(s.label(name), 500), clean(s.label(q.Get("environment")), 200), meta)
 	if err != nil {
 		return nil, err

@@ -28,6 +28,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/owners"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/release"
+	"github.com/josemiguellopez/tracereports/internal/repro"
 	"github.com/josemiguellopez/tracereports/internal/secret"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
@@ -196,7 +197,8 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: clean(in.Commit, 80), Framework: clean(in.Framework, 60)}
+	commit, warnings := runCommit(in.Commit)
+	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: commit, Framework: clean(in.Framework, 60)}
 	name, environment := strings.TrimSpace(s.label(in.Name)), strings.TrimSpace(s.label(in.Environment))
 	var id int64
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
@@ -209,13 +211,30 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 				return 0, nil, err
 			}
 		}
-		return http.StatusCreated, map[string]any{"run_id": id}, nil
+		res := map[string]any{"run_id": id}
+		if len(warnings) > 0 {
+			res["warnings"] = warnings
+		}
+		return http.StatusCreated, res, nil
 	})
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	s.publish("run", id, 0, map[string]string{"action": "created"})
+}
+
+// runCommit validates the commit of a run: it must be a Git commit id (4 to 64 hex characters,
+// what the clients send from the CI variables or git rev-parse). Anything else is not stored,
+// since it ends up in the "run it locally" commands, and the run is still created: the warning
+// tells the client.
+func runCommit(raw string) (string, []string) {
+	raw = strings.TrimSpace(raw)
+	c := repro.NormalizeCommit(raw)
+	if raw != "" && c == "" {
+		return "", []string{"commit ignored: it must be a Git commit id (4 to 64 hexadecimal characters)"}
+	}
+	return c, nil
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {

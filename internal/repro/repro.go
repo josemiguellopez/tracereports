@@ -27,6 +27,34 @@ var (
 // shq quotes a value for a POSIX shell.
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
+var (
+	shSafe    = regexp.MustCompile(`^[A-Za-z0-9_./:=@%+,-]+$`)
+	commitRe  = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+	httpToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$") // RFC 9110: método y nombre de header
+)
+
+// shArg leaves a word as is when it only has characters a shell does not interpret, and quotes
+// it otherwise: normal commands stay identical, anything else becomes a literal argument.
+func shArg(s string) string {
+	if shSafe.MatchString(s) {
+		return s
+	}
+	return shq(s)
+}
+
+// ValidCommit reports whether c is a Git commit id: 4 to 64 hex characters (abbreviated, SHA-1 or
+// SHA-256). It is the format of the commit a run carries; anything else is not used in commands.
+func ValidCommit(c string) bool { return commitRe.MatchString(c) }
+
+// NormalizeCommit returns the commit in lowercase, or "" when it is not a valid Git commit id.
+func NormalizeCommit(c string) string {
+	c = strings.TrimSpace(c)
+	if !ValidCommit(c) {
+		return ""
+	}
+	return strings.ToLower(c)
+}
+
 // Curl is the call as a cURL command. Masked or sensitive headers become $VARIABLES (the
 // developer exports the real value) and sensitive query or JSON fields become ***.
 func Curl(c *db.NetConn, p *redact.Policy) string {
@@ -50,6 +78,9 @@ func Curl(c *db.NetConn, p *redact.Policy) string {
 	if method == "" {
 		method = "GET"
 	}
+	if !httpToken.MatchString(method) {
+		method = shq(method) // un método raro (datos antiguos) no se interpreta en la shell
+	}
 	parts := []string{fmt.Sprintf("curl -X %s %s", method, shq(u))}
 	for _, k := range sortedKeys(c.RequestHeaders) {
 		v := c.RequestHeaders[k]
@@ -57,7 +88,11 @@ func Curl(c *db.NetConn, p *redact.Policy) string {
 			continue
 		}
 		if v == redact.Mask || sensitiveKey.MatchString(k) || p.SensitiveHeader(k) {
-			parts = append(parts, fmt.Sprintf(`-H "%s: $%s"`, k, nonWord.ReplaceAllString(strings.ToUpper(k), "_")))
+			if !httpToken.MatchString(k) { // dentro de comillas dobles la shell interpretaría $( ), ` y "
+				parts = append(parts, "-H "+shq(k+": "+Mask))
+				continue
+			}
+			parts = append(parts, fmt.Sprintf(`-H "%s: $%s"`, k, envVar(k)))
 		} else {
 			parts = append(parts, "-H "+shq(k+": "+v))
 		}
@@ -74,6 +109,16 @@ func Curl(c *db.NetConn, p *redact.Policy) string {
 		parts = append(parts, "--data-raw "+shq(body))
 	}
 	return strings.Join(parts, " \\\n  ")
+}
+
+// envVar is the shell variable the developer exports for a masked header (AUTHORIZATION,
+// X_API_KEY...): a valid name, never starting with a digit.
+func envVar(header string) string {
+	v := nonWord.ReplaceAllString(strings.ToUpper(header), "_")
+	if v == "" || (v[0] >= '0' && v[0] <= '9') {
+		v = "H_" + v
+	}
+	return v
 }
 
 // maskValue masks sensitive fields of a decoded JSON value (by key, and RUT-like values).
@@ -169,11 +214,12 @@ func Commands(framework, key, commit string) []Command {
 			if pkg != "" {
 				pkg += "/"
 			}
-			out = append(out, Command{"Go", fmt.Sprintf("go test ./%s... -run %s", pkg, shq(strings.Join(run, "/")))})
+			out = append(out, Command{"Go", fmt.Sprintf("go test %s -run %s", shArg("./"+pkg+"..."), shq(strings.Join(run, "/")))})
 			break
 		}
 	}
-	if commit != "" {
+	// solo un commit de Git válido: también protege lo guardado por versiones anteriores
+	if commit = NormalizeCommit(commit); commit != "" {
 		if len(commit) > 12 {
 			commit = commit[:12]
 		}

@@ -357,6 +357,10 @@
 	const SENSITIVE_KEY = /(pass(word)?|pwd|clave|token|secret|session|auth|cookie|rut|api[_-]?key)/i;
 	const RUT = /\b\d{1,2}\.?\d{3}\.?\d{3}-[\dkK]\b/g;
 	const MASK = "***";
+	// método y nombre de header válidos (RFC 9110): van sin comillas en el cURL
+	const HTTP_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+	/** Variable de shell para un header enmascarado (AUTHORIZATION, X_API_KEY…): nunca empieza con dígito. */
+	const envVar = (k) => { const v = k.toUpperCase().replace(/\W+/g, "_"); return !v || /^\d/.test(v) ? `H_${v}` : v; };
 
 	/** Enmascara campos sensibles de un JSON (por nombre de campo y valores tipo RUT). */
 	function maskValue(v, key = "") {
@@ -380,11 +384,15 @@
 			url = u.href;
 		} catch { /* URL relativa: se deja como vino */ }
 		url = url.replace(/<masked>|%3Cmasked%3E/gi, MASK);
-		const parts = [`curl -X ${conn.method || "GET"} ${q(url)}`];
+		const method = conn.method || "GET";
+		// un método raro (datos antiguos) no se interpreta en la shell
+		const parts = [`curl -X ${HTTP_TOKEN.test(method) ? method : q(method)} ${q(url)}`];
 		for (const [k, v] of Object.entries(conn.request_headers || {})) {
 			if (k.startsWith(":")) continue;
-			if (v === "<masked>" || SENSITIVE_KEY.test(k)) parts.push(`-H "${k}: $${k.toUpperCase().replace(/\W+/g, "_")}"`);
-			else parts.push(`-H ${q(`${k}: ${v}`)}`);
+			if (v === "<masked>" || SENSITIVE_KEY.test(k)) {
+				// dentro de comillas dobles la shell interpretaría $( ), ` y ": un nombre raro va literal
+				parts.push(HTTP_TOKEN.test(k) ? `-H "${k}: $${envVar(k)}"` : `-H ${q(`${k}: ${MASK}`)}`);
+			} else parts.push(`-H ${q(`${k}: ${v}`)}`);
 		}
 		if (conn.post_data) {
 			let body = conn.post_data.replace(RUT, MASK).replace(/<masked>|<rut>/g, MASK);
@@ -661,6 +669,10 @@ cy.intercept('${m.method}', '${m.glob}', {
 	// ─── reproducir en local ─────────────────────────────────────────────────
 	const shq = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 	const reEsc = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+	// palabra sin caracteres que la shell interprete: va tal cual; si no, entre comillas (igual que repro.go)
+	const shArg = (s) => (/^[A-Za-z0-9_./:=@%+,-]+$/.test(s) ? s : shq(s));
+	/** El commit de una ejecución: un id de Git (4 a 64 hex). Cualquier otra cosa no entra en un comando. */
+	const normalizeCommit = (c) => { const s = String(c ?? "").trim(); return /^[0-9a-fA-F]{4,64}$/.test(s) ? s.toLowerCase() : ""; };
 
 	/**
 	 * Comandos para correr un test en local según el framework de la ejecución y la identidad del
@@ -695,11 +707,12 @@ cy.intercept('${m.method}', '${m.glob}', {
 			if (i >= 0) {
 				const pkg = parts.slice(0, i).join("/");
 				const run = parts.slice(i).map((p) => `^${reEsc(p)}$`).join("/");
-				out.push({ label: "Go", cmd: `go test ./${pkg}${pkg ? "/" : ""}... -run ${shq(run)}` });
+				out.push({ label: "Go", cmd: `go test ${shArg(`./${pkg}${pkg ? "/" : ""}...`)} -run ${shq(run)}` });
 			}
 		}
-		if (commit && out.length) {
-			const c = String(commit).slice(0, 12);
+		// solo un commit de Git válido: también protege lo guardado por versiones anteriores
+		const c = normalizeCommit(commit).slice(0, 12);
+		if (c && out.length) {
 			for (const o of out) o.cmd = `git checkout ${c} && ${o.cmd}`;
 		}
 		return out;
