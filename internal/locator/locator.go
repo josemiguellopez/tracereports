@@ -197,7 +197,72 @@ func accessibleName(e Element) string {
 
 var generatedID = regexp.MustCompile(`\d{3,}|[a-f0-9]{8,}|^(?:mui|ember|react|ng|v)-?[a-z0-9]*\d`)
 
-func q(s string) string { return strings.ReplaceAll(s, `"`, `\"`) }
+// Literales para el código generado. Cada contexto tiene su propio escape: un valor del DOM
+// (O'Reilly, comillas, barras, saltos de línea) nunca cierra el literal ni cambia el código.
+
+// lit is a JavaScript or Python string literal delimited by quote (' or "): both languages accept
+// these escapes. Normal values come out exactly as before.
+func lit(s string, quote byte) string {
+	var b strings.Builder
+	b.WriteByte(quote)
+	for _, r := range s {
+		switch {
+		case r == '\\':
+			b.WriteString(`\\`)
+		case r == rune(quote):
+			b.WriteByte('\\')
+			b.WriteByte(quote)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\x%02x`, r)
+		case r == 0x2028 || r == 0x2029: // separadores de línea: JavaScript los trata como salto
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte(quote)
+	return b.String()
+}
+
+func js(s string) string    { return lit(s, '\'') } // 'valor' (estilo de los snippets JS)
+func py(s string) string    { return lit(s, '"') }  // "valor" (estilo de los snippets Python)
+func pySel(s string) string { return lit(s, '\'') } // 'selector' (Python, con comillas dobles adentro)
+
+// css is a CSS string ("…") for attribute values in selectors: \ and " escaped, control
+// characters and line breaks as hex escapes, as CSS requires.
+func css(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '\\' || r == '"':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r < 0x20 || r == 0x7f:
+			fmt.Fprintf(&b, `\%x `, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+var cssIdent = regexp.MustCompile(`^-?[A-Za-z_][A-Za-z0-9_-]*$`)
+
+// idSelector is #id for a plain identifier and [id="…"] for anything else (O'Reilly, espacios…).
+func idSelector(id string) string {
+	if cssIdent.MatchString(id) {
+		return "#" + id
+	}
+	return "[id=" + css(id) + "]"
+}
 
 // options returns the selector strategies available for an element, most robust first.
 func options(e Element) []Suggestion {
@@ -207,45 +272,45 @@ func options(e Element) []Suggestion {
 		if attr == "" {
 			attr = "data-testid"
 		}
-		css := fmt.Sprintf(`[%s="%s"]`, attr, q(e.TestID))
-		s := Suggestion{Kind: "testid", Selector: css, Robustness: "alta", Reason: "atributo de test dedicado: no cambia con el diseño ni con el texto",
-			Python: fmt.Sprintf(`page.locator('%s')`, css), JS: fmt.Sprintf(`page.locator('%s')`, css)}
+		sel := fmt.Sprintf(`[%s=%s]`, attr, css(e.TestID))
+		s := Suggestion{Kind: "testid", Selector: sel, Robustness: "alta", Reason: "atributo de test dedicado: no cambia con el diseño ni con el texto",
+			Python: "page.locator(" + pySel(sel) + ")", JS: "page.locator(" + js(sel) + ")"}
 		if attr == "data-testid" {
-			s.Python = fmt.Sprintf(`page.get_by_test_id("%s")`, q(e.TestID))
-			s.JS = fmt.Sprintf(`page.getByTestId('%s')`, e.TestID)
+			s.Python = "page.get_by_test_id(" + py(e.TestID) + ")"
+			s.JS = "page.getByTestId(" + js(e.TestID) + ")"
 		}
 		out = append(out, s)
 	}
 	if role, name := implicitRole(e), accessibleName(e); role != "" && name != "" {
 		out = append(out, Suggestion{Kind: "role", Robustness: "alta",
-			Selector: fmt.Sprintf(`role=%s[name="%s"]`, role, q(name)),
-			Python:   fmt.Sprintf(`page.get_by_role("%s", name="%s")`, role, q(name)),
-			JS:       fmt.Sprintf(`page.getByRole('%s', { name: '%s' })`, role, strings.ReplaceAll(name, "'", `\'`)),
+			Selector: fmt.Sprintf(`role=%s[name=%s]`, role, css(name)),
+			Python:   fmt.Sprintf(`page.get_by_role(%s, name=%s)`, py(role), py(name)),
+			JS:       fmt.Sprintf(`page.getByRole(%s, { name: %s })`, js(role), js(name)),
 			Reason:   "rol + nombre accesible: así lo encuentra el usuario y sobrevive a cambios de CSS"})
 	}
 	if e.Label != "" && e.Tag != "button" && e.Tag != "a" {
-		out = append(out, Suggestion{Kind: "label", Robustness: "alta", Selector: fmt.Sprintf(`[aria-label="%s"]`, q(e.Label)),
-			Python: fmt.Sprintf(`page.get_by_label("%s")`, q(e.Label)), JS: fmt.Sprintf(`page.getByLabel('%s')`, e.Label),
+		out = append(out, Suggestion{Kind: "label", Robustness: "alta", Selector: "[aria-label=" + css(e.Label) + "]",
+			Python: "page.get_by_label(" + py(e.Label) + ")", JS: "page.getByLabel(" + js(e.Label) + ")",
 			Reason: "etiqueta accesible del campo"})
 	}
 	if e.Placeholder != "" {
-		out = append(out, Suggestion{Kind: "placeholder", Robustness: "media", Selector: fmt.Sprintf(`[placeholder="%s"]`, q(e.Placeholder)),
-			Python: fmt.Sprintf(`page.get_by_placeholder("%s")`, q(e.Placeholder)), JS: fmt.Sprintf(`page.getByPlaceholder('%s')`, e.Placeholder),
+		out = append(out, Suggestion{Kind: "placeholder", Robustness: "media", Selector: "[placeholder=" + css(e.Placeholder) + "]",
+			Python: "page.get_by_placeholder(" + py(e.Placeholder) + ")", JS: "page.getByPlaceholder(" + js(e.Placeholder) + ")",
 			Reason: "placeholder visible; cambia si se edita el texto del campo"})
 	}
 	if e.ID != "" && !generatedID.MatchString(e.ID) {
-		css := "#" + e.ID
-		out = append(out, Suggestion{Kind: "id", Robustness: "media", Selector: css, Python: fmt.Sprintf(`page.locator("%s")`, css),
-			JS: fmt.Sprintf(`page.locator('%s')`, css), Reason: "id estable (no parece autogenerado)"})
+		sel := idSelector(e.ID)
+		out = append(out, Suggestion{Kind: "id", Robustness: "media", Selector: sel, Python: "page.locator(" + py(sel) + ")",
+			JS: "page.locator(" + js(sel) + ")", Reason: "id estable (no parece autogenerado)"})
 	}
 	if e.Name != "" {
-		css := fmt.Sprintf(`%s[name="%s"]`, e.Tag, q(e.Name))
-		out = append(out, Suggestion{Kind: "name", Robustness: "media", Selector: css, Python: fmt.Sprintf(`page.locator('%s')`, css),
-			JS: fmt.Sprintf(`page.locator('%s')`, css), Reason: "atributo name del formulario"})
+		sel := e.Tag + "[name=" + css(e.Name) + "]"
+		out = append(out, Suggestion{Kind: "name", Robustness: "media", Selector: sel, Python: "page.locator(" + pySel(sel) + ")",
+			JS: "page.locator(" + js(sel) + ")", Reason: "atributo name del formulario"})
 	}
 	if t := strings.TrimSpace(e.Text); t != "" && len(t) <= 40 && implicitRole(e) == "" {
-		out = append(out, Suggestion{Kind: "text", Robustness: "baja", Selector: fmt.Sprintf(`text="%s"`, q(t)),
-			Python: fmt.Sprintf(`page.get_by_text("%s", exact=True)`, q(t)), JS: fmt.Sprintf(`page.getByText('%s', { exact: true })`, t),
+		out = append(out, Suggestion{Kind: "text", Robustness: "baja", Selector: "text=" + css(t),
+			Python: "page.get_by_text(" + py(t) + ", exact=True)", JS: "page.getByText(" + js(t) + ", { exact: true })",
 			Reason: "texto visible; frágil ante cambios de copy o idioma"})
 	}
 	return out
