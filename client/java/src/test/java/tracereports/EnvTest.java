@@ -2,6 +2,7 @@ package tracereports;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -43,6 +44,41 @@ class EnvTest {
         assertEquals(other, Env.find(base, other.toString()));
         assertNull(Env.find(base, "off"));
         assertNull(Env.find(base, "OFF"));
+    }
+
+    /**
+     * Definida en el entorno, aunque vacía, manda sobre el .env (como en el servidor): vacía es "sin
+     * configurar" y el valor del archivo no se recupera. Ausente, sí se lee del archivo.
+     */
+    @Test
+    void anEmptyEnvironmentValueIsNotReplacedByTheFile() throws Exception {
+        Path repo = base.resolve("repo");
+        Files.createDirectories(repo.resolve(".git"));
+        Files.writeString(repo.resolve(".env"), "TRACEREPORTS_TOKEN=fake-file-token\n");
+        assertEquals("fake-file-token", probe(repo, null, null)); // ausente: del archivo
+        assertEquals("fake-env-token", probe(repo, "fake-env-token", null)); // con valor: del entorno
+        assertEquals("", probe(repo, "", null)); // vacía: sin configurar, no el archivo
+        assertEquals("", probe(repo, "", "off"));
+        assertEquals("", probe(repo, null, "off")); // archivo apagado y ausente
+        Files.delete(repo.resolve(".env"));
+        assertEquals("", probe(repo, null, null)); // sin archivo
+    }
+
+    /** Env.get("TRACEREPORTS_TOKEN") en otra JVM, con ese entorno y esa carpeta de trabajo. */
+    private static String probe(Path dir, String token, String envFile) throws Exception {
+        String jvm = ProcessHandle.current().info().command().orElse("java");
+        ProcessBuilder pb = new ProcessBuilder(jvm, "-cp", System.getProperty("java.class.path"),
+                "tracereports.EnvProbe", "TRACEREPORTS_TOKEN").directory(dir.toFile()).redirectErrorStream(true);
+        Map<String, String> env = pb.environment();
+        env.remove("TRACEREPORTS_TOKEN");
+        env.remove("TRACEREPORTS_ENV_FILE");
+        if (token != null) env.put("TRACEREPORTS_TOKEN", token);
+        if (envFile != null) env.put("TRACEREPORTS_ENV_FILE", envFile);
+        Process p = pb.start();
+        String out = new String(p.getInputStream().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8);
+        assertEquals(0, p.waitFor(), out);
+        assertTrue(out.startsWith("[") && out.endsWith("]"), out);
+        return out.substring(1, out.length() - 1);
     }
 
     @Test

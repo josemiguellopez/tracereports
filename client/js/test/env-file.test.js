@@ -93,3 +93,43 @@ test(".env: el cliente envía el token del archivo", async () => {
     srv.close();
   }
 });
+
+// Definida en el entorno, aunque vacía, manda sobre el .env (como en el servidor): vacía es "sin
+// configurar" y el valor del archivo no se recupera. Ausente, sí se lee del archivo.
+test(".env: una variable vacía en el entorno no se reemplaza con la del archivo", async () => {
+  writeFileSync(path.join(root, ".env"), "TRACEREPORTS_TOKEN=fake-file-token\nTRACEREPORTS_URL=http://127.0.0.1:9\n");
+  assert.equal(env("TOKEN"), "fake-file-token"); // ausente: del archivo
+  process.env.TRACEREPORTS_TOKEN = "fake-env-token";
+  assert.equal(env("TOKEN"), "fake-env-token"); // con valor: del entorno
+  process.env.TRACEREPORTS_TOKEN = "";
+  assert.equal(env("TOKEN"), undefined); // vacía: sin configurar, no el archivo
+  assert.equal(env("TOKEN", "por-defecto"), "por-defecto");
+  process.env.TRACEREPORTS_ENV_FILE = "off";
+  resetEnvFile();
+  assert.equal(env("TOKEN"), undefined);
+  delete process.env.TRACEREPORTS_TOKEN;
+  assert.equal(env("TOKEN"), undefined); // archivo apagado y ausente
+  assert.equal(env("URL"), undefined);
+
+  // el cliente tampoco envía el token del archivo
+  delete process.env.TRACEREPORTS_ENV_FILE;
+  resetEnvFile();
+  const seen = [];
+  const srv = http.createServer((req, res) => {
+    req.resume();
+    req.on("end", () => {
+      seen.push(req.headers.authorization);
+      res.writeHead(201, { "Content-Type": "application/json" }).end(JSON.stringify({ run_id: 1 }));
+    });
+  });
+  await new Promise((r) => srv.listen(0, "127.0.0.1", r));
+  try {
+    process.env.TRACEREPORTS_URL = `http://127.0.0.1:${srv.address().port}`;
+    process.env.TRACEREPORTS_TOKEN = "";
+    const cr = new TraceReports();
+    assert.equal(await cr.startRun("r"), 1);
+    assert.deepEqual(seen, [undefined]);
+  } finally {
+    srv.close();
+  }
+});

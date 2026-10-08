@@ -105,3 +105,56 @@ def test_the_client_sends_the_token_from_the_env_file(project):
     finally:
         httpd.shutdown()
         httpd.server_close()
+
+
+def test_an_empty_environment_value_is_not_replaced_by_the_file(project, monkeypatch):
+    """Definida en el entorno, aunque vacía, manda sobre el .env (como en el servidor): vacía es
+    "sin configurar" y el valor del archivo no se recupera. Ausente, sí se lee del archivo."""
+    (project / ".env").write_text("TRACEREPORTS_TOKEN=fake-file-token\n", encoding="utf-8")
+    assert _env.env("TOKEN") == "fake-file-token"  # ausente: del archivo
+    monkeypatch.setenv("TRACEREPORTS_TOKEN", "fake-env-token")
+    assert _env.env("TOKEN") == "fake-env-token"  # con valor: del entorno
+    monkeypatch.setenv("TRACEREPORTS_TOKEN", "")
+    assert _env.env("TOKEN") == ""  # vacía: sin configurar, no el archivo
+    assert _env.env("TOKEN", "por-defecto") == "por-defecto"
+    monkeypatch.setenv("TRACEREPORTS_ENV_FILE", "off")
+    _env.reset_env_file()
+    assert _env.env("TOKEN") == ""
+    monkeypatch.delenv("TRACEREPORTS_TOKEN")
+    assert _env.env("TOKEN") == ""  # archivo apagado y ausente
+    monkeypatch.delenv("TRACEREPORTS_ENV_FILE")
+    (project / ".env").unlink()
+    _env.reset_env_file()
+    assert _env.env("TOKEN") == ""  # sin archivo
+
+
+def test_the_client_does_not_send_the_file_token_when_the_environment_clears_it(project, monkeypatch):
+    seen = []
+
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            seen.append(self.headers.get("Authorization"))
+            raw = json.dumps({"run_id": 1}).encode()
+            self.send_response(201)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(raw)))
+            self.end_headers()
+            self.wfile.write(raw)
+
+    httpd = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=httpd.serve_forever, daemon=True).start()
+    try:
+        (project / ".env").write_text(
+            f"TRACEREPORTS_URL=http://127.0.0.1:{httpd.server_address[1]}\nTRACEREPORTS_TOKEN=fake-file-token\n",
+            encoding="utf-8")
+        monkeypatch.setenv("TRACEREPORTS_TOKEN", "")
+        cr = TraceReports(async_send=False)
+        assert cr.start_run("r") == 1
+        assert seen == [None]
+    finally:
+        httpd.shutdown()
+        httpd.server_close()

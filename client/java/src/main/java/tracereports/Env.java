@@ -27,10 +27,13 @@ public final class Env {
 
     private Env() {}
 
-    /** TRACEREPORTS_X: del entorno y, si no está, del .env del proyecto. "" si no hay. */
+    /**
+     * TRACEREPORTS_X: del entorno y, si no está definida ahí, del .env del proyecto. "" si no hay.
+     * Definida en el entorno manda aunque esté vacía (como en el servidor): el .env no la reemplaza.
+     */
     public static String get(String key) {
         String v = System.getenv(key);
-        if (v == null || v.isBlank()) v = file().get(key);
+        if (v == null) v = file().get(key);
         return v == null || v.isBlank() ? "" : v.trim();
     }
 

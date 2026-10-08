@@ -86,10 +86,13 @@ export function resetEnvFile() {
   filePath = null;
 }
 
-/** TRACEREPORTS_<name>: primero del entorno, después del .env del proyecto. */
+/**
+ * TRACEREPORTS_<name>: del entorno y, si no está definida ahí, del .env del proyecto. Definida en el
+ * entorno manda aunque esté vacía (como en el servidor): vacía es "sin configurar" (fallback) y el
+ * .env no la reemplaza.
+ */
 export function env(name, fallback = undefined) {
-  for (const v of [process.env[PREFIX + name], fromFile()[PREFIX + name]]) {
-    if (v !== undefined && v !== "") return v;
-  }
-  return fallback;
+  const own = process.env[PREFIX + name];
+  const v = own !== undefined ? own : fromFile()[PREFIX + name];
+  return v !== undefined && v !== "" ? v : fallback;
 }

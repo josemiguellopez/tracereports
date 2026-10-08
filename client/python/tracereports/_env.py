@@ -86,5 +86,10 @@ def reset_env_file() -> None:
 
 
 def env(name: str, default: str = "") -> str:
-    """TRACEREPORTS_<name>: primero del entorno, después del .env del proyecto."""
-    return os.getenv(PREFIX + name, "") or _file().get(PREFIX + name, "") or default
+    """TRACEREPORTS_<name>: del entorno y, si no está definida ahí, del .env del proyecto. Definida
+    en el entorno manda aunque esté vacía (como en el servidor): vacía es "sin configurar" (default)
+    y el .env no la reemplaza."""
+    value = os.environ.get(PREFIX + name)
+    if value is None:
+        value = _file().get(PREFIX + name, "")
+    return value or default
