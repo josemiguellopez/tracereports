@@ -44,7 +44,7 @@
 		return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 	};
 	const fmtTime = (ms) => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
-	// Extent-style duration: 0h 0m 9s+178ms
+	// duración legible: 0h 0m 9s+178ms
 	const fmtDuration = (ms) => {
 		if (ms == null || ms < 0) return "—";
 		const h = Math.floor(ms / 3600000), m = Math.floor(ms / 60000) % 60, s = Math.floor(ms / 1000) % 60;
@@ -1439,7 +1439,7 @@
 			canvas.parentElement.innerHTML = `<div class="chart-fallback">Chart.js no disponible (sin conexión a internet)</div>`;
 			return;
 		}
-		// Como Extent: la leyenda solo muestra los estados presentes.
+		// la leyenda solo muestra los estados presentes
 		const keep = data.map((v, i) => i).filter((i) => data[i] > 0);
 		const L = keep.map((i) => labels[i]), D = keep.map((i) => data[i]), Cs = keep.map((i) => colors[i]);
 		const key = JSON.stringify([L, D, Cs]);

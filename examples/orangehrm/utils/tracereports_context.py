@@ -1,6 +1,5 @@
 """
-Contexto global de reporte — equivalente a Utils.extent_report_context.ExtentReportContex,
-pero enviando los steps y screenshots a TraceReports en tiempo real.
+Contexto global de reporte: envía los steps y screenshots a TraceReports en tiempo real.
 
 Misma firma que el framework original para que migrar sea buscar/reemplazar:
 
@@ -28,7 +27,7 @@ class TraceReportsContext:
         if evidence_dir:
             os.makedirs(evidence_dir, exist_ok=True)
 
-    # ─── API pública (mismos nombres que ExtentReportContex) ───────────────
+    # ─── API pública ────────────────────────────────────────────────────────
     @classmethod
     def log_info(cls, message, page=None, screenshot_name=None):
         cls._log("INFO", message, page, screenshot_name)

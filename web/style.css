@@ -1,5 +1,5 @@
 /* TraceReports — tema propio: paleta v1 (sidebar grafito + turquesa, tarjetas blancas),
-   con la lógica de contenido de ExtentReports (lista | detalle, captura bajo el step). */
+   lista | detalle, con la captura bajo el step. */
 :root {
 	--bg: #f2f4f7;
 	--surface: #ffffff;
