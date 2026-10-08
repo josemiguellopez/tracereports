@@ -137,8 +137,11 @@ func readEvents(path string) ([]Event, error) {
 			broken = fmt.Errorf("%s:%d: invalid event: %v", name, line, err)
 			continue
 		}
-		if e.Method == "" || !strings.HasPrefix(e.Path, "/api/v1/") {
-			return nil, fmt.Errorf("%s:%d: invalid event: method and an /api/v1/ path are required", name, line)
+		// solo evidencia: crear ejecuciones y tests, adjuntarles evidencia y cerrarlos (allowed.go).
+		// Un evento distinto invalida la grabación entera: nada se envía a ninguna parte
+		if !Ingest(e.Method, e.Path) {
+			return nil, fmt.Errorf("%s:%d: %s %q is not an evidence event (a recording can only create runs and tests, add their evidence and finish them)",
+				name, line, e.Method, e.Path)
 		}
 		e.file = name
 		out = append(out, e)

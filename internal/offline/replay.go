@@ -204,6 +204,10 @@ func idIn(re *regexp.Regexp, path string) int64 {
 }
 
 func (t Target) send(method, path, contentType string, body []byte, ts int64, key string) (int, []byte, error) {
+	// segunda barrera (la primera es Open): nunca sale algo que no sea evidencia, ni con ids reescritos
+	if !Ingest(method, path) {
+		return 0, nil, fmt.Errorf("refusing to send %s %q: not an evidence event", method, path)
+	}
 	req, err := http.NewRequest(method, strings.TrimRight(t.BaseURL, "/")+path, bytes.NewReader(body))
 	if err != nil {
 		return 0, nil, err

@@ -173,7 +173,36 @@ func newLocalServer(useAI bool) (*localServer, error) {
 		return nil, errors.New("--ai needs an AI provider in the environment (AI_PROVIDER and AI_API_KEY, or GEMINI_API_KEY...)")
 	}
 	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact}
-	return &localServer{target: offline.Target{Doer: offline.Handler{Handler: srv.Router()}}, analyzer: analyzer, close: cleanup}, nil
+	return &localServer{target: offline.Target{Doer: offline.Handler{Handler: localOnly(srv.Router())}}, analyzer: analyzer, close: cleanup}, nil
+}
+
+// localReads are the calls report and pr-comment make to their in-process server besides the
+// evidence of a recording (offline.Ingest): importing JUnit/Allure and reading the result.
+var localReads = []struct {
+	method string
+	path   *regexp.Regexp
+}{
+	{http.MethodPost, regexp.MustCompile(`^/api/v1/import/(junit|allure)$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/v1/runs/[0-9]{1,19}/(export|compare)$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/v1/runs(/[0-9]{1,19})?$`)},
+	{http.MethodGet, regexp.MustCompile(`^/api/v1/config$`)},
+}
+
+// localOnly limits the temporary server of report and pr-comment to those calls: Settings, UI
+// actions (escalation, tickets, Test connection) and the rest of the API answer 403, whatever a
+// recording or an input file asks.
+func localOnly(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ok := r.URL.RawPath == "" && offline.Ingest(r.Method, r.URL.Path)
+		for _, c := range localReads {
+			ok = ok || (r.URL.RawPath == "" && c.method == r.Method && c.path.MatchString(r.URL.Path))
+		}
+		if !ok {
+			http.Error(w, `{"error":"not available in the report's temporary server"}`, http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // loadInput replays a recording or imports JUnit XML into the in-process server.
