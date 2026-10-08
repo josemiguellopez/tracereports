@@ -551,7 +551,21 @@ func callAnthropic(ctx context.Context, client *http.Client, c Config, prompt st
 		params.Betas = []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01}
 		params.Fallbacks = anthropic.BetaFallbacksParamUnion{OfDefault: constant.ValueOf[constant.Default]()}
 	}
-	msg, err := cl.Beta.Messages.New(ctx, params)
+	// el SDK reintenta 429 y 5xx por su cuenta: cada intento pasa por aquí para contarlo
+	var tries []sdkAttempt
+	watch := option.WithMiddleware(func(req *http.Request, next option.MiddlewareNext) (*http.Response, error) {
+		t := sdkAttempt{start: time.Now()}
+		res, err := next(req)
+		t.end, t.err = time.Now(), err
+		if res != nil {
+			t.status = res.StatusCode
+			t.asked = res.Header.Get("Retry-After") != "" || res.Header.Get("Retry-After-Ms") != ""
+		}
+		tries = append(tries, t)
+		return res, err
+	})
+	msg, err := cl.Beta.Messages.New(ctx, params, watch)
+	reportSDKAttempts(ctx, tries, err)
 	if err != nil {
 		var apiErr *anthropic.Error
 		if errors.As(err, &apiErr) {
@@ -583,6 +597,45 @@ func callAnthropic(ctx context.Context, client *http.Client, c Config, prompt st
 	return "", u, errors.New("Claude no devolvió texto")
 }
 
+// sdkAttempt is one HTTP attempt of the Anthropic SDK.
+type sdkAttempt struct {
+	start, end time.Time
+	status     int
+	err        error
+	asked      bool // la respuesta dijo cuánto esperar (Retry-After)
+}
+
+// reportSDKAttempts reports to generate the attempts the SDK retried (all but the one that gave
+// the result) and the pauses between them. If the call was cancelled during a pause, every
+// attempt was retried and there is no final one.
+func reportSDKAttempts(ctx context.Context, tries []sdkAttempt, err error) {
+	p := attemptsFrom(ctx)
+	if p == nil || len(tries) == 0 {
+		return
+	}
+	last := len(tries) - 1
+	if err != nil && (errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)) && tries[last].err == nil {
+		last, p.none = len(tries), true
+	}
+	for i := 0; i < last; i++ {
+		t := tries[i]
+		attemptErr := t.err
+		switch {
+		case attemptErr != nil:
+		case t.status >= 400:
+			attemptErr = &httpStatusError{provider: "anthropic", code: t.status, body: http.StatusText(t.status), noRetry: true}
+		default: // respondió, pero la llamada se canceló antes de leerla
+			attemptErr = err
+		}
+		p.attempt(t.end.Sub(t.start), attemptErr)
+		next := time.Now()
+		if i+1 < len(tries) {
+			next = tries[i+1].start
+		}
+		p.pause(next.Sub(t.end), t.asked)
+	}
+}
+
 // ---- OpenAI y APIs compatibles (Groq, OpenRouter, DeepSeek, LM Studio, vLLM…) ----
 
 func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
@@ -597,9 +650,11 @@ func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt strin
 			"name": "result", "schema": closedSchema(schema),
 		}},
 	}
+	started := time.Now()
 	raw, err := postJSON(ctx, client, c.Provider, c.BaseURL+"/chat/completions", headers, body)
 	var se *httpStatusError
 	if errors.As(err, &se) && se.code == http.StatusBadRequest {
+		attemptsFrom(ctx).attempt(time.Since(started), err) // la primera solicitud también fue una llamada
 		// Algunas APIs compatibles no soportan json_schema: JSON simple con el esquema en el prompt.
 		schemaText, _ := json.Marshal(schema)
 		body["messages"] = []map[string]string{{"role": "user", "content": prompt +

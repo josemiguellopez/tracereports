@@ -531,11 +531,23 @@ func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map
 	var lastErr error
 	timing := callTimingFrom(ctx)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// los intentos que el proveedor hace por dentro (la solicitud repetida sin json_schema, los
+		// reintentos del SDK de Anthropic) también son llamadas: se cuentan uno por uno
+		inner := &providerAttempts{
+			call: func(took time.Duration, err error) {
+				err = scrubError(err, c.APIKey)
+				timing.addCall(took, err)
+				a.recordUsage(kind, c, Usage{}, err, took)
+			},
+			wait: timing.addWait,
+		}
 		started := time.Now()
-		text, u, err := call(ctx, a.client, c, prompt, schema)
-		took := time.Since(started)
-		timing.addCall(took, err)
-		a.recordUsage(kind, c, u, err, took)
+		text, u, err := call(context.WithValue(ctx, providerAttemptsKey{}, inner), a.client, c, prompt, schema)
+		took := time.Since(started) - inner.spent // lo ya contado no se cuenta otra vez
+		if !inner.none {
+			timing.addCall(took, err)
+			a.recordUsage(kind, c, u, err, took)
+		}
 		if err == nil {
 			return text, nil
 		}
@@ -569,6 +581,39 @@ func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map
 
 // maxRetryWait is the longest pause before a retry (also when the provider asks for more).
 const maxRetryWait = 90 * time.Second
+
+// providerAttempts receives the HTTP attempts a provider makes inside one call besides the one
+// that gives its result, and the pauses between them: generate counts each attempt as a call to
+// the provider (usage and timing), the same as its own retries.
+type providerAttempts struct {
+	call  func(took time.Duration, err error)
+	wait  func(d time.Duration, asked bool)
+	spent time.Duration // intentos y pausas ya contados: no son parte del intento final
+	none  bool          // la llamada terminó sin un intento final (cancelada en una pausa del SDK)
+}
+
+type providerAttemptsKey struct{}
+
+func attemptsFrom(ctx context.Context) *providerAttempts {
+	p, _ := ctx.Value(providerAttemptsKey{}).(*providerAttempts)
+	return p
+}
+
+// attempt reports an attempt that did not give the result of the call.
+func (p *providerAttempts) attempt(took time.Duration, err error) {
+	if p != nil {
+		p.spent += took
+		p.call(took, err)
+	}
+}
+
+// pause reports a wait before the next attempt; asked: the provider said how long.
+func (p *providerAttempts) pause(d time.Duration, asked bool) {
+	if p != nil {
+		p.spent += d
+		p.wait(d, asked)
+	}
+}
 
 // callTiming adds up, for one answer, the time spent waiting for the provider and pausing
 // between retries (generate fills it when the context carries one).
