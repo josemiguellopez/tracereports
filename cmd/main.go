@@ -122,6 +122,9 @@ func run() error {
 		return err
 	}
 	defer store.Close()
+	if err := settleAIBudget(store); err != nil {
+		return err
+	}
 
 	webRoot, err := fs.Sub(tracereports.WebFS, "web")
 	if err != nil {

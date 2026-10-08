@@ -38,8 +38,11 @@ func TestStatesThatAlreadyUsedTheirSlot(t *testing.T) {
 	pending := failAt(t, store, runID, "P", "AssertionError: p", "", 0)
 	failed := failAt(t, store, runID, "E", "AssertionError: e", "", 0)
 	done := failAt(t, store, runID, "D", "AssertionError: d", "", 0)
+	// cada uno gastó su cupo por la vía automática (la manual no cuenta para el límite)
 	for _, id := range []int64{pending, failed, done} {
-		store.SetTriagePending(id)
+		if out, _, _ := store.ReserveTriage(id, 3); out != db.TriageReserved {
+			t.Fatalf("setup: %s", out)
+		}
 	}
 	rev, _ := store.TestResultRev(failed)
 	store.SaveTriageErrorAt(failed, rev, "el proveedor falló")

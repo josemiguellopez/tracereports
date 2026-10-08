@@ -127,6 +127,10 @@ func Open(path string) (*Store, error) {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := ensureAIBudget(sqldb); err != nil {
+		sqldb.Close()
+		return nil, fmt.Errorf("migrate ai budget: %w", err)
+	}
 	if err := backfillIdempotencyRuns(sqldb); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate idempotency: %w", err)
@@ -896,10 +900,11 @@ const (
 
 // ReserveTriage checks the per-run budget of automatic analyses and, if there is room, marks
 // the test PENDING, in one transaction: two failures finishing at the same time cannot take
-// the same last slot. max <= 0 = no limit. A test that has not used budget yet (no triage row,
-// or SKIPPED because the run had none left: SKIPPED rows are not counted) needs a free slot;
-// one that already used its slot (PENDING or ERROR) is reserved again without spending another.
-// A DONE diagnosis is kept. Manual re-analysis does not go through here (it ignores the limit).
+// the same last slot. max <= 0 = no limit. The unit is one automatic diagnosis per test result
+// (test + result revision, recorded in the ai_budget ledger, see ai_budget.go): a result that
+// already used its slot (PENDING, ERROR, a restart) is reserved again without spending another,
+// and replacing a result never gives the slot back. A DONE diagnosis is kept. Manual re-analysis
+// does not go through here (it ignores the limit and is not counted).
 func (s *Store) ReserveTriage(testID int64, max int) (outcome string, runID int64, err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
@@ -912,17 +917,29 @@ func (s *Store) ReserveTriage(testID int64, max int) (outcome string, runID int6
 		return "", 0, err
 	}
 	var state string
+	var rev int64
 	var used int
+	var spent bool
 	if err = tx.QueryRow(`SELECT COALESCE((SELECT state FROM ai_triage WHERE test_id = ?), ''),
-		(SELECT COUNT(*) FROM ai_triage a JOIN tests t ON t.id = a.test_id WHERE t.run_id = ? AND a.state != 'SKIPPED')`,
-		testID, runID).Scan(&state, &used); err != nil {
+		(SELECT result_rev FROM tests WHERE id = ?),
+		(SELECT COUNT(*) FROM ai_budget WHERE run_id = ?)`, testID, testID, runID).Scan(&state, &rev, &used); err != nil {
+		return "", runID, err
+	}
+	if err = tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM ai_budget WHERE run_id = ? AND test_id = ? AND result_rev = ?)`,
+		runID, testID, rev).Scan(&spent); err != nil {
 		return "", runID, err
 	}
 	switch {
 	case state == "DONE":
 		return TriageDone, runID, nil
-	case max > 0 && (state == "" || state == "SKIPPED") && used >= max: // aún no consumió cupo
+	case !spent && max > 0 && used >= max: // este resultado todavía no tiene cupo y no queda
 		return TriageOverBudget, runID, nil
+	}
+	if !spent {
+		if _, err = tx.Exec(`INSERT INTO ai_budget(run_id, test_id, result_rev, created_at) VALUES(?, ?, ?, ?)`,
+			runID, testID, rev, NowMs()); err != nil {
+			return "", runID, err
+		}
 	}
 	if _, err = tx.Exec(`INSERT INTO ai_triage(test_id, state, updated_at) VALUES(?, 'PENDING', ?)
 		ON CONFLICT(test_id) DO UPDATE SET state='PENDING', category='', summary='', suggestion='', error='', updated_at=excluded.updated_at`,
@@ -932,15 +949,14 @@ func (s *Store) ReserveTriage(testID int64, max int) (outcome string, runID int6
 	return TriageReserved, runID, tx.Commit()
 }
 
-// TriageBudget returns the triage state of a test ("" if never analyzed), how many tests of its
-// run already used the AI (pending, done or failed: not skipped) and the run id.
+// TriageBudget returns the triage state of a test ("" if never analyzed), how many automatic
+// analyses its run already spent (the ai_budget ledger) and the run id.
 func (s *Store) TriageBudget(testID int64) (state string, used int, runID int64, err error) {
 	if runID, err = s.TestRunID(testID); err != nil {
 		return
 	}
 	err = s.db.QueryRow(`SELECT COALESCE((SELECT state FROM ai_triage WHERE test_id = ?), ''),
-		(SELECT COUNT(*) FROM ai_triage a JOIN tests t ON t.id = a.test_id WHERE t.run_id = ? AND a.state != 'SKIPPED')`,
-		testID, runID).Scan(&state, &used)
+		(SELECT COUNT(*) FROM ai_budget WHERE run_id = ?)`, testID, runID).Scan(&state, &used)
 	return
 }
 
