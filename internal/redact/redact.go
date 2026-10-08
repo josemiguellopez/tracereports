@@ -46,6 +46,9 @@ var (
 	// "key": "value" | number | true/false   (JSON, also inside logs or traces); the key may carry
 	// JSON escapes ("\u0074oken")
 	jsonKVRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*|true|false)`)
+	// "key": "value…   a string cut at the end of the text (a truncated body or field: the closing
+	// quote was cut off, the value may still be the whole secret)
+	jsonOpenTailRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)"(?:[^"\\]|\\.)*\\?$`)
 	// "key": { ... } | [ ... ]   (a whole object or array under a sensitive key)
 	jsonContainerRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"\s*:\s*[\[{]`)
 	// key=value   (query strings, form bodies, logs); the key may be percent-encoded (%74oken)
@@ -228,6 +231,9 @@ func (p *Policy) Text(s string) string {
 		}
 		return `"` + g[1] + `"` + g[2] + `"` + Mask + `"`
 	})
+	if m := jsonOpenTailRe.FindStringSubmatchIndex(s); m != nil && p.SensitiveKey(jsonKey(s[m[2]:m[3]])) {
+		s = s[:m[0]] + `"` + s[m[2]:m[3]] + `"` + s[m[4]:m[5]] + `"` + Mask + `"`
+	}
 	s = formKVRe.ReplaceAllStringFunc(s, func(m string) string {
 		g := formKVRe.FindStringSubmatch(m)
 		if !p.SensitiveKey(formKey(g[1])) || g[2] == "" || g[2] == Mask {

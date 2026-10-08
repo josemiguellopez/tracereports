@@ -58,8 +58,21 @@ func (s *Server) addNetwork(w http.ResponseWriter, r *http.Request) {
 		if len(conns) >= maxNetworkConns {
 			return errTooManyConns
 		}
-		normalizeConn(&c)
+		// primero se enmascara y después se recorta (ver redactThenCut); antes, un recorte holgado
+		// acota el trabajo de la redacción sin acercarse al corte final
+		if size := int64(len(c.ResponseBody)); size > c.BodySize {
+			c.BodySize = size
+		}
+		if len(c.ResponseBody) > maxResponseBodyChars+redactSlack {
+			c.ResponseBody = strings.Clone(truncate(c.ResponseBody, maxResponseBodyChars+redactSlack))
+			// lo descartado no vuelve, aunque la redacción achique después lo que queda
+			c.BodyTruncated = true
+		}
+		if len(c.PostData) > maxPostDataChars+redactSlack {
+			c.PostData = strings.Clone(truncate(c.PostData, maxPostDataChars+redactSlack))
+		}
 		redactConn(red, &c)
+		normalizeConn(&c)
 		if (c.Failed || c.Status >= 400) && !c.Expected {
 			errors++
 		}
@@ -259,9 +272,8 @@ func normalizeConn(c *db.NetConn) {
 	if c.DurationMs != nil && *c.DurationMs < 0 {
 		c.DurationMs = nil
 	}
-	if size := int64(len(c.ResponseBody)); size > c.BodySize {
-		c.BodySize = size
-	}
+	// BodySize ya es el tamaño original (addNetwork lo toma antes de enmascarar: el texto
+	// enmascarado puede ser más largo o más corto)
 	if len(c.ResponseBody) > maxResponseBodyChars {
 		c.ResponseBody = strings.Clone(truncate(c.ResponseBody, maxResponseBodyChars)) // copia: libera el body completo
 		c.BodyTruncated = true
@@ -277,6 +289,17 @@ func truncateHeaders(h map[string]string) map[string]string {
 	}
 	return h
 }
+
+// redactThenCut masks s and then cuts it to n bytes. Never the other way around: the cut could
+// leave a secret without the closing quote its pattern needs. The text is first bounded to n plus
+// redactSlack (the work stays bounded): a secret cut there is masked by redact (value cut at the
+// end) and lies past the final cut anyway.
+func redactThenCut(p *redact.Policy, s string, n int) string {
+	return truncate(p.Text(truncate(s, n+redactSlack)), n)
+}
+
+// redactSlack is the margin kept past a limit while redacting, before the final cut.
+const redactSlack = 64 << 10
 
 // truncate cuts s to at most n bytes without splitting a UTF-8 rune.
 func truncate(s string, n int) string {

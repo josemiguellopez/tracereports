@@ -36,8 +36,8 @@ func (s *Server) addConsole(w http.ResponseWriter, r *http.Request) {
 			writeError(w, http.StatusBadRequest, "level must be error, warning, pageerror, info, log or debug")
 			return
 		}
-		e.Text = red.Text(truncate(e.Text, 4000))
-		e.Location = red.Text(truncate(e.Location, 500))
+		e.Text = redactThenCut(red, e.Text, 4000)
+		e.Location = redactThenCut(red, e.Location, 500)
 		if e.Timestamp <= 0 {
 			e.Timestamp = fallback
 		}

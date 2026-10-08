@@ -8,6 +8,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/locator"
+	"github.com/josemiguellopez/tracereports/internal/redact"
 )
 
 const (
@@ -44,18 +45,29 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 	if len(snap.Elements) > maxDOMElements {
 		snap.Elements = snap.Elements[:maxDOMElements]
 	}
-	p := s.redactor()
-	snap.URL, snap.Title = p.Text(snap.URL), p.Text(snap.Title)
-	for i := range snap.Elements {
-		e := &snap.Elements[i]
-		e.Text, e.Label, e.Placeholder = p.Text(truncate(e.Text, 120)), truncate(e.Label, 120), truncate(e.Placeholder, 120)
-	}
+	cleanSnapshot(s.redactor(), &snap)
 	raw, _ := json.Marshal(snap)
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
 		return http.StatusCreated, map[string]int{"elements": len(snap.Elements)}, tx.SaveDOM(id, string(raw))
 	})
 	if respondErr(w, err, "test") {
 		return
+	}
+}
+
+// cleanSnapshot bounds and redacts every text field of a DOM snapshot before it is stored: a
+// secret in an id, data-testid, label, placeholder... would otherwise reach the database, the
+// locator suggestions and the AI. Redaction goes first, on the whole value: a cut could remove
+// the closing quote of a secret and hide it from the patterns (redact also masks a value cut at
+// the end, for what the client already cut).
+func cleanSnapshot(p *redact.Policy, snap *locator.Snapshot) {
+	field := func(v string, max int) string { return redactThenCut(p, v, max) }
+	snap.URL, snap.Title = field(snap.URL, maxURLChars), field(snap.Title, 300)
+	for i := range snap.Elements {
+		e := &snap.Elements[i]
+		e.Tag, e.Role, e.Type, e.TestIDAttr = field(e.Tag, 40), field(e.Role, 60), field(e.Type, 40), field(e.TestIDAttr, 40)
+		e.ID, e.Name, e.TestID = field(e.ID, 200), field(e.Name, 200), field(e.TestID, 200)
+		e.Label, e.Placeholder, e.Text = field(e.Label, 120), field(e.Placeholder, 120), field(e.Text, 120)
 	}
 }
 

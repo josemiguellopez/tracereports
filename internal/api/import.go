@@ -415,7 +415,7 @@ func (s *Server) importSteps(testID int64, steps []allure.Step, depth int, fallb
 		if st.Message != "" && st.Status != allure.Pass {
 			msg += ": " + st.Message
 		}
-		if _, err := s.Store.AddLog(testID, st.Status, red.Text(truncate(msg, maxImportOutput)), at.UnixMilli(), ""); err != nil {
+		if _, err := s.Store.AddLog(testID, st.Status, redactThenCut(red, msg, maxImportOutput), at.UnixMilli(), ""); err != nil {
 			return err
 		}
 		if err := s.importSteps(testID, st.Steps, depth+1, at); err != nil {
