@@ -51,10 +51,12 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 		e.Text, e.Label, e.Placeholder = p.Text(truncate(e.Text, 120)), truncate(e.Label, 120), truncate(e.Placeholder, 120)
 	}
 	raw, _ := json.Marshal(snap)
-	if err := s.Store.SaveDOM(id, string(raw)); respondErr(w, err, "test") {
+	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		return http.StatusCreated, map[string]int{"elements": len(snap.Elements)}, tx.SaveDOM(id, string(raw))
+	})
+	if respondErr(w, err, "test") {
 		return
 	}
-	writeJSON(w, http.StatusCreated, map[string]int{"elements": len(snap.Elements)})
 }
 
 // LocatorReport is what the UI needs to show the locator recommender of a failed test.

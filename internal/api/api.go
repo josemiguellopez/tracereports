@@ -197,16 +197,25 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: clean(in.Commit, 80), Framework: clean(in.Framework, 60)}
-	id, err := s.Store.CreateRunWithMeta(strings.TrimSpace(s.label(in.Name)), strings.TrimSpace(s.label(in.Environment)), meta)
-	if err == nil && eventTime(r) > 0 {
-		err = s.Store.SetRunStarted(id, eventTime(r))
-	}
+	name, environment := strings.TrimSpace(s.label(in.Name)), strings.TrimSpace(s.label(in.Environment))
+	var id int64
+	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		var err error
+		if id, err = tx.CreateRunWithMeta(name, environment, meta); err != nil {
+			return 0, nil, err
+		}
+		if ts := eventTime(r); ts > 0 {
+			if err := tx.SetRunStarted(id, ts); err != nil {
+				return 0, nil, err
+			}
+		}
+		return http.StatusCreated, map[string]any{"run_id": id}, nil
+	})
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	s.publish("run", id, 0, map[string]string{"action": "created"})
-	writeJSON(w, http.StatusCreated, map[string]any{"run_id": id})
 }
 
 func (s *Server) getRun(w http.ResponseWriter, r *http.Request) {
@@ -291,18 +300,24 @@ func (s *Server) createTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	meta := db.TestMeta{Key: key, Suite: clean(s.label(in.Suite), 500), Params: clean(s.redactor().Text(in.Params), 500), Worker: clean(s.label(in.Worker), 60)}
-	id, err := s.Store.CreateTestWithMeta(runID, strings.TrimSpace(s.label(in.Name)), s.label(in.Category), s.redactor().Text(in.Description), meta)
+	name, category, description := strings.TrimSpace(s.label(in.Name)), s.label(in.Category), s.redactor().Text(in.Description)
+	var id int64
+	err = s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		var err error
+		if id, err = tx.CreateTestWithMeta(runID, name, category, description, meta); err != nil {
+			return 0, nil, err
+		}
+		if ts := eventTime(r); ts > 0 {
+			if err := tx.SetTestStarted(id, ts); err != nil {
+				return 0, nil, err
+			}
+		}
+		return http.StatusCreated, map[string]any{"test_id": id}, nil
+	})
 	if respondErr(w, err, "run") {
 		return
 	}
-	if ts := eventTime(r); ts > 0 {
-		if err := s.Store.SetTestStarted(id, ts); err != nil {
-			serverError(w, err)
-			return
-		}
-	}
 	s.publish("test", runID, id, map[string]string{"action": "created"})
-	writeJSON(w, http.StatusCreated, map[string]any{"test_id": id})
 }
 
 func (s *Server) getTest(w http.ResponseWriter, r *http.Request) {
@@ -350,12 +365,17 @@ func (s *Server) addLog(w http.ResponseWriter, r *http.Request) {
 	if ts == 0 {
 		ts = eventTime(r)
 	}
-	l, err := s.Store.AddLog(id, status, s.redactor().Text(in.Message), ts, "")
+	msg := s.redactor().Text(in.Message)
+	var l *db.Log
+	err = s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		var err error
+		l, err = tx.AddLog(id, status, msg, ts, "")
+		return http.StatusCreated, l, err
+	})
 	if respondErr(w, err, "test") {
 		return
 	}
 	s.publishTest("log", id, l)
-	writeJSON(w, http.StatusCreated, l)
 }
 
 // uploadScreenshot stores the "file" multipart field and records it as a step.
@@ -398,12 +418,47 @@ func (s *Server) uploadScreenshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	l, err := s.storeScreenshot(id, data, status, r.FormValue("message"), eventTime(r))
+	// el archivo primero; su paso y la respuesta idempotente, en una transacción
+	url, err := s.saveScreenshotFile(id, data)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	msg := s.redactor().Text(r.FormValue("message"))
+	var l *db.Log
+	err = s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		var err error
+		if l, err = tx.AddLog(id, status, msg, eventTime(r), url); err != nil {
+			return 0, nil, err
+		}
+		return http.StatusCreated, map[string]any{"url": l.Screenshot, "log": l}, nil
+	})
+	if err != nil {
+		s.removeScreenshotFile(url) // no quedó referenciada
+	}
 	if respondErr(w, err, "test") {
 		return
 	}
 	s.publishTest("log", id, l)
-	writeJSON(w, http.StatusCreated, map[string]any{"url": l.Screenshot, "log": l})
+}
+
+// saveScreenshotFile writes an image to the screenshots folder and returns its URL.
+func (s *Server) saveScreenshotFile(testID int64, data []byte) (string, error) {
+	ext, ok := imageExt[http.DetectContentType(data)]
+	if !ok {
+		return "", errNotImage
+	}
+	name := fmt.Sprintf("t%d_%d%s", testID, time.Now().UnixNano(), ext)
+	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o644); err != nil {
+		return "", err
+	}
+	return "/screenshots/" + name, nil
+}
+
+func (s *Server) removeScreenshotFile(url string) {
+	if name := strings.TrimPrefix(url, "/screenshots/"); name != url && name == filepath.Base(name) {
+		os.Remove(filepath.Join(s.ScreenshotsDir, name))
+	}
 }
 
 // errNotImage: the bytes are not a PNG, JPEG, GIF or WEBP image.
@@ -411,15 +466,15 @@ var errNotImage = errors.New("only PNG, JPEG, GIF or WEBP images are accepted")
 
 // storeScreenshot saves an image of a test and records it as a step (ts 0 = now).
 func (s *Server) storeScreenshot(testID int64, data []byte, status, message string, ts int64) (*db.Log, error) {
-	ext, ok := imageExt[http.DetectContentType(data)]
-	if !ok {
-		return nil, errNotImage
-	}
-	name := fmt.Sprintf("t%d_%d%s", testID, time.Now().UnixNano(), ext)
-	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o644); err != nil {
+	url, err := s.saveScreenshotFile(testID, data)
+	if err != nil {
 		return nil, err
 	}
-	return s.Store.AddLog(testID, status, s.redactor().Text(message), ts, "/screenshots/"+name)
+	l, err := s.Store.AddLog(testID, status, s.redactor().Text(message), ts, url)
+	if err != nil {
+		s.removeScreenshotFile(url)
+	}
+	return l, err
 }
 
 func (s *Server) finishTest(w http.ResponseWriter, r *http.Request) {

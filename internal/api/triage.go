@@ -70,12 +70,16 @@ func (s *Server) setVerdict(w http.ResponseWriter, r *http.Request) {
 	}
 	v := &db.Verdict{RunID: run.ID, TestID: t.ID, Verdict: in.Verdict, Comment: clean(s.redactor().Text(in.Comment), 2000),
 		Author: clean(s.label(in.Author), 120)}
-	if err := s.Store.SaveVerdict(v, run.Project, t.Key); err != nil {
+	// cada veredicto es una fila nueva del historial: con Idempotency-Key, la fila y su respuesta
+	// se guardan en la misma transacción, así un reintento nunca agrega otra
+	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		return http.StatusCreated, v, tx.SaveVerdict(v, run.Project, t.Key)
+	})
+	if err != nil {
 		serverError(w, err)
 		return
 	}
 	s.publish("test", run.ID, t.ID, map[string]string{"action": "verdict"})
-	writeJSON(w, http.StatusCreated, v)
 }
 
 // withOwner puts the owner from the rules in an escalation (instead of the AI or template guess):

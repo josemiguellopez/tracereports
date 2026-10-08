@@ -33,15 +33,19 @@ func (s *Store) IdempotentResponse(key string) (status int, body []byte, found b
 // run exists (deleted with it by retention): a spool replayed days later never duplicates its
 // steps, screenshots or network batches. Entries without a run are dropped after 24 h.
 func (s *Store) SaveIdempotentResponse(key string, status int, body []byte, runID int64) error {
+	return saveIdempotent(s.db, key, status, body, runID)
+}
+
+func saveIdempotent(q querier, key string, status int, body []byte, runID int64) error {
 	now := NowMs()
-	if _, err := s.db.Exec(`DELETE FROM idempotency WHERE created_at < ? AND run_id IS NULL`, now-24*3600*1000); err != nil {
+	if _, err := q.Exec(`DELETE FROM idempotency WHERE created_at < ? AND run_id IS NULL`, now-24*3600*1000); err != nil {
 		return err
 	}
 	var run any
 	if runID > 0 {
 		run = runID
 	}
-	_, err := s.db.Exec(`INSERT OR REPLACE INTO idempotency(key, status, body, created_at, run_id) VALUES(?,?,?,?,?)`,
+	_, err := q.Exec(`INSERT OR REPLACE INTO idempotency(key, status, body, created_at, run_id) VALUES(?,?,?,?,?)`,
 		key, status, body, now, run)
 	return err
 }

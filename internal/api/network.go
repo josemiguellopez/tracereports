@@ -57,11 +57,14 @@ func (s *Server) addNetwork(w http.ResponseWriter, r *http.Request) {
 			errors++
 		}
 	}
-	if err := s.Store.AddNetwork(id, in.Connections); respondErr(w, err, "test") {
+	res := map[string]int{"stored": len(in.Connections), "errors": errors}
+	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		return http.StatusCreated, res, tx.AddNetwork(id, in.Connections)
+	})
+	if respondErr(w, err, "test") {
 		return
 	}
-	s.publishTest("network", id, map[string]int{"stored": len(in.Connections), "errors": errors})
-	writeJSON(w, http.StatusCreated, map[string]int{"stored": len(in.Connections), "errors": errors})
+	s.publishTest("network", id, res)
 }
 
 func (s *Server) listNetwork(w http.ResponseWriter, r *http.Request) {

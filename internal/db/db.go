@@ -18,7 +18,7 @@ var ErrNotFound = errors.New("not found")
 
 // Store wraps the SQLite database.
 type Store struct {
-	db *sql.DB
+	db handle // la base, o una transacción dentro de Atomic
 }
 
 const schema = `
@@ -128,7 +128,7 @@ func Open(path string) (*Store, error) {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate idempotency: %w", err)
 	}
-	return &Store{db: sqldb}, nil
+	return &Store{db: dbHandle{sqldb}}, nil
 }
 
 // migrations run on every start (idempotent). Tests stored before the stable identity keep
@@ -168,7 +168,12 @@ func ensureColumn(sqldb *sql.DB, table, column, definition string) error {
 }
 
 // Close closes the database.
-func (s *Store) Close() error { return s.db.Close() }
+func (s *Store) Close() error {
+	if d, ok := s.db.(dbHandle); ok {
+		return d.DB.Close()
+	}
+	return nil // un Store de Atomic no es dueño de la conexión
+}
 
 // NowMs returns the current time in Unix milliseconds.
 func NowMs() int64 { return time.Now().UnixMilli() }

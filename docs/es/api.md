@@ -63,6 +63,14 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
   una ejecución duran lo mismo que ella (se borran con la retención); las demás, 24 h. Al actualizar
   desde una versión anterior, las claves ya guardadas se vinculan a su ejecución por la ruta o por la
   respuesta que creó la ejecución; las de ejecuciones ya borradas caducan a las 24 h.
+  Garantías ante una caída del servidor: crear ejecuciones y tests, pasos, red, consola, DOM, los
+  registros de capturas y artefactos y los veredictos guardan la escritura y su respuesta en **una misma
+  transacción**: quedan las dos o ninguna, así que el reintento nunca las duplica. El archivo de una
+  captura o artefacto se escribe antes: una caída en medio deja un archivo sin usar, no evidencia
+  duplicada. Cerrar tests y ejecuciones y la cuarentena fijan un estado: si se repiten dan
+  lo mismo. Las importaciones (JUnit, Allure) usan varias transacciones: una caída a mitad deja una
+  ejecución incompleta y el reintento importa de nuevo. Lo que sale del servidor (IA, Teams, Slack,
+  tickets) no es *exactamente una vez*.
 - Lo que llega se enmascara antes de guardarse (ver [Configuración](configuration.md#datos-sensibles-y-retención)).
 
 `Conn` (todas opcionales salvo `method` y `url`):

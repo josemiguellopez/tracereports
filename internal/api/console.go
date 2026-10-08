@@ -43,11 +43,15 @@ func (s *Server) addConsole(w http.ResponseWriter, r *http.Request) {
 		}
 		entries = append(entries, e)
 	}
-	n, err := s.Store.AddConsole(id, entries)
+	var n int
+	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		var err error
+		n, err = tx.AddConsole(id, entries)
+		return http.StatusCreated, map[string]int{"stored": n, "dropped": len(entries) - n}, err
+	})
 	if err != nil {
 		serverError(w, err)
 		return
 	}
 	s.publishTest("console", id, map[string]int{"stored": n})
-	writeJSON(w, http.StatusCreated, map[string]int{"stored": n, "dropped": len(entries) - n})
 }

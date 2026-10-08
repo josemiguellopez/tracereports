@@ -28,7 +28,7 @@ func OpenExisting(path string, readOnly bool) (*Store, error) {
 		sqldb.Close()
 		return nil, fmt.Errorf("open %s: %w", path, err)
 	}
-	return &Store{db: sqldb}, nil
+	return &Store{db: dbHandle{sqldb}}, nil
 }
 
 // HasTable reports whether the database has a table (old databases may lack newer ones).

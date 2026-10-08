@@ -63,6 +63,13 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
   to a run last as long as the run (deleted by retention); the others, 24 h. When upgrading from an
   earlier version, the keys already stored are linked to their run through the path or the response
   that created the run; those of runs already deleted expire after 24 h.
+  Guarantees if the server crashes: creating runs and tests, steps, network, console, DOM, the
+  records of screenshots and artifacts and verdicts store the write and its response in **one transaction**:
+  both or neither, so a retry never duplicates them. The file of a screenshot or artifact is written
+  first: a crash in between leaves an unused file, not duplicated evidence. Finishing tests and runs
+  and quarantine set a state: repeating them gives the same result. Imports (JUnit, Allure)
+  use several transactions: a crash halfway leaves an incomplete run and the retry imports again.
+  What leaves the server (AI, Teams, Slack, tickets) is not *exactly once*.
 - Incoming data is masked before it is stored (see [Configuration](configuration.md#sensitive-data-and-retention)).
 
 `Conn` (all optional except `method` and `url`):

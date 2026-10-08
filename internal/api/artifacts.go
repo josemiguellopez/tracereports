@@ -91,13 +91,15 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request) {
 		label = kind + ext
 	}
 	a := &db.Artifact{TestID: id, Kind: kind, Name: label, URL: "/screenshots/" + name, Size: size}
-	if err := s.Store.AddArtifact(a); err != nil {
+	err = s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		return http.StatusCreated, a, tx.AddArtifact(a)
+	})
+	if err != nil {
 		os.Remove(path)
 		serverError(w, err)
 		return
 	}
 	s.publishTest("artifact", id, a)
-	writeJSON(w, http.StatusCreated, a)
 }
 
 // withTraceViewerCORS lets the official Trace Viewer download a trace.zip from the report
