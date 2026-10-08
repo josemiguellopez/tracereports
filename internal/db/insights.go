@@ -57,18 +57,24 @@ type HistoryEntry struct {
 // the same key more than once, only its last execution counts.
 func (s *Store) TestHistory(key string, uptoRunID int64, limit int) ([]HistoryEntry, error) {
 	args := append([]any{key, uptoRunID}, ctxArgs(uptoRunID)...)
+	// el último resultado terminado de cada ejecución (ROW_NUMBER por ejecución) y recién después el
+	// límite: una ejecución con el test repetido muchas veces no desplaza a las anteriores
 	rows, err := s.db.Query(`
-		SELECT t.id, t.run_id, r.name, t.status, t.started_at, t.ended_at, t.error_message, t.attempts,
-			COALESCE((SELECT a.category FROM ai_triage a WHERE a.test_id = t.id AND a.state = 'DONE'), '')
-		FROM tests t JOIN runs r ON r.id = t.run_id
-		WHERE t.test_key = ? AND t.run_id <= ? AND t.status <> 'RUNNING' AND `+sameContext+`
-		ORDER BY t.run_id DESC, t.id DESC LIMIT ?`, append(args, limit*2)...)
+		WITH last AS (
+			SELECT t.id, t.run_id, r.name, t.status, t.started_at, t.ended_at, t.error_message, t.attempts,
+			       ROW_NUMBER() OVER (PARTITION BY t.run_id ORDER BY t.id DESC) AS rn
+			FROM tests t JOIN runs r ON r.id = t.run_id
+			WHERE t.test_key = ? AND t.run_id <= ? AND t.status <> 'RUNNING' AND `+sameContext+`
+		)
+		SELECT id, run_id, name, status, started_at, ended_at, error_message, attempts,
+			COALESCE((SELECT a.category FROM ai_triage a WHERE a.test_id = last.id AND a.state = 'DONE'), '')
+		FROM last WHERE rn = 1
+		ORDER BY run_id DESC LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	out := []HistoryEntry{}
-	lastRun := int64(0)
 	for rows.Next() {
 		var h HistoryEntry
 		var ended sql.NullInt64
@@ -76,10 +82,6 @@ func (s *Store) TestHistory(key string, uptoRunID int64, limit int) ([]HistoryEn
 		if err := rows.Scan(&h.TestID, &h.RunID, &h.RunName, &h.Status, &h.StartedAt, &ended, &errMsg, &h.Attempts, &h.Category); err != nil {
 			return nil, err
 		}
-		if h.RunID == lastRun || len(out) == limit {
-			continue
-		}
-		lastRun = h.RunID
 		if h.Status == "FAIL" {
 			h.Error = firstLine(errMsg)
 		}
