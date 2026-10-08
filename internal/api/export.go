@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"log/slog"
 	"net/http"
@@ -66,8 +67,8 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 	}
 
 	tests := make(map[int64]*db.Test, len(detail.Tests))
-	network := map[int64][]byte{} // test_id -> network/test_<id>.js (loaded on demand by the UI)
-	bodies := map[string][]byte{} // network/bodies/<id>.<ext> for bodies larger than the UI preview
+	// la red de cada test se lee y se escribe en el ZIP de a un test (ver más abajo), no toda junta
+	var withNetwork []int64
 	var shots []string
 	var artifactBytes int64
 	for _, summary := range detail.Tests {
@@ -96,26 +97,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 		t.Artifacts = kept
 		tests[t.ID] = t
 		if t.NetworkTotal > 0 {
-			conns, err := s.Store.ListNetwork(t.ID)
-			if err != nil {
-				serverError(w, err)
-				return
-			}
-			s.linkCalls(conns)
-			for i := range conns {
-				if len(conns[i].ResponseBody) > bodyFileMinChars {
-					ext, _ := bodyFileType(&conns[i])
-					conns[i].BodyFile = fmt.Sprintf("network/bodies/%d%s", conns[i].ID, ext)
-					bodies[conns[i].BodyFile] = []byte(s.redactor().Text(conns[i].ResponseBody))
-				}
-			}
-			js, err := json.Marshal(conns)
-			if err != nil {
-				serverError(w, err)
-				return
-			}
-			// segunda capa: datos guardados antes de la redacción central tampoco salen en el ZIP
-			network[t.ID] = []byte(fmt.Sprintf("(window.TRACEREPORTS_NET = window.TRACEREPORTS_NET || {})[%d] = %s;\n", t.ID, s.redactor().Text(string(js))))
+			withNetwork = append(withNetwork, t.ID)
 		}
 	}
 
@@ -222,23 +204,67 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 	add("data.js", append(append([]byte("window.TRACEREPORTS_STATIC = "), data...), ";\n"...), zip.Deflate)
-	for testID, js := range network {
+	data = nil
+	// la red, de a un test: en memoria solo la del test que se está escribiendo
+	for _, testID := range withNetwork {
+		js, bodies, err := s.exportNetwork(testID)
+		if err != nil {
+			slog.Error("export: network", "run_id", id, "test_id", testID, "err", err)
+			continue
+		}
 		add(fmt.Sprintf("network/test_%d.js", testID), js, zip.Deflate)
+		for _, b := range bodies {
+			add(b.name, b.content, zip.Deflate)
+		}
 	}
-	for name, body := range bodies {
-		add(name, body, zip.Deflate)
-	}
+	// capturas, traces y videos: se copian del disco al ZIP sin cargarlos enteros en memoria
 	for _, name := range shots {
-		content, err := os.ReadFile(filepath.Join(s.ScreenshotsDir, name))
+		f, err := os.Open(filepath.Join(s.ScreenshotsDir, name))
 		if err != nil {
 			slog.Warn("export: screenshot missing", "file", name, "err", err)
 			continue
 		}
-		add("screenshots/"+name, content, zip.Store) // images are already compressed
+		fw, err := zw.CreateHeader(&zip.FileHeader{Name: folder + "/screenshots/" + name, Method: zip.Store, Modified: time.Now()}) // ya comprimidas
+		if err == nil {
+			_, err = io.Copy(fw, f)
+		}
+		f.Close()
+		if err != nil {
+			slog.Error("export: write zip entry", "run_id", id, "entry", name, "err", err)
+		}
 	}
 	if err := zw.Close(); err != nil {
 		slog.Error("export: close zip", "run_id", id, "err", err)
 	}
+}
+
+type exportBody struct {
+	name    string
+	content []byte
+}
+
+// exportNetwork builds network/test_<id>.js of one test and the files of its large bodies
+// (network/bodies/<id>.<ext>), with the secrets masked again (data stored before the central
+// redaction does not leave in the ZIP either).
+func (s *Server) exportNetwork(testID int64) ([]byte, []exportBody, error) {
+	conns, err := s.Store.ListNetwork(testID)
+	if err != nil {
+		return nil, nil, err
+	}
+	s.linkCalls(conns)
+	var bodies []exportBody
+	for i := range conns {
+		if len(conns[i].ResponseBody) > bodyFileMinChars {
+			ext, _ := bodyFileType(&conns[i])
+			conns[i].BodyFile = fmt.Sprintf("network/bodies/%d%s", conns[i].ID, ext)
+			bodies = append(bodies, exportBody{conns[i].BodyFile, []byte(s.redactor().Text(conns[i].ResponseBody))})
+		}
+	}
+	js, err := json.Marshal(conns)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []byte(fmt.Sprintf("(window.TRACEREPORTS_NET = window.TRACEREPORTS_NET || {})[%d] = %s;\n", testID, s.redactor().Text(string(js)))), bodies, nil
 }
 
 // screenshotFile extracts a safe file name from a "/screenshots/<file>" URL.
