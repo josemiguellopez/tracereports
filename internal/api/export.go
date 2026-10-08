@@ -18,6 +18,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
+	"github.com/josemiguellopez/tracereports/internal/redact"
 )
 
 // bodyFileMinChars: bodies above it get their own file in the ZIP, so the UI can point to it
@@ -150,7 +151,10 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	data = []byte(s.redactor().Text(string(data)))
+	if data, err = redactJSON(s.redactor(), data); err != nil {
+		serverError(w, err)
+		return
+	}
 	index, err := fs.ReadFile(s.Web, "index.html")
 	if err != nil {
 		serverError(w, err)
@@ -264,7 +268,48 @@ func (s *Server) exportNetwork(testID int64) ([]byte, []exportBody, error) {
 	if err != nil {
 		return nil, nil, err
 	}
-	return []byte(fmt.Sprintf("(window.TRACEREPORTS_NET = window.TRACEREPORTS_NET || {})[%d] = %s;\n", testID, s.redactor().Text(string(js)))), bodies, nil
+	if js, err = redactJSON(s.redactor(), js); err != nil {
+		return nil, nil, err
+	}
+	return []byte(fmt.Sprintf("(window.TRACEREPORTS_NET = window.TRACEREPORTS_NET || {})[%d] = %s;\n", testID, js)), bodies, nil
+}
+
+// redactJSON masks the secrets of an exported JSON document string by string, before it is
+// written: evidence stored before the central redaction (or a body that is itself JSON) sits in
+// it as an escaped string, which a pass over the serialized text does not look into. Every
+// string value goes through the policy, and the value of a sensitive key or header is masked.
+// Numbers are kept exact (UseNumber) and the structure and types do not change.
+func redactJSON(p *redact.Policy, data []byte) ([]byte, error) {
+	if !p.Enabled() {
+		return data, nil
+	}
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return json.Marshal(redactValue(p, v))
+}
+
+func redactValue(p *redact.Policy, v any) any {
+	switch x := v.(type) {
+	case string:
+		return p.Text(x)
+	case []any:
+		for i := range x {
+			x[i] = redactValue(p, x[i])
+		}
+	case map[string]any:
+		for k, val := range x {
+			if str, ok := val.(string); ok && str != "" && (p.SensitiveKey(k) || p.SensitiveHeader(k)) {
+				x[k] = redact.Mask
+				continue
+			}
+			x[k] = redactValue(p, val)
+		}
+	}
+	return v
 }
 
 // screenshotFile extracts a safe file name from a "/screenshots/<file>" URL.
