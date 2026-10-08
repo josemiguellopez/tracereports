@@ -29,6 +29,7 @@ var tpl = map[string]map[string]string{
 		"cause_unknown":  "Causa por confirmar con la evidencia del reporte.",
 		"step_report":    "Revisar el reporte completo: pasos, capturas y llamadas al backend.",
 		"step_backend":   "Revisar los logs y la disponibilidad del servicio %s.",
+		"step_svc":       "El equipo técnico revisa el servicio que dejó de responder.",
 		"step_locator":   "Actualizar el selector del test%s.",
 		"step_bug":       "Abrir un bug con esta evidencia para el equipo de desarrollo.",
 		"step_rerun":     "Volver a ejecutar la suite cuando el entorno esté estable.",
@@ -76,6 +77,7 @@ var tpl = map[string]map[string]string{
 		"cause_unknown":  "Cause to be confirmed with the report's evidence.",
 		"step_report":    "Review the full report: steps, screenshots and backend calls.",
 		"step_backend":   "Check the logs and availability of the %s service.",
+		"step_svc":       "The technical team checks the service that stopped answering.",
 		"step_locator":   "Update the test selector%s.",
 		"step_bug":       "Open a bug with this evidence for the development team.",
 		"step_rerun":     "Re-run the suite once the environment is stable.",
@@ -274,10 +276,14 @@ func templateEscalation(e *Escalation) {
 		if len(f.Network) > 0 {
 			svc = f.Network[0].Path
 		}
-		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["step_backend"], svc), t["step_rerun"])
+		step := fmt.Sprintf(t["step_backend"], svc)
+		if e.Audience == "business" { // sin endpoints: Negocio no necesita la ruta
+			step = t["step_svc"]
+		}
+		e.NextSteps = append(e.NextSteps, step, t["step_rerun"])
 	case "LOCATOR_CHANGED":
 		hint := ""
-		if f.LocatorPick != "" {
+		if f.LocatorPick != "" && e.Audience != "business" {
 			hint = ": " + f.LocatorPick
 		}
 		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["step_locator"], hint))

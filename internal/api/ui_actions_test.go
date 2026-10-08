@@ -43,7 +43,7 @@ func TestEscalateTemplateAndAccess(t *testing.T) {
 	if e.Source != "template" || e.Severity != "high" || !strings.Contains(e.Title, "Pago con tarjeta") || e.Facts.Screenshot != "/screenshots/pago.png" {
 		t.Fatalf("template escalation: %+v", e)
 	}
-	for _, ev := range e.Evidence { // negocio: sin códigos HTTP ni endpoints
+	for _, ev := range append(e.Evidence, e.NextSteps...) { // negocio: sin códigos HTTP ni endpoints
 		if strings.Contains(ev, "503") || strings.Contains(ev, "/api/") {
 			t.Fatalf("business evidence must not be technical: %q", ev)
 		}
