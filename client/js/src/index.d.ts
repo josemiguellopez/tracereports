@@ -31,6 +31,8 @@ export interface Connection {
   failed?: boolean; error_text?: string; started_at?: number; duration_ms?: number | null;
   request_headers?: Record<string, string>; post_data?: string; response_headers?: Record<string, string>;
   response_body?: string; body_size?: number; expected?: boolean;
+  /** The body was already cut before reaching the client (body_size keeps the original size). */
+  body_truncated?: boolean;
 }
 
 export class TraceReports {

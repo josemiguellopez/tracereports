@@ -51,6 +51,9 @@ jobs:
       - run: go build -o "$RUNNER_TEMP/tracereports" ./cmd && echo "TRACEREPORTS_BIN=$RUNNER_TEMP/tracereports" >> "$GITHUB_ENV"
       - run: npm test
         working-directory: client/js
+      # los tipos publicados (index.d.ts) aceptan lo que acepta el runtime
+      - run: npm run typecheck
+        working-directory: client/js
 
   web-unit:
     name: Web UI (unit)

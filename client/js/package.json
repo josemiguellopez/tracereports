@@ -43,7 +43,8 @@
     "node": ">=18"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.js\""
+    "test": "node --test \"test/*.test.js\"",
+    "typecheck": "npx --yes -p typescript@7.0.2 tsc --noEmit --strict --skipLibCheck --target es2022 --module nodenext --moduleResolution nodenext test/types/public-api.ts"
   },
   "peerDependencies": {
     "@playwright/test": ">=1.40"
