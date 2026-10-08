@@ -407,6 +407,7 @@ func runPush(args []string) error {
 	fl.Usage = func() { fmt.Fprint(fl.Output(), pushUsage); fl.PrintDefaults() }
 	base := fl.String("url", envOr("TRACEREPORTS_URL", "http://localhost:8080"), "server URL (default $TRACEREPORTS_URL)")
 	token := fl.String("token", os.Getenv("TRACEREPORTS_TOKEN"), "write token (default $TRACEREPORTS_TOKEN)")
+	force := fl.Bool("force", false, "upload a complete local copy as a separate run")
 	dirs, err := parseInterspersed(fl, args)
 	if err != nil {
 		return err
@@ -421,6 +422,19 @@ func runPush(args []string) error {
 		rec, err := offline.Open(dir)
 		if err != nil {
 			return err
+		}
+		if rec.Mirror != nil {
+			var ids []string
+			for _, run := range rec.Mirror.Runs {
+				ids = append(ids, fmt.Sprintf("#%d", run.Server))
+			}
+			description := fmt.Sprintf("%s: local copy of run(s) %s at %s", dir, strings.Join(ids, ", "), rec.Mirror.Server)
+			if rec.Mirror.Complete && !*force {
+				return fmt.Errorf("%s, already delivered completely; use --force to upload as a separate new run", description)
+			}
+			if !rec.Mirror.Complete {
+				fmt.Fprintf(os.Stderr, "warning: %s already has partial evidence; uploading a separate complete run\n", description)
+			}
 		}
 		res, err := rec.Replay(target)
 		if err != nil {

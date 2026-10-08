@@ -59,11 +59,24 @@ type Event struct {
 	file string // events file it came from (for messages and idempotency keys)
 }
 
+// Mirror identifies the server runs already receiving this local copy.
+type Mirror struct {
+	Server   string      `json:"server"`
+	Runs     []MirrorRun `json:"runs"`
+	Complete bool        `json:"complete"`
+}
+type MirrorRun struct {
+	Local  int64 `json:"local"`
+	Server int64 `json:"server"`
+}
+
 // Recording is a recording folder, read but not replayed yet.
 type Recording struct {
-	Dir     string
-	ID      string
-	streams [][]Event // one per events file, in file order
+	Mirror     *Mirror
+	RawRemoved bool
+	Dir        string
+	ID         string
+	streams    [][]Event // one per events file, in file order
 }
 
 // IsRecording reports whether dir looks like a recording (marker or events files).
@@ -80,9 +93,11 @@ func Open(dir string) (*Recording, error) {
 	rec := &Recording{Dir: dir}
 	if raw, err := os.ReadFile(filepath.Join(dir, Marker)); err == nil {
 		var m struct {
-			Format  string `json:"format"`
-			Version int    `json:"version"`
-			ID      string `json:"id"`
+			Mirror     *Mirror `json:"mirror"`
+			RawRemoved bool    `json:"raw_removed"`
+			Format     string  `json:"format"`
+			Version    int     `json:"version"`
+			ID         string  `json:"id"`
 		}
 		if err := json.Unmarshal(raw, &m); err != nil || m.Format != "tracereports-offline" {
 			return nil, fmt.Errorf("%s: not a TraceReports recording", filepath.Join(dir, Marker))
@@ -91,6 +106,10 @@ func Open(dir string) (*Recording, error) {
 			return nil, fmt.Errorf("%s: recording format v%d is newer than this tracereports (v%d): update it", dir, m.Version, Version)
 		}
 		rec.ID = m.ID
+		rec.Mirror, rec.RawRemoved = m.Mirror, m.RawRemoved
+		if rec.RawRemoved {
+			return nil, fmt.Errorf("%s: raw recording removed; only the HTML report remains, nothing to upload", dir)
+		}
 	}
 	files, err := filepath.Glob(filepath.Join(dir, "events-*.jsonl"))
 	if err != nil {
@@ -157,13 +176,14 @@ func readEvents(path string) ([]Event, error) {
 }
 
 // Events returns every event in replay order: files merged by ts, each file keeping its order.
+// At the same millisecond, a run must exist before a worker's tests and finish after them.
 func (r *Recording) Events() []Event {
 	idx := make([]int, len(r.streams))
 	var out []Event
 	for {
 		best := -1
 		for i, s := range r.streams {
-			if idx[i] < len(s) && (best < 0 || s[idx[i]].TS < r.streams[best][idx[best]].TS) {
+			if idx[i] < len(s) && (best < 0 || before(s[idx[i]], r.streams[best][idx[best]])) {
 				best = i
 			}
 		}
@@ -173,6 +193,22 @@ func (r *Recording) Events() []Event {
 		out = append(out, r.streams[best][idx[best]])
 		idx[best]++
 	}
+}
+
+func before(a, b Event) bool {
+	if a.TS != b.TS {
+		return a.TS < b.TS
+	}
+	priority := func(e Event) int {
+		if e.Method == "POST" && e.Path == "/api/v1/runs" {
+			return -1
+		}
+		if e.Method == "PATCH" && strings.HasPrefix(e.Path, "/api/v1/runs/") && strings.HasSuffix(e.Path, "/finish") {
+			return 1
+		}
+		return 0
+	}
+	return priority(a) < priority(b)
 }
 
 // body returns the bytes of an event body.
