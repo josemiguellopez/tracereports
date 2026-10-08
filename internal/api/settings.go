@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"mime"
 	"net"
@@ -469,6 +470,28 @@ func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) {
 
 // ---------- métricas ----------
 
+// dayStart is the first instant of a calendar date in loc (d may overflow: day+1). Usually its
+// midnight, but some daylight saving changes skip midnight (Santiago jumps from 23:59:59 to
+// 01:00): Go then normalizes 00:00 to the evening before, so the start is searched forward.
+func dayStart(y int, m time.Month, d int, loc *time.Location) time.Time {
+	want := time.Date(y, m, d, 12, 0, 0, 0, loc).Format("2006-01-02") // fecha pedida, normalizada
+	t := time.Date(y, m, d, 0, 0, 0, 0, loc)
+	if t.Format("2006-01-02") == want {
+		return t
+	}
+	// t cayó en la fecha anterior; t+4h ya está en la pedida (ningún salto dura más): búsqueda binaria
+	lo, hi := t, t.Add(4*time.Hour)
+	for hi.Sub(lo) > time.Millisecond {
+		mid := lo.Add(hi.Sub(lo) / 2)
+		if mid.Format("2006-01-02") == want {
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return hi.Truncate(time.Second)
+}
+
 func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 	qs := r.URL.Query()
 	q := db.MetricsQuery{Suite: qs.Get("suite"), Env: qs.Get("env"), Tag: qs.Get("tag")}
@@ -476,13 +499,25 @@ func (s *Server) getMetrics(w http.ResponseWriter, r *http.Request) {
 	if q.Days <= 0 || q.Days > 365 {
 		q.Days = 30
 	}
-	// rango propio: from/to como fechas (2026-09-01) en la hora del servidor, "to" inclusive
-	if f, err1 := time.ParseInLocation("2006-01-02", qs.Get("from"), time.Local); err1 == nil {
-		if t, err2 := time.ParseInLocation("2006-01-02", qs.Get("to"), time.Local); err2 == nil && !t.Before(f) {
-			q.From, q.To = f.UnixMilli(), t.AddDate(0, 0, 1).UnixMilli()
+	// rango propio: from/to como fechas (2026-09-01) en la hora del servidor, "to" inclusive: desde
+	// el primer instante de "from" hasta el primer instante del día siguiente a "to"
+	if f, err1 := time.Parse("2006-01-02", qs.Get("from")); err1 == nil {
+		if t, err2 := time.Parse("2006-01-02", qs.Get("to")); err2 == nil && !t.Before(f) {
+			// presupuesto: el gráfico tiene un punto por fecha; un rango más largo se rechaza
+			// (explicado), no se recorta
+			if n := int(t.Sub(f)/(24*time.Hour)) + 1; n > db.MaxMetricsDays {
+				writeError(w, http.StatusBadRequest, fmt.Sprintf("custom range too long: %d days, at most %d (a year); choose a shorter range", n, db.MaxMetricsDays))
+				return
+			}
+			q.From = dayStart(f.Year(), f.Month(), f.Day(), time.Local).UnixMilli()
+			q.To = dayStart(t.Year(), t.Month(), t.Day()+1, time.Local).UnixMilli()
 		}
 	}
 	m, err := s.Store.Metrics(q)
+	if errors.Is(err, db.ErrMetricsRangeTooLong) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	if err != nil {
 		serverError(w, err)
 		return

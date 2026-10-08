@@ -2376,7 +2376,12 @@
 		$("#m-body")?.classList.add("is-loading"); // se conserva el gráfico anterior atenuado
 		try {
 			const q = new URLSearchParams({ days: m.days, suite: m.suite, env: m.env, tag: m.tag });
-			if (m.custom?.from && m.custom?.to) { q.set("from", m.custom.from); q.set("to", m.custom.to); }
+			if (m.custom?.from && m.custom?.to) {
+				// el servidor acepta rangos de hasta 366 días (un punto por día en el gráfico)
+				const span = (Date.parse(m.custom.to) - Date.parse(m.custom.from)) / 86400000 + 1;
+				if (span > 366) throw new Error(tr("El rango puede tener como máximo 366 días (un año): elige uno más corto."));
+				q.set("from", m.custom.from); q.set("to", m.custom.to);
+			}
 			m.data = await api(`/api/v1/metrics?${q}`);
 			m.error = null;
 		} catch (err) {

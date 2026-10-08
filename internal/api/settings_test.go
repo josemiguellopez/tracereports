@@ -190,7 +190,8 @@ func TestSettingsTestConnectionAndMetrics(t *testing.T) {
 	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &m) != nil || m["days"] != float64(7) {
 		t.Fatalf("metrics: %d %s", rec.Code, rec.Body)
 	}
-	if len(m["daily"].([]any)) != 7 {
+	// período móvil: toca 8 fechas (el primer día parcial incluido), 7 si empieza a medianoche
+	if n := len(m["daily"].([]any)); n != 7 && n != 8 {
 		t.Fatalf("daily series should cover the period: %v", m["daily"])
 	}
 }

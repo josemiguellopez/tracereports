@@ -435,6 +435,7 @@
 		"El ambiente con que se reportó la ejecución (start_run environment).": "The environment the run was reported with (start_run environment).",
 		"Solo los tests con ese tag (category). Las ejecuciones y la tendencia se recalculan con ellos.": "Only tests with that tag (category). Runs and the trend are recalculated with them.",
 		"Sin ejecuciones terminadas en ese rango con estos filtros": "No finished runs in that range with these filters",
+		"El rango puede tener como máximo 366 días (un año): elige uno más corto.": "The range can be at most 366 days (a year): choose a shorter one.",
 		"Ejecuciones del {d}": "Runs on {d}", "{r} ejecuciones · {p} tests pasaron · {f} fallaron · {x}% de éxito": "{r} runs · {p} tests passed · {f} failed · {x}% pass rate",
 		"{p} pasaron · {f} fallaron": "{p} passed · {f} failed", "Abrir": "Open", "Ver análisis IA": "View AI analysis",
 		"Ese día no tuvo ejecuciones terminadas con estos filtros.": "That day had no finished runs with these filters.",

@@ -47,8 +47,10 @@ func TestMetricsAndSettings(t *testing.T) {
 	if m.Current.Runs != 4 || m.Current.Tests != 12 || m.Current.Failed != 6 || m.Current.PassRate != 50 || m.Current.FlakyTests != 1 {
 		t.Fatalf("kpis: %+v", m.Current)
 	}
-	if len(m.Suites) != 3 || len(m.Daily) != 30 || m.Daily[29].Runs != 4 || len(m.Runs) != 4 {
-		t.Fatalf("suites=%v daily=%+v runs=%d", m.Suites, m.Daily[29], len(m.Runs))
+	// período móvil de 30 días: 31 fechas (el primer día parcial), 30 si empieza a medianoche
+	today := m.Daily[len(m.Daily)-1]
+	if len(m.Suites) != 3 || (len(m.Daily) != 30 && len(m.Daily) != 31) || today.Runs != 4 || len(m.Runs) != 4 {
+		t.Fatalf("suites=%v daily=%d today=%+v runs=%d", m.Suites, len(m.Daily), today, len(m.Runs))
 	}
 	if m.TopFailing[0].Name != "Pago" || m.TopFailing[0].Fails != 4 || m.TopFailing[0].LastError != "AssertionError: total" {
 		t.Fatalf("top failing: %+v", m.TopFailing[0])

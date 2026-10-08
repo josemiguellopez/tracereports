@@ -1,6 +1,7 @@
 package db
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -178,31 +179,31 @@ func (s *Store) periodRuns(from, to int64, q MetricsQuery) ([]RunPoint, error) {
 	return out, rows.Err()
 }
 
-func (s *Store) periodTests(from, to int64, q MetricsQuery) ([]metricRow, error) {
+// eachPeriodTest calls fn for every finished test of the finished runs of the period (suite and
+// environment filters applied in SQL), oldest first. Nothing is capped and nothing is kept: the
+// caller aggregates as rows go by, so the metrics cover every result whatever the volume. fn must
+// not query the store (the single connection is busy with the rows).
+func (s *Store) eachPeriodTest(from, to int64, q MetricsQuery, fn func(*metricRow)) error {
 	cond, args := runFilter(q)
 	rows, err := s.db.Query(`SELECT t.id, t.run_id, t.name, t.category, t.status, t.started_at, t.ended_at, t.error_message,
 			COALESCE((SELECT a.category FROM ai_triage a WHERE a.test_id = t.id AND a.state = 'DONE'), ''),
 			t.test_key, r.environment, r.project, t.attempts, r.branch
 		FROM tests t JOIN runs r ON r.id = t.run_id
 		WHERE r.status != 'RUNNING' AND t.status != 'RUNNING' AND r.started_at >= ? AND r.started_at < ?`+cond+`
-		ORDER BY r.started_at, t.id LIMIT 100000`, append([]any{from, to}, args...)...)
+		ORDER BY r.started_at, t.id`, append([]any{from, to}, args...)...)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer rows.Close()
-	var out []metricRow
 	for rows.Next() {
 		var m metricRow
 		if err := rows.Scan(&m.testID, &m.runID, &m.name, &m.tags, &m.status, &m.started, &m.ended, &m.errMsg, &m.cause,
 			&m.key, &m.env, &m.project, &m.attempts, &m.branch); err != nil {
-			return nil, err
+			return err
 		}
-		if q.Tag != "" && !hasTag(m.tags, q.Tag) {
-			continue
-		}
-		out = append(out, m)
+		fn(&m)
 	}
-	return out, rows.Err()
+	return rows.Err()
 }
 
 // identity groups the executions of the same test: identity plus its context (project,
@@ -219,42 +220,166 @@ func (m metricRow) duration() int64 {
 	return *m.ended - m.started
 }
 
-func kpis(runs []RunPoint, tests []metricRow) KPIs {
-	k := KPIs{Runs: len(runs), Tests: len(tests)}
-	counted := 0
-	var runTime int64
+// Pass rate, the same in every comparable indicator (KPI, days, runs, tags, release gate):
+// PASS over the tests that ran, that is everything but SKIP. A WARNING ran and did not pass.
+type rate struct{ passed, failed, counted int }
+
+func (r *rate) add(status string) {
+	switch status {
+	case "SKIP":
+		return
+	case "PASS":
+		r.passed++
+	case "FAIL":
+		r.failed++
+	}
+	r.counted++
+}
+
+func (r rate) pct() float64 { return pct(r.passed, r.counted) }
+
+// testAcc accumulates one test identity with bounded memory: counters, the last statuses the
+// lists and the stability classification need, and duration sums.
+type testAcc struct {
+	stat      TestStat
+	recent    []string // últimos 12 estados (todos)
+	window    []string // últimos historyWindow estados PASS/WARNING/FAIL (Classify)
+	lastPF    string   // último PASS o FAIL (cambios)
+	retried   int
+	durN      int
+	durSum    int64
+	durLast   []int64 // últimas 3 duraciones
+	flipCount int
+}
+
+func (a *testAcc) add(t *metricRow) {
+	st := t.status
+	a.stat.Runs++
+	a.recent = appendLast(a.recent, st, 12)
+	if st == "PASS" || st == "WARNING" || st == "FAIL" {
+		a.window = appendLast(a.window, st, max(historyWindow, persistentStreak))
+	}
+	if st == "PASS" || st == "FAIL" {
+		if a.lastPF != "" && a.lastPF != st {
+			a.flipCount++
+		}
+		a.lastPF = st
+	}
+	if st != "FAIL" && t.attempts > 1 {
+		a.retried++
+	}
+	if d := t.duration(); d > 0 {
+		a.durN++
+		a.durSum += d
+		if d > a.stat.MaxMs {
+			a.stat.MaxMs = d
+		}
+		a.durLast = appendLast(a.durLast, d, 3)
+	}
+}
+
+func (a *testAcc) flaky() bool {
+	kind, _, _ := Classify(reversed(a.window), a.retried)
+	return kind == StabilityFlaky
+}
+
+func appendLast[T any](s []T, v T, n int) []T {
+	if len(s) == n {
+		copy(s, s[1:])
+		s[n-1] = v
+		return s
+	}
+	return append(s, v)
+}
+
+type runCount struct {
+	total, skipped int
+	rate           rate
+}
+
+// periodAcc aggregates one period: KPIs, per-run counters and per-test identities.
+type periodAcc struct {
+	k      KPIs
+	all    rate
+	byRun  map[int64]*runCount
+	tests  map[string]*testAcc
+	order  []string
+	detail bool // lista por test (solo el período actual)
+}
+
+func newPeriodAcc(detail bool) *periodAcc {
+	return &periodAcc{byRun: map[int64]*runCount{}, tests: map[string]*testAcc{}, detail: detail}
+}
+
+func (p *periodAcc) add(t *metricRow) *testAcc {
+	p.k.Tests++
+	p.all.add(t.status)
+	if t.status == "FAIL" {
+		p.k.FailTimeMs += t.duration()
+	}
+	c := p.byRun[t.runID]
+	if c == nil {
+		c = &runCount{}
+		p.byRun[t.runID] = c
+	}
+	c.total++
+	if t.status == "SKIP" {
+		c.skipped++
+	}
+	c.rate.add(t.status)
+	id := t.identity()
+	a := p.tests[id]
+	if a == nil {
+		a = &testAcc{stat: TestStat{Key: t.key, Env: t.env, Project: t.project, Branch: t.branch, ctx: id}}
+		p.tests[id] = a
+		p.order = append(p.order, id)
+	}
+	a.add(t)
+	if p.detail {
+		a.stat.Name = t.name // el nombre visible más reciente
+		a.stat.LastRunID, a.stat.LastTestID = t.runID, t.testID
+		if t.status == "FAIL" {
+			a.stat.Fails++
+			a.stat.FailTimeMs += t.duration()
+			a.stat.LastError = firstLine(t.errMsg)
+			a.stat.LastFailAt = t.started
+		}
+	}
+	return a
+}
+
+// kpis closes the period: runs recounted from the (filtered) tests, so a tag filter changes the
+// trend too; the runs left without tests are dropped when filtering by tag.
+func (p *periodAcc) kpis(runs []RunPoint, keepEmpty bool) ([]RunPoint, KPIs) {
+	out := []RunPoint{}
 	for _, r := range runs {
+		c := p.byRun[r.ID]
+		if c == nil {
+			if keepEmpty {
+				out = append(out, r)
+			}
+			continue
+		}
+		r.Total, r.Passed, r.Failed = c.total, c.rate.passed, c.rate.failed
+		r.PassRate = c.rate.pct()
+		out = append(out, r)
+	}
+	k := p.k
+	k.Runs = len(out)
+	var runTime int64
+	for _, r := range out {
 		runTime += r.DurationMs
 	}
-	if len(runs) > 0 {
-		k.AvgRunMs = runTime / int64(len(runs))
+	if len(out) > 0 {
+		k.AvgRunMs = runTime / int64(len(out))
 	}
-	statuses := map[string][]string{}
-	retried := map[string]int{}
-	for _, t := range tests {
-		switch t.status {
-		case "PASS":
-			k.Passed++
-			counted++
-		case "FAIL":
-			k.Failed++
-			counted++
-			k.FailTimeMs += t.duration()
-		case "WARNING":
-			counted++
-		}
-		statuses[t.identity()] = append(statuses[t.identity()], t.status)
-		if t.status != "FAIL" && t.attempts > 1 {
-			retried[t.identity()]++
-		}
-	}
-	k.PassRate = pct(k.Passed, counted)
-	for id, st := range statuses {
-		if kind, _, _ := Classify(reversed(st), retried[id]); kind == StabilityFlaky {
+	k.Passed, k.Failed, k.PassRate = p.all.passed, p.all.failed, p.all.pct()
+	for _, id := range p.order {
+		if p.tests[id].flaky() {
 			k.FlakyTests++
 		}
 	}
-	return k
+	return out, k
 }
 
 // distinct returns the most frequent values of a runs column in the period (filter options).
@@ -276,61 +401,49 @@ func (s *Store) distinct(column string, from, to int64) ([]string, error) {
 	return out, rows.Err()
 }
 
-// withTestCounts recomputes each run's counters from the (filtered) tests, so a tag filter
-// changes the trend too, and drops the runs left without tests.
-func withTestCounts(runs []RunPoint, tests []metricRow, keepEmpty bool) []RunPoint {
-	type cnt struct{ total, passed, failed, skipped int }
-	byRun := map[int64]*cnt{}
-	for _, t := range tests {
-		c := byRun[t.runID]
-		if c == nil {
-			c = &cnt{}
-			byRun[t.runID] = c
+// datesBetween returns the local calendar dates (2006-01-02) from a to b, both included. It
+// steps by calendar day at noon: midnight does not exist on some daylight saving changes
+// (Santiago jumps from 23:59 to 01:00), noon always does, so no date is skipped or repeated.
+func datesBetween(a, b time.Time) []string {
+	var out []string
+	a, b = a.In(time.Local), b.In(time.Local)
+	last := b.Format("2006-01-02")
+	y, mo, d := a.Date()
+	for day := time.Date(y, mo, d, 12, 0, 0, 0, time.Local); ; day = time.Date(y, mo, d+1, 12, 0, 0, 0, time.Local) {
+		key := day.Format("2006-01-02")
+		if key > last {
+			return out
 		}
-		c.total++
-		switch t.status {
-		case "PASS":
-			c.passed++
-		case "FAIL":
-			c.failed++
-		case "SKIP":
-			c.skipped++
-		}
+		out = append(out, key)
+		y, mo, d = day.Date()
 	}
-	out := []RunPoint{}
-	for _, r := range runs {
-		c := byRun[r.ID]
-		if c == nil {
-			if keepEmpty {
-				out = append(out, r)
-			}
-			continue
-		}
-		r.Total, r.Passed, r.Failed = c.total, c.passed, c.failed
-		r.PassRate = pct(c.passed, c.total-c.skipped)
-		out = append(out, r)
-	}
-	return out
 }
+
+// metricsNow is the clock of the rolling period (tests fix it).
+var metricsNow = time.Now
 
 // Metrics computes the quality metrics of a period: the last q.Days days or the q.From–q.To
 // range, optionally narrowed to one suite (run name), environment or tag. Runs still in
-// progress are left out.
+// progress are left out. Every result of the period counts (streamed, not loaded): only the
+// lists (top failing, flaky, slowest, tags, last 60 runs) are cut.
 func (s *Store) Metrics(q MetricsQuery) (*Metrics, error) {
-	now := time.Now()
+	now := metricsNow()
 	var from, to int64
 	var end time.Time
 	days := q.Days
 	custom := q.From > 0 && q.To > q.From
 	if custom {
 		from, to, end = q.From, q.To, time.UnixMilli(q.To-1)
-		days = int((to - from + 86400000 - 1) / 86400000)
-		if days > 366 {
-			days = 366
+		// presupuesto antes de crear nada (metrics_budget.go)
+		if days = dateCount(time.UnixMilli(from), end); days > MaxMetricsDays {
+			return nil, fmt.Errorf("%w: %d days, at most %d", ErrMetricsRangeTooLong, days, MaxMetricsDays)
 		}
 	} else {
 		if days <= 0 {
 			days = 30
+		}
+		if days > MaxMetricsDays {
+			return nil, fmt.Errorf("%w: %d days, at most %d", ErrMetricsRangeTooLong, days, MaxMetricsDays)
 		}
 		// +1: el límite es exclusivo y debe incluir lo creado en este mismo milisegundo
 		to, end = now.UnixMilli()+1, now
@@ -353,33 +466,80 @@ func (s *Store) Metrics(q MetricsQuery) (*Metrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	tests, err := s.periodTests(from, to, q)
-	if err != nil {
-		return nil, err
-	}
 	prevRuns, err := s.periodRuns(prevFrom, from, q)
 	if err != nil {
 		return nil, err
 	}
-	prevTests, err := s.periodTests(prevFrom, from, q)
-	if err != nil {
-		return nil, err
+
+	// por día (todos los días del período, aunque no haya ejecuciones)
+	type dayAcc struct {
+		runs int
+		rate rate
 	}
-	// opciones de tag: las de todo el período (sin el filtro de tag)
-	tagCount := map[string]int{}
-	allTests := tests
-	if q.Tag != "" {
-		if allTests, err = s.periodTests(from, to, MetricsQuery{Suite: q.Suite, Env: q.Env}); err != nil {
-			return nil, err
-		}
+	// cada fecha que toca el período: uno móvil ("últimos 7 días" desde esta hora) empieza a
+	// mitad de un día y toca N+1 fechas; el gráfico las muestra todas, así suma lo mismo que los KPIs
+	byDay := map[string]*dayAcc{}
+	dayKeys := datesBetween(time.UnixMilli(from), end)
+	for _, key := range dayKeys {
+		byDay[key] = &dayAcc{}
 	}
-	for _, t := range allTests {
+	runDay := map[int64]string{}
+	for _, r := range runs {
+		runDay[r.ID] = time.UnixMilli(r.StartedAt).Format("2006-01-02")
+	}
+
+	cur := newPeriodAcc(true)
+	tagCount := map[string]int{} // opciones de tag: las de todo el período (sin el filtro de tag)
+	type tagAcc struct {
+		tests int
+		rate  rate
+	}
+	tags := map[string]*tagAcc{}
+	var tagOrder []string
+	causes := map[string]int{}
+	err = s.eachPeriodTest(from, to, q, func(t *metricRow) {
 		for _, tag := range strings.Split(t.tags, ",") {
 			if tag = strings.TrimSpace(tag); tag != "" {
 				tagCount[tag]++
 			}
 		}
+		if q.Tag != "" && !hasTag(t.tags, q.Tag) {
+			return
+		}
+		cur.add(t)
+		if ds := byDay[runDay[t.runID]]; ds != nil {
+			ds.rate.add(t.status)
+		}
+		if t.status == "FAIL" {
+			causes[t.cause]++
+		}
+		for _, tag := range strings.Split(t.tags, ",") {
+			if tag = strings.TrimSpace(tag); tag == "" {
+				continue
+			}
+			ts := tags[tag]
+			if ts == nil {
+				ts = &tagAcc{}
+				tags[tag] = ts
+				tagOrder = append(tagOrder, tag)
+			}
+			ts.tests++
+			ts.rate.add(t.status)
+		}
+	})
+	if err != nil {
+		return nil, err
 	}
+	prev := newPeriodAcc(false)
+	err = s.eachPeriodTest(prevFrom, from, q, func(t *metricRow) {
+		if q.Tag == "" || hasTag(t.tags, q.Tag) {
+			prev.add(t)
+		}
+	})
+	if err != nil {
+		return nil, err
+	}
+
 	m.TagSet = []string{}
 	for tag := range tagCount {
 		m.TagSet = append(m.TagSet, tag)
@@ -394,129 +554,45 @@ func (s *Store) Metrics(q MetricsQuery) (*Metrics, error) {
 		m.TagSet = m.TagSet[:60]
 	}
 
-	runs = withTestCounts(runs, tests, q.Tag == "")
-	prevRuns = withTestCounts(prevRuns, prevTests, q.Tag == "")
-	m.Current, m.Previous = kpis(runs, tests), kpis(prevRuns, prevTests)
+	runs, m.Current = cur.kpis(runs, q.Tag == "")
+	_, m.Previous = prev.kpis(prevRuns, q.Tag == "")
 
 	// últimas 60 ejecuciones para la tendencia
 	if len(runs) > 60 {
 		m.Runs = runs[len(runs)-60:]
-	} else if runs != nil {
+	} else {
 		m.Runs = runs
 	}
-
-	// por día (todos los días del período, aunque no haya ejecuciones)
-	byDay := map[string]*DayStat{}
-	dayKeys := make([]string, days)
-	for d := range dayKeys {
-		dayKeys[d] = end.AddDate(0, 0, -days+1+d).Format("2006-01-02")
-		byDay[dayKeys[d]] = &DayStat{Day: dayKeys[d]}
-	}
-	runDay := map[int64]string{}
 	for _, r := range runs {
-		day := time.UnixMilli(r.StartedAt).Format("2006-01-02")
-		runDay[r.ID] = day
-		if ds := byDay[day]; ds != nil {
-			ds.Runs++
-		}
-	}
-	for _, t := range tests {
-		if ds := byDay[runDay[t.runID]]; ds != nil {
-			switch t.status {
-			case "PASS":
-				ds.Passed++
-			case "FAIL":
-				ds.Failed++
-			}
+		if ds := byDay[runDay[r.ID]]; ds != nil {
+			ds.runs++
 		}
 	}
 	for _, key := range dayKeys {
 		ds := byDay[key]
-		ds.PassRate = pct(ds.Passed, ds.Passed+ds.Failed)
-		m.Daily = append(m.Daily, *ds)
+		m.Daily = append(m.Daily, DayStat{Day: key, Runs: ds.runs, Passed: ds.rate.passed, Failed: ds.rate.failed, PassRate: ds.rate.pct()})
 	}
 
 	// por test
-	type acc struct {
-		stat      TestStat
-		statuses  []string
-		retried   int
-		durations []int64
-	}
-	byName := map[string]*acc{}
-	var order []string
-	causes := map[string]int{}
-	tags := map[string]*TagStat{}
-	var tagOrder []string
-	for _, t := range tests {
-		a := byName[t.identity()]
-		if a == nil {
-			a = &acc{stat: TestStat{Name: t.name, Key: t.key, Env: t.env, Project: t.project, Branch: t.branch, ctx: t.identity()}}
-			byName[t.identity()] = a
-			order = append(order, t.identity())
-		}
-		a.stat.Name = t.name // el nombre visible más reciente
-		a.stat.Runs++
-		a.statuses = append(a.statuses, t.status)
-		if t.status != "FAIL" && t.attempts > 1 {
-			a.retried++
-		}
-		if d := t.duration(); d > 0 {
-			a.durations = append(a.durations, d)
-		}
-		a.stat.LastRunID, a.stat.LastTestID = t.runID, t.testID
-		if t.status == "FAIL" {
-			a.stat.Fails++
-			a.stat.FailTimeMs += t.duration()
-			a.stat.LastError = firstLine(t.errMsg)
-			a.stat.LastFailAt = t.started
-			causes[t.cause]++
-		}
-		for _, tag := range strings.Split(t.tags, ",") {
-			tag = strings.TrimSpace(tag)
-			if tag == "" {
-				continue
-			}
-			ts := tags[tag]
-			if ts == nil {
-				ts = &TagStat{Tag: tag}
-				tags[tag] = ts
-				tagOrder = append(tagOrder, tag)
-			}
-			ts.Tests++
-			switch t.status {
-			case "PASS":
-				ts.Passed++
-			case "FAIL":
-				ts.Failed++
-			}
-		}
-	}
 	var all []TestStat
 	flakyIDs := map[string]bool{}
-	for _, id := range order {
-		a := byName[id]
-		if kind, _, _ := Classify(reversed(a.statuses), a.retried); kind == StabilityFlaky {
+	for _, id := range cur.order {
+		a := cur.tests[id]
+		if a.flaky() {
 			flakyIDs[a.stat.ctx] = true
 		}
 		st := a.stat
 		st.FailRate = pct(st.Fails, st.Runs)
-		st.Flips = flips(a.statuses)
-		st.Recent = a.statuses
-		if len(st.Recent) > 12 {
-			st.Recent = st.Recent[len(st.Recent)-12:]
-		}
-		if n := len(a.durations); n > 0 {
-			var sum int64
-			for _, d := range a.durations {
-				sum += d
-				if d > st.MaxMs {
-					st.MaxMs = d
+		st.Flips = a.flipCount
+		st.Recent = a.recent
+		if a.durN > 0 {
+			st.AvgMs = a.durSum / int64(a.durN)
+			if a.durN >= 6 {
+				var last int64
+				for _, d := range a.durLast {
+					last += d
 				}
-			}
-			st.AvgMs = sum / int64(n)
-			if n >= 6 {
-				recent, before := avg(a.durations[n-3:]), avg(a.durations[:n-3])
+				recent, before := last/3, (a.durSum-last)/int64(a.durN-3)
 				if before > 0 {
 					st.TrendPct = float64(int((float64(recent-before)/float64(before))*1000)) / 10
 				}
@@ -561,40 +637,13 @@ func (s *Store) Metrics(q MetricsQuery) (*Metrics, error) {
 	})
 	for _, tag := range tagOrder {
 		ts := tags[tag]
-		ts.PassRate = pct(ts.Passed, ts.Passed+ts.Failed)
-		m.Tags = append(m.Tags, *ts)
+		m.Tags = append(m.Tags, TagStat{Tag: tag, Tests: ts.tests, Passed: ts.rate.passed, Failed: ts.rate.failed, PassRate: ts.rate.pct()})
 	}
 	sort.SliceStable(m.Tags, func(i, j int) bool { return m.Tags[i].PassRate < m.Tags[j].PassRate })
 	if len(m.Tags) > 15 {
 		m.Tags = m.Tags[:15]
 	}
 	return m, nil
-}
-
-// flips counts PASS<->FAIL changes, ignoring skipped/other states.
-func flips(statuses []string) int {
-	n, prev := 0, ""
-	for _, st := range statuses {
-		if st != "PASS" && st != "FAIL" {
-			continue
-		}
-		if prev != "" && st != prev {
-			n++
-		}
-		prev = st
-	}
-	return n
-}
-
-func avg(ds []int64) int64 {
-	if len(ds) == 0 {
-		return 0
-	}
-	var s int64
-	for _, d := range ds {
-		s += d
-	}
-	return s / int64(len(ds))
 }
 
 func firstLine(s string) string {
