@@ -49,11 +49,23 @@ type Escalation struct {
 // included), pausing between retries, and the rest (TraceReports: evidence, prompt, redaction,
 // parsing the answer).
 type AITiming struct {
-	TotalMs    int64 `json:"total_ms"`
-	ProviderMs int64 `json:"provider_ms"`
-	WaitMs     int64 `json:"wait_ms"`
-	OwnMs      int64 `json:"own_ms"`
-	Calls      int   `json:"calls"`
+	TotalMs    int64       `json:"total_ms"`
+	ProviderMs int64       `json:"provider_ms"`
+	WaitMs     int64       `json:"wait_ms"`
+	OwnMs      int64       `json:"own_ms"`
+	Calls      int         `json:"calls"`
+	Attempts   []AIAttempt `json:"attempts"` // cada llamada al proveedor, en orden
+}
+
+// AIAttempt is one call to the provider while writing an answer: how long it took, how it ended
+// and the pause before the next one.
+type AIAttempt struct {
+	Ms        int64  `json:"ms"`
+	OK        bool   `json:"ok"`
+	Status    int    `json:"status,omitempty"` // HTTP del error (0: sin respuesta HTTP)
+	Reason    string `json:"reason,omitempty"` // rate_limit | server | auth | timeout | network | other
+	WaitMs    int64  `json:"wait_ms,omitempty"`
+	WaitAsked bool   `json:"wait_asked,omitempty"` // la espera la pidió el proveedor
 }
 
 // Finish sets the total (measured by the caller, from the request) and what TraceReports took.
@@ -344,7 +356,10 @@ func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, 
 		start := time.Now()
 		ctx, calls := withCallTiming(ctx)
 		err := a.escalateAI(ctx, e)
-		e.Timing = &AITiming{ProviderMs: calls.provider.Milliseconds(), WaitMs: calls.wait.Milliseconds(), Calls: calls.calls}
+		calls.mu.Lock()
+		e.Timing = &AITiming{ProviderMs: calls.provider.Milliseconds(), WaitMs: calls.wait.Milliseconds(), Calls: calls.calls,
+			Attempts: append([]AIAttempt{}, calls.attempts...)}
+		calls.mu.Unlock()
 		e.Timing.Finish(time.Since(start)) // el que llama lo vuelve a cerrar con su propio comienzo
 		if err == nil {
 			return e

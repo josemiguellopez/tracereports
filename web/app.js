@@ -2075,6 +2075,10 @@
 		</article>`;
 	}
 
+	// motivo de una llamada fallida al proveedor de IA (ai.FailureReason)
+	const AI_FAIL = { rate_limit: "límite de solicitudes", server: "falla o saturación del proveedor", auth: "credencial rechazada",
+		timeout: "sin respuesta a tiempo", network: "sin conexión con el proveedor", other: "error del proveedor" };
+
 	/** Duración con décimas (1,5 s): para ver de dónde viene una demora. */
 	const fmtDur = (ms) => (ms < 1000 ? `${fmtNum(ms)} ms` : `${fmtNum(ms / 1000, 1)} s`);
 
@@ -2093,7 +2097,15 @@
 			: service >= t.total_ms * 0.8 ? tr("Casi todo el tiempo fue del proveedor de IA.")
 			: t.own_ms > service && t.own_ms > 2000 ? tr("La mayor parte del tiempo fue de TraceReports: avísanos si se repite.")
 			: "";
-		return `<p class="esc-timing" role="note">${icon("i-timeline")}<span><b>${esc(tr("Tardó {t} en generarse", { t: fmtDur(t.total_ms) }))}</b>: ${esc(parts.join(" · "))}.${verdict ? ` ${esc(verdict)}` : ""}</span></p>`;
+		// detalle de cada llamada cuando hubo más de una o alguna falló
+		const att = t.attempts || [];
+		const detail = att.length > 1 || att.some((x) => !x.ok) ? att.map((x, i) => {
+			const what = x.ok ? tr("respondió en {t}", { t: fmtDur(x.ms) })
+				: tr("{e} en {t}", { e: `${x.status ? `HTTP ${x.status} · ` : ""}${tr(AI_FAIL[x.reason] || AI_FAIL.other)}`, t: fmtDur(x.ms) });
+			const wait = x.wait_ms ? ` → ${x.wait_asked ? tr("espera {w} (la pidió el proveedor)", { w: fmtDur(x.wait_ms) }) : tr("espera {w}", { w: fmtDur(x.wait_ms) })}` : "";
+			return `${tr("Llamada {n}", { n: i + 1 })}: ${what}${wait}`;
+		}).join(" · ") : "";
+		return `<p class="esc-timing" role="note">${icon("i-timeline")}<span><b>${esc(tr("Tardó {t} en generarse", { t: fmtDur(t.total_ms) }))}</b>: ${esc(parts.join(" · "))}.${verdict ? ` ${esc(verdict)}` : ""}${detail ? `<br><small>${esc(detail)}.</small>` : ""}</span></p>`;
 	}
 
 	// ---- formatos para compartir ----
@@ -3071,7 +3083,7 @@
 		const comps = (s.components || []).map((c) => `<li><span data-no-i18n>${esc(c.name)}</span>: ${esc(tr(COMPONENT_LABELS[c.status] || c.status))}</li>`).join("");
 		const incs = (s.incidents || []).map((i) => `<li>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener" data-no-i18n>${esc(i.name)} ↗</a>` : `<span data-no-i18n>${esc(i.name)}</span>`} · ${esc(tr(INCIDENT_LABELS[i.status] || i.status))}</li>`).join("");
 		const t = u?.today;
-		const observed = t?.calls ? tr("Observado por TraceReports hoy: {e} de {n} llamadas con error · respuesta media {t}.", { e: fmtNum(t.errors), n: fmtNum(t.calls), t: fmtDur(t.avg_ms) }) : "";
+		const observed = t?.calls ? tr("Observado por TraceReports hoy: {e} de {n} llamadas con error · respuesta media {t}.", { e: fmtNum(t.errors), n: fmtNum(t.calls), t: t.timed ? fmtDur(t.avg_ms) : "—" }) : "";
 		const when = s.checked_at ? new Date(s.checked_at).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" }) : "";
 		return `<div class="prov-status ${tone}" role="status">
 			<span class="prov-dot" aria-hidden="true"></span>
@@ -3097,10 +3109,10 @@
 		const tile = (label, t, tip) => `<div class="card kpi" tabindex="0" data-tip="${esc(tip)}">
 			<span class="kpi-label">${label}</span><span class="kpi-value">${fmtNum(t.calls)}</span>
 			<span class="kpi-delta">${esc(tokens(t))}</span>
-			${t.calls ? `<span class="kpi-delta">${esc(tr("respuesta media {t}", { t: fmtDur(t.avg_ms) }))}</span>` : ""}
+			${t.calls ? `<span class="kpi-delta">${esc(tr("respuesta media {t}", { t: t.timed ? fmtDur(t.avg_ms) : "—" }))}</span>` : ""}
 			${t.errors ? `<span class="kpi-delta bad">${esc(tr("{n} con error", { n: fmtNum(t.errors) }))}</span>` : ""}</div>`;
 		const num = (n) => `<td class="num">${fmtNum(n)}</td>`;
-		const rowsOf = (list, first) => list.map((r) => `<tr>${first(r)}${num(r.calls)}${num(r.errors)}${num(r.input_tokens)}${num(r.output_tokens)}<td class="num">${fmtDur(r.avg_ms)}</td></tr>`).join("");
+		const rowsOf = (list, first) => list.map((r) => `<tr>${first(r)}${num(r.calls)}${num(r.errors)}${num(r.input_tokens)}${num(r.output_tokens)}<td class="num">${r.timed ? fmtDur(r.avg_ms) : "—"}</td></tr>`).join("");
 		const head = (first) => `<thead><tr>${first}<th class="num">Llamadas</th><th class="num">Con error</th><th class="num">Tokens de entrada</th><th class="num">Tokens de salida</th><th class="num" data-tip="Lo que tardó el proveedor en responder, en promedio por llamada.">Respuesta media</th></tr></thead>`;
 		const model = (r) => `<td><span data-no-i18n>${esc(r.provider)} · ${esc(r.model || "—")}</span></td>`;
 		const empty = !u.last_30.calls;
@@ -3114,6 +3126,9 @@
 				${tile(tr("Últimos 7 días"), u.last_7, tr("Hoy y los 6 días anteriores."))}
 				${tile(tr("Últimos 30 días"), u.last_30, tr("Hoy y los 29 días anteriores."))}
 			</div>
+			${u.last_30.errors ? `<p class="m-hint">${esc(tr("Errores en 30 días: {list}.", { list: Object.entries(u.last_30.errors_by || {})
+				.sort((a, b) => b[1] - a[1]).map(([r, n]) => tr("{n} por {r}", { n: fmtNum(n), r: tr(AI_FAIL[r] || AI_FAIL.other) })).join(" · ") }))}</p>` : ""}
+			${u.last_30.calls && u.last_30.timed < u.last_30.calls ? `<p class="m-hint">${esc(tr("La respuesta media es de las llamadas con tiempo medido ({m} de {n}); las anteriores a esta versión no lo tienen.", { m: fmtNum(u.last_30.timed), n: fmtNum(u.last_30.calls) }))}</p>` : ""}
 			${u.last_30.untracked ? `<p class="m-hint">${esc(u.last_30.untracked === 1
 				? tr("1 llamada no informó tokens (una API compatible que no los devuelve, o un error antes de la respuesta).")
 				: tr("{n} llamadas no informaron tokens (una API compatible que no los devuelve, o un error antes de la respuesta).", { n: fmtNum(u.last_30.untracked) }))}</p>` : ""}

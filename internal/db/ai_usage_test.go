@@ -26,13 +26,13 @@ func TestAIUsagePeriodsAndRetention(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if u.Today != (AIUsageTotals{Calls: 2, Errors: 1, InputTokens: 150, OutputTokens: 15}) {
+	if core(u.Today) != (usageCore{Calls: 2, Errors: 1, InputTokens: 150, OutputTokens: 15}) {
 		t.Fatalf("today: %+v", u.Today)
 	}
-	if u.Last7 != (AIUsageTotals{Calls: 3, Errors: 1, InputTokens: 180, OutputTokens: 18}) {
+	if core(u.Last7) != (usageCore{Calls: 3, Errors: 1, InputTokens: 180, OutputTokens: 18}) {
 		t.Fatalf("7 days: %+v", u.Last7)
 	}
-	if u.Last30 != (AIUsageTotals{Calls: 5, Errors: 2, InputTokens: 200, OutputTokens: 20, Untracked: 1}) {
+	if core(u.Last30) != (usageCore{Calls: 5, Errors: 2, InputTokens: 200, OutputTokens: 20, Untracked: 1}) {
 		t.Fatalf("30 days: %+v", u.Last30)
 	}
 	if len(u.Daily) != 4 || u.Daily[0].Day != "2026-10-08" || u.Daily[0].Calls != 2 || u.Daily[3].Day != "2026-09-09" {
@@ -61,5 +61,37 @@ func TestAIUsageByModel(t *testing.T) {
 	u, _ := s.AIUsage(now)
 	if len(u.ByModel) != 2 || u.ByModel[0].Model != "g-1" || u.ByModel[0].Calls != 2 || u.ByModel[1].Model != "gpt-a" {
 		t.Fatalf("by model: %+v", u.ByModel)
+	}
+}
+
+// usageCore are the totals compared in these tests (without timing and the errors by reason).
+type usageCore struct{ Calls, Errors, InputTokens, OutputTokens, Untracked int64 }
+
+func core(t AIUsageTotals) usageCore {
+	return usageCore{t.Calls, t.Errors, t.InputTokens, t.OutputTokens, t.Untracked}
+}
+
+// Las llamadas registradas por una versión que no medía la duración no tiran la respuesta media
+// hacia cero: el promedio es solo de las medidas, y sin ninguna medida no hay promedio.
+func TestAIUsageAverageIgnoresCallsWithoutDuration(t *testing.T) {
+	s := openTestStore(t)
+	now := time.Now()
+	day := now.Format("2006-01-02")
+	if _, err := s.db.Exec(`INSERT INTO ai_usage_daily(day, provider, model, kind, calls, errors, input_tokens, output_tokens, untracked)
+		VALUES(?, 'gemini', 'g-1', 'escalation', 10, 4, 100, 10, 4)`, day); err != nil {
+		t.Fatal(err)
+	}
+	u, _ := s.AIUsage(now)
+	if u.Today.AvgMs != 0 || u.Today.Timed != 0 {
+		t.Fatalf("no measured call, no average: %+v", u.Today)
+	}
+	s.AddAIUsage(AIUsageCall{At: now, Provider: "gemini", Model: "g-1", Kind: "escalation", Duration: 1500 * time.Millisecond, TokensKnown: true})
+	s.AddAIUsage(AIUsageCall{At: now, Provider: "gemini", Model: "g-1", Kind: "escalation", Duration: 500 * time.Millisecond, Failed: true, Reason: "rate_limit"})
+	u, _ = s.AIUsage(now)
+	if u.Today.Calls != 12 || u.Today.Timed != 2 || u.Today.AvgMs != 1000 {
+		t.Fatalf("average of the measured calls: %+v", u.Today)
+	}
+	if u.Today.ErrorsBy["rate_limit"] != 1 || len(u.ByModel) != 1 || u.ByModel[0].AvgMs != 1000 {
+		t.Fatalf("by reason / by model: %+v %+v", u.Today.ErrorsBy, u.ByModel)
 	}
 }

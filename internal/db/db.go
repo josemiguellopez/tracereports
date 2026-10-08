@@ -122,6 +122,14 @@ func Open(path string) (*Store, error) {
 		{"tickets", "state", "TEXT NOT NULL DEFAULT 'created'"},
 		// uso de la IA: tiempo de respuesta del proveedor
 		{"ai_usage_daily", "duration_ms", "INTEGER NOT NULL DEFAULT 0"},
+		// llamadas con duración medida y errores por motivo
+		{"ai_usage_daily", "timed", "INTEGER NOT NULL DEFAULT 0"},
+		{"ai_usage_daily", "err_rate_limit", "INTEGER NOT NULL DEFAULT 0"},
+		{"ai_usage_daily", "err_server", "INTEGER NOT NULL DEFAULT 0"},
+		{"ai_usage_daily", "err_auth", "INTEGER NOT NULL DEFAULT 0"},
+		{"ai_usage_daily", "err_timeout", "INTEGER NOT NULL DEFAULT 0"},
+		{"ai_usage_daily", "err_network", "INTEGER NOT NULL DEFAULT 0"},
+		{"ai_usage_daily", "err_other", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()

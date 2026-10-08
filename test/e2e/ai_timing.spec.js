@@ -9,9 +9,15 @@ const ESC = { title: "Checkout falla", severity: "high", headline: "El pago no s
 	evidence: ["e"], root_cause: "r", next_steps: ["n"], owner: "o" };
 
 function slowLLM(ms) {
+	let n = 0;
 	return new Promise((resolve) => {
 		const srv = http.createServer((req, res) => {
 			req.resume();
+			// la primera llamada choca con el límite y el proveedor pide esperar 1 s
+			if (++n === 1) {
+				req.on("end", () => { res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "1" }); res.end('{"error":{"message":"Rate limit reached"}}'); });
+				return;
+			}
 			req.on("end", () => setTimeout(() => {
 				res.setHeader("Content-Type", "application/json");
 				res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(ESC) } }], usage: { prompt_tokens: 900, completion_tokens: 80 } }));
@@ -37,7 +43,10 @@ test("cuánto tardó la IA al escalar, y el estado del proveedor", async ({ page
 		await page.locator("[data-esc-gen]").click();
 		const timing = page.locator(".esc-timing");
 		await expect(timing).toContainText("Tardó");
-		await expect(timing).toContainText("esperando al proveedor de IA (1 llamada)");
+		await expect(timing).toContainText("esperando al proveedor de IA (2 llamadas)");
+		await expect(timing).toContainText("Llamada 1: HTTP 429 · límite de solicitudes");
+		await expect(timing).toContainText("espera 1,0 s (la pidió el proveedor)");
+		await expect(timing).toContainText("Llamada 2: respondió en");
 		await expect(timing).toContainText("de TraceReports");
 		await expect(timing).toContainText("Casi todo el tiempo fue del proveedor de IA.");
 		// fuera de la tarjeta que se comparte
@@ -50,6 +59,7 @@ test("cuánto tardó la IA al escalar, y el estado del proveedor", async ({ page
 		await expect(status).toContainText("Degradación parcial");
 		await expect(status).toContainText("Elevated latency");
 		await expect(status).toContainText("Observado por TraceReports hoy");
+		await expect(page.locator("#set-panel")).toContainText("1 por límite de solicitudes");
 		await expect(status.locator('a[href="https://status.example/i/1"]')).toHaveCount(1);
 		await expect(page.locator("#set-panel table").first()).toContainText("openai_compatible · fake-llm");
 	} finally {

@@ -60,11 +60,11 @@ func TestUsageReportsTheTokensOfEachProvider(t *testing.T) {
 			if !c.known {
 				untracked = 1
 			}
-			want := db.AIUsageTotals{Calls: 1, InputTokens: c.in, OutputTokens: c.out, Untracked: untracked}
-			for _, t := range []*db.AIUsageTotals{&u.Today, &u.Last7, &u.Last30} {
-				t.DurationMs, t.AvgMs = 0, 0 // la latencia se prueba aparte
+			want := [5]int64{1, 0, c.in, c.out, untracked}
+			got := func(t db.AIUsageTotals) [5]int64 {
+				return [5]int64{t.Calls, t.Errors, t.InputTokens, t.OutputTokens, t.Untracked}
 			}
-			if u.Today != want || u.Last7 != want || u.Last30 != want {
+			if got(u.Today) != want || got(u.Last7) != want || got(u.Last30) != want {
 				t.Fatalf("totals: %+v, want %+v", u.Today, want)
 			}
 			if len(u.ByModel) != 1 || u.ByModel[0].Provider != c.provider || u.ByModel[0].Model != "m-1" {
@@ -107,6 +107,9 @@ func TestUsageCountsRetriesErrorsAndRefusals(t *testing.T) {
 		t.Fatalf("totals: %+v", u.Today)
 	}
 	kinds := map[string]db.AIUsageTotals{}
+	if u.Today.ErrorsBy["server"] != 1 || u.Today.ErrorsBy["other"] != 1 {
+		t.Fatalf("errors by reason: %+v", u.Today.ErrorsBy)
+	}
 	for _, k := range u.ByKind {
 		kinds[k.Kind] = k.AIUsageTotals
 	}

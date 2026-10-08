@@ -19,6 +19,14 @@ type escTiming struct {
 		WaitMs     int64 `json:"wait_ms"`
 		OwnMs      int64 `json:"own_ms"`
 		Calls      int   `json:"calls"`
+		Attempts   []struct {
+			Ms        int64  `json:"ms"`
+			OK        bool   `json:"ok"`
+			Status    int    `json:"status"`
+			Reason    string `json:"reason"`
+			WaitMs    int64  `json:"wait_ms"`
+			WaitAsked bool   `json:"wait_asked"`
+		} `json:"attempts"`
 	} `json:"timing"`
 }
 
@@ -85,5 +93,8 @@ func TestEscalationTimingCountsRetriesAndPauses(t *testing.T) {
 	tm := escalateWith(t, srv, runID, testID, "").Timing
 	if tm == nil || tm.Calls != 2 || tm.WaitMs < 4900 || tm.TotalMs < tm.WaitMs {
 		t.Fatalf("retry timing: %+v", tm)
+	}
+	if at := tm.Attempts; len(at) != 2 || at[0].OK || at[0].Status != 503 || at[0].Reason != "server" || at[0].WaitMs < 4900 || at[0].WaitAsked || !at[1].OK {
+		t.Fatalf("each call: %+v", tm.Attempts)
 	}
 }

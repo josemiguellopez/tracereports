@@ -26,7 +26,7 @@ func scrubError(err error, key string) error {
 	}
 	var se *httpStatusError
 	if errors.As(err, &se) {
-		return &httpStatusError{provider: se.provider, code: se.code, body: scrubKey(se.body, key)}
+		return &httpStatusError{provider: se.provider, code: se.code, body: scrubKey(se.body, key), retryAfter: se.retryAfter, noRetry: se.noRetry}
 	}
 	return redact.ScrubCredentialError(err, keyMask, key)
 }

@@ -7,10 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
@@ -172,6 +175,11 @@ type httpStatusError struct {
 	provider string
 	code     int
 	body     string
+	// retryAfter is how long the provider asked to wait (Retry-After, retry-after-ms or Gemini's
+	// RetryInfo.retryDelay); 0 = it did not say.
+	retryAfter time.Duration
+	// noRetry: the SDK already retried it (Anthropic), it is not retried again.
+	noRetry bool
 }
 
 func (e *httpStatusError) Error() string {
@@ -187,6 +195,9 @@ var (
 // retryable: rate limits per minute and server errors; never a used-up daily quota (it would only
 // make the diagnosis wait for nothing).
 func (e *httpStatusError) retryable() bool {
+	if e.noRetry {
+		return false
+	}
 	if e.code == http.StatusTooManyRequests {
 		return !dailyQuota.MatchString(e.body) && !noCredits.MatchString(e.body)
 	}
@@ -304,9 +315,85 @@ func postJSON(ctx context.Context, client *http.Client, provider, url string, he
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, &httpStatusError{provider: provider, code: resp.StatusCode, body: apiErrorMessage(raw)}
+		return nil, &httpStatusError{provider: provider, code: resp.StatusCode, body: apiErrorMessage(raw), retryAfter: retryAfter(resp.Header, raw)}
 	}
 	return raw, nil
+}
+
+// retryAfter reads how long the provider asked to wait before retrying: the Retry-After header
+// (seconds or a date), OpenAI's retry-after-ms, or Gemini's google.rpc.RetryInfo in the error
+// body ("retryDelay": "29s"). 0 when it did not say.
+func retryAfter(h http.Header, body []byte) time.Duration {
+	if ms, err := strconv.ParseFloat(strings.TrimSpace(h.Get("retry-after-ms")), 64); err == nil && ms > 0 {
+		return time.Duration(ms * float64(time.Millisecond))
+	}
+	if v := strings.TrimSpace(h.Get("Retry-After")); v != "" {
+		if s, err := strconv.ParseFloat(v, 64); err == nil && s > 0 {
+			return time.Duration(s * float64(time.Second))
+		}
+		if t, err := http.ParseTime(v); err == nil {
+			if d := time.Until(t); d > 0 {
+				return d
+			}
+		}
+	}
+	var e struct {
+		Error struct {
+			Details []struct {
+				Type       string `json:"@type"`
+				RetryDelay string `json:"retryDelay"`
+			} `json:"details"`
+		} `json:"error"`
+	}
+	if json.Unmarshal(body, &e) == nil {
+		for _, d := range e.Error.Details {
+			if strings.HasSuffix(d.Type, "google.rpc.RetryInfo") {
+				if dur, err := time.ParseDuration(d.RetryDelay); err == nil && dur > 0 {
+					return dur
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// FailureReason classifies a failed provider call for the usage report: rate_limit (429),
+// server (5xx: overloaded or down), auth (401/403), timeout, network (no connection) or other
+// (another HTTP error, a refusal, an unreadable answer). "" for no error.
+func FailureReason(err error) string {
+	if err == nil {
+		return ""
+	}
+	var se *httpStatusError
+	if errors.As(err, &se) {
+		switch {
+		case se.code == http.StatusTooManyRequests:
+			return "rate_limit"
+		case se.code >= 500:
+			return "server"
+		case se.code == http.StatusUnauthorized || se.code == http.StatusForbidden:
+			return "auth"
+		}
+		return "other"
+	}
+	var ne interface{ Timeout() bool }
+	if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &ne) && ne.Timeout()) {
+		return "timeout"
+	}
+	var op *net.OpError
+	if errors.As(err, &op) || strings.Contains(err.Error(), "connection refused") {
+		return "network"
+	}
+	return "other"
+}
+
+// statusOf is the HTTP status of a provider error (0 when there was no HTTP answer).
+func statusOf(err error) int {
+	var se *httpStatusError
+	if errors.As(err, &se) {
+		return se.code
+	}
+	return 0
 }
 
 // apiErrorMessage extracts error.message (Google, OpenAI) or error (Ollama) from an error body.
@@ -469,7 +556,13 @@ func callAnthropic(ctx context.Context, client *http.Client, c Config, prompt st
 		var apiErr *anthropic.Error
 		if errors.As(err, &apiErr) {
 			// el SDK ya reintentó 429 y 5xx: no reintentar de nuevo
-			return "", Usage{}, fmt.Errorf("anthropic HTTP %d: %s", apiErr.StatusCode, apiErrorMessage([]byte(apiErr.RawJSON())))
+			raw := []byte(apiErr.RawJSON())
+			var h http.Header
+			if apiErr.Response != nil {
+				h = apiErr.Response.Header
+			}
+			return "", Usage{}, &httpStatusError{provider: "anthropic", code: apiErr.StatusCode, body: apiErrorMessage(raw),
+				retryAfter: retryAfter(h, raw), noRetry: true}
 		}
 		return "", Usage{}, err
 	}

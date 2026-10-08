@@ -534,7 +534,7 @@ func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map
 		started := time.Now()
 		text, u, err := call(ctx, a.client, c, prompt, schema)
 		took := time.Since(started)
-		timing.addCall(took)
+		timing.addCall(took, err)
 		a.recordUsage(kind, c, u, err, took)
 		if err == nil {
 			return text, nil
@@ -544,17 +544,31 @@ func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map
 		if !errors.As(err, &se) || !se.retryable() || attempt == maxAttempts {
 			break
 		}
+		// la espera que pidió el proveedor (Retry-After, RetryInfo de Gemini); si no dijo, 5 s, 20 s…
+		delay, asked := time.Duration(attempt*attempt)*5*time.Second, false
+		if se.retryAfter > 0 {
+			delay, asked = se.retryAfter, true
+		}
+		if delay > maxRetryWait {
+			break // pide esperar demasiado: mejor fallar ya y decirlo
+		}
+		if dl, ok := ctx.Deadline(); ok && time.Until(dl) < delay+time.Second {
+			break // no alcanzaría a reintentar antes del tiempo límite
+		}
 		paused := time.Now()
 		select {
-		case <-time.After(time.Duration(attempt*attempt) * 5 * time.Second):
+		case <-time.After(delay):
 		case <-ctx.Done():
-			timing.addWait(time.Since(paused))
+			timing.addWait(time.Since(paused), asked)
 			return "", ctx.Err()
 		}
-		timing.addWait(time.Since(paused))
+		timing.addWait(time.Since(paused), asked)
 	}
 	return "", lastErr
 }
+
+// maxRetryWait is the longest pause before a retry (also when the provider asks for more).
+const maxRetryWait = 90 * time.Second
 
 // callTiming adds up, for one answer, the time spent waiting for the provider and pausing
 // between retries (generate fills it when the context carries one).
@@ -563,6 +577,7 @@ type callTiming struct {
 	provider time.Duration
 	wait     time.Duration
 	calls    int
+	attempts []AIAttempt
 }
 
 type callTimingKey struct{}
@@ -577,19 +592,24 @@ func callTimingFrom(ctx context.Context) *callTiming {
 	return t
 }
 
-func (t *callTiming) addCall(d time.Duration) {
+func (t *callTiming) addCall(d time.Duration, err error) {
 	if t != nil {
 		t.mu.Lock()
 		t.provider += d
 		t.calls++
+		t.attempts = append(t.attempts, AIAttempt{Ms: d.Milliseconds(), OK: err == nil, Status: statusOf(err), Reason: FailureReason(err)})
 		t.mu.Unlock()
 	}
 }
 
-func (t *callTiming) addWait(d time.Duration) {
+// addWait adds a pause before the next call; asked: the provider said how long to wait.
+func (t *callTiming) addWait(d time.Duration, asked bool) {
 	if t != nil {
 		t.mu.Lock()
 		t.wait += d
+		if n := len(t.attempts); n > 0 {
+			t.attempts[n-1].WaitMs, t.attempts[n-1].WaitAsked = d.Milliseconds(), asked
+		}
 		t.mu.Unlock()
 	}
 }
@@ -609,7 +629,7 @@ func (a *Analyzer) recordUsage(kind string, c Config, u Usage, err error, took t
 		return
 	}
 	if e := a.store.AddAIUsage(db.AIUsageCall{At: time.Now(), Provider: c.Provider, Model: c.Model, Kind: kind,
-		Failed: err != nil, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TokensKnown: u.Known, Duration: took}); e != nil {
+		Failed: err != nil, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TokensKnown: u.Known, Duration: took, Reason: FailureReason(err)}); e != nil {
 		slog.Warn("ai: usage not recorded", "err", e)
 	}
 }
