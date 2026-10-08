@@ -618,7 +618,9 @@ body[data-theme="pixel"] .ai-hint { font-size: 18px; }
 .esc-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .esc-sev { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #fff; background: var(--sev); padding: 3px 9px; border-radius: 999px; }
 .esc-aud { font-size: 11.5px; font-weight: 700; color: #455a64; background: #eef1f4; padding: 3px 9px; border-radius: 999px; }
-.esc-brand { font-size: 12px; font-weight: 700; color: #90a4ae; letter-spacing: .02em; }
+.esc-brand { display: inline-flex; align-items: center; gap: 7px; font: 600 12.5px "JetBrains Mono", ui-monospace, Consolas, monospace; color: #18200d; letter-spacing: -.01em; }
+.esc-logo { width: 20px; height: 20px; flex: none; border-radius: 3px; }
+.esc-cursor { color: #6c9736; }
 .esc-title { margin: 12px 0 4px; font-size: 22px; line-height: 1.25; color: #1c2833; font-weight: 700; }
 .esc-headline { margin: 0; font-size: 15px; color: #37474f; }
 .esc-meta { display: flex; flex-wrap: wrap; gap: 4px 18px; margin: 12px 0 0; padding: 10px 0 0; border-top: 1px solid #eef1f4; }

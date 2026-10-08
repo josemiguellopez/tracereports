@@ -168,6 +168,12 @@ test("red: correlación con los logs del backend", async ({ page }) => {
 	await expect(detail.locator(".net-card:not(.net-card-error) .bloque.corr")).toHaveCount(0);
 });
 
+test("logo del sitio en la barra superior", async ({ page }) => {
+	await openRun(page);
+	await expect(page.locator(".logo-container use")).toHaveAttribute("href", "#i-logo");
+	await expect(page.locator(".logo-word")).toHaveText("tracereports_");
+});
+
 test("escalar para Desarrollo: detalle técnico con cURL, stack, consola y cómo reproducirlo", async ({ page }) => {
 	await openRun(page);
 	await page.locator('[data-view="escalate"]').first().click();

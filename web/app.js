@@ -1914,6 +1914,8 @@
 		renderEscalate();
 	}
 
+	// el logo del sitio en línea: la tarjeta se exporta a PNG y ahí no llegan los <use> del sprite
+	const LOGO_SVG = `<svg class="esc-logo" viewBox="0 0 32 32" shape-rendering="crispEdges" aria-hidden="true"><rect width="32" height="32" fill="#c9fa6b"/><path fill="#18200d" d="M6 6h20v5h-7v15h-6V11H6z"/><path fill="#6c9736" d="M22 22h5v5h-5z"/></svg>`;
 
 	/** Primeras n líneas de un texto largo (la tarjeta también se exporta como imagen). */
 	function escLines(s, n, L) {
@@ -1985,7 +1987,7 @@
 			<div class="esc-band"></div>
 			<header class="esc-head">
 				<div class="esc-tags"><span class="esc-sev">${esc(L[e.severity] || e.severity)}</span><span class="esc-aud">${esc(L[e.audience])}</span></div>
-				<span class="esc-brand">TraceReports</span>
+				<span class="esc-brand">${LOGO_SVG}<span>tracereports<span class="esc-cursor">_</span></span></span>
 			</header>
 			<h2 class="esc-title">${esc(e.title)}</h2>
 			<p class="esc-headline">${esc(e.headline)}</p>
