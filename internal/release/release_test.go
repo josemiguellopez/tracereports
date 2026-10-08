@@ -11,9 +11,12 @@ func test(name, status, tags string) db.Test {
 	return db.Test{Name: name, Status: status, Category: tags}
 }
 
+// run is a closed run (what the gate decides on); open() reopens it for the open-run cases.
 func run(tests ...db.Test) *db.RunDetail {
 	d := &db.RunDetail{Tests: tests}
 	d.ID = 9
+	ended := int64(2000)
+	d.Status, d.EndedAt = "PASS", &ended
 	return d
 }
 

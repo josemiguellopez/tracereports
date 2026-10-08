@@ -196,7 +196,21 @@ func Evaluate(g Gate, d *db.RunDetail, newFailures []string) *Decision {
 	add := func(id, sev string, ok bool, detail string, tests []string) {
 		out.Checks = append(out.Checks, Check{ID: id, Severity: sev, OK: ok, Detail: detail, Tests: uniq(tests)})
 	}
-	add("complete", Block, !d.Incomplete && d.Running == 0, "", nil)
+	// solo una ejecución cerrada (con fin y sin estar en curso), sin tests corriendo ni interrumpida
+	closed := d.EndedAt != nil && d.Status != "RUNNING"
+	complete := ""
+	switch {
+	case !closed:
+		complete = "open"
+	case d.Running > 0:
+		complete = "running"
+	case d.Incomplete:
+		complete = "incomplete"
+	}
+	add("complete", Block, complete == "", complete, nil)
+	// política aparte: sin ningún test ejecutado (sin tests, todos SKIP o todos los fallos en
+	// cuarentena) no hay evidencia para salir
+	add("evidence", Block, counted > 0, strconv.Itoa(counted), nil)
 	if len(g.Critical) > 0 {
 		add("critical", Block, len(critFails) == 0, strings.Join(g.Critical, ", "), critFails)
 	}

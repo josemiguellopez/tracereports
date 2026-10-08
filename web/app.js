@@ -629,7 +629,10 @@
 		const [a, b] = String(c.detail || "").split("/");
 		const tests = c.tests?.length ? ` ${tr("({t})", { t: c.tests.slice(0, 5).join(", ") + (c.tests.length > 5 ? "…" : "") })}` : "";
 		switch (c.id) {
-		case "complete": return c.ok ? tr("La ejecución terminó completa.") : tr("La ejecución quedó incompleta: hay tests que no llegaron a terminar.");
+		case "complete": return c.ok ? tr("La ejecución terminó completa.")
+			: c.detail === "open" || c.detail === "running" ? tr("La ejecución sigue en curso: la decisión se toma cuando termine.")
+			: tr("La ejecución quedó incompleta: hay tests que no llegaron a terminar.");
+		case "evidence": return c.ok ? tr("Hay tests ejecutados que respaldan la decisión.") : tr("Ningún test se ejecutó (sin tests o todos omitidos): no hay evidencia para salir.");
 		case "critical": return (c.ok ? tr("Ninguna funcionalidad crítica falló ({f}).", { f: c.detail }) : tr("Falló una funcionalidad crítica")) + (c.ok ? "" : tests);
 		case "pass_rate": return tr("Tasa de éxito {p}% (mínimo {m}%).", { p: Number(a).toLocaleString(), m: Number(b).toLocaleString() });
 		case "new_failures": return tr(a === "1" ? "1 fallo nuevo frente a la ejecución anterior (se toleran {m})." : "{n} fallos nuevos frente a la ejecución anterior (se toleran {m}).", { n: a, m: b }) + tests;
