@@ -462,7 +462,18 @@ func (s *Store) GetRun(runID int64) (*Run, error) {
 	if r.Counters, err = s.countersFor(runID); err != nil {
 		return nil, err
 	}
+	r.deriveStatus()
 	return &r, nil
+}
+
+// deriveStatus recomputes the status of a closed run from its live counters, the same rule
+// (runStatus) used when it was closed. The counters count a quarantine only while it is active,
+// so the status follows a quarantine created, changed, lifted or expired after the close, in
+// every run of the project, without rewriting rows. An open run keeps RUNNING.
+func (r *Run) deriveStatus() {
+	if r.Status != "RUNNING" {
+		r.Status = runStatus(r.Counters, r.Incomplete)
+	}
 }
 
 // ListRuns returns the most recent runs with live counters.
@@ -475,7 +486,8 @@ func (s *Store) ListRuns(limit int) ([]Run, error) {
 		       COALESCE(SUM(t.status='FAIL'),0),
 		       COALESCE(SUM(t.status='SKIP'),0),
 		       COALESCE(SUM(t.status='WARNING'),0),
-		       COALESCE(SUM(t.status='RUNNING'),0)
+		       COALESCE(SUM(t.status='RUNNING'),0),
+		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
 		FROM runs r LEFT JOIN tests t ON t.run_id = r.id
 		GROUP BY r.id ORDER BY r.id DESC LIMIT ?`, NowMs(), limit)
 	if err != nil {
@@ -486,9 +498,10 @@ func (s *Store) ListRuns(limit int) ([]Run, error) {
 	for rows.Next() {
 		var r Run
 		if err := rows.Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
-			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running); err != nil {
+			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Quarantined); err != nil {
 			return nil, err
 		}
+		r.deriveStatus()
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()

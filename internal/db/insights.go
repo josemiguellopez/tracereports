@@ -313,6 +313,7 @@ func (s *Store) CompatibleRuns(runID int64, limit int) ([]Run, error) {
 			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Quarantined); err != nil {
 			return nil, err
 		}
+		r.deriveStatus()
 		out = append(out, r)
 	}
 	return out, rows.Err()
