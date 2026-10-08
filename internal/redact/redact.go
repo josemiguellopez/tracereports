@@ -47,8 +47,11 @@ var (
 	// JSON escapes ("\u0074oken")
 	jsonKVRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*|true|false)`)
 	// "key": "value…   a string cut at the end of the text (a truncated body or field: the closing
-	// quote was cut off, the value may still be the whole secret)
+	// quote was cut off, the value may still be the whole secret). Reference definition: Text uses
+	// openTail, which finds the same without scanning the whole text (tests compare both)
 	jsonOpenTailRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)"(?:[^"\\]|\\.)*\\?$`)
+	// the key part of jsonOpenTailRe, ending at the value's opening quote (see openTail)
+	jsonOpenKeyRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)"$`)
 	// "key": { ... } | [ ... ]   (a whole object or array under a sensitive key)
 	jsonContainerRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"\s*:\s*[\[{]`)
 	// key=value   (query strings, form bodies, logs); the key may be percent-encoded (%74oken)
@@ -231,7 +234,7 @@ func (p *Policy) Text(s string) string {
 		}
 		return `"` + g[1] + `"` + g[2] + `"` + Mask + `"`
 	})
-	if m := jsonOpenTailRe.FindStringSubmatchIndex(s); m != nil && p.SensitiveKey(jsonKey(s[m[2]:m[3]])) {
+	if m := openTail(s); m != nil && p.SensitiveKey(jsonKey(s[m[2]:m[3]])) {
 		s = s[:m[0]] + `"` + s[m[2]:m[3]] + `"` + s[m[4]:m[5]] + `"` + Mask + `"`
 	}
 	s = formKVRe.ReplaceAllStringFunc(s, func(m string) string {
@@ -269,4 +272,44 @@ func (p *Policy) Headers(h map[string]string) map[string]string {
 		h[k] = p.Text(v)
 	}
 	return h
+}
+
+// openKeyWindow is how far before the value's opening quote the key is looked for: an 80
+// character key (escapes included) plus the spaces around the colon.
+const openKeyWindow = 1024
+
+// openTail finds what jsonOpenTailRe matches (a sensitive-looking "key": "value cut at the end)
+// without running a regular expression over the whole text: a value cut at the end starts at
+// the last unescaped quote, so only the key just before it is matched. Same indexes as
+// FindStringSubmatchIndex (match, key, separator); nil when there is none.
+func openTail(s string) []int {
+	q := -1
+	for i := len(s) - 1; i >= 0; i-- {
+		if s[i] != '"' {
+			continue
+		}
+		bs := 0
+		for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+			bs++
+		}
+		if bs%2 == 0 { // comilla sin escapar
+			q = i
+			break
+		}
+	}
+	if q < 0 {
+		return nil
+	}
+	start := max(0, q-openKeyWindow)
+	m := jsonOpenKeyRe.FindStringSubmatchIndex(s[start : q+1])
+	if m == nil {
+		return nil
+	}
+	for i := range m {
+		if m[i] >= 0 {
+			m[i] += start
+		}
+	}
+	m[1] = len(s)
+	return m
 }
