@@ -2,7 +2,9 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"strconv"
@@ -38,28 +40,43 @@ func (s *Server) addNetwork(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxNetworkBody)
-	var in struct {
-		Connections []db.NetConn `json:"connections"`
-	}
-	if !decodeLimited(w, r, &in) {
+	// pocos lotes grandes a la vez: cada uno puede traer hasta maxNetworkBody
+	select {
+	case networkSlots <- struct{}{}:
+		defer func() { <-networkSlots }()
+	case <-r.Context().Done():
 		return
 	}
-	if len(in.Connections) > maxNetworkConns {
+	r.Body = http.MaxBytesReader(w, r.Body, maxNetworkBody)
+	// se lee de a una conexión y cada una se recorta al leerla: el lote no queda entero en
+	// memoria con sus bodies completos (el límite del request sigue igual: los clientes envían
+	// hasta 200 conexiones de hasta 256 KB)
+	var conns []db.NetConn
+	errors := 0
+	red := s.redactor()
+	err := decodeConnections(r.Body, func(c db.NetConn) error {
+		if len(conns) >= maxNetworkConns {
+			return errTooManyConns
+		}
+		normalizeConn(&c)
+		redactConn(red, &c)
+		if (c.Failed || c.Status >= 400) && !c.Expected {
+			errors++
+		}
+		conns = append(conns, c)
+		return nil
+	})
+	if err == errTooManyConns {
 		writeError(w, http.StatusRequestEntityTooLarge, "too many connections in one batch (max 5000)")
 		return
 	}
-	errors := 0
-	for i := range in.Connections {
-		normalizeConn(&in.Connections[i])
-		redactConn(s.redactor(), &in.Connections[i])
-		if c := in.Connections[i]; (c.Failed || c.Status >= 400) && !c.Expected {
-			errors++
-		}
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON body: "+err.Error())
+		return
 	}
-	res := map[string]int{"stored": len(in.Connections), "errors": errors}
-	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
-		return http.StatusCreated, res, tx.AddNetwork(id, in.Connections)
+	res := map[string]int{"stored": len(conns), "errors": errors}
+	err = s.commit(w, r, func(tx *db.Store) (int, any, error) {
+		return http.StatusCreated, res, tx.AddNetwork(id, conns)
 	})
 	if respondErr(w, err, "test") {
 		return
@@ -164,6 +181,64 @@ func redactConn(p *redact.Policy, c *db.NetConn) {
 	c.ResponseBody = p.Text(c.ResponseBody)
 }
 
+var (
+	networkSlots    = make(chan struct{}, 4) // lotes de red procesándose a la vez
+	errTooManyConns = errors.New("too many connections")
+)
+
+// decodeConnections reads {"connections": [...]} calling each for every connection as soon as it
+// is decoded. Other keys are skipped; an empty body has no connections.
+func decodeConnections(r io.Reader, each func(db.NetConn) error) error {
+	dec := json.NewDecoder(r)
+	tok, err := dec.Token()
+	if err == io.EOF {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if d, ok := tok.(json.Delim); !ok || d != '{' {
+		return errors.New(`expected an object {"connections": [...]}`)
+	}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return err
+		}
+		if key, _ := tok.(string); key != "connections" {
+			var skip json.RawMessage
+			if err := dec.Decode(&skip); err != nil {
+				return err
+			}
+			continue
+		}
+		tok, err = dec.Token()
+		if err != nil {
+			return err
+		}
+		if tok == nil {
+			continue // "connections": null
+		}
+		if d, ok := tok.(json.Delim); !ok || d != '[' {
+			return errors.New(`"connections" must be an array`)
+		}
+		for dec.More() {
+			var c db.NetConn
+			if err := dec.Decode(&c); err != nil {
+				return err
+			}
+			if err := each(c); err != nil {
+				return err
+			}
+		}
+		if _, err := dec.Token(); err != nil { // ]
+			return err
+		}
+	}
+	_, err = dec.Token() // }
+	return err
+}
+
 func normalizeConn(c *db.NetConn) {
 	c.Method = strings.ToUpper(truncate(strings.TrimSpace(c.Method), 16))
 	c.URL = truncate(c.URL, maxURLChars)
@@ -173,7 +248,9 @@ func normalizeConn(c *db.NetConn) {
 	c.ErrorText = truncate(c.ErrorText, 2048)
 	c.EvidenceFile = truncate(c.EvidenceFile, 1024)
 	c.BodyFile = "" // only the ZIP export sets it
-	c.PostData = truncate(c.PostData, min(maxPostDataChars, max(maxResponseBodyChars, 0)))
+	if limit := min(maxPostDataChars, max(maxResponseBodyChars, 0)); len(c.PostData) > limit {
+		c.PostData = strings.Clone(truncate(c.PostData, limit)) // copia: no retiene el original entero
+	}
 	c.RequestHeaders = truncateHeaders(c.RequestHeaders)
 	c.ResponseHeaders = truncateHeaders(c.ResponseHeaders)
 	if c.Status < 0 || c.Status > 999 {
@@ -186,7 +263,7 @@ func normalizeConn(c *db.NetConn) {
 		c.BodySize = size
 	}
 	if len(c.ResponseBody) > maxResponseBodyChars {
-		c.ResponseBody = truncate(c.ResponseBody, maxResponseBodyChars)
+		c.ResponseBody = strings.Clone(truncate(c.ResponseBody, maxResponseBodyChars)) // copia: libera el body completo
 		c.BodyTruncated = true
 	}
 }
