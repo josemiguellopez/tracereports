@@ -508,7 +508,7 @@
 		[/^Paso (\d+): ([\s\S]+)$/, "Step $1: $2"],
 		[/^sin respuesta \((.+)\)$/, "no response ($1)"],
 		[/^(\d+) fallos nuevos$/, "$1 new failures"], [/^(\d+) arreglados$/, "$1 fixed"], [/^(\d+) siguen fallando$/, "$1 still failing"],
-		[/^(\d+) más lentos$/, "$1 slower"],
+		[/^(\d+) más lentos$/, "$1 slower"], [/^1 fallo nuevo$/, "1 new failure"], [/^1 arreglado$/, "1 fixed"], [/^1 sigue fallando$/, "1 still failing"], [/^1 más lento$/, "1 slower"],
 		[/^(\d+) pasos? · (.+)$/, "$1 steps · $2"],
 		[/^Vacío = (.+)\.$/, "Empty = $1."],
 		[/^Guardada \((.+), desde (.+)\)\. Déjala vacía para mantenerla\.$/, (m, h, s) => `Saved (${h}, from ${s === "Ajustes" ? "Settings" : s}). Leave it empty to keep it.`],

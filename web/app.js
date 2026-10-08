@@ -1320,6 +1320,9 @@
 		chosen: "Elegida a mano.",
 	};
 
+	/** "1 fallo nuevo" / "3 fallos nuevos" (las traducciones son por regex sobre el número). */
+	const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
+
 	function renderInsights() {
 		const { compare, endpoints } = S.insights;
 		const list = (items, cls, label) => items?.length ? `<div class="cmp-group ${cls}"><h6>${label} <span>${items.length}</span></h6>
@@ -1336,10 +1339,10 @@
 				: `<h5>Comparación con <a href="#run=${compare.base_run.id}&view=dashboard">#${compare.base_run.id}</a> <small>${fmtDateTime(compare.base_run.started_at)}${compare.base_run.branch ? ` · ${esc(compare.base_run.branch)}` : ""}</small></h5>
 					${picker}${compare.base_reason ? `<p class="m-hint cmp-reason">${esc(BASE_REASON[compare.base_reason] || "")}</p>` : ""}
 					<div class="cmp-chips">
-						<span class="cmp-chip new_failures">${compare.new_failures.length} fallos nuevos</span>
-						<span class="cmp-chip fixed">${compare.fixed.length} arreglados</span>
-						<span class="cmp-chip still">${compare.still_failing.length} siguen fallando</span>
-						<span class="cmp-chip slower">${compare.slower.length} más lentos</span>
+						<span class="cmp-chip new_failures">${plural(compare.new_failures.length, "fallo nuevo", "fallos nuevos")}</span>
+						<span class="cmp-chip fixed">${plural(compare.fixed.length, "arreglado", "arreglados")}</span>
+						<span class="cmp-chip still">${plural(compare.still_failing.length, "sigue fallando", "siguen fallando")}</span>
+						<span class="cmp-chip slower">${plural(compare.slower.length, "más lento", "más lentos")}</span>
 					</div>
 					${!compare.new_failures.length && !compare.fixed.length && !compare.still_failing.length && !compare.slower.length
 						? `<div class="cmp-same">${icon("i-check")}Sin cambios: los mismos resultados que la ejecución #${compare.base_run.id}.</div>` : ""}
