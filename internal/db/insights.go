@@ -282,32 +282,40 @@ func (s *Store) PreviousRunID(runID int64) (int64, string, error) {
 // CompatibleRuns lists the finished runs of the same project and environment (any branch) that
 // can be chosen as the base of a comparison, newest first.
 func (s *Store) CompatibleRuns(runID int64, limit int) ([]Run, error) {
-	rows, err := s.db.Query(`SELECT r.id FROM runs r
-		WHERE r.id != ? AND r.status != 'RUNNING'
-		  AND r.project = (SELECT project FROM runs WHERE id = ?) AND r.environment = (SELECT environment FROM runs WHERE id = ?)
-		ORDER BY r.id DESC LIMIT ?`, runID, runID, runID, limit)
+	// una sola consulta: las ejecuciones elegidas y sus contadores agrupados (los mismos que
+	// GetRun/countersOf), en vez de una consulta por ejecución
+	rows, err := s.db.Query(`
+		SELECT r.id, r.name, r.environment, r.status, r.started_at, r.ended_at,
+		       r.project, r.branch, r.commit_sha, r.framework, r.incomplete,
+		       COUNT(t.id),
+		       COALESCE(SUM(t.status='PASS'),0),
+		       COALESCE(SUM(t.status='FAIL'),0),
+		       COALESCE(SUM(t.status='SKIP'),0),
+		       COALESCE(SUM(t.status='WARNING'),0),
+		       COALESCE(SUM(t.status='RUNNING'),0),
+		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
+		FROM (SELECT c.id FROM runs c
+		      WHERE c.id != ? AND c.status != 'RUNNING'
+		        AND c.project = (SELECT project FROM runs WHERE id = ?) AND c.environment = (SELECT environment FROM runs WHERE id = ?)
+		      ORDER BY c.id DESC LIMIT ?) sel
+		JOIN runs r ON r.id = sel.id
+		LEFT JOIN tests t ON t.run_id = r.id
+		GROUP BY r.id ORDER BY r.id DESC`, NowMs(), runID, runID, runID, limit)
 	if err != nil {
 		return nil, err
 	}
-	var ids []int64
-	for rows.Next() {
-		var id int64
-		if err := rows.Scan(&id); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	rows.Close()
+	defer rows.Close()
 	out := []Run{}
-	for _, id := range ids {
-		r, err := s.GetRun(id)
-		if err != nil {
+	for rows.Next() {
+		var r Run
+		if err := rows.Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
+			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete,
+			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Quarantined); err != nil {
 			return nil, err
 		}
-		out = append(out, *r)
+		out = append(out, r)
 	}
-	return out, nil
+	return out, rows.Err()
 }
 
 type testOutcome struct {
