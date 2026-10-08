@@ -35,6 +35,7 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/env"
+	"github.com/josemiguellopez/tracereports/internal/redact"
 )
 
 // Issue is what a ticket says, independent of the tracker.
@@ -454,6 +455,10 @@ func do(client *http.Client, req *http.Request, out any) error {
 		client = http.DefaultClient
 	}
 	req.Header.Set("User-Agent", "tracereports")
+	// la credencial de ESTA solicitud nunca sale en un error: un tracker o su proxy pueden
+	// repetirla en su respuesta (el error llega al log y a la UI)
+	creds := requestCredentials(req)
+	scrub := func(err error) error { return redact.ScrubCredentialError(err, credentialMask, creds...) }
 	redirected := false
 	c := *client // copia: el cliente compartido no cambia
 	follow := client.CheckRedirect
@@ -471,31 +476,55 @@ func do(client *http.Client, req *http.Request, out any) error {
 	if err != nil {
 		err = fmt.Errorf("%s: %w", req.URL.Host, err)
 		if !redirected && neverSent(err) {
-			return NotCreated(err)
+			return NotCreated(scrub(err))
 		}
 		if redirected {
 			err = fmt.Errorf("%w (after the tracker answered a redirect)", err)
 		}
-		return err
+		return scrub(err)
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 300 {
-		err := fmt.Errorf("%s answered HTTP %d: %s", req.URL.Host, resp.StatusCode, clip(oneLine(string(raw)), 300))
+		// se quita antes de recortar: un recorte podría dejar media credencial
+		body := redact.ScrubCredentials(string(raw), credentialMask, creds...)
+		err := fmt.Errorf("%s answered HTTP %d: %s", req.URL.Host, resp.StatusCode, clip(oneLine(body), 300))
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 && !redirected {
 			return NotCreated(err)
 		}
 		return err
 	}
 	if readErr != nil {
-		return fmt.Errorf("%s: reading the answer: %w", req.URL.Host, readErr)
+		return scrub(fmt.Errorf("%s: reading the answer: %w", req.URL.Host, readErr))
 	}
 	if out != nil {
 		if err := json.Unmarshal(raw, out); err != nil {
-			return fmt.Errorf("%s answered HTTP %d, but the answer could not be read: %w", req.URL.Host, resp.StatusCode, err)
+			return scrub(fmt.Errorf("%s answered HTTP %d, but the answer could not be read: %w", req.URL.Host, resp.StatusCode, err))
 		}
 	}
 	return nil
+}
+
+const credentialMask = "[credential]"
+
+// requestCredentials are the secrets a request carries in its Authorization header: the Bearer
+// token, or the Basic "user:token" (whole and its token). Errors are scrubbed of exactly these.
+func requestCredentials(req *http.Request) []string {
+	scheme, value, ok := strings.Cut(strings.TrimSpace(req.Header.Get("Authorization")), " ")
+	if !ok {
+		return nil
+	}
+	value = strings.TrimSpace(value)
+	creds := []string{value}
+	if strings.EqualFold(scheme, "basic") {
+		if raw, err := base64.StdEncoding.DecodeString(value); err == nil {
+			creds = append(creds, string(raw))
+			if _, token, ok := strings.Cut(string(raw), ":"); ok {
+				creds = append(creds, token)
+			}
+		}
+	}
+	return creds
 }
 
 // neverSent reports a transport error before the request reached the tracker: the address did

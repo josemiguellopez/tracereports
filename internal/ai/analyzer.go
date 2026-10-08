@@ -293,7 +293,7 @@ func (a *Analyzer) analyzeAsync(testID int64, force bool) bool {
 		}
 		if err != nil {
 			slog.Warn("ai: analysis failed", "test_id", testID, "err", err)
-			_ = a.store.SaveTriageErrorAt(testID, rev, err.Error()+HintText(err, a.Config()))
+			_ = a.store.SaveTriageErrorAt(testID, rev, a.redactor().Text(err.Error()+HintText(err, a.Config())))
 		}
 		a.changed("triage", 0, testID)
 		a.refreshRunSummary(testID)

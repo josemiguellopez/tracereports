@@ -425,7 +425,7 @@ func (s *Server) testAISettings(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	took, err := s.AI.Test(ctx, c)
 	if err != nil {
-		msg := err.Error()
+		msg := s.redactor().Text(err.Error()) // la key ya viene quitada (ai.call); además, la política
 		if errors.Is(err, context.DeadlineExceeded) {
 			msg = "el proveedor no respondió en 90 s"
 		}

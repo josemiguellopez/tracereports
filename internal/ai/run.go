@@ -68,7 +68,7 @@ func (a *Analyzer) AnalyzeRunAsync(runID int64, onDone func()) {
 		rt, err := a.analyzeRun(ctx, runID)
 		if err != nil {
 			slog.Warn("ai: run analysis failed", "run_id", runID, "err", err)
-			rt = &db.RunTriage{State: "ERROR", Error: err.Error(), Incidents: []db.Incident{}}
+			rt = &db.RunTriage{State: "ERROR", Error: a.redactor().Text(err.Error()), Incidents: []db.Incident{}}
 		}
 		if err := a.store.SaveRunTriage(runID, rt); err != nil {
 			slog.Error("ai: save run triage", "run_id", runID, "err", err)

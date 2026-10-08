@@ -320,7 +320,7 @@ func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, 
 		if err := a.escalateAI(ctx, e); err == nil {
 			return e
 		} else {
-			e.AIError = err.Error() + HintText(err, a.Config())
+			e.AIError = a.redactor().Text(err.Error() + HintText(err, a.Config()))
 		}
 	}
 	templateEscalation(e)

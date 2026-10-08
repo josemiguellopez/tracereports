@@ -261,9 +261,12 @@ func call(ctx context.Context, client *http.Client, c Config, prompt string, sch
 		return "", fmt.Errorf("proveedor de IA desconocido: %q", c.Provider)
 	}
 	if err != nil {
-		return "", err
+		// sin la key de esta solicitud: el error se registra, se guarda y se muestra (scrub.go)
+		return "", scrubError(err, c.APIKey)
 	}
-	return cleanJSON(text), nil
+	// el texto de una respuesta HTTP 200 tampoco: termina en errores locales ("no es JSON": recortado),
+	// diagnósticos, escalados y resúmenes. Se quita entero, antes de cualquier recorte
+	return cleanJSON(scrubKey(text, c.APIKey)), nil
 }
 
 // cleanJSON strips the ```json fences some models add even when asked for raw JSON.
