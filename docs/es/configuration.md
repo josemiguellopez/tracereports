@@ -16,7 +16,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 |---|---|---|
 | `PORT` | `8080` | Puerto HTTP |
 | `DATA_DIR` | `./data` | Base de datos SQLite y capturas |
-| `TRACEREPORTS_TOKEN` | — | Token obligatorio para **escribir** en la API (los clientes de tests) |
+| `TRACEREPORTS_TOKEN` | — | Token obligatorio para **escribir** en la API (los clientes de tests). También administra: cambia Ajustes y usa las acciones de la UI |
+| `TRACEREPORTS_INGEST_TOKEN` | — | Token **restringido** para clientes y CI: envía resultados y lee, pero nunca cambia Ajustes ni usa acciones de la UI. Ver [Permisos](#permisos-de-cada-credencial) |
 | `TRACEREPORTS_SECRET_KEY` | — | Clave maestra (32 bytes en base64 o hex) para guardar **cifrada** la API key de IA escrita en Ajustes. Sin ella, la key solo se puede dar por el entorno. Ver [Credenciales cifradas](#credenciales-guardadas-desde-ajustes-cifradas) |
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | La clave maestra anterior, solo mientras la cambias (rotación) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
@@ -79,6 +80,28 @@ TRACEREPORTS_UI_PASSWORD=una-clave-segura
   indica qué falta.
 - Expón el servidor detrás de HTTPS (reverse proxy como Caddy, nginx o Traefik). HTTP Basic sin
   TLS viaja en texto plano.
+
+### Permisos de cada credencial
+
+| Credencial | Envía resultados | Lee reportes | Cambia Ajustes y usa acciones de la UI |
+|---|---|---|---|
+| `TRACEREPORTS_TOKEN` | Sí | Sí | **Sí** (se mantiene así por compatibilidad) |
+| `TRACEREPORTS_INGEST_TOKEN` | Sí | Sí | No, ni desde el mismo equipo |
+| Login de UI (`TRACEREPORTS_UI_USER`/`_PASSWORD`) | No | Sí | Sí |
+| Sin credenciales | Solo sin ningún token configurado | Solo sin login de UI (y por un host permitido) | Solo en modo local, desde el mismo equipo |
+
+- **Solo con un token no se protegen las lecturas**: sin login de UI, cualquiera que llegue al
+  servidor por un host permitido (`localhost`, `PUBLIC_URL` o `TRACEREPORTS_ALLOWED_HOSTS`) ve los
+  reportes. En un servidor compartido configura también el login.
+- Recomendado en CI: `TRACEREPORTS_INGEST_TOKEN` en el pipeline y `TRACEREPORTS_TOKEN` solo para
+  quien administra. Los clientes lo envían igual que el otro (`TRACEREPORTS_TOKEN=<token de ingesta>`
+  en el entorno del pipeline o `Authorization: Bearer`). `GET /api/v1/auth/check` dice el alcance:
+  `token_scope` = `admin` o `ingest`.
+- Configurar solo `TRACEREPORTS_INGEST_TOKEN` también cuenta como servidor desplegado: el mismo
+  equipo necesita login para cambiar Ajustes, salvo `TRACEREPORTS_LOCAL_ADMIN=1`.
+- **Pendiente (cambio incompatible, no aplicado)**: que `TRACEREPORTS_TOKEN` deje de administrar.
+  Rompería a quien hoy cambia Ajustes con él desde scripts; se evaluará para una versión mayor, con
+  aviso previo. Mientras tanto, usa el token de ingesta en los pipelines.
 
 ### El `.env` del proyecto en los clientes
 

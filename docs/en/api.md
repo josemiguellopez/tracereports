@@ -70,6 +70,8 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
   and quarantine set a state: repeating them gives the same result. Imports (JUnit, Allure)
   use several transactions: a crash halfway leaves an incomplete run and the retry imports again.
   What leaves the server (AI, Teams, Slack, tickets) is not *exactly once*.
+- `TRACEREPORTS_INGEST_TOKEN` works for all these writes like `TRACEREPORTS_TOKEN`, but not for
+  Settings nor the `/ui/*` actions (see [Permissions](configuration.md#permissions-of-each-credential)).
 - Incoming data is masked before it is stored (see [Configuration](configuration.md#sensitive-data-and-retention)).
 
 `Conn` (all optional except `method` and `url`):

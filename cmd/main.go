@@ -10,7 +10,8 @@
 //	GEMINI_API_KEY / GEMINI_MODEL / GEMINI_BASE_URL  still supported
 //	TRACEREPORTS_SETTINGS_LOCKED  1 = the Settings screen is read-only (config only from the env)
 //	TRACEREPORTS_ENV_FILE  file with KEY=VALUE lines read at startup (default .env; real env vars win)
-//	TRACEREPORTS_TOKEN   token required to write to the API (optional, recommended)
+//	TRACEREPORTS_TOKEN   token required to write to the API (optional, recommended); it may also change settings
+//	TRACEREPORTS_INGEST_TOKEN  restricted token for test clients/CI: writes results and reads, never administers
 //	TRACEREPORTS_UI_USER / TRACEREPORTS_UI_PASSWORD  HTTP Basic login for the UI (optional)
 //	TRACEREPORTS_ALLOWED_HOSTS  hosts served without login besides localhost (comma separated; * = any)
 //	TRACEREPORTS_LOCAL_ADMIN  1 = with a token and no UI login, the same machine (no proxy) may change settings
@@ -134,14 +135,19 @@ func run() error {
 	defer stopNotify()
 	notifier.Start(notifyCtx)
 	auth := api.Auth{
-		Token:  env.Get("TOKEN"),
-		UIUser: env.Get("UI_USER"),
-		UIPass: env.Get("UI_PASSWORD"),
+		Token: env.Get("TOKEN"),
+		// opcional: credencial de CI que envía resultados y lee, pero no administra
+		IngestToken: env.Get("INGEST_TOKEN"),
+		UIUser:      env.Get("UI_USER"),
+		UIPass:      env.Get("UI_PASSWORD"),
 		// con token = despliegue: el mismo equipo también necesita credenciales, salvo que se diga
 		LocalAdmin: env.Bool("LOCAL_ADMIN"),
 	}
-	if auth.Token == "" {
+	if auth.Token == "" && auth.IngestToken == "" {
 		slog.Warn("TRACEREPORTS_TOKEN not set: anyone who reaches this port can write to the API")
+	}
+	if auth.Token != "" && auth.Token == auth.IngestToken {
+		return errors.New("TRACEREPORTS_INGEST_TOKEN must be different from TRACEREPORTS_TOKEN (it has fewer permissions)")
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Warn("TRACEREPORTS_UI_USER/TRACEREPORTS_UI_PASSWORD not set: the reports are readable without login")

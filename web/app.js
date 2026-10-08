@@ -2759,7 +2759,7 @@
 	/** Ayuda cuando los ajustes son de solo lectura: por qué, pasos según cómo corre el servidor y un .env completo. */
 	function readOnlyHelp(d) {
 		const docker = d.runtime === "docker";
-		const reason = d.edit_reason || "remote";
+		const reason = ["locked", "login", "remote"].includes(d.edit_reason) ? d.edit_reason : "remote";
 		const env = envExample(d);
 		S.settings.envText = env;
 		const title = {

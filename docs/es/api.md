@@ -71,6 +71,8 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
   lo mismo. Las importaciones (JUnit, Allure) usan varias transacciones: una caída a mitad deja una
   ejecución incompleta y el reintento importa de nuevo. Lo que sale del servidor (IA, Teams, Slack,
   tickets) no es *exactamente una vez*.
+- `TRACEREPORTS_INGEST_TOKEN` sirve para todas estas escrituras igual que `TRACEREPORTS_TOKEN`, pero no
+  para Ajustes ni para las acciones `/ui/*` (ver [Permisos](configuration.md#permisos-de-cada-credencial)).
 - Lo que llega se enmascara antes de guardarse (ver [Configuración](configuration.md#datos-sensibles-y-retención)).
 
 `Conn` (todas opcionales salvo `method` y `url`):

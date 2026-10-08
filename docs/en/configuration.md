@@ -16,7 +16,8 @@ steps to apply it.
 |---|---|---|
 | `PORT` | `8080` | HTTP port |
 | `DATA_DIR` | `./data` | SQLite database and screenshots |
-| `TRACEREPORTS_TOKEN` | — | Token required to **write** to the API (the test clients) |
+| `TRACEREPORTS_TOKEN` | — | Token required to **write** to the API (the test clients). It also administers: changes Settings and uses the UI actions |
+| `TRACEREPORTS_INGEST_TOKEN` | — | **Restricted** token for clients and CI: sends results and reads, never changes Settings nor uses UI actions. See [Permissions](#permissions-of-each-credential) |
 | `TRACEREPORTS_SECRET_KEY` | — | Master key (32 bytes, base64 or hex) to store **encrypted** the AI API key typed in Settings. Without it, the key can only be given through the environment. See [Encrypted credentials](#credentials-saved-from-settings-encrypted) |
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | The previous master key, only while you change it (rotation) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
@@ -79,6 +80,28 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
   says what is missing.
 - Put the server behind HTTPS (a reverse proxy such as Caddy, nginx or Traefik). HTTP Basic
   without TLS travels in plain text.
+
+### Permissions of each credential
+
+| Credential | Sends results | Reads reports | Changes Settings and uses UI actions |
+|---|---|---|---|
+| `TRACEREPORTS_TOKEN` | Yes | Yes | **Yes** (kept like that for compatibility) |
+| `TRACEREPORTS_INGEST_TOKEN` | Yes | Yes | No, not even from the same machine |
+| UI login (`TRACEREPORTS_UI_USER`/`_PASSWORD`) | No | Yes | Yes |
+| No credentials | Only with no token configured | Only without UI login (and through an allowed host) | Only in local mode, from the same machine |
+
+- **A token alone does not protect reads**: without UI login, anyone reaching the server through an
+  allowed host (`localhost`, `PUBLIC_URL` or `TRACEREPORTS_ALLOWED_HOSTS`) sees the reports. On a
+  shared server configure the login too.
+- Recommended in CI: `TRACEREPORTS_INGEST_TOKEN` in the pipeline and `TRACEREPORTS_TOKEN` only for
+  whoever administers. Clients send it like the other one (`TRACEREPORTS_TOKEN=<ingest token>` in
+  the pipeline environment, or `Authorization: Bearer`). `GET /api/v1/auth/check` tells the scope:
+  `token_scope` = `admin` or `ingest`.
+- Setting only `TRACEREPORTS_INGEST_TOKEN` also counts as a deployed server: the same machine needs
+  the login to change Settings, unless `TRACEREPORTS_LOCAL_ADMIN=1`.
+- **Pending (incompatible change, not applied)**: making `TRACEREPORTS_TOKEN` stop administering. It
+  would break whoever changes Settings with it from scripts today; it will be evaluated for a major
+  version, announced beforehand. Meanwhile, use the ingest token in pipelines.
 
 ### The project's `.env` in the clients
 

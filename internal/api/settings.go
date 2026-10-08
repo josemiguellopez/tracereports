@@ -123,8 +123,11 @@ func (s *Server) adminAccess(r *http.Request) (bool, string) {
 			return true, ""
 		}
 		return false, "login"
-	case (s.Auth.Token == "" || s.Auth.LocalAdmin) && fromLoopback(r) && !proxied(r):
+	case (!s.Auth.tokensSet() || s.Auth.LocalAdmin) && fromLoopback(r) && !proxied(r):
 		return true, ""
+	}
+	if s.Auth.ingestOK(r) {
+		return false, "ingest_token" // el token de ingesta nunca administra
 	}
 	return false, "remote"
 }
@@ -449,10 +452,18 @@ func runtimeKind() string {
 // Writes already answer 401/201 for the same token, so it reveals nothing new.
 func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) {
 	sent := tokenHeader(r) != "" || strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ")
+	scope := ""
+	switch {
+	case s.Auth.tokenOK(r):
+		scope = "admin" // TRACEREPORTS_TOKEN: escribe, lee y administra
+	case s.Auth.ingestOK(r):
+		scope = "ingest" // TRACEREPORTS_INGEST_TOKEN: escribe resultados y lee
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"token_required": s.Auth.Token != "",
+		"token_required": s.Auth.tokensSet(),
 		"token_sent":     sent,
-		"token_valid":    s.Auth.tokenOK(r),
+		"token_valid":    scope != "",
+		"token_scope":    scope,
 	})
 }
 
