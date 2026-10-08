@@ -364,6 +364,8 @@ its screenshot, network calls and diagnosis.
 - **No server in the pipeline:** the clients record the run in a folder; publish the report as an
   artifact or `push` it later. See [without a server](docs/en/offline.md).
 
+`TRACEREPORTS_OFFLINE=both` sends to the server and keeps a local copy; it builds HTML on close and retains raw evidence when delivery is incomplete.
+
 🚧 *TraceReports is pre-1.0: clients, API and configuration can still change between minor releases.*
 
 ## Documentation

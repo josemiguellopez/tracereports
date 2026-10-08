@@ -41,6 +41,8 @@ Variables it reads: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACE
 Bitbucket or CircleCI variables, or `git`). A variable missing from the environment is read from the
 project's `.env` ([details](configuration.md#the-projects-env-in-the-clients)).
 
+Local copy while sending: `TraceReports(offline="both")` or `TRACEREPORTS_OFFLINE=both`; see [offline recording](offline.md) for retention rules.
+
 ## Option 1: pytest plugin (no code changes)
 
 ```bash

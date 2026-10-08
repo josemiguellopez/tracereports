@@ -31,6 +31,8 @@ It reads `TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`, `TRACEREPORTS_DISABLED`, `TRA
 (join an existing run) and the branch and commit from `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT`, the
 most common CI variables or `git`.
 
+Local copy while sending: `c.Offline = "both"` or `TRACEREPORTS_OFFLINE=both`; see [offline recording](offline.md) for retention rules.
+
 ## API
 
 ```go

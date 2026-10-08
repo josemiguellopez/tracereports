@@ -33,6 +33,8 @@ Configuration: `TRACEREPORTS_URL` (or `-Dtracereports.url`), `TRACEREPORTS_TOKEN
 `git`. A variable missing from the environment is read from the project's `.env`
 ([details](configuration.md#the-projects-env-in-the-clients)).
 
+Local copy while sending: `-Dtracereports.offline=both` or `TRACEREPORTS_OFFLINE=both`; see [offline recording](offline.md) for retention rules.
+
 ## JUnit 5
 
 ```java

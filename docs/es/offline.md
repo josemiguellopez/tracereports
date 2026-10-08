@@ -36,8 +36,9 @@ incompleta, a la hora de su último evento.
 
 | Variable | Default | Qué hace |
 | --- | --- | --- |
-| `TRACEREPORTS_OFFLINE` | `auto` | `auto`: graba solo si la ejecución no se pudo crear. `always`: graba sin intentar un servidor. `off`: nunca graba (comportamiento anterior) |
+| `TRACEREPORTS_OFFLINE` | `auto` | `auto`: graba solo si la ejecución no se pudo crear. `always`: graba sin intentar un servidor. `both`: envía al servidor y guarda una copia local. `off`: nunca graba (comportamiento anterior) |
 | `TRACEREPORTS_OFFLINE_DIR` | `./tracereports-offline/<fecha-hora>-<id>` | Carpeta de la grabación. Sin ella, una carpeta nueva por sesión |
+| `TRACEREPORTS_OFFLINE_KEEP` | vacío | `1`: conservar siempre los eventos, bodies e ids crudos de la copia local |
 | `TRACEREPORTS_BIN` | el `tracereports` del `PATH` | Binario con el que el cliente arma el reporte al terminar |
 | `TRACEREPORTS_OFFLINE_REPORT` | `1` | `0`: no armar el reporte al terminar (solo grabar) |
 
@@ -59,6 +60,52 @@ Por cliente:
 
 Con shards de CI (`TRACEREPORTS_RUN_ID`) sin servidor, el id de la ejecución es negativo (local):
 todos los shards deben usar la misma `TRACEREPORTS_OFFLINE_DIR`.
+
+## Copia local mientras se envía (`both`)
+
+Activa `TRACEREPORTS_OFFLINE=both` para conservar la evidencia aunque el servidor se caiga a mitad
+de la suite. Al empezar intenta crear la ejecución; si falla, graba igual que `auto`. Si responde,
+cada llamada se envía y se graba una sola vez, con ids locales negativos. Los tests que empiezan
+después de una caída también se conservan. El default sigue siendo `auto`.
+
+```python
+cr = TraceReports(offline="both")
+```
+
+En JavaScript usa `new TraceReports({ offline: "both" })` (también en el reporter), en Java
+`-Dtracereports.offline=both` y en Go `c.Offline = "both"`. pytest toma la variable de entorno.
+La URL del reporte sigue apuntando al servidor; `offline_report`, `offlineReport`, `offlineReport()`
+y `OfflineReport` exponen el HTML local por separado.
+
+| Al terminar | Se conserva |
+| --- | --- |
+| Todo llegó al servidor y se generó el HTML | `report/` y el marcador con `raw_removed: true` |
+| Algo no llegó, o un worker no confirmó su cierre | HTML, si se pudo generar, y grabación cruda |
+| Sin binario, reporte desactivado o error al generarlo | Grabación cruda y comando para generar el reporte |
+| `TRACEREPORTS_OFFLINE_KEEP=1` | HTML y grabación cruda |
+
+**La grabación cruda contiene datos sin enmascarar.** El HTML sí se genera con el enmascarado del
+servidor. Protege la carpeta y evita publicar los eventos y `bodies/` como artefactos públicos.
+
+Para borrar, todos los procesos deben haber vaciado su cola y confirmado cero rechazos, descartes,
+pérdidas y, en Python, eventos en spool; el dueño además debe confirmar el cierre de la ejecución.
+Cada proceso registra su estado antes de grabar y lo actualiza al cerrar. Solo el dueño borra; un
+proceso interrumpido, una grabación dañada o actividad durante la generación del reporte conserva
+lo crudo. `TRACEREPORTS_OFFLINE_REPORT=0` también evita el borrado.
+
+Los shards deben compartir `TRACEREPORTS_OFFLINE_DIR` y el id real en `TRACEREPORTS_RUN_ID`;
+pytest-xdist transmite la carpeta a sus workers. El dueño guarda el id local en `ids/server-<id>`.
+Si falta esa correspondencia, el worker avisa y esa parte no puede reconstruirse por completo.
+Usa una carpeta nueva para cada sesión; una carpeta con `raw_removed` solo contiene el reporte.
+
+El marcador agrega `mirror.server`, `mirror.runs` (pares `local`/`server`) y `mirror.complete`:
+
+- Copia completa: `push` se niega para evitar duplicarla. `tracereports push --force <carpeta>`
+  permite subir la copia conservada como otra ejecución; repetir ese upload sigue siendo idempotente.
+- Copia incompleta: `push` avisa que ya existe una ejecución parcial y crea otra completa, separada.
+- `raw_removed: true`: `push` falla incluso con `--force`; solo queda el HTML.
+- Sin `mirror`: las grabaciones anteriores mantienen su comportamiento. `report` acepta ambas
+  mientras exista la grabación cruda.
 
 ## El binario
 

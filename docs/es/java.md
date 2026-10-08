@@ -33,6 +33,8 @@ Configuración: `TRACEREPORTS_URL` (o `-Dtracereports.url`), `TRACEREPORTS_TOKEN
 Si una variable no está en el entorno, se lee del `.env` del proyecto
 ([detalle](configuration.md#el-env-del-proyecto-en-los-clientes)).
 
+Copia local mientras se envía: `-Dtracereports.offline=both` o `TRACEREPORTS_OFFLINE=both`; detalles y conservación en [sin servidor](offline.md).
+
 ## JUnit 5
 
 ```java

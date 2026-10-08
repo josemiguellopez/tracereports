@@ -27,6 +27,8 @@ commit (`TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT`, the most common CI variab
 missing from the environment is read from the project's `.env`
 ([details](configuration.md#the-projects-env-in-the-clients)).
 
+Local copy while sending: `new TraceReports({ offline: "both" })` or `TRACEREPORTS_OFFLINE=both`; see [offline recording](offline.md) for retention rules.
+
 ## Playwright Test (no test changes)
 
 ```js

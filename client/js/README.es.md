@@ -17,6 +17,7 @@ npm install --save-dev tracereports
   duplicados; los shards pueden unirse a la misma ejecución.
 - **Sin servidor**: si el servidor está caído o rechaza el token, la ejecución se graba en local;
   `tracereports report <carpeta>` arma el reporte HTML y `tracereports push <carpeta>` lo sube después.
+  `TRACEREPORTS_OFFLINE=both` envía al servidor y conserva una copia local; genera el HTML al cerrar y conserva lo crudo si la entrega queda incompleta.
 - **Configuración** desde el entorno o el `.env` del proyecto (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
 
 Documentación completa: [docs/es/javascript.md](https://github.com/josemiguellopez/tracereports/blob/main/docs/es/javascript.md).

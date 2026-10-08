@@ -41,6 +41,8 @@ Variables que lee: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACER
 Jenkins, Bitbucket o CircleCI, o `git`). Si una variable no está en el entorno, se lee del `.env` del
 proyecto ([detalle](configuration.md#el-env-del-proyecto-en-los-clientes)).
 
+Copia local mientras se envía: `TraceReports(offline="both")` o `TRACEREPORTS_OFFLINE=both`; detalles y conservación en [sin servidor](offline.md).
+
 ## Opción 1: plugin de pytest (sin cambiar código)
 
 ```bash

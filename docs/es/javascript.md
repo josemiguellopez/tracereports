@@ -27,6 +27,8 @@ la rama y el commit (`TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT`, variables de
 Si una variable no está en el entorno, se lee del `.env` del proyecto
 ([detalle](configuration.md#el-env-del-proyecto-en-los-clientes)).
 
+Copia local mientras se envía: `new TraceReports({ offline: "both" })` o `TRACEREPORTS_OFFLINE=both`; detalles y conservación en [sin servidor](offline.md).
+
 ## Playwright Test (sin cambiar los tests)
 
 ```js

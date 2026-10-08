@@ -36,8 +36,9 @@ time of its last event.
 
 | Variable | Default | What it does |
 | --- | --- | --- |
-| `TRACEREPORTS_OFFLINE` | `auto` | `auto`: record only if the run could not be created. `always`: record without trying a server. `off`: never record (previous behavior) |
+| `TRACEREPORTS_OFFLINE` | `auto` | `auto`: record only if the run could not be created. `always`: record without trying a server. `both`: send to the server and keep a local copy. `off`: never record (previous behavior) |
 | `TRACEREPORTS_OFFLINE_DIR` | `./tracereports-offline/<date-time>-<id>` | Recording folder. Without it, a new folder per session |
+| `TRACEREPORTS_OFFLINE_KEEP` | empty | `1`: always retain the raw events, bodies and ids of a local copy |
 | `TRACEREPORTS_BIN` | the `tracereports` in the `PATH` | Binary the client uses to build the report at the end |
 | `TRACEREPORTS_OFFLINE_REPORT` | `1` | `0`: do not build the report at the end (record only) |
 
@@ -59,6 +60,51 @@ Per client:
 
 With CI shards (`TRACEREPORTS_RUN_ID`) and no server, the run id is negative (local): every shard
 must use the same `TRACEREPORTS_OFFLINE_DIR`.
+
+## Local copy while sending (`both`)
+
+Set `TRACEREPORTS_OFFLINE=both` to keep the evidence even if the server goes down halfway through
+the suite. If creating the run fails, it records just like `auto`. Otherwise, each logical call
+is sent and recorded once, with negative local ids. Tests started after an outage are recorded
+too. The default remains `auto`.
+
+```python
+cr = TraceReports(offline="both")
+```
+
+JavaScript: `new TraceReports({ offline: "both" })` (also a reporter option). Java:
+`-Dtracereports.offline=both`. Go: `c.Offline = "both"`. pytest reads the environment variable.
+The report URL continues to point to the server; `offline_report`, `offlineReport`,
+`offlineReport()` and `OfflineReport` expose the local HTML separately.
+
+| At the end | Retained files |
+| --- | --- |
+| Everything delivered and HTML generated | `report/` and the marker with `raw_removed: true` |
+| Delivery incomplete or a worker did not confirm closing | HTML when available, plus raw recording |
+| Missing binary, report disabled or generation failed | Raw recording and a command to build the report |
+| `TRACEREPORTS_OFFLINE_KEEP=1` | HTML and raw recording |
+
+**Raw recordings contain unmasked data.** HTML is generated using the server's secret masking.
+Protect the folder and avoid publishing events and `bodies/` as public artifacts.
+
+Cleanup requires every process to finish with an empty queue and zero rejected, dropped, lost
+and (in Python) spooled events. The owner must also confirm the run's finish request. Each process
+registers its status before recording and updates it on close. Only the owner deletes raw files;
+an interrupted process, damaged recording or activity during report generation preserves them.
+`TRACEREPORTS_OFFLINE_REPORT=0` also prevents cleanup.
+
+Shards must share `TRACEREPORTS_OFFLINE_DIR` and the real `TRACEREPORTS_RUN_ID`; pytest-xdist
+passes the folder to its workers. The owner stores the local run id in `ids/server-<id>`.
+A missing mapping produces a warning and prevents that part from being fully reconstructed.
+Use a new directory for each session; a directory with `raw_removed` contains only the report.
+
+The marker adds `mirror.server`, `mirror.runs` (`local`/`server` pairs) and `mirror.complete`:
+
+- Complete copy: `push` refuses to duplicate it. `tracereports push --force <folder>` uploads
+  retained raw evidence as a separate run; repeating that upload remains idempotent.
+- Incomplete copy: `push` warns about the existing partial run and creates a separate complete run.
+- `raw_removed: true`: `push` fails even with `--force`; only HTML remains.
+- No `mirror`: older recordings behave as before. `report` accepts either kind while raw data exists.
 
 ## The binary
 

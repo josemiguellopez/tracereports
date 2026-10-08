@@ -32,6 +32,8 @@ Lee `TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`, `TRACEREPORTS_DISABLED`, `TRACEREP
 a una ejecución ya creada) y la rama y el commit de `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT`, de las
 variables de los CI más comunes o de `git`.
 
+Copia local mientras se envía: `c.Offline = "both"` o `TRACEREPORTS_OFFLINE=both`; detalles y conservación en [sin servidor](offline.md).
+
 ## API
 
 ```go
