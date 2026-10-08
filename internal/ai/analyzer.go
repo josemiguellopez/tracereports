@@ -168,10 +168,9 @@ func (a *Analyzer) Test(ctx context.Context, c Config) (time.Duration, error) {
 		return 0, err
 	}
 	start := time.Now()
-	text, u, err := call(ctx, a.client, c, `Health check. Reply with the JSON object {"ok": true}.`, map[string]any{
+	text, err := a.callWithUsage(ctx, c, UsageTest, `Health check. Reply with the JSON object {"ok": true}.`, map[string]any{
 		"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"},
 	})
-	a.recordUsage(UsageTest, c, u, err, time.Since(start))
 	if err != nil {
 		return 0, err
 	}
@@ -182,6 +181,28 @@ func (a *Analyzer) Test(ctx context.Context, c Config) (time.Duration, error) {
 		return 0, fmt.Errorf("el modelo respondió, pero no con JSON válido: %.120s", text)
 	}
 	return time.Since(start), nil
+}
+
+// callWithUsage counts every attempt inside one provider call, using that call's configuration.
+// Test uses the supplied settings rather than the active configuration or generate's retry policy.
+func (a *Analyzer) callWithUsage(ctx context.Context, c Config, kind, prompt string, schema map[string]any) (string, error) {
+	timing := callTimingFrom(ctx)
+	inner := &providerAttempts{
+		call: func(took time.Duration, err error) {
+			err = scrubError(err, c.APIKey)
+			timing.addCall(took, err)
+			a.recordUsage(kind, c, Usage{}, err, took)
+		},
+		wait: timing.addWait,
+	}
+	started := time.Now()
+	text, u, err := call(context.WithValue(ctx, providerAttemptsKey{}, inner), a.client, c, prompt, schema)
+	if !inner.none {
+		took := max(time.Duration(0), time.Since(started)-inner.spent)
+		timing.addCall(took, err)
+		a.recordUsage(kind, c, u, err, took)
+	}
+	return text, err
 }
 
 // AnalyzeAsync analyzes a failed test in the background (automatic: when the test finishes). It
@@ -531,23 +552,7 @@ func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map
 	var lastErr error
 	timing := callTimingFrom(ctx)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		// los intentos que el proveedor hace por dentro (la solicitud repetida sin json_schema, los
-		// reintentos del SDK de Anthropic) también son llamadas: se cuentan uno por uno
-		inner := &providerAttempts{
-			call: func(took time.Duration, err error) {
-				err = scrubError(err, c.APIKey)
-				timing.addCall(took, err)
-				a.recordUsage(kind, c, Usage{}, err, took)
-			},
-			wait: timing.addWait,
-		}
-		started := time.Now()
-		text, u, err := call(context.WithValue(ctx, providerAttemptsKey{}, inner), a.client, c, prompt, schema)
-		took := time.Since(started) - inner.spent // lo ya contado no se cuenta otra vez
-		if !inner.none {
-			timing.addCall(took, err)
-			a.recordUsage(kind, c, u, err, took)
-		}
+		text, err := a.callWithUsage(ctx, c, kind, prompt, schema)
 		if err == nil {
 			return text, nil
 		}
