@@ -24,6 +24,8 @@
 //	TRACEREPORTS_RETENTION_DAYS  delete runs (and screenshots) older than N days (default: keep all)
 //	TRACEREPORTS_STALE_RUN_HOURS  close as incomplete the runs without activity for N hours (default 24; 0 = never)
 //	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit)
+//	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
+//	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
 package main
 
 import (
