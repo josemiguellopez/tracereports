@@ -28,9 +28,11 @@ var (
 func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
 var (
-	shSafe    = regexp.MustCompile(`^[A-Za-z0-9_./:=@%+,-]+$`)
-	commitRe  = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
-	httpToken = regexp.MustCompile("^[!#$%&'*+.^_`|~0-9A-Za-z-]+$") // RFC 9110: método y nombre de header
+	shSafe   = regexp.MustCompile(`^[A-Za-z0-9_./:=@%+,-]+$`)
+	commitRe = regexp.MustCompile(`^[0-9a-fA-F]{4,64}$`)
+	// nombres de header que pueden ir entre comillas dobles junto a la variable: sin nada que la shell
+	// interprete ahí ($ ` " \ !). Un token HTTP válido no basta: admite | & ` $ ! ' * ~ ^ #
+	plainHeader = regexp.MustCompile(`^[A-Za-z0-9_.-]+$`)
 )
 
 // shArg leaves a word as is when it only has characters a shell does not interpret, and quotes
@@ -78,21 +80,22 @@ func Curl(c *db.NetConn, p *redact.Policy) string {
 	if method == "" {
 		method = "GET"
 	}
-	if !httpToken.MatchString(method) {
-		method = shq(method) // un método raro (datos antiguos) no se interpreta en la shell
-	}
-	parts := []string{fmt.Sprintf("curl -X %s %s", method, shq(u))}
+	// el método es un argumento literal: un token HTTP válido puede llevar | & ` $ y otros que la
+	// shell interpreta (datos antiguos o de un cliente cualquiera)
+	parts := []string{fmt.Sprintf("curl -X %s %s", shArg(method), shq(u))}
 	for _, k := range sortedKeys(c.RequestHeaders) {
 		v := c.RequestHeaders[k]
 		if strings.HasPrefix(k, ":") {
 			continue
 		}
 		if v == redact.Mask || sensitiveKey.MatchString(k) || p.SensitiveHeader(k) {
-			if !httpToken.MatchString(k) { // dentro de comillas dobles la shell interpretaría $( ), ` y "
-				parts = append(parts, "-H "+shq(k+": "+Mask))
-				continue
+			// solo se expande la variable generada (envVar: [A-Z0-9_], nunca empieza con dígito);
+			// el nombre va literal: entre comillas dobles solo si no tiene nada que la shell interprete
+			if plainHeader.MatchString(k) {
+				parts = append(parts, fmt.Sprintf(`-H "%s: $%s"`, k, envVar(k)))
+			} else {
+				parts = append(parts, "-H "+shq(k+": ")+`"$`+envVar(k)+`"`)
 			}
-			parts = append(parts, fmt.Sprintf(`-H "%s: $%s"`, k, envVar(k)))
 		} else {
 			parts = append(parts, "-H "+shq(k+": "+v))
 		}

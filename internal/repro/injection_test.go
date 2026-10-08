@@ -94,7 +94,7 @@ func TestCurlQuotesHostileMethodAndHeaderNames(t *testing.T) {
 			t.Fatalf("interpreted by the shell (%q):\n%s", bad, got)
 		}
 	}
-	for _, want := range []string{`curl -X 'GET;echo MARK'`, `-H 'X-Auth$(echo MARK): ***'`, `-H "1-Token: $H_1_TOKEN"`} {
+	for _, want := range []string{`curl -X 'GET;echo MARK'`, `-H 'X-Auth$(echo MARK): '"$X_AUTH_ECHO_MARK_"`, `-H "1-Token: $H_1_TOKEN"`} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q:\n%s", want, got)
 		}

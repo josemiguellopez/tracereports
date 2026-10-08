@@ -40,7 +40,7 @@ test("cURL: método y nombres de header hostiles quedan literales", () => {
 	const got = curlOf({ method: "GET;echo MARK", url: "https://x/y",
 		request_headers: { "X-Auth$(echo MARK)": "<masked>", 'Token"; echo MARK; "': "<masked>", "1-Token": "<masked>" } });
 	for (const bad of ["-X GET;echo", '"X-Auth$(echo MARK)', '"Token"; echo']) assert.ok(!got.includes(bad), `${bad}:\n${got}`);
-	for (const want of ["curl -X 'GET;echo MARK'", "-H 'X-Auth$(echo MARK): ***'", '-H "1-Token: $H_1_TOKEN"']) {
+	for (const want of ["curl -X 'GET;echo MARK'", `-H 'X-Auth$(echo MARK): '"$X_AUTH_ECHO_MARK_"`, '-H "1-Token: $H_1_TOKEN"']) {
 		assert.ok(got.includes(want), `${want}:\n${got}`);
 	}
 	const normal = curlOf({ method: "POST", url: "https://x/y", request_headers: { Authorization: "<masked>" } });

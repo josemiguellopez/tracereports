@@ -357,8 +357,9 @@
 	const SENSITIVE_KEY = /(pass(word)?|pwd|clave|token|secret|session|auth|cookie|rut|api[_-]?key)/i;
 	const RUT = /\b\d{1,2}\.?\d{3}\.?\d{3}-[\dkK]\b/g;
 	const MASK = "***";
-	// método y nombre de header válidos (RFC 9110): van sin comillas en el cURL
-	const HTTP_TOKEN = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+	// nombre de header que puede ir entre comillas dobles junto a la variable: nada que la shell
+	// interprete ahí. Un token HTTP válido no basta: admite | & ` $ ! ' * ~ ^ # (igual que repro.go)
+	const PLAIN_HEADER = /^[A-Za-z0-9_.-]+$/;
 	/** Variable de shell para un header enmascarado (AUTHORIZATION, X_API_KEY…): nunca empieza con dígito. */
 	const envVar = (k) => { const v = k.toUpperCase().replace(/\W+/g, "_"); return !v || /^\d/.test(v) ? `H_${v}` : v; };
 
@@ -385,13 +386,13 @@
 		} catch { /* URL relativa: se deja como vino */ }
 		url = url.replace(/<masked>|%3Cmasked%3E/gi, MASK);
 		const method = conn.method || "GET";
-		// un método raro (datos antiguos) no se interpreta en la shell
-		const parts = [`curl -X ${HTTP_TOKEN.test(method) ? method : q(method)} ${q(url)}`];
+		// el método es un argumento literal: un token HTTP válido puede llevar | & ` $ ...
+		const parts = [`curl -X ${shArg(method)} ${q(url)}`];
 		for (const [k, v] of Object.entries(conn.request_headers || {})) {
 			if (k.startsWith(":")) continue;
 			if (v === "<masked>" || SENSITIVE_KEY.test(k)) {
-				// dentro de comillas dobles la shell interpretaría $( ), ` y ": un nombre raro va literal
-				parts.push(HTTP_TOKEN.test(k) ? `-H "${k}: $${envVar(k)}"` : `-H ${q(`${k}: ${MASK}`)}`);
+				// solo se expande la variable generada; el nombre va literal (igual que repro.go)
+				parts.push(PLAIN_HEADER.test(k) ? `-H "${k}: $${envVar(k)}"` : `-H ${q(`${k}: `)}"$${envVar(k)}"`);
 			} else parts.push(`-H ${q(`${k}: ${v}`)}`);
 		}
 		if (conn.post_data) {
