@@ -12,6 +12,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * Grabación local cuando no hay servidor (no responde o rechaza el token): en vez de perder la
@@ -21,6 +22,13 @@ import java.util.UUID;
  */
 final class Recorder {
     static final String MARKER = "tracereports-offline.json";
+    // Ids locales: cada grabador reserva bloques de ID_BLOCK ids creando <carpeta>/ids/<bloque> en
+    // exclusiva, así dos grabadores que comparten la carpeta (mismo proceso, otro proceso u otra
+    // sesión) nunca repiten un id. El bloque es aleatorio en [MIN_BLOCK, MAX_BLOCK): no choca con
+    // los ids de grabaciones anteriores (pid % 10^6) y -(bloque * ID_BLOCK + n) es exacto en JS.
+    static final long ID_BLOCK = 100_000;
+    static final long MIN_BLOCK = 1_000_000;
+    static final long MAX_BLOCK = 90_000_000_000L;
 
     final Path dir;
     private final OutputStream events;
@@ -28,6 +36,7 @@ final class Recorder {
     private final long pid = ProcessHandle.current().pid();
     private long seq;
     private long nextId;
+    private long block;
     long recorded;
 
     Recorder(Path dir) throws IOException {
@@ -49,10 +58,28 @@ final class Recorder {
         return base.resolve(stamp + "-" + UUID.randomUUID().toString().substring(0, 6));
     }
 
-    /** Id local negativo, único entre procesos que graban en la misma carpeta. */
-    private long localId() {
+    /** Id local negativo, único entre los grabadores que graban en la misma carpeta. */
+    private long localId() throws IOException {
+        if (block == 0 || nextId >= ID_BLOCK - 1) {
+            block = reserveBlock();
+            nextId = 0;
+        }
         nextId++;
-        return -((pid % 1_000_000) * 100_000 + nextId);
+        return -(block * ID_BLOCK + nextId);
+    }
+
+    private long reserveBlock() throws IOException {
+        Path ids = Files.createDirectories(dir.resolve("ids"));
+        for (int i = 0; i < 100; i++) {
+            long candidate = ThreadLocalRandom.current().nextLong(MIN_BLOCK, MAX_BLOCK);
+            try {
+                Files.createFile(ids.resolve(Long.toString(candidate)));
+                return candidate;
+            } catch (FileAlreadyExistsException taken) {
+                // ya es de otro grabador: se prueba otro
+            }
+        }
+        throw new IOException("tracereports: could not reserve local ids in " + ids);
     }
 
     /** Graba la llamada y devuelve el JSON que habría respondido el servidor (ids locales). */

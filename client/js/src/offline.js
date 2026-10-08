@@ -3,7 +3,7 @@
 // Después: `tracereports report <carpeta>` arma el reporte HTML y `tracereports push <carpeta>`
 // la sube al servidor. Mismo formato que el cliente Python (lo lee el binario: internal/offline).
 
-import { randomUUID } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 
@@ -11,6 +11,15 @@ export const FORMAT_VERSION = 1;
 export const MARKER = "tracereports-offline.json";
 
 const pad = (n) => String(n).padStart(2, "0");
+
+// Ids locales: cada grabador reserva bloques de ID_BLOCK ids creando <carpeta>/ids/<bloque> en
+// exclusiva, así dos grabadores que comparten la carpeta (mismo proceso, otro proceso u otra
+// sesión) nunca repiten un id. El bloque es aleatorio en [MIN_BLOCK, MAX_BLOCK): no choca con los
+// ids de grabaciones anteriores (pid % 10^6) y -(bloque * ID_BLOCK + n) sigue siendo un entero
+// exacto en JavaScript (< 2^53). Mismo esquema en los clientes Python, Java y Go.
+const ID_BLOCK = 100_000;
+const MIN_BLOCK = 1_000_000;
+const MAX_BLOCK = 90_000_000_000;
 
 /** Carpeta nueva para una sesión dentro de `base` (no mezcla corridas distintas). */
 export function newSessionDir(base) {
@@ -26,6 +35,7 @@ export class Recorder {
     this.stats = { sent: 0, retried: 0, rejected: 0, dropped: 0, lost: 0, recorded: 0 };
     this.seq = 0;
     this.nextId = 0;
+    this.block = 0;
     this.tag = randomUUID().slice(0, 8);
     fs.mkdirSync(path.join(directory, "bodies"), { recursive: true });
     try {
@@ -37,10 +47,29 @@ export class Recorder {
     this.file = path.join(directory, `events-${process.pid}-${this.tag}.jsonl`);
   }
 
-  // ids locales negativos, únicos entre procesos que graban en la misma carpeta
+  // ids locales negativos, únicos entre los grabadores que graban en la misma carpeta
   localId() {
+    if (!this.block || this.nextId >= ID_BLOCK - 1) {
+      this.block = this.reserveBlock();
+      this.nextId = 0;
+    }
     this.nextId++;
-    return -((process.pid % 1_000_000) * 100_000 + this.nextId);
+    return -(this.block * ID_BLOCK + this.nextId);
+  }
+
+  reserveBlock() {
+    const ids = path.join(this.directory, "ids");
+    fs.mkdirSync(ids, { recursive: true });
+    for (let i = 0; i < 100; i++) {
+      const block = randomInt(MIN_BLOCK, MAX_BLOCK);
+      try {
+        fs.writeFileSync(path.join(ids, String(block)), "", { flag: "wx" });
+        return block;
+      } catch (err) {
+        if (err.code !== "EEXIST") throw err; // ya es de otro grabador: se prueba otro
+      }
+    }
+    throw new Error(`tracereports: could not reserve local ids in ${ids}`);
   }
 
   record(method, apiPath, body, contentType) {

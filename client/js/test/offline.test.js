@@ -162,3 +162,38 @@ test("con el binario: finishRun arma el reporte HTML sin servidor", { skip: !bin
     await srv.close();
   }
 });
+
+// Dos grabadores que comparten la carpeta (aquí en el mismo proceso: mismo pid) no repiten ids:
+// cada uno reserva su bloque en ids/. Ids exactos en JS y fuera del rango de grabaciones viejas.
+test("dos grabadores en la misma carpeta no repiten ids locales", async () => {
+  process.env.TRACEREPORTS_OFFLINE_REPORT = "0";
+  const dir = path.join(tmp(), "rec");
+  const a = new TraceReports({ offline: "always", offlineDir: dir });
+  const b = new TraceReports({ offline: "always", offlineDir: dir });
+  const ra = await a.startRun("suite A");
+  const rb = await b.startRun("suite B");
+  const ta = await a.startTest("test A");
+  const tb = await b.startTest("test B");
+  b.sender.nextId = 100_000 - 1; // el bloque de B se agota: reserva otro
+  const tb2 = await b.startTest("test B2");
+  ta.finish("PASS");
+  tb.finish("FAIL", { errorMessage: "only B failed" });
+  tb2.finish("PASS");
+  await a.finishRun();
+  await b.finishRun();
+  const ids = [ra, rb, ta.id, tb.id, tb2.id];
+  assert.equal(new Set(ids).size, ids.length, `ids repetidos: ${ids}`);
+  for (const id of ids) assert.ok(id < -1e11 && Number.isSafeInteger(id), `id ${id}`);
+  assert.equal(fs.readdirSync(path.join(dir, "ids")).length, 3);
+  assert.deepEqual(events(dir).filter((e) => e.local_id).map((e) => e.local_id).sort(), [...ids].sort());
+  if (!binary) return;
+  const out = path.join(tmp(), "report");
+  const res = spawnSync(binary, ["report", dir, "-o", out], { encoding: "utf8" });
+  assert.equal(res.status, 0, res.stderr);
+  const runs = fs.readdirSync(out).filter((x) => x.startsWith("run-")).map((x) => {
+    const js = fs.readFileSync(path.join(out, x, "data.js"), "utf8");
+    const d = JSON.parse(js.slice("window.TRACEREPORTS_STATIC = ".length).trim().replace(/;$/, ""));
+    return [d.run.name, d.run.tests.map((t) => t.name).sort()];
+  });
+  assert.deepEqual(Object.fromEntries(runs), { "suite A": ["test A"], "suite B": ["test B", "test B2"] });
+});

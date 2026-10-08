@@ -7,15 +7,17 @@ API que habría hecho; después:
     tracereports push ./tracereports-offline/<sesión> --token <token>  # subirla al servidor
 
 Formato (lo lee el binario, ver internal/offline): un marcador ``tracereports-offline.json``,
-un ``events-<pid>-<id>.jsonl`` por proceso (los workers de pytest-xdist escriben cada uno el suyo)
-y ``bodies/`` para lo que no es JSON (capturas). Los ids de ejecución y test son negativos y
-locales; el binario los cambia por los reales al reproducir.
+un ``events-<pid>-<id>.jsonl`` por proceso (los workers de pytest-xdist escriben cada uno el suyo),
+``bodies/`` para lo que no es JSON (capturas) e ``ids/`` con los bloques de ids que reservó cada
+grabador. Los ids de ejecución y test son negativos y locales; el binario los cambia por los reales
+al reproducir.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import secrets
 import threading
 import time
 import uuid
@@ -23,6 +25,14 @@ from typing import Optional
 
 FORMAT_VERSION = 1
 MARKER = "tracereports-offline.json"
+
+# Ids locales: cada grabador reserva bloques de ID_BLOCK ids creando <carpeta>/ids/<bloque> en
+# exclusiva, así dos grabadores que comparten la carpeta (mismo proceso, otro proceso u otra sesión)
+# nunca repiten un id. El bloque es aleatorio en [MIN_BLOCK, MAX_BLOCK): no choca con los ids de
+# grabaciones anteriores (pid % 10^6) y -(bloque * ID_BLOCK + n) es exacto en JavaScript (< 2^53).
+ID_BLOCK = 100_000
+MIN_BLOCK = 1_000_000
+MAX_BLOCK = 90_000_000_000
 
 
 def new_session_dir(base: str) -> str:
@@ -42,6 +52,7 @@ class Recorder:
         self._lock = threading.Lock()
         self._seq = 0
         self._next_id = 0
+        self._block = 0
         self._pid = os.getpid()
         self._tag = uuid.uuid4().hex[:8]
         os.makedirs(os.path.join(directory, "bodies"), exist_ok=True)
@@ -55,10 +66,25 @@ class Recorder:
                 pass
         self._events = open(os.path.join(directory, f"events-{self._pid}-{self._tag}.jsonl"), "a", encoding="utf-8")
 
-    # ids locales negativos, únicos entre procesos que graban en la misma carpeta
+    # ids locales negativos, únicos entre los grabadores que graban en la misma carpeta
     def _local_id(self) -> int:
+        if not self._block or self._next_id >= ID_BLOCK - 1:
+            self._block = self._reserve_block()
+            self._next_id = 0
         self._next_id += 1
-        return -((self._pid % 1_000_000) * 100_000 + self._next_id)
+        return -(self._block * ID_BLOCK + self._next_id)
+
+    def _reserve_block(self) -> int:
+        ids = os.path.join(self.directory, "ids")
+        os.makedirs(ids, exist_ok=True)
+        for _ in range(100):
+            block = MIN_BLOCK + secrets.randbelow(MAX_BLOCK - MIN_BLOCK)
+            try:
+                with open(os.path.join(ids, str(block)), "x"):
+                    return block
+            except FileExistsError:
+                continue  # ya es de otro grabador: se prueba otro
+        raise OSError(f"tracereports: could not reserve local ids in {ids}")
 
     def _record(self, method: str, path: str, body: bytes, content_type: str) -> dict:
         with self._lock:

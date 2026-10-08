@@ -213,3 +213,37 @@ def test_artifact_reaches_the_static_report(tmp_path, monkeypatch):
     report_dir = os.path.dirname(cr.offline_report)
     videos = [n for n in os.listdir(os.path.join(report_dir, "screenshots")) if n.endswith(".webm")]
     assert len(videos) == 1
+
+
+def test_two_recorders_in_one_folder_never_repeat_local_ids(tmp_path, monkeypatch):
+    """Dos grabadores que comparten la carpeta (aquí con el mismo pid) reservan bloques distintos en
+    ids/: no repiten ids, que son exactos en JavaScript y no chocan con grabaciones anteriores."""
+    monkeypatch.setenv("TRACEREPORTS_OFFLINE_REPORT", "0")
+    rec = str(tmp_path / "rec")
+    a = TraceReports(offline="always", offline_dir=rec, async_send=False)
+    b = TraceReports(offline="always", offline_dir=rec, async_send=False)
+    ids = [a.start_run("suite A"), b.start_run("suite B")]
+    a.start_test("test A")
+    b.start_test("test B")
+    b._sender._next_id = 100_000 - 1  # el bloque de B se agota: reserva otro
+    b.end_test(status="FAIL", error_message="only B failed")
+    b.start_test("test B2")
+    a.end_test(status="PASS")
+    b.end_test(status="PASS")
+    a.end_run()
+    b.end_run()
+    ids += [e["local_id"] for e in events(rec) if e["path"].endswith("/tests")]
+    assert len(ids) == 5 and len(set(ids)) == 5, ids
+    assert all(-(2**53) < i < -10**11 for i in ids), ids
+    assert len(os.listdir(os.path.join(rec, "ids"))) == 3
+    if not binary():
+        return
+    out = tmp_path / "report"
+    subprocess.run([binary(), "report", rec, "-o", str(out)], check=True, capture_output=True)
+    runs = {}
+    for name in os.listdir(out):
+        if name.startswith("run-"):
+            js = (out / name / "data.js").read_text(encoding="utf-8")
+            data = json.loads(js[len("window.TRACEREPORTS_STATIC = "):].strip().rstrip(";"))
+            runs[data["run"]["name"]] = sorted(t["name"] for t in data["run"]["tests"])
+    assert runs == {"suite A": ["test A"], "suite B": ["test B", "test B2"]}

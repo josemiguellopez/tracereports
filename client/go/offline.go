@@ -2,6 +2,7 @@ package tracereports
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,17 @@ import (
 
 const offlineMarker = "tracereports-offline.json"
 
+// Local ids: each recorder reserves blocks of idBlock ids by creating <dir>/ids/<block>
+// exclusively, so two recorders sharing the folder (same process, another process or session)
+// never repeat an id. The block is random in [minBlock, maxBlock): it does not collide with the
+// ids of older recordings (pid % 10^6) and -(block*idBlock + n) stays exact in JavaScript (< 2^53).
+// Same scheme in the Python, JavaScript and Java clients.
+const (
+	idBlock  = 100_000
+	minBlock = 1_000_000
+	maxBlock = 90_000_000_000
+)
+
 // recorder writes API calls to <dir>/events-<pid>-<tag>.jsonl and answers with local ids.
 type recorder struct {
 	dir    string
@@ -29,6 +41,7 @@ type recorder struct {
 	file   *os.File
 	seq    int64
 	nextID int64
+	block  int64
 	tag    string
 	pid    int64
 }
@@ -76,11 +89,17 @@ func (r *recorder) record(method, path string, body []byte, contentType string) 
 	var out []byte
 	switch {
 	case method == "POST" && path == "/api/v1/runs":
-		id := r.localID()
+		id, err := r.localID()
+		if err != nil {
+			return nil, err
+		}
 		event["local_id"] = id
 		out = []byte(fmt.Sprintf(`{"run_id":%d}`, id))
 	case method == "POST" && strings.HasPrefix(path, "/api/v1/runs/") && strings.HasSuffix(path, "/tests"):
-		id := r.localID()
+		id, err := r.localID()
+		if err != nil {
+			return nil, err
+		}
 		event["local_id"] = id
 		out = []byte(fmt.Sprintf(`{"test_id":%d}`, id))
 	}
@@ -94,10 +113,38 @@ func (r *recorder) record(method, path string, body []byte, contentType string) 
 	return out, nil
 }
 
-// localID is negative and unique among the processes recording into the same folder.
-func (r *recorder) localID() int64 {
+// localID is negative and unique among the recorders recording into the same folder.
+func (r *recorder) localID() (int64, error) {
+	if r.block == 0 || r.nextID >= idBlock-1 {
+		block, err := r.reserveBlock()
+		if err != nil {
+			return 0, err
+		}
+		r.block, r.nextID = block, 0
+	}
 	r.nextID++
-	return -((r.pid%1_000_000)*100_000 + r.nextID)
+	return -(r.block*idBlock + r.nextID), nil
+}
+
+func (r *recorder) reserveBlock() (int64, error) {
+	ids := filepath.Join(r.dir, "ids")
+	if err := os.MkdirAll(ids, 0o755); err != nil {
+		return 0, err
+	}
+	for range 100 {
+		var b [8]byte
+		_, _ = rand.Read(b[:])
+		block := minBlock + int64(binary.BigEndian.Uint64(b[:])%(maxBlock-minBlock))
+		f, err := os.OpenFile(filepath.Join(ids, fmt.Sprint(block)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err == nil {
+			f.Close()
+			return block, nil
+		}
+		if !errors.Is(err, os.ErrExist) { // os.ErrExist: es de otro grabador, se prueba otro
+			return 0, err
+		}
+	}
+	return 0, fmt.Errorf("tracereports: could not reserve local ids in %s", ids)
 }
 
 func (r *recorder) close() {

@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -291,5 +292,76 @@ func TestArtifactIsRecorded(t *testing.T) {
 	b, _ := os.ReadFile(filepath.Join(dir, uploads[0].BodyFile))
 	if !strings.Contains(string(b), "name=\"kind\"\r\n\r\ntrace") || !strings.Contains(string(b), "trace.zip") {
 		t.Fatalf("multipart body: %q", b)
+	}
+}
+
+// Two recorders sharing the folder (here in the same process: same pid) reserve different blocks
+// in ids/: they never repeat a local id, ids stay exact in JavaScript and do not collide with older
+// recordings.
+func TestTwoRecordersInOneFolderNeverRepeatLocalIDs(t *testing.T) {
+	t.Setenv("TRACEREPORTS_OFFLINE_REPORT", "0")
+	dir := filepath.Join(t.TempDir(), "rec")
+	a, b := New(""), New("")
+	a.Offline, a.OfflineDir = "always", dir
+	b.Offline, b.OfflineDir = "always", dir
+	ra, _ := a.StartRun("suite A", "")
+	rb, _ := b.StartRun("suite B", "")
+	ta, _ := a.StartTest("test A", "", "")
+	tb, _ := b.StartTest("test B", "", "")
+	b.rec.nextID = 100_000 - 1 // B's block runs out: it reserves another
+	tb2, _ := b.StartTest("test B2", "", "")
+	ta.Finish(Pass, "", "")
+	tb.Finish(Fail, "only B failed", "")
+	tb2.Finish(Pass, "", "")
+	a.FinishRun()
+	b.FinishRun()
+	ids := []int64{ra, rb}
+	for _, e := range readEvents(t, dir) {
+		if strings.HasSuffix(e.Path, "/tests") {
+			ids = append(ids, e.LocalID)
+		}
+	}
+	seen := map[int64]bool{}
+	for _, id := range ids {
+		if seen[id] || id >= -1e11 || id <= -(1<<53) {
+			t.Fatalf("local ids must be unique, exact in JS and new: %v", ids)
+		}
+		seen[id] = true
+	}
+	if len(ids) != 5 {
+		t.Fatalf("ids: %v", ids)
+	}
+	if blocks, _ := os.ReadDir(filepath.Join(dir, "ids")); len(blocks) != 3 {
+		t.Fatalf("reserved blocks: %d", len(blocks))
+	}
+	bin := os.Getenv("TRACEREPORTS_BIN")
+	if bin == "" {
+		return
+	}
+	out := filepath.Join(t.TempDir(), "report")
+	if msg, err := exec.Command(bin, "report", dir, "-o", out).CombinedOutput(); err != nil {
+		t.Fatalf("%v: %s", err, msg)
+	}
+	runs, _ := filepath.Glob(filepath.Join(out, "run-*", "data.js"))
+	got := map[string][]string{}
+	for _, f := range runs {
+		raw, _ := os.ReadFile(f)
+		var d struct {
+			Run struct {
+				Name  string
+				Tests []struct{ Name string }
+			}
+		}
+		js := strings.TrimSuffix(strings.TrimSpace(strings.TrimPrefix(string(raw), "window.TRACEREPORTS_STATIC = ")), ";")
+		if err := json.Unmarshal([]byte(js), &d); err != nil {
+			t.Fatal(err)
+		}
+		for _, tt := range d.Run.Tests {
+			got[d.Run.Name] = append(got[d.Run.Name], tt.Name)
+		}
+		sort.Strings(got[d.Run.Name])
+	}
+	if fmt.Sprint(got) != fmt.Sprint(map[string][]string{"suite A": {"test A"}, "suite B": {"test B", "test B2"}}) {
+		t.Fatalf("replayed tests by run: %v", got)
 	}
 }

@@ -159,6 +159,57 @@ class OfflineTest {
         assertTrue(lines(tmp).stream().anyMatch(l -> l.contains("\"path\":\"/api/v1/runs/" + runId + "/tests\"")));
     }
 
+    /**
+     * Dos grabadores que comparten la carpeta (aquí en el mismo proceso: mismo pid) reservan bloques
+     * distintos en ids/: no repiten ids, que son exactos en JavaScript y no chocan con grabaciones
+     * anteriores. Con el binario, el reporte deja cada test en su ejecución.
+     */
+    @Test
+    void dosGrabadoresEnLaMismaCarpetaNoRepitenIds() throws Exception {
+        System.setProperty("tracereports.offline", "always");
+        System.setProperty("tracereports.offlineDir", tmp.resolve("rec").toString());
+        System.setProperty("tracereports.offlineReport", "0");
+        TraceReports a = new TraceReports("http://127.0.0.1:9", "");
+        TraceReports b = new TraceReports("http://127.0.0.1:9", "");
+        List<Long> ids = new ArrayList<>(List.of(a.startRun("suite A", ""), b.startRun("suite B", "")));
+        TraceTest ta = a.startTest("test A");
+        TraceTest tb = b.startTest("test B");
+        java.lang.reflect.Field next = Recorder.class.getDeclaredField("nextId");
+        next.setAccessible(true);
+        next.setLong(b.sender.recorder, 100_000 - 1); // el bloque de B se agota: reserva otro
+        TraceTest tb2 = b.startTest("test B2");
+        ids.addAll(List.of(ta.id(), tb.id(), tb2.id()));
+        ta.finish(Status.PASS);
+        tb.finish(Status.FAIL, "only B failed", "");
+        tb2.finish(Status.PASS);
+        a.finishRun();
+        b.finishRun();
+        assertEquals(5, ids.stream().distinct().count(), "ids repetidos: " + ids);
+        for (long id : ids) assertTrue(id < -100_000_000_000L && id > -(1L << 53), "id " + id);
+        try (Stream<Path> blocks = Files.list(tmp.resolve("rec").resolve("ids"))) {
+            assertEquals(3, blocks.count());
+        }
+        String bin = System.getenv("TRACEREPORTS_BIN");
+        if (bin == null || bin.isBlank()) return;
+        Path out = tmp.resolve("report");
+        Process p = new ProcessBuilder(bin, "report", tmp.resolve("rec").toString(), "-o", out.toString()).redirectErrorStream(true).start();
+        String log = new String(p.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        assertEquals(0, p.waitFor(), log);
+        int runs = 0;
+        try (Stream<Path> dirs = Files.list(out)) {
+            for (Path d : dirs.filter(x -> x.getFileName().toString().startsWith("run-")).toList()) {
+                String data = Files.readString(d.resolve("data.js"));
+                runs++;
+                if (data.contains("\"name\":\"suite A\"")) {
+                    assertTrue(data.contains("test A") && !data.contains("test B"), "suite A");
+                } else {
+                    assertTrue(data.contains("\"name\":\"suite B\"") && data.contains("test B2") && !data.contains("test A"), "suite B");
+                }
+            }
+        }
+        assertEquals(2, runs);
+    }
+
     @Test
     void conElBinarioFinishRunArmaElReporteSinServidor() throws Exception {
         String bin = System.getenv("TRACEREPORTS_BIN");

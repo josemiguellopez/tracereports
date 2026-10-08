@@ -7,6 +7,7 @@
 //	tracereports-offline.json   {"format": "tracereports-offline", "version": 1, "id": "<unique>"}
 //	events-*.jsonl              one file per process (pytest-xdist workers, shards...)
 //	bodies/                     request bodies that are not JSON (screenshots)
+//	ids/                        blocks of local ids reserved by each recorder (empty files)
 //
 // Each line of an events file is one API call the client would have made:
 //
