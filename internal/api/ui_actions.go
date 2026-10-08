@@ -168,6 +168,7 @@ func (s *Server) getEscalation(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
+	s.withDev(e)
 	writeJSON(w, http.StatusOK, e)
 }
 
@@ -193,6 +194,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		} else if e != nil {
+			s.withDev(e)
 			writeJSON(w, http.StatusOK, e)
 			return
 		}
@@ -209,12 +211,13 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 	} else {
 		e = s.AI.Escalate(ctx, facts, in.RunID, in.TestID, in.Audience, in.Lang)
 	}
-	s.withOwner(e) // el dueño de las reglas manda sobre el que sugiere la IA
+	s.withOwner(e)                                                   // el dueño de las reglas manda sobre el que sugiere la IA
 	if raw, err := json.Marshal(e); err == nil && e.Source == "ai" { // la plantilla es gratis: no se guarda
 		if err := s.Store.SaveEscalation(in.RunID, in.TestID, in.Audience, in.Lang, string(raw)); err != nil {
 			slog.Warn("escalation: cache", "err", err)
 		}
 	}
+	s.withDev(e) // después de guardar: el detalle técnico no se cachea
 	writeJSON(w, http.StatusOK, e)
 }
 
@@ -223,6 +226,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool) (*ai.Escalation, error) {
 	if !noAI {
 		if e, err := s.cachedEscalation(ref); err != nil || e != nil {
+			s.withDev(e)
 			return e, err
 		}
 	}
@@ -237,6 +241,7 @@ func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool
 		e = s.AI.Escalate(ctx, facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang)
 	}
 	s.withOwner(e)
+	s.withDev(e)
 	return e, nil
 }
 

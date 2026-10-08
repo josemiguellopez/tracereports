@@ -1856,7 +1856,7 @@
 	const AUDIENCES = [
 		{ id: "business", name: "Negocio", icon: "i-chart", short: "Impacto y riesgo, sin tecnicismos", desc: "Sin tecnicismos: qué no pueden hacer los usuarios, el riesgo y qué se está haciendo." },
 		{ id: "qa", name: "QA", icon: "i-tests", short: "Dónde falló y cómo reproducirlo", desc: "Qué cubría el test, dónde falló, cómo reproducirlo y si bloquea la regresión." },
-		{ id: "dev", name: "Desarrollo", icon: "i-bug", short: "Endpoint, error y por dónde empezar", desc: "Técnico: endpoint, status, error, cuerpo de la respuesta y por dónde empezar a corregir." },
+		{ id: "dev", name: "Desarrollo", icon: "i-bug", short: "cURL, stack trace y cómo reproducirlo", desc: "Técnico: cada llamada fallida con su cURL, la respuesta, el stack trace, la consola del navegador, el commit y el comando para correr el test en local." },
 	];
 	// textos de la tarjeta: van en el idioma del escalamiento, no en el de la interfaz
 	const ESC_L = {
@@ -1865,13 +1865,21 @@
 			evidence: "Evidencia", next: "Próximos pasos", owner: "Responsable sugerido", calls: "Llamadas al backend que fallaron",
 			shot: "Captura del momento del fallo", run: "Ejecución", env: "Ambiente", result: "Resultado", failed: "{f} de {t} tests fallaron",
 			report: "Ver reporte completo", by_ai: "Resumen generado con IA ({m})", by_tpl: "Resumen generado a partir de la evidencia del reporte",
-			flaky: "Test inestable: falló {x} de sus últimas ejecuciones" },
+			flaky: "Test inestable: falló {x} de sus últimas ejecuciones",
+			tech: "Detalle técnico", branch: "Rama", test: "Test", attempts: "Intentos", stack: "Error y stack trace", repro: "Reproducir en local",
+			response: "Respuesta", console: "Consola del navegador", artifacts: "Trace y video", logs: "Ver logs", trace: "Ver traza", copy: "Copiar",
+			baseline: "La última vez que el test pasó (ejecución #{r}) respondió HTTP {s}", other_ctx: " · en otra rama o ambiente",
+			more: "… {n} líneas más en el reporte", clipped: "Respuesta recortada: completa en el reporte" },
 		en: { critical: "Critical severity", high: "High severity", medium: "Medium severity", low: "Low severity",
 			business: "Business", qa: "QA", dev: "Development", what: "What happened", impact: "Impact", cause: "Likely cause",
 			evidence: "Evidence", next: "Next steps", owner: "Suggested owner", calls: "Backend calls that failed",
 			shot: "Screenshot at the moment of failure", run: "Run", env: "Environment", result: "Result", failed: "{f} of {t} tests failed",
 			report: "View full report", by_ai: "Summary written with AI ({m})", by_tpl: "Summary built from the report's evidence",
-			flaky: "Flaky test: it failed {x} of its recent runs" },
+			flaky: "Flaky test: it failed {x} of its recent runs",
+			tech: "Technical detail", branch: "Branch", test: "Test", attempts: "Attempts", stack: "Error and stack trace", repro: "Run it locally",
+			response: "Response", console: "Browser console", artifacts: "Trace and video", logs: "View logs", trace: "View trace", copy: "Copy",
+			baseline: "The last time the test passed (run #{r}) it answered HTTP {s}", other_ctx: " · on another branch or environment",
+			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report" },
 	};
 	const escFmt = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
 	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}`;
@@ -1906,10 +1914,73 @@
 		renderEscalate();
 	}
 
+
+	/** Primeras n líneas de un texto largo (la tarjeta también se exporta como imagen). */
+	function escLines(s, n, L) {
+		const lines = String(s || "").split("\n");
+		return lines.length <= n ? lines.join("\n") : `${lines.slice(0, n).join("\n")}\n${escFmt(L.more, { n: lines.length - n })}`;
+	}
+	const escAbs = (u) => new URL(u, location.href).href;
+	/** Contexto de la ejecución y del test: dónde y con qué corrió. */
+	function escDevContext(d, L) {
+		return [["Framework", d.framework], ["Commit", d.commit], [L.branch, d.branch], [L.test, d.test_key], ["Suite", d.suite],
+			["Params", d.params], ["Worker", d.worker], [L.attempts, d.attempts > 1 ? d.attempts : ""]].filter(([, v]) => v);
+	}
+	function escBaseline(c, L) {
+		const b = c.baseline;
+		return b ? escFmt(L.baseline, { r: b.run_id, s: b.status }) + (b.duration_ms ? ` · ${b.duration_ms} ms` : "") + (b.same_context ? "" : L.other_ctx) : "";
+	}
+
+	/** Detalle técnico para Desarrollo: contexto, stack, cómo reproducirlo, cada llamada con su cURL, consola y trace. */
+	function escDevHTML(d, L, named) {
+		const copy = (text) => `<button class="esc-copy" data-esc-copy="${esc(text)}">${esc(L.copy)}</button>`;
+		const block = (text, lines = 24) => `<div class="esc-code">${copy(text)}<pre>${esc(escLines(text, lines, L))}</pre></div>`;
+		const ctx = escDevContext(d, L);
+		const calls = (d.calls || []).map((c) => `<div class="esc-call">
+				<div class="esc-call-head"><b>${esc(c.method)}</b> <span class="esc-path">${esc(c.url)}</span>
+					<span class="esc-st">${esc(c.outcome)}</span>${c.duration_ms ? `<span class="esc-ms">${c.duration_ms} ms</span>` : ""}</div>
+				${c.trace_id || c.request_id ? `<p class="esc-ids">${c.trace_id ? `Trace ID <code>${esc(c.trace_id)}</code>` : ""}${c.request_id ? ` Request ID <code>${esc(c.request_id)}</code>` : ""}
+					${c.logs_url ? ` <a href="${esc(c.logs_url)}" target="_blank" rel="noopener">${esc(L.logs)} ↗</a>` : ""}${c.trace_url ? ` <a href="${esc(c.trace_url)}" target="_blank" rel="noopener">${esc(L.trace)} ↗</a>` : ""}</p>` : ""}
+				${c.baseline ? `<p class="esc-base">${esc(escBaseline(c, L))}</p>` : ""}
+				<h4>cURL</h4>${block(c.curl, 40)}
+				${c.response_body ? `<h4>${esc(L.response)}</h4>${block(c.response_body, 30)}${c.body_clipped ? `<p class="esc-note">${esc(L.clipped)}</p>` : ""}` : ""}
+			</div>`).join("");
+		const consoleText = (d.console || []).map((m) => `[${m.level}] ${m.text}${m.location ? `  (${m.location})` : ""}`).join("\n");
+		return `<div class="esc-dev-test">${named ? `<h4 class="esc-dev-name">${esc(d.test_name)}</h4>` : ""}
+			${ctx.length ? `<dl class="esc-ctx">${ctx.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
+			${d.error || d.error_trace ? `<h4>${esc(L.stack)}</h4>${block([d.error, d.error_trace].filter(Boolean).join("\n\n"))}` : ""}
+			${d.repro?.length ? `<h4>${esc(L.repro)}</h4>${d.repro.map((r) => block(r.cmd)).join("")}` : ""}
+			${calls ? `<h4>${esc(L.calls)}</h4>${calls}` : ""}
+			${consoleText ? `<h4>${esc(L.console)}</h4>${block(consoleText, 12)}` : ""}
+			${d.artifacts?.length ? `<h4>${esc(L.artifacts)}</h4><ul>${d.artifacts.map((a) => `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.kind)}: ${esc(a.name)}</a></li>`).join("")}</ul>` : ""}
+		</div>`;
+	}
+
+	/** El mismo detalle como texto: bloques de código para Markdown/Slack, sangría en texto simple. */
+	function escDevText(d, L, style, B, named) {
+		const fence = (text, lang = "") => (style === "plain" ? String(text).split("\n").map((l) => `    ${l}`).join("\n") : `\`\`\`${style === "md" ? lang : ""}\n${text}\n\`\`\``);
+		const out = named ? ["", B(`${L.test}: ${d.test_name}`)] : [];
+		const ctx = escDevContext(d, L);
+		if (ctx.length) out.push(ctx.map(([k, v]) => `${k}: ${v}`).join(" · "));
+		if (d.error || d.error_trace) out.push("", B(L.stack + ":"), fence([d.error, d.error_trace].filter(Boolean).join("\n\n")));
+		if (d.repro?.length) out.push("", B(L.repro + ":"), fence(d.repro.map((r) => r.cmd).join("\n"), "bash"));
+		for (const c of d.calls || []) {
+			out.push("", B(`${c.method} ${c.url} → ${c.outcome}${c.duration_ms ? ` (${c.duration_ms} ms)` : ""}`));
+			const ids = [c.trace_id && `Trace ID ${c.trace_id}`, c.request_id && `Request ID ${c.request_id}`, c.logs_url && `${L.logs}: ${c.logs_url}`, c.trace_url && `${L.trace}: ${c.trace_url}`].filter(Boolean);
+			if (ids.length) out.push(ids.join(" · "));
+			if (c.baseline) out.push(escBaseline(c, L));
+			out.push(fence(c.curl, "bash"));
+			if (c.response_body) out.push(`${L.response}:`, fence(c.response_body, /json/i.test(c.mime_type || "") ? "json" : ""));
+		}
+		if (d.console?.length) out.push("", B(L.console + ":"), fence(d.console.map((m) => `[${m.level}] ${m.text}${m.location ? `  (${m.location})` : ""}`).join("\n")));
+		if (d.artifacts?.length) { out.push("", B(L.artifacts + ":")); d.artifacts.forEach((a) => out.push(`• ${a.kind}: ${escAbs(a.url)}`)); }
+		return out;
+	}
+
 	function escCard(e) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const meta = [[L.run, f.run_name], [L.env, f.env || "—"], [L.result, escFmt(L.failed, { f: f.failed, t: f.total })], ["", fmtDateTime(f.started_at)]];
-		const showCalls = e.audience !== "business" && f.network?.length;
+		const showCalls = e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length);
 		return `<article class="esc-card sev-${esc(e.severity)}" id="esc-card" lang="${esc(e.lang)}" data-no-i18n>
 			<div class="esc-band"></div>
 			<header class="esc-head">
@@ -1931,6 +2002,7 @@
 			${f.flaky ? `<p class="esc-flaky">${esc(escFmt(L.flaky, { x: f.flaky }))}</p>` : ""}
 			${e.next_steps?.length ? `<section><h3>${esc(L.next)}</h3><ol>${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></section>` : ""}
 			${e.owner ? `<p class="esc-owner"><span>${esc(L.owner)}</span> <b>${esc(e.owner)}</b></p>` : ""}
+			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name)).join("")}</section>` : ""}
 			<footer class="esc-foot"><a href="${esc(escReportURL(e))}" target="_blank" rel="noopener">${esc(L.report)} ↗</a>
 				<span>${esc(e.source === "ai" ? escFmt(L.by_ai, { m: e.model || "" }) : L.by_tpl)}</span></footer>
 		</article>`;
@@ -1942,13 +2014,14 @@
 		const B = (s) => (style === "slack" ? `*${s}*` : style === "md" ? `**${s}**` : s);
 		const lines = [`${style === "plain" ? `[${(L[e.severity] || e.severity).toUpperCase()}]` : `${B(L[e.severity] || e.severity)} ·`} ${B(e.title)}`, e.headline, ""];
 		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
-		if (e.audience !== "business" && f.network?.length) {
+		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
 			lines.push("", B(L.calls + ":"));
 			f.network.forEach((n) => lines.push(`• ${n.method} ${n.path} → ${n.outcome}${n.duration_ms ? ` (${n.duration_ms} ms)` : ""}`));
 		}
 		if (e.evidence?.length) { lines.push("", B(L.evidence + ":")); e.evidence.forEach((x) => lines.push(`• ${x}`)); }
 		if (e.next_steps?.length) { lines.push("", B(L.next + ":")); e.next_steps.forEach((x, i) => lines.push(`${i + 1}. ${x}`)); }
 		if (e.owner) lines.push("", `${B(L.owner + ":")} ${e.owner}`);
+		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name))); }
 		lines.push("", `${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`);
 		lines.push(`${L.report}: ${escReportURL(e)}`);
 		return lines.join("\n");
@@ -1967,12 +2040,34 @@
 			<p style="margin:10px 0 0;font-size:12px;color:#78909c">${esc(L.run)}: ${esc(f.run_name)} · ${esc(f.env || "—")} · ${esc(fmtDateTime(f.started_at))} · ${esc(escFmt(L.failed, { f: f.failed, t: f.total }))}</p>
 			${shot ? `<img src="${shot}" alt="${esc(L.shot)}" style="margin-top:14px;max-width:100%;border:1px solid #e0e0e0;border-radius:6px">` : ""}
 			${h3(L.what)}${p(e.what_happened)}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
-			${e.audience !== "business" && f.network?.length ? h3(L.calls) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.network.map((n) => `<li><code>${esc(n.method)} ${esc(n.path)}</code> → ${esc(n.outcome)}</li>`).join("")}</ul>` : ""}
+			${e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length) ? h3(L.calls) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.network.map((n) => `<li><code>${esc(n.method)} ${esc(n.path)}</code> → ${esc(n.outcome)}</li>`).join("")}</ul>` : ""}
 			${e.evidence?.length ? h3(L.evidence) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 			${e.next_steps?.length ? h3(L.next) + `<ol style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
 			${e.owner ? `<p style="margin:16px 0 0;font-size:13px;color:#37474f">${esc(L.owner)}: <b>${esc(e.owner)}</b></p>` : ""}
+			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join("") : ""}
 			<p style="margin:16px 0 0"><a href="${esc(escReportURL(e))}" style="color:#1565c0">${esc(L.report)}</a></p>
 		</div>`;
+	}
+
+	/** Detalle técnico del correo: bloques monoespaciados con estilos en línea. */
+	function escDevEmail(d, L, named) {
+		const pre = (t) => `<pre style="margin:4px 0 8px;padding:10px 12px;background:#f5f7f9;border:1px solid #e3e7eb;border-radius:6px;font:12px/1.45 Consolas,'Courier New',monospace;color:#263238;white-space:pre-wrap;word-break:break-all">${esc(t)}</pre>`;
+		const small = (t) => `<p style="margin:6px 0 2px;font-size:12.5px;color:#37474f">${t}</p>`;
+		const ctx = escDevContext(d, L);
+		let html = (named ? `<p style="margin:14px 0 2px;font-size:13.5px;font-weight:700;color:#263238">${esc(d.test_name)}</p>` : "") + (ctx.length ? small(ctx.map(([k, v]) => `${esc(k)}: <b>${esc(v)}</b>`).join(" · ")) : "");
+		if (d.error || d.error_trace) html += small(`<b>${esc(L.stack)}</b>`) + pre([d.error, d.error_trace].filter(Boolean).join("\n\n"));
+		if (d.repro?.length) html += small(`<b>${esc(L.repro)}</b>`) + pre(d.repro.map((r) => r.cmd).join("\n"));
+		for (const c of d.calls || []) {
+			html += small(`<b>${esc(c.method)}</b> <code>${esc(c.url)}</code> → <b style="color:#c62828">${esc(c.outcome)}</b>${c.duration_ms ? ` · ${c.duration_ms} ms` : ""}`);
+			if (c.trace_id || c.request_id) html += small([c.trace_id && `Trace ID <code>${esc(c.trace_id)}</code>`, c.request_id && `Request ID <code>${esc(c.request_id)}</code>`,
+				c.logs_url && `<a href="${esc(c.logs_url)}">${esc(L.logs)}</a>`, c.trace_url && `<a href="${esc(c.trace_url)}">${esc(L.trace)}</a>`].filter(Boolean).join(" · "));
+			if (c.baseline) html += small(esc(escBaseline(c, L)));
+			html += pre(c.curl);
+			if (c.response_body) html += small(esc(L.response)) + pre(c.response_body);
+		}
+		if (d.console?.length) html += small(`<b>${esc(L.console)}</b>`) + pre(d.console.map((m) => `[${m.level}] ${m.text}${m.location ? `  (${m.location})` : ""}`).join("\n"));
+		if (d.artifacts?.length) html += small(`<b>${esc(L.artifacts)}</b>`) + d.artifacts.map((a) => small(`<a href="${esc(escAbs(a.url))}">${esc(a.kind)}: ${esc(a.name)}</a>`)).join("");
+		return html;
 	}
 
 	async function toDataURL(src) {
@@ -1990,6 +2085,7 @@
 			for (const prop of cs) css += `${prop}:${cs.getPropertyValue(prop)};`;
 			dst[i].setAttribute("style", css);
 		});
+		clone.querySelectorAll(".esc-copy").forEach((b) => b.remove()); // en la imagen no hay a qué hacer clic
 		for (const img of clone.querySelectorAll("img")) img.src = await toDataURL(img.getAttribute("src")).catch(() => "");
 		const w = card.offsetWidth, h = card.offsetHeight, scale = 2;
 		const xhtml = new XMLSerializer().serializeToString(clone);
@@ -2176,6 +2272,8 @@
 			const m = e.target.closest("[data-esc-ai]");
 			if (m) { S.esc.noAI = m.dataset.escAi === "0"; renderEscalate(); return; }
 			if (e.target.closest("[data-esc-gen]")) { generateEscalation(!!S.esc.data); return; }
+			const cp = e.target.closest("[data-esc-copy]");
+			if (cp) { CF.copyText(cp.dataset.escCopy, cp); return; }
 			const sh = e.target.closest("[data-esc-share]");
 			if (sh) escShare(sh.dataset.escShare, sh);
 			const tk = e.target.closest("[data-esc-ticket]");

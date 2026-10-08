@@ -168,6 +168,56 @@ test("red: correlación con los logs del backend", async ({ page }) => {
 	await expect(detail.locator(".net-card:not(.net-card-error) .bloque.corr")).toHaveCount(0);
 });
 
+test("escalar para Desarrollo: detalle técnico con cURL, stack, consola y cómo reproducirlo", async ({ page }) => {
+	await openRun(page);
+	await page.locator('[data-view="escalate"]').first().click();
+	const view = page.locator("#view-escalate");
+	await view.locator("#esc-scope").selectOption({ label: "test_login_admin" });
+	await view.locator('input[name="esc-aud"][value="dev"]').check({ force: true });
+	await view.locator("[data-esc-gen]").click();
+	const dev = view.locator("#esc-card .esc-dev");
+	await expect(dev).toContainText("Detalle técnico");
+	await expect(dev).toContainText("Commit");
+	await expect(dev).toContainText("git checkout bbb222 && pytest 'test_login_admin'");
+	await expect(dev).toContainText("reading 'dashboard'");
+	await expect(dev).toContainText("La última vez que el test pasó (ejecución #1) respondió HTTP 200");
+	const call = dev.locator(".esc-call").first();
+	await expect(call).toContainText("curl -X POST 'https://api.example.com/auth/login?lang=es'");
+	await expect(call).toContainText('-H "Authorization: $AUTHORIZATION"');
+	await expect(call).toContainText("db pool exhausted");
+	await expect(dev).not.toContainText("E2E-SECRET");
+	await expect(dev).not.toContainText("E2E-PASSWORD");
+	// copiar el cURL de la llamada
+	await call.locator(".esc-copy").first().click();
+	const curl = await page.evaluate(() => navigator.clipboard.readText());
+	expect(curl).toContain('-H "Authorization: $AUTHORIZATION"');
+	expect(curl).not.toContain("<masked>");
+	// Markdown: bloques de código listos para pegar en Jira, GitHub o Teams
+	await view.locator('[data-esc-share="md"]').click();
+	const md = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n"); // el portapapeles de Windows usa CRLF
+	expect(md).toContain("**Detalle técnico:**");
+	expect(md).toContain("```bash\ncurl -X POST");
+	expect(md).toContain("```bash\ngit checkout bbb222");
+	expect(md).not.toContain("E2E-SECRET");
+});
+
+test("escalar la ejecución completa para Desarrollo: detalle técnico por test", async ({ page }) => {
+	await openRun(page);
+	await page.locator('[data-view="escalate"]').first().click();
+	const view = page.locator("#view-escalate");
+	await view.locator("#esc-scope").selectOption("0");
+	await view.locator('input[name="esc-aud"][value="dev"]').check({ force: true });
+	await view.locator("[data-esc-gen]").click();
+	const dev = view.locator("#esc-card .esc-dev");
+	await expect(dev.locator(".esc-dev-name")).toHaveText(["test_login_admin"]);
+	await expect(dev.locator(".esc-call")).toContainText('-H "Authorization: $AUTHORIZATION"');
+	await view.locator('[data-esc-share="plain"]').click();
+	const text = await page.evaluate(() => navigator.clipboard.readText());
+	expect(text).toContain("Test: test_login_admin");
+	expect(text).toContain("    curl -X POST 'https://api.example.com/auth/login?lang=es'");
+	expect(text).not.toContain("E2E-SECRET");
+});
+
 test("red: el panel de mocks muestra cada formato", async ({ page }) => {
 	await openRun(page);
 	await openTest(page, "test_login_admin");

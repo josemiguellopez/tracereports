@@ -70,6 +70,9 @@ type Facts struct {
 	RunSummary  string        `json:"run_summary,omitempty"`
 	Flaky       string        `json:"flaky,omitempty"` // "falló 3 de 8 ejecuciones"
 	ReportPath  string        `json:"report_path"`     // "#run=1&view=tests&test=4"
+	// Dev: technical detail for the developer (audience dev): the chosen test, or the first failed
+	// tests of the run. Built on every response, never cached nor sent to the AI.
+	Dev []*DevFacts `json:"dev,omitempty"`
 }
 
 // NetFact is a backend call that failed.

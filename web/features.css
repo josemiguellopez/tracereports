@@ -909,3 +909,28 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .weekly-headline.down { color: var(--color-danger); }
 .weekly h6 { margin: 6px 0 0; }
 .weekly ul { margin: 0; padding-left: 18px; }
+
+/* escalar: detalle técnico para Desarrollo */
+.esc-dev { margin-top: 18px; padding-top: 4px; border-top: 1px dashed #dfe4e8; }
+.esc-dev-test + .esc-dev-test { margin-top: 18px; padding-top: 6px; border-top: 1px solid #eef1f4; }
+.esc-dev .esc-dev-name { font-size: 14px; color: var(--sev); }
+.esc-dev h4 { margin: 14px 0 6px; font-size: 12.5px; font-weight: 700; color: #263238; }
+.esc-ctx { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 6px 0 0; font-size: 12.5px; }
+.esc-ctx div { display: flex; gap: 6px; min-width: 0; }
+.esc-ctx dt { color: #78909c; }
+.esc-ctx dd { margin: 0; color: #263238; font-family: Consolas, "Source Code Pro", monospace; overflow-wrap: anywhere; }
+.esc-code { position: relative; margin: 0 0 8px; }
+.esc-code pre { margin: 0; padding: 10px 12px; padding-right: 70px; background: #0f1720; color: #e2e8f0; border-radius: 8px; font: 12px/1.5 Consolas, "Source Code Pro", monospace;
+	white-space: pre-wrap; word-break: break-all; max-height: none; }
+.esc-copy { position: absolute; top: 6px; right: 6px; padding: 3px 9px; border: 1px solid #334155; border-radius: 6px; background: #1e293b; color: #e2e8f0; font-size: 11.5px; cursor: pointer; }
+.esc-copy:hover, .esc-copy:focus-visible { background: #334155; }
+.esc-call { margin: 10px 0 0; padding: 10px 12px; border: 1px solid #e3e7eb; border-left: 3px solid #c62828; border-radius: 8px; background: #fbfcfd; }
+.esc-call h4 { margin-top: 10px; }
+.esc-call-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; font-size: 13px; }
+.esc-ids, .esc-base, .esc-note { margin-top: 6px !important; font-size: 12px; color: #546e7a !important; }
+.esc-ids code { font-size: 11.5px; background: #eef1f4; padding: 1px 5px; border-radius: 4px; }
+.esc-ids a { color: #1565c0; font-weight: 600; text-decoration: none; margin-left: 6px; }
+.esc-base { color: #2e7d32 !important; }
+.esc-dev ul { font-size: 13px; }
+.esc-dev a { color: #1565c0; }
+
