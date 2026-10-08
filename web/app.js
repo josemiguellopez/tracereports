@@ -909,7 +909,7 @@
 			const eps = await api(`/api/v1/tests/${testId}/drift`);
 			const max = Math.max(1, ...eps.map((e) => Math.max(e.current_p95, e.baseline_p95)));
 			slot.innerHTML = `<table class="cf-table"><thead><tr><th>Endpoint</th><th>Llamadas</th><th>p95 histórico</th><th>p95 ahora</th><th>Δ</th></tr></thead><tbody>
-				${eps.map((e) => `<tr><td><span class="nbadge" style="background:${METHOD_COLOR[e.method] || "#6b7280"}">${esc(e.method)}</span> <span class="mono">${esc(e.path)}</span>
+				${eps.map((e) => `<tr><td><span class="nbadge" style="background:${METHOD_COLOR[e.method] || "#6b7280"}">${esc(e.method)}</span> <span class="mono">${esc((e.host || "") + e.path)}</span>
 					<span class="cf-bar"><i style="width:${((e.current_p95 / max) * 100).toFixed(1)}%"></i></span></td>
 					<td class="num">${e.count}</td><td class="num">${e.baseline_p95 ? `${e.baseline_p95} ms` : "—"}</td><td class="num">${e.current_p95} ms</td>
 					<td class="num">${!e.baseline_p95 ? `<span class="cf-delta-new">nuevo</span>` : e.delta_ms > 0 ? `<span class="cf-delta-up">+${e.delta_ms} ms</span>` : `${e.delta_ms} ms`}</td></tr>`).join("")}

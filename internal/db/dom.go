@@ -62,6 +62,7 @@ type NetDrift struct {
 // EndpointDrift is the latency change of one endpoint inside a test.
 type EndpointDrift struct {
 	Method      string `json:"method"`
+	Host        string `json:"host,omitempty"` // dos servicios con el mismo path son endpoints distintos
 	Path        string `json:"path"`
 	Count       int    `json:"count"`
 	CurrentP95  int64  `json:"current_p95"`
@@ -182,12 +183,14 @@ func (s *Store) TestDrift(testID int64) ([]EndpointDrift, error) {
 		cur  []int64
 		prev map[int64][]int64 // test anterior -> duraciones
 	}
-	byEP := map[string]*acc{}
-	var order []string
+	// identidad del endpoint: método, host y path normalizado (los ids variables se agrupan)
+	type endpoint struct{ method, host, path string }
+	byEP := map[endpoint]*acc{}
+	var order []endpoint
 	prevTests := map[int64]bool{}
 	for _, x := range samples {
-		_, path := NormalizeEndpoint(x.url)
-		key := x.method + " " + path
+		host, path := NormalizeEndpoint(x.url)
+		key := endpoint{x.method, host, path}
 		a := byEP[key]
 		if a == nil {
 			a = &acc{prev: map[int64][]int64{}}
@@ -211,8 +214,7 @@ func (s *Store) TestDrift(testID int64) ([]EndpointDrift, error) {
 		for _, d := range a.prev {
 			prevP95 = append(prevP95, p95(d))
 		}
-		method, path, _ := cutKey(key)
-		ed := EndpointDrift{Method: method, Path: path, Count: len(a.cur), CurrentP95: p95(a.cur), BaselineP95: median(prevP95)}
+		ed := EndpointDrift{Method: key.method, Host: key.host, Path: key.path, Count: len(a.cur), CurrentP95: p95(a.cur), BaselineP95: median(prevP95)}
 		if ed.BaselineP95 > 0 {
 			ed.DeltaMs = ed.CurrentP95 - ed.BaselineP95
 		}
@@ -220,13 +222,4 @@ func (s *Store) TestDrift(testID int64) ([]EndpointDrift, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].DeltaMs > out[j].DeltaMs })
 	return out, nil
-}
-
-func cutKey(key string) (string, string, bool) {
-	for i := 0; i < len(key); i++ {
-		if key[i] == ' ' {
-			return key[:i], key[i+1:], true
-		}
-	}
-	return key, "", false
 }
