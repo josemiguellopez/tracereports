@@ -96,8 +96,26 @@
 	}
 
 	// ---------- data loading ----------
+	// Cada carga toma un turno: la respuesta (o el error) de una petición que ya tiene otra más nueva
+	// del mismo tipo se descarta, así una ejecución o un test elegido antes no pisa al elegido después.
+	const turns = {};
+	function turn(name) {
+		const n = (turns[name] || 0) + 1;
+		turns[name] = n;
+		return () => turns[name] === n;
+	}
+
 	async function loadRuns() {
-		S.runs = await api("/api/v1/runs?limit=100");
+		const current = turn("runs");
+		let runs;
+		try {
+			runs = await api("/api/v1/runs?limit=100");
+		} catch (err) {
+			if (current()) throw err;
+			return;
+		}
+		if (!current()) return;
+		S.runs = runs;
 		const sel = $("#run-select");
 		sel.innerHTML = S.runs.map((r) =>
 			`<option value="${r.id}">#${r.id} · ${esc(r.name)}${r.status === "RUNNING" ? " (en curso)" : r.incomplete ? " (incompleta)" : ""}${r.branch ? ` · ${esc(r.branch)}` : ""} — ${fmtDateTime(r.started_at)}</option>`).join("");
@@ -110,7 +128,16 @@
 
 	async function loadRun() {
 		if (!S.runId) return;
-		S.run = await api(`/api/v1/runs/${S.runId}`);
+		const id = S.runId, current = turn("run");
+		let run;
+		try {
+			run = await api(`/api/v1/runs/${id}`);
+		} catch (err) {
+			if (current() && id === S.runId) throw err;
+			return;
+		}
+		if (!current() || id !== S.runId) return; // ya se eligió otra ejecución
+		S.run = run;
 		if (S.testId && !S.run.tests.some((t) => t.id === S.testId)) S.testId = null;
 		if (!S.testId && S.run.tests.length) S.testId = S.run.tests[0].id;
 		renderHeader();
@@ -118,8 +145,18 @@
 	}
 
 	async function loadTest() {
+		const current = turn("test");
 		if (!S.testId) { S.test = null; renderTestDetail(); return; }
-		S.test = await api(`/api/v1/tests/${S.testId}`);
+		const id = S.testId;
+		let test;
+		try {
+			test = await api(`/api/v1/tests/${id}`);
+		} catch (err) {
+			if (current() && id === S.testId) throw err;
+			return;
+		}
+		if (!current() || id !== S.testId) return; // ya se eligió otro test
+		S.test = test;
 		S.test.logs ||= []; // un test recién iniciado llega sin "logs" (omitempty)
 		renderTestDetail();
 	}
@@ -649,13 +686,13 @@
 		const r = S.run;
 		const key = `${r.id}:${r.status}:${r.total}:${r.failed}:${r.quarantined || 0}`;
 		if (S.release?.key !== key) {
-			S.release = { key, data: null };
+			const rel = S.release = { key, data: null };
 			try {
-				S.release.data = await api(`/api/v1/runs/${r.id}/release`);
+				rel.data = await api(`/api/v1/runs/${r.id}/release`);
 			} catch (err) {
-				S.release.error = err.message;
+				rel.error = err.message;
 			}
-			if (S.view !== "release") return;
+			if (S.release !== rel || S.view !== "release") return; // llegó tarde: hay otra pedida
 		}
 		const d = S.release.data;
 		if (!d) {
@@ -1314,7 +1351,7 @@
 		S.insights.base = base;
 		try {
 			const compare = await api(`/api/v1/runs/${S.run.id}/compare${base ? `?base=${base}` : ""}`);
-			if (S.insights.key === key) { S.insights.compare = compare; renderInsights(); }
+			if (S.insights.key === key && S.insights.base === base) { S.insights.compare = compare; renderInsights(); }
 		} catch (err) { console.warn("compare", err); }
 	}
 
@@ -1815,7 +1852,10 @@
 		const key = `${r.id}:${r.summary?.updated_at || 0}`;
 		if (S.aiv.recKey === key || STATIC) return;
 		S.aiv.recKey = key;
-		try { S.aiv.rec = await api(`/api/v1/runs/${r.id}/recurrence`); } catch { S.aiv.rec = {}; }
+		let rec;
+		try { rec = await api(`/api/v1/runs/${r.id}/recurrence`); } catch { rec = {}; }
+		if (S.aiv.recKey !== key) return; // llegó tarde: ya se pidió la de otra ejecución
+		S.aiv.rec = rec;
 		if (S.view === "ai") renderAI();
 	}
 
@@ -1967,14 +2007,18 @@
 
 	async function generateEscalation(regenerate) {
 		S.esc.loading = true; S.esc.msg = null; renderEscalate();
-		const key = escKey();
+		const key = escKey(), current = turn("escalate");
 		try {
 			const data = await apiSend("POST", "/api/v1/ui/escalate", { run_id: S.run.id, test_id: S.esc.test, audience: S.esc.audience, lang: S.esc.lang, regenerate: !!regenerate, no_ai: escNoAI() });
-			if (escKey() === key) S.esc.data = data;
-			if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
+			// otro test, público o idioma elegido mientras tanto: el resultado y su aviso son de otro escalado
+			if (escKey() === key) {
+				S.esc.data = data;
+				if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
+			}
 		} catch (err) {
-			S.esc.msg = { ok: false, text: err.message };
+			if (escKey() === key) S.esc.msg = { ok: false, text: err.message };
 		}
+		if (!current()) return; // hay otra generación más nueva en curso
 		S.esc.loading = false;
 		renderEscalate();
 	}
@@ -2405,7 +2449,7 @@
 	}
 
 	async function loadMetrics() {
-		const m = S.metrics;
+		const m = S.metrics, current = turn("metrics");
 		m.loading = true;
 		$("#m-body")?.classList.add("is-loading"); // se conserva el gráfico anterior atenuado
 		try {
@@ -2416,9 +2460,12 @@
 				if (span > 366) throw new Error(tr("El rango puede tener como máximo 366 días (un año): elige uno más corto."));
 				q.set("from", m.custom.from); q.set("to", m.custom.to);
 			}
-			m.data = await api(`/api/v1/metrics?${q}`);
+			const data = await api(`/api/v1/metrics?${q}`);
+			if (!current()) return; // se cambió el filtro: vale la petición más nueva
+			m.data = data;
 			m.error = null;
 		} catch (err) {
+			if (!current()) return;
 			m.error = err.message;
 		}
 		m.loading = false;
