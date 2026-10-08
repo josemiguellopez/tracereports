@@ -37,8 +37,12 @@ const Marker = "tracereports-offline.json"
 // Version of the recording format this package reads.
 const Version = 1
 
-// maxEvent is the largest line accepted in an events file (a JSON body with a big DOM snapshot).
-const maxEvent = 16 << 20
+// maxEvent is the largest line accepted in an events file. A line is one API call with its JSON
+// body embedded (bodies that are not JSON go to body_file), so it must fit the largest JSON
+// request the server accepts: a network batch of up to 48 MiB (clients send one connection alone
+// up to ~40 MiB) plus 1 MiB for the event's own fields. A longer line could not be replayed
+// anyway: it is reported, never cut nor skipped.
+const maxEvent = 49 << 20
 
 // Event is one recorded API call.
 type Event struct {
@@ -119,7 +123,8 @@ func readEvents(path string) ([]Event, error) {
 	name := filepath.Base(path)
 	var out []Event
 	var broken error // línea inválida: solo se perdona si es la última (el proceso murió escribiéndola)
-	for line := 1; sc.Scan(); line++ {
+	line := 1
+	for ; sc.Scan(); line++ {
 		raw := bytes.TrimSpace(sc.Bytes())
 		if len(raw) == 0 {
 			continue
@@ -138,7 +143,10 @@ func readEvents(path string) ([]Event, error) {
 		e.file = name
 		out = append(out, e)
 	}
-	if err := sc.Err(); err != nil {
+	if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
+		return nil, fmt.Errorf("%s:%d: event larger than %d MiB (the most the server accepts in one request): "+
+			"it was not written by a TraceReports client or the file is damaged", name, line, maxEvent>>20)
+	} else if err != nil {
 		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	return out, nil
