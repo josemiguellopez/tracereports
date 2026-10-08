@@ -24,7 +24,7 @@
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
-		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null },
+		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0 },
 		settings: { data: null, form: null, msg: null, busy: false, error: null, loading: false,
 			usage: null, usageError: null, usageLoading: false, status: null, statusLoading: false,
 			gen: {}, snips: {}, connTab: "ps", check: null, checkInput: null, checking: false,
@@ -137,6 +137,7 @@
 			return;
 		}
 		if (!current() || id !== S.runId) return; // ya se eligió otra ejecución
+		if (S.run && JSON.stringify(S.run) !== JSON.stringify(run)) invalidateEscalation();
 		S.run = run;
 		if (S.testId && !S.run.tests.some((t) => t.id === S.testId)) S.testId = null;
 		if (!S.testId && S.run.tests.length) S.testId = S.run.tests[0].id;
@@ -156,8 +157,12 @@
 			return;
 		}
 		if (!current() || id !== S.testId) return; // ya se eligió otro test
+		test.logs ||= []; // un test recién iniciado llega sin "logs" (omitempty)
+		if (S.test?.id === id && JSON.stringify(S.test) !== JSON.stringify(test)) {
+			invalidateEscalation();
+			if (S.view === "escalate") renderEscalate();
+		}
 		S.test = test;
-		S.test.logs ||= []; // un test recién iniciado llega sin "logs" (omitempty)
 		renderTestDetail();
 	}
 
@@ -1058,6 +1063,10 @@
 
 	function onLive(type, e) {
 		const sameRun = e.run_id === S.runId;
+		if (sameRun && ["run", "test", "triage", "summary", "log", "network", "console", "artifact"].includes(type)) {
+			invalidateEscalation();
+			if (S.view === "escalate") renderEscalate();
+		}
 		if (e.run_id) S.activity[e.run_id] = Date.now();
 		if (type === "run" && e.data?.action === "created") loadRuns().then(() => notifyNewRun(e.run_id)).catch(() => {});
 		if (type === "log") {
@@ -1987,36 +1996,50 @@
 			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report" },
 	};
 	const escFmt = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
-	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}`;
+	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}:${S.esc.evidence}`;
 	/** Sin IA: elegido por la persona, o porque no hay IA configurada. */
 	const escNoAI = () => !S.config.ai_enabled || !!S.esc.noAI;
+
+	// El resumen en memoria y las respuestas en vuelo pertenecen a la evidencia anterior.
+	// Retirarlo no genera IA: el cache del servidor valida su huella; regenerar sigue siendo explícito.
+	function invalidateEscalation() {
+		S.esc.evidence++;
+		S.esc.loadedKey = null; S.esc.data = null; S.esc.msg = null; S.esc.loading = false;
+		turn("escalate"); turn("escalate-cache");
+	}
 
 	function escReportURL(e) { return `${location.origin}/${e.facts.report_path}`; }
 
 	async function loadCachedEscalation() {
 		const key = escKey();
 		if (S.esc.loadedKey === key) return;
+		const current = turn("escalate-cache");
 		S.esc.loadedKey = key; S.esc.data = null; S.esc.msg = null;
 		if (escNoAI()) { if (S.view === "escalate") renderEscalate(); return; } // la plantilla no se guarda
 		try {
 			const res = await fetch(`/api/v1/runs/${S.run.id}/escalation?test=${S.esc.test}&audience=${S.esc.audience}&lang=${S.esc.lang}`);
-			if (res.status === 200 && escKey() === key) S.esc.data = await res.json();
+			if (res.status === 200) {
+				const data = await res.json();
+				if (current() && escKey() === key) S.esc.data = data;
+			}
 		} catch { /* sin caché */ }
 		if (S.view === "escalate") renderEscalate();
 	}
 
 	async function generateEscalation(regenerate) {
-		S.esc.loading = true; S.esc.msg = null; renderEscalate();
 		const key = escKey(), current = turn("escalate");
+		turn("escalate-cache"); // una lectura anterior no pisa la generación solicitada
+		S.esc.loadedKey = key;
+		S.esc.loading = true; S.esc.msg = null; renderEscalate();
 		try {
 			const data = await apiSend("POST", "/api/v1/ui/escalate", { run_id: S.run.id, test_id: S.esc.test, audience: S.esc.audience, lang: S.esc.lang, regenerate: !!regenerate, no_ai: escNoAI() });
 			// otro test, público o idioma elegido mientras tanto: el resultado y su aviso son de otro escalado
-			if (escKey() === key) {
+			if (current() && escKey() === key) {
 				S.esc.data = data;
 				if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
 			}
 		} catch (err) {
-			if (escKey() === key) S.esc.msg = { ok: false, text: err.message };
+			if (current() && escKey() === key) S.esc.msg = { ok: false, text: err.message };
 		}
 		if (!current()) return; // hay otra generación más nueva en curso
 		S.esc.loading = false;
@@ -3471,7 +3494,8 @@
 	// ---------- polling (live updates) ----------
 	function needsPolling() {
 		if (!S.run || S.liveState === "live") return false; // con SSE no hace falta consultar
-		return S.run.status === "RUNNING" || S.run.summary?.state === "PENDING"
+		return (S.view === "escalate" && (S.esc.data || S.esc.loading))
+			|| S.run.status === "RUNNING" || S.run.summary?.state === "PENDING"
 			|| S.run.tests.some((t) => t.status === "RUNNING" || t.triage?.state === "PENDING");
 	}
 
