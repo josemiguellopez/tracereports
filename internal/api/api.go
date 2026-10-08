@@ -88,7 +88,7 @@ func (s *Server) Router() http.Handler {
 	r.Use(s.Auth.middleware, s.hostGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(s.idempotent)
+		r.Use(s.trackActivity, s.idempotent)
 		r.Get("/config", s.getConfig)
 		r.Get("/settings", s.getSettings)
 		r.Get("/auth/check", s.checkToken)

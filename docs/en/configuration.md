@@ -39,6 +39,7 @@ steps to apply it.
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. `0` = no limit |
+| `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Closes as *incomplete* a run still *in progress* that received nothing for N hours (the client died without closing it). `0` = never. See [Abandoned runs](#abandoned-runs) |
 
 ## Security
 
@@ -457,6 +458,17 @@ Limits: it recognizes secrets by their key or by unambiguous shapes. Sensitive d
 text without a key, or visible in a **screenshot**, is not detected: use `TRACEREPORTS_REDACT_PATTERNS`,
 `--tracereports-no-screenshots`, `--tracereports-no-dom` or `NETWORK_MAX_BODY_KB=0` as needed, and
 `TRACEREPORTS_RETENTION_DAYS` so evidence does not pile up.
+
+### Abandoned runs
+
+If the test process dies without closing the run (cancelled CI job, lost machine), it stays *in
+progress*. After `TRACEREPORTS_STALE_RUN_HOURS` hours (24 by default) **without receiving anything**,
+the server closes it as *incomplete*: the tests still running become *interrupted* failures, and the
+diagnosis and the notification follow, once. Activity is the server time when the last write
+arrived, not the times the client sends: a long run that keeps sending is never closed, and an
+offline client uploading its recording late does not look abandoned. Whatever arrives later (a
+step, the `finish`) is accepted as late evidence, without notifying again. Once closed, retention
+treats it like any other.
 
 ## AI diagnosis after a restart
 

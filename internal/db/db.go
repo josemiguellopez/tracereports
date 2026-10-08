@@ -111,6 +111,8 @@ func Open(path string) (*Store, error) {
 		{"run_triage", "pending_tests", "INTEGER NOT NULL DEFAULT 0"},
 		// la clave de idempotencia vive lo mismo que la evidencia de su ejecución
 		{"idempotency", "run_id", "INTEGER REFERENCES runs(id) ON DELETE CASCADE"},
+		// hora del servidor de la última escritura recibida: cierre de ejecuciones abandonadas
+		{"runs", "last_activity", "INTEGER NOT NULL DEFAULT 0"},
 		// un ticket se reutiliza solo en el mismo proyecto y destino del tracker
 		{"tickets", "project", "TEXT"},
 		{"tickets", "target", "TEXT NOT NULL DEFAULT ''"},
@@ -120,7 +122,7 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
-	if _, err := sqldb.Exec(migrations + ticketMigrations); err != nil {
+	if _, err := sqldb.Exec(migrations + ticketMigrations + staleMigration); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
@@ -308,8 +310,9 @@ func (s *Store) CreateRun(name, environment string) (int64, error) {
 
 // CreateRunWithMeta inserts a new run with its context (project, branch, commit, framework).
 func (s *Store) CreateRunWithMeta(name, environment string, m RunMeta) (int64, error) {
-	res, err := s.db.Exec(`INSERT INTO runs(name, environment, started_at, project, branch, commit_sha, framework) VALUES(?,?,?,?,?,?,?)`,
-		name, environment, NowMs(), m.Project, m.Branch, m.Commit, m.Framework)
+	now := NowMs()
+	res, err := s.db.Exec(`INSERT INTO runs(name, environment, started_at, project, branch, commit_sha, framework, last_activity)
+		VALUES(?,?,?,?,?,?,?,?)`, name, environment, now, m.Project, m.Branch, m.Commit, m.Framework, now)
 	if err != nil {
 		return 0, err
 	}
@@ -400,19 +403,31 @@ func (s *Store) CloseRun(runID int64, interrupted bool) (run *Run, first bool, e
 		return nil, false, err
 	}
 	defer tx.Rollback()
+	if first, err = closeRunTx(tx, runID, interrupted); err != nil {
+		return nil, false, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, false, err
+	}
+	run, err = s.GetRun(runID)
+	return run, first, err
+}
+
+// closeRunTx closes a run inside tx; first is true when it had not been closed before.
+func closeRunTx(tx txHandle, runID int64, interrupted bool) (first bool, err error) {
 	var ended sql.NullInt64
 	var wasIncomplete bool
 	err = tx.QueryRow(`SELECT ended_at, incomplete FROM runs WHERE id=?`, runID).Scan(&ended, &wasIncomplete)
 	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, ErrNotFound
+		return false, ErrNotFound
 	}
 	if err != nil {
-		return nil, false, err
+		return false, err
 	}
 	res, err := tx.Exec(`UPDATE tests SET status='FAIL', ended_at=?, error_message=? WHERE run_id=? AND status='RUNNING'`,
 		NowMs(), InterruptedMessage, runID)
 	if err != nil {
-		return nil, false, err
+		return false, err
 	}
 	if n, _ := res.RowsAffected(); n > 0 {
 		interrupted = true
@@ -420,19 +435,15 @@ func (s *Store) CloseRun(runID int64, interrupted bool) (run *Run, first bool, e
 	incomplete := interrupted || wasIncomplete
 	c, err := countersOf(tx, runID)
 	if err != nil {
-		return nil, false, err
+		return false, err
 	}
 	_, err = tx.Exec(`UPDATE runs SET status=?, ended_at=COALESCE(ended_at, ?), total=?, passed=?, failed=?, skipped=?, warning=?,
 		incomplete=? WHERE id=?`,
 		runStatus(c, incomplete), NowMs(), c.Total, c.Passed, c.Failed, c.Skipped, c.Warning, incomplete, runID)
 	if err != nil {
-		return nil, false, err
+		return false, err
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, false, err
-	}
-	run, err = s.GetRun(runID)
-	return run, !ended.Valid, err
+	return !ended.Valid, nil
 }
 
 // GetRun returns a run with live counters.
@@ -466,7 +477,7 @@ func (s *Store) ListRuns(limit int) ([]Run, error) {
 		       COALESCE(SUM(t.status='WARNING'),0),
 		       COALESCE(SUM(t.status='RUNNING'),0)
 		FROM runs r LEFT JOIN tests t ON t.run_id = r.id
-		GROUP BY r.id ORDER BY r.id DESC LIMIT ?`, limit)
+		GROUP BY r.id ORDER BY r.id DESC LIMIT ?`, NowMs(), limit)
 	if err != nil {
 		return nil, err
 	}

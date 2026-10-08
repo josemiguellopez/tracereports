@@ -39,6 +39,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. `0` = sin límite |
+| `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Cierra como *incompleta* una ejecución que sigue *en curso* sin recibir nada en N horas (el cliente murió sin cerrarla). `0` = nunca. Ver [Ejecuciones abandonadas](#ejecuciones-abandonadas) |
 
 ## Seguridad
 
@@ -461,6 +462,17 @@ Límites: reconoce secretos por su clave o por formas inequívocas. Un dato sens
 texto libre sin clave, o visible en una **captura de pantalla**, no se detecta: usa
 `TRACEREPORTS_REDACT_PATTERNS`, `--tracereports-no-screenshots`, `--tracereports-no-dom` o
 `NETWORK_MAX_BODY_KB=0` según el caso, y `TRACEREPORTS_RETENTION_DAYS` para no acumular evidencia.
+
+### Ejecuciones abandonadas
+
+Si el proceso de tests muere sin cerrar la ejecución (job de CI cancelado, máquina perdida), esta
+queda *en curso*. Tras `TRACEREPORTS_STALE_RUN_HOURS` horas (24 por defecto) **sin recibir nada**, el
+servidor la cierra como *incompleta*: los tests que seguían corriendo quedan como fallos
+*interrumpidos* y siguen el diagnóstico y la notificación, una sola vez. La actividad es la hora del
+servidor en que llegó la última escritura, no las horas que envía el cliente: una ejecución larga que
+sigue enviando nunca se cierra, y un cliente offline que sube su grabación tarde no se ve como
+abandonado. Lo que llegue después (un paso, el `finish`) se acepta como evidencia tardía, sin volver
+a notificar. Una vez cerrada, la retención la trata como cualquier otra.
 
 ## Diagnóstico con IA después de un reinicio
 
