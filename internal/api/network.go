@@ -49,8 +49,8 @@ func (s *Server) addNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxNetworkBody)
 	// se lee de a una conexión y cada una se recorta al leerla: el lote no queda entero en
-	// memoria con sus bodies completos (el límite del request sigue igual: los clientes envían
-	// hasta 200 conexiones de hasta 256 KB)
+	// memoria con sus bodies completos (el límite del request sigue igual: los clientes arman
+	// lotes de hasta 200 conexiones y 8 MiB de JSON; una conexión más grande va sola)
 	var conns []db.NetConn
 	errors := 0
 	red := s.redactor()

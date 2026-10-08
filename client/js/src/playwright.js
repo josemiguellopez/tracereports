@@ -68,7 +68,12 @@ export function captureNetwork(page, { apiPatterns = ["/api/"] } = {}) {
     const isApi = BODY_TYPES.has(c.resource_type) || apiPatterns.some((p) => c.url.includes(p));
     if (isApi || c.status >= 400) {
       const p = res.text()
-        .then((body) => { c.body_size = body.length; c.response_body = body.slice(0, MAX_BODY); })
+        .then((body) => {
+          // el recorte se marca aquí, donde ocurre; el tamaño original va en bytes UTF-8 (como el servidor)
+          c.body_size = Buffer.byteLength(body);
+          c.body_truncated = body.length > MAX_BODY;
+          c.response_body = body.length > MAX_BODY ? body.slice(0, /[\uD800-\uDBFF]/.test(body[MAX_BODY - 1]) ? MAX_BODY - 1 : MAX_BODY) : body;
+        })
         .catch(() => {})
         .finally(() => pending.delete(p));
       pending.add(p);

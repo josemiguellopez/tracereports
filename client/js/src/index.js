@@ -29,6 +29,52 @@ export const VERSION = "0.1.0";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
 
+// Lotes de red: el servidor acepta hasta 48 MiB por request. Se arma cada lote por los bytes del
+// JSON que realmente se envía (UTF-8, con escapes), hasta NETWORK_BATCH_BYTES y batchSize
+// conexiones. Una conexión más grande va sola; si sola pasa NETWORK_ALONE_BYTES, se envía sin
+// bodies ni headers (body_truncated, con su body_size original) para que siempre entre.
+export const NETWORK_BATCH_BYTES = 8 << 20;
+export const NETWORK_ALONE_BYTES = 40 << 20;
+
+const cut = (s, n) => {
+  const str = String(s ?? "");
+  if (str.length <= n) return str;
+  const end = /[\uD800-\uDBFF]/.test(str[n - 1]) ? n - 1 : n; // sin partir un par sustituto
+  return str.slice(0, end);
+};
+
+function slimConnection(c) {
+  return {
+    ...c, url: cut(c.url, 4096), status_text: cut(c.status_text, 256), mime_type: cut(c.mime_type, 256),
+    resource_type: cut(c.resource_type, 32), error_text: cut(c.error_text, 2048), method: cut(c.method, 16),
+    request_headers: {}, response_headers: {}, post_data: "", response_body: "", body_truncated: true,
+  };
+}
+
+/** Lotes de JSON {"connections":[...]} de a lo sumo maxBytes y maxCount, en orden. */
+export function networkBatches(payload, { maxCount = 200, maxBytes = NETWORK_BATCH_BYTES, aloneBytes = NETWORK_ALONE_BYTES } = {}) {
+  const head = '{"connections":[', tail = "]}";
+  const out = [];
+  let parts = [], size = 0;
+  for (let c of payload) {
+    let raw = JSON.stringify(c), n = Buffer.byteLength(raw);
+    if (n + head.length + tail.length > aloneBytes) {
+      raw = JSON.stringify(slimConnection(c));
+      n = Buffer.byteLength(raw);
+    }
+    if (parts.length && (parts.length >= maxCount || size + 1 + n > maxBytes)) {
+      out.push(head + parts.join(",") + tail);
+      parts = [];
+      size = head.length + tail.length;
+    }
+    if (!parts.length) size = head.length + tail.length;
+    size += (parts.length ? 1 : 0) + n;
+    parts.push(raw);
+  }
+  if (parts.length) out.push(head + parts.join(",") + tail);
+  return out;
+}
+
 export class TraceReports {
   /**
    * @param {object} [opts]
@@ -379,14 +425,14 @@ export class TraceTest {
         error_text: String(c.error_text || ""), started_at: Math.round(c.started_at || 0),
         duration_ms: c.duration_ms == null ? null : Math.round(c.duration_ms),
         request_headers: c.request_headers || {}, post_data: String(c.post_data || ""),
-        response_headers: c.response_headers || {}, response_body: body.slice(0, limit),
-        body_size: Math.max(Number(c.body_size || 0), body.length), body_truncated: body.length > limit,
+        // el body pudo llegar ya recortado (captura): su indicador y su tamaño original (bytes) se conservan
+        response_headers: c.response_headers || {}, response_body: cut(body, limit),
+        body_size: Math.max(Number(c.body_size || 0), Buffer.byteLength(body)), body_truncated: Boolean(c.body_truncated) || body.length > limit,
         expected: Boolean(c.expected) || this.isExpected(c),
       };
     });
-    for (let i = 0; i < payload.length; i += batchSize) {
-      this.cr.emit("POST", `/api/v1/tests/${this.id}/network`, JSON.stringify({ connections: payload.slice(i, i + batchSize) }),
-        "application/json", this.cr.uploadTimeoutMs);
+    for (const body of networkBatches(payload, { maxCount: batchSize })) {
+      this.cr.emit("POST", `/api/v1/tests/${this.id}/network`, body, "application/json", this.cr.uploadTimeoutMs);
     }
     return { stored: payload.length, errors: payload.filter((p) => !p.expected && (p.failed || p.status >= 400)).length };
   }

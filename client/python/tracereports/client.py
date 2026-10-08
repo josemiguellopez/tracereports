@@ -569,8 +569,7 @@ class TraceReports:
         for p in payload:
             p["expected"] = self._is_expected(tid, p)
         errors = sum(1 for p in payload if not p["expected"] and (p["failed"] or p["status"] >= 400))
-        for i in range(0, len(payload), batch_size):
-            body = json.dumps({"connections": payload[i:i + batch_size]}).encode()
+        for body in network_batches(payload, max_count=batch_size):
             self._emit_raw("POST", f"/api/v1/tests/{tid}/network", body, "application/json", max(self.upload_timeout, 10.0))
         return {"stored": len(payload), "errors": errors}
 
@@ -676,6 +675,47 @@ class TraceReports:
         return self._sender.send_now(method, path, body, content_type, timeout) is not None
 
 
+# Lotes de red: el servidor acepta hasta 48 MiB por request. Cada lote se arma por los bytes del
+# JSON que realmente se envía, hasta NETWORK_BATCH_BYTES y batch_size conexiones. Una conexión más
+# grande va sola; si sola pasa NETWORK_ALONE_BYTES, se envía sin bodies ni headers (body_truncated,
+# con su body_size original) para que siempre entre.
+NETWORK_BATCH_BYTES = 8 << 20
+NETWORK_ALONE_BYTES = 40 << 20
+
+
+def _slim_connection(c: dict) -> dict:
+    out = dict(c)
+    for k, n in (("url", 4096), ("status_text", 256), ("mime_type", 256), ("resource_type", 32),
+                 ("error_text", 2048), ("method", 16), ("evidence_file", 1024)):
+        if isinstance(out.get(k), str):
+            out[k] = out[k][:n]
+    out.update(request_headers={}, response_headers={}, post_data="", response_body="", body_truncated=True)
+    return out
+
+
+def network_batches(payload: list, max_count: int = 200, max_bytes: int = NETWORK_BATCH_BYTES,
+                    alone_bytes: int = NETWORK_ALONE_BYTES) -> "list[bytes]":
+    """Bodies {"connections": [...]} de a lo sumo max_bytes y max_count conexiones, en orden."""
+    head, tail = b'{"connections": [', b"]}"
+    out: "list[bytes]" = []
+    parts: "list[bytes]" = []
+    size = 0
+    for c in payload:
+        raw = json.dumps(c).encode()
+        if len(raw) + len(head) + len(tail) > alone_bytes:
+            raw = json.dumps(_slim_connection(c)).encode()
+        if parts and (len(parts) >= max_count or size + 2 + len(raw) > max_bytes):
+            out.append(head + b", ".join(parts) + tail)
+            parts = []
+        if not parts:
+            size = len(head) + len(tail)
+        size += (2 if parts else 0) + len(raw)
+        parts.append(raw)
+    if parts:
+        out.append(head + b", ".join(parts) + tail)
+    return out
+
+
 def _network_payload(c: dict, body_limit: int) -> dict:
     """Map a captured connection to the server's JSON shape, cutting large bodies."""
     body = c.get("response_body") or ""
@@ -699,9 +739,11 @@ def _network_payload(c: dict, body_limit: int) -> dict:
         "post_data_via_cdp": bool(c.get("post_data_via_cdp")),
         "response_headers": {str(k): str(v) for k, v in (c.get("response_headers") or {}).items()},
         "response_body": body[:body_limit],
-        # the capture may already have cut the body: keep the original size
-        "body_size": max(int(c.get("body_size") or 0), len(body)),
-        "body_truncated": len(body) > body_limit or int(c.get("body_size") or 0) > len(body),
+        # the capture may already have cut the body: keep its flag and the original size (UTF-8
+        # bytes, like the server). A size larger than the body is not proof of a cut: masking
+        # shortens the text too
+        "body_size": max(int(c.get("body_size") or 0), len(body.encode("utf-8", "surrogatepass"))),
+        "body_truncated": bool(c.get("body_truncated")) or len(body) > body_limit,
         # local JSON with the complete capture (reportar_red(..., guardar_en=...))
         "evidence_file": str(c.get("evidence_file") or ""),
         # respuesta negativa esperada por el test (expect_response / marker tracereports_expect)

@@ -24,6 +24,8 @@ dependencies {
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.jupiter:junit-jupiter-params")
     testImplementation("org.junit.platform:junit-platform-testkit")
+    // la captura de Playwright se prueba con un Response simulado (sin navegador)
+    testImplementation("com.microsoft.playwright:playwright:1.63.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 

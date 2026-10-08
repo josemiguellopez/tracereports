@@ -156,7 +156,10 @@ def attach_listeners(
         if (incluir_bodies_api and es_api) or (incluir_bodies_error and response.status >= 400):
             try:
                 body = response.text()
-                conexion["body_size"] = len(body)
+                # el recorte se marca aquí, donde ocurre; el tamaño original va en bytes UTF-8 (como el
+                # servidor). Enmascarar cambia el largo, pero no es un recorte
+                conexion["body_size"] = len(body.encode("utf-8", "surrogatepass"))
+                conexion["body_truncated"] = max_body_chars is not None and len(body) > max_body_chars
                 conexion["response_body"] = _mask_sensitive(body if max_body_chars is None else body[:max_body_chars])
             except Exception as e:
                 if logger:

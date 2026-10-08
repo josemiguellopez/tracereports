@@ -42,6 +42,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Statuses accepted for steps and tests.
@@ -355,6 +356,9 @@ type Conn struct {
 	ResponseHeaders map[string]string `json:"response_headers"`
 	ResponseBody    string            `json:"response_body"`
 	BodySize        int64             `json:"body_size"`
+	// BodyTruncated says the bodies sent are not complete (cut to 256 KB, or dropped because the
+	// connection alone did not fit in a request).
+	BodyTruncated bool `json:"body_truncated,omitempty"`
 	// Expected marks a negative response the test checks on purpose (e.g. a 401 with bad
 	// credentials): it is not counted as an error nor proposed as the cause of a failure.
 	Expected bool `json:"expected"`
@@ -376,13 +380,85 @@ func (t *Test) Network(conns []Conn) error {
 		}
 		if len(conns[i].ResponseBody) > maxBody {
 			conns[i].ResponseBody = conns[i].ResponseBody[:maxBody]
+			conns[i].BodyTruncated = true
 		}
 	}
-	raw, err := json.Marshal(map[string]any{"connections": conns})
+	batches, err := networkBatches(conns, networkBatchCount, NetworkBatchBytes, NetworkAloneBytes)
 	if err != nil {
 		return err
 	}
-	return t.c.send(http.MethodPost, fmt.Sprintf("/api/v1/tests/%d/network", t.ID), raw, "application/json", nil, 15*time.Second)
+	var first error
+	for _, raw := range batches {
+		if err := t.c.send(http.MethodPost, fmt.Sprintf("/api/v1/tests/%d/network", t.ID), raw, "application/json", nil, 15*time.Second); err != nil && first == nil {
+			first = err
+		}
+	}
+	return first
+}
+
+// Network batches: the server accepts up to 48 MiB per request. Each batch is built from the
+// bytes of the JSON really sent, up to NetworkBatchBytes and 200 connections. A bigger
+// connection goes alone; if alone it exceeds NetworkAloneBytes it is sent without bodies or
+// headers (BodyTruncated, keeping its original BodySize) so that it always fits.
+const (
+	NetworkBatchBytes = 8 << 20
+	NetworkAloneBytes = 40 << 20
+	networkBatchCount = 200
+)
+
+func networkBatches(conns []Conn, maxCount, maxBytes, aloneBytes int) ([][]byte, error) {
+	head, tail := []byte(`{"connections":[`), []byte(`]}`)
+	var out [][]byte
+	var cur bytes.Buffer
+	n := 0
+	flush := func() {
+		cur.Write(tail)
+		out = append(out, bytes.Clone(cur.Bytes()))
+		cur.Reset()
+		n = 0
+	}
+	for _, c := range conns {
+		raw, err := json.Marshal(c)
+		if err != nil {
+			return nil, err
+		}
+		if len(raw)+len(head)+len(tail) > aloneBytes {
+			if raw, err = json.Marshal(slimConn(c)); err != nil {
+				return nil, err
+			}
+		}
+		if n > 0 && (n >= maxCount || cur.Len()+1+len(raw)+len(tail) > maxBytes) {
+			flush()
+		}
+		if n == 0 {
+			cur.Write(head)
+		} else {
+			cur.WriteByte(',')
+		}
+		cur.Write(raw)
+		n++
+	}
+	if n > 0 {
+		flush()
+	}
+	return out, nil
+}
+
+func slimConn(c Conn) Conn {
+	cut := func(s string, n int) string {
+		if len(s) <= n {
+			return s
+		}
+		for n > 0 && !utf8.RuneStart(s[n]) {
+			n--
+		}
+		return s[:n]
+	}
+	c.Method, c.URL, c.StatusText = cut(c.Method, 16), cut(c.URL, 4096), cut(c.StatusText, 256)
+	c.MimeType, c.ResourceType, c.ErrorText = cut(c.MimeType, 256), cut(c.ResourceType, 32), cut(c.ErrorText, 2048)
+	c.RequestHeaders, c.ResponseHeaders = nil, nil
+	c.PostData, c.ResponseBody, c.BodyTruncated = "", "", true
+	return c
 }
 
 // DOM uploads the page snapshot taken when the test failed (elements with their attributes

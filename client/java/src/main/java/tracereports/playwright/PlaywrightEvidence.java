@@ -86,11 +86,15 @@ public final class PlaywrightEvidence {
             });
         }
 
-        private static void readBody(Response res, Map<String, Object> c) {
+        static void readBody(Response res, Map<String, Object> c) {
             try {
                 String body = res.text();
-                c.put("body_size", body.length());
-                c.put("response_body", body.length() > MAX_BODY ? body.substring(0, MAX_BODY) : body);
+                // el recorte se marca aquí, donde ocurre; el tamaño original va en bytes UTF-8 (como el servidor)
+                boolean cut = body.length() > MAX_BODY;
+                c.put("body_size", (long) body.getBytes(java.nio.charset.StandardCharsets.UTF_8).length);
+                c.put("body_truncated", cut);
+                int end = cut && Character.isHighSurrogate(body.charAt(MAX_BODY - 1)) ? MAX_BODY - 1 : MAX_BODY;
+                c.put("response_body", cut ? body.substring(0, end) : body);
             } catch (RuntimeException ignored) {
                 // la página pudo cerrarse o el body no está disponible (redirecciones)
             }

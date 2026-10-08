@@ -89,6 +89,7 @@ class Sender:
         self._reserved_bytes = 0
         self.spool_report: dict = {"unreadable": [], "busy": 0}
         self._thread: Optional[threading.Thread] = None
+        self._thread_lock = threading.Lock()  # un solo hilo de envío: varios productores encolan a la vez
         self._down_until = 0.0
         self.stats = {"sent": 0, "retried": 0, "rejected": 0, "dropped": 0, "spooled": 0, "lost": 0}
 
@@ -188,9 +189,10 @@ class Sender:
         return True
 
     def _ensure_thread(self) -> None:
-        if self._thread is None or not self._thread.is_alive():
-            self._thread = threading.Thread(target=self._run, name="tracereports-sender", daemon=True)
-            self._thread.start()
+        with self._thread_lock:
+            if self._thread is None or not self._thread.is_alive():
+                self._thread = threading.Thread(target=self._run, name="tracereports-sender", daemon=True)
+                self._thread.start()
 
     def _run(self) -> None:
         while True:

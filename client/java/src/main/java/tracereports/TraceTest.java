@@ -157,30 +157,86 @@ public final class TraceTest {
         cr.emitJson("POST", "/api/v1/tests/" + id + "/console", Map.of("entries", batch));
     }
 
+    // Lotes de red: el servidor acepta hasta 48 MiB por request. Cada lote se arma por los bytes del
+    // JSON que realmente se envía (UTF-8, con escapes), hasta NETWORK_BATCH_BYTES y 200 conexiones.
+    // Una conexión más grande va sola; si sola pasa NETWORK_ALONE_BYTES, se envía sin bodies ni
+    // headers (body_truncated, con su body_size original) para que siempre entre.
+    static final int NETWORK_BATCH_BYTES = 8 << 20;
+    static final int NETWORK_ALONE_BYTES = 40 << 20;
+    private static final int NETWORK_BATCH_COUNT = 200;
+    private static final byte[] NET_HEAD = "{\"connections\":[".getBytes(StandardCharsets.UTF_8);
+    private static final byte[] NET_TAIL = "]}".getBytes(StandardCharsets.UTF_8);
+
     public void network(List<Map<String, Object>> connections) {
         if (!active() || connections == null || connections.isEmpty()) return;
-        List<Map<String, Object>> batch = new ArrayList<>();
+        List<byte[]> batch = new ArrayList<>();
+        long size = 0;
         for (Map<String, Object> c : connections) {
             Map<String, Object> copy = new LinkedHashMap<>(c);
+            // el body pudo llegar ya recortado (captura): su indicador y su tamaño original (bytes UTF-8,
+            // como el servidor) se conservan; si se recorta aquí también se marca
             Object body = copy.get("response_body");
-            if (body instanceof String s && s.length() > 256 * 1024) {
-                copy.put("body_size", s.length());
-                copy.put("response_body", s.substring(0, 256 * 1024));
-                copy.put("body_truncated", true);
+            if (body instanceof String s) {
+                long bytes = s.getBytes(StandardCharsets.UTF_8).length;
+                long original = copy.get("body_size") instanceof Number n ? Math.max(n.longValue(), bytes) : bytes;
+                copy.put("body_size", original);
+                if (s.length() > 256 * 1024) {
+                    copy.put("response_body", cut(s, 256 * 1024));
+                    copy.put("body_truncated", true);
+                }
             }
             if (Boolean.TRUE.equals(copy.get("expected")) || isExpected(copy)) copy.put("expected", true);
-            batch.add(copy);
-            if (batch.size() == 200) {
+            byte[] raw = Json.write(copy).getBytes(StandardCharsets.UTF_8);
+            if ((long) raw.length + NET_HEAD.length + NET_TAIL.length > NETWORK_ALONE_BYTES) {
+                raw = Json.write(slimConnection(copy)).getBytes(StandardCharsets.UTF_8);
+            }
+            if (!batch.isEmpty() && (batch.size() >= NETWORK_BATCH_COUNT || size + 1 + raw.length > NETWORK_BATCH_BYTES)) {
                 sendNetwork(batch);
                 batch = new ArrayList<>();
             }
+            if (batch.isEmpty()) size = NET_HEAD.length + NET_TAIL.length;
+            size += (batch.isEmpty() ? 0 : 1) + raw.length;
+            batch.add(raw);
         }
         if (!batch.isEmpty()) sendNetwork(batch);
     }
 
-    private void sendNetwork(List<Map<String, Object>> batch) {
-        cr.emit("POST", "/api/v1/tests/" + id + "/network",
-                Json.write(Map.of("connections", batch)).getBytes(StandardCharsets.UTF_8), "application/json", cr.uploadTimeout);
+    private static Map<String, Object> slimConnection(Map<String, Object> c) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        Map<String, Integer> keep = Map.of("method", 16, "url", 4096, "status_text", 256, "mime_type", 256,
+                "resource_type", 32, "error_text", 2048, "evidence_file", 1024);
+        for (Map.Entry<String, Object> e : c.entrySet()) {
+            Object v = e.getValue();
+            if (v instanceof String s) {
+                // otros textos desconocidos también se recortan: esta conexión tiene que entrar
+                v = cut(s, keep.getOrDefault(e.getKey(), 4096));
+            } else if (v instanceof Map<?, ?> || v instanceof java.util.Collection<?> || v instanceof Object[]) {
+                v = v instanceof Map<?, ?> ? Map.of() : List.of();
+            }
+            out.put(e.getKey(), v);
+        }
+        Object size = c.get("response_body") instanceof String s ? Math.max(s.length(), c.get("body_size") instanceof Number n ? n.longValue() : 0) : c.get("body_size");
+        if (size != null) out.put("body_size", size);
+        out.put("response_body", "");
+        out.put("post_data", "");
+        out.put("body_truncated", true);
+        return out;
+    }
+
+    private static String cut(String s, int n) {
+        if (s.length() <= n) return s;
+        return s.substring(0, Character.isHighSurrogate(s.charAt(n - 1)) ? n - 1 : n);
+    }
+
+    private void sendNetwork(List<byte[]> batch) {
+        java.io.ByteArrayOutputStream out = new java.io.ByteArrayOutputStream();
+        out.writeBytes(NET_HEAD);
+        for (int i = 0; i < batch.size(); i++) {
+            if (i > 0) out.write(',');
+            out.writeBytes(batch.get(i));
+        }
+        out.writeBytes(NET_TAIL);
+        cr.emit("POST", "/api/v1/tests/" + id + "/network", out.toByteArray(), "application/json", cr.uploadTimeout);
     }
 
     /** Snapshot de la página al fallar (ver {@link Dom}); recomienda selectores si se rompe un locator. */

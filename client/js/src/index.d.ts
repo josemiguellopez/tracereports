@@ -69,6 +69,10 @@ export class TraceTest {
   finish(status?: Status | "", opts?: { errorMessage?: string; errorTrace?: string; error?: unknown; attempts?: number }): void;
 }
 
+/** Lotes de red (bytes del JSON enviado): el servidor acepta hasta 48 MiB por request. */
+export const NETWORK_BATCH_BYTES: number;
+export const NETWORK_ALONE_BYTES: number;
+export function networkBatches(payload: object[], opts?: { maxCount?: number; maxBytes?: number; aloneBytes?: number }): string[];
 export const DOM_SCRIPT: string;
 
 export function domSnapshotInPage(): unknown;
