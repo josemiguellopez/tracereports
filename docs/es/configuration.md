@@ -241,6 +241,15 @@ que más falla, lo que ya se arregló y los inestables a vigilar, con el link a 
 `PUBLIC_URL`). Desde **Métricas → Resumen semanal** se ve la vista previa y se puede enviar en el
 momento. Idioma: el de **Ajustes**.
 
+**Reintentos**: cada envío queda guardado (uno por canal) antes del primer intento. Si el canal no
+responde, responde `429` o un `5xx`, se reintenta hasta 8 veces con espera creciente (30 s, 1 min,
+2 min… hasta 1 h, con variación aleatoria) respetando `Retry-After`; los pendientes se retoman tras
+reiniciar el servidor. Un `4xx` (webhook revocado, mensaje rechazado) o un canal que ya no está
+configurado se marcan fallidos sin reintentar. Un canal que ya lo recibió no lo vuelve a recibir
+porque el otro falló, y el mismo resumen de la misma ejecución, o el semanal de un mismo turno, no
+se envía dos veces. Garantía: *al menos una vez* (si el servidor se cae justo después de que el
+canal lo recibió, el reintento lo repite). La URL del webhook no se guarda en la base.
+
 ## Tickets en GitHub, Jira o Azure DevOps
 
 Desde **Escalar**, el botón **Ticket** abre un issue con el resumen que estás viendo (qué pasó,

@@ -241,6 +241,15 @@ what already got fixed and the flaky tests to watch, with the link to **Metrics*
 `PUBLIC_URL`). **Metrics → Weekly summary** shows the preview and can send it right away.
 Language: the one in **Settings**.
 
+**Retries**: each send is stored (one per channel) before the first attempt. If the channel does
+not answer, answers `429` or a `5xx`, it is retried up to 8 times with a growing wait (30 s, 1 min,
+2 min… up to 1 h, with random variation) honoring `Retry-After`; pending ones are resumed after a
+server restart. A `4xx` (revoked webhook, rejected message) or a channel that is no longer configured
+fails at once without retrying. A channel that already got it does not get it again because the
+other one failed, and the same summary of the same run, or the weekly one of the same slot, is not
+sent twice. Guarantee: *at least once* (if the server dies right after the channel got it, the retry
+repeats it). The webhook URL is not stored in the database.
+
 ## Tickets in GitHub, Jira or Azure DevOps
 
 From **Escalate**, the **Ticket** button opens an issue with the summary you are looking at (what

@@ -128,6 +128,10 @@ func run() error {
 	if notifier.Enabled() {
 		slog.Info("run notifications enabled (Teams/Slack)")
 	}
+	// los envíos que fallaron por algo pasajero (o que un reinicio dejó pendientes) se reintentan
+	notifyCtx, stopNotify := context.WithCancel(context.Background())
+	defer stopNotify()
+	notifier.Start(notifyCtx)
 	auth := api.Auth{
 		Token:  env.Get("TOKEN"),
 		UIUser: env.Get("UI_USER"),

@@ -62,10 +62,11 @@ func startWeekly(ctx context.Context, spec string, srv *api.Server, n *notify.No
 				return
 			case <-time.After(wait):
 			}
+			slot := nextWeekly(time.Now().Add(-time.Minute), day, hour, minute) // el turno que acaba de llegar
 			e, err := srv.WeeklySummary("")
 			if err == nil {
 				sctx, cancel := context.WithTimeout(ctx, time.Minute)
-				_, err = n.SendWeekly(sctx, e)
+				_, err = n.SendWeeklyScheduled(sctx, e, slot)
 				cancel()
 			}
 			if err != nil {

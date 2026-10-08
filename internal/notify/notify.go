@@ -72,14 +72,18 @@ func (n *Notifier) RunFinished(runID int64) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	if n.teams != "" {
-		if err := n.post(ctx, n.teams, TeamsPayload(msg)); err != nil {
-			slog.Warn("notify: teams", "run_id", runID, "err", err)
+	// cada canal por separado: uno que ya lo recibió no se reenvía si el otro falla. El mismo
+	// resumen de la misma ejecución no se envía dos veces; uno distinto (evidencia tardía) sí.
+	for _, ch := range []struct {
+		name    string
+		payload any
+	}{{"teams", TeamsPayload(msg)}, {"slack", SlackPayload(msg)}} {
+		if n.urlFor(ch.name) == "" {
+			continue
 		}
-	}
-	if n.slack != "" {
-		if err := n.post(ctx, n.slack, SlackPayload(msg)); err != nil {
-			slog.Warn("notify: slack", "run_id", runID, "err", err)
+		raw, _ := json.Marshal(ch.payload)
+		if err := n.deliver(ctx, "run", payloadKey(fmt.Sprintf("run:%d", runID), raw), ch.name, ch.payload, false); err != nil {
+			slog.Warn("notify: "+ch.name, "run_id", runID, "err", err)
 		}
 	}
 }
@@ -193,24 +197,23 @@ func SlackPayload(m *Message) map[string]any {
 	return map[string]any{"text": m.Title + " — " + m.Stats, "blocks": blocks}
 }
 
-func (n *Notifier) post(ctx context.Context, url string, payload any) error {
-	body, err := json.Marshal(payload)
-	if err != nil {
-		return err
-	}
+// postRaw makes one POST of a JSON body; a non-2xx answer is an *httpError (with Retry-After).
+// No error it returns contains the webhook URL (a credential): see sanitize.go.
+func (n *Notifier) postRaw(ctx context.Context, url string, body []byte) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(body))
 	if err != nil {
-		return err
+		return &requestError{msg: "la URL del webhook no es válida (" + hostOf(url) + ")"}
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := n.client.Do(req)
 	if err != nil {
-		return err
+		return transportFailure(err, url)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode >= 300 {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 300))
-		return fmt.Errorf("HTTP %d: %s", resp.StatusCode, raw)
+		return &httpError{status: resp.StatusCode, body: scrubWebhook(strings.ToValidUTF8(string(raw), ""), url),
+			retryAfter: parseRetryAfter(resp.Header.Get("Retry-After"), time.Now())}
 	}
 	return nil
 }
@@ -243,21 +246,33 @@ func (n *Notifier) Channels() (teams, slack bool) { return n.teams != "", n.slac
 // PublicURL is the server's public base URL ("" if not configured).
 func (n *Notifier) PublicURL() string { return n.publicURL }
 
-// SendEscalation posts an escalation to "teams" or "slack".
+// SendEscalation posts an escalation to "teams" or "slack". If the channel fails for a transient
+// reason the message stays queued and is retried (the error says so); asking again for the same
+// message while it is queued does not queue a second one.
 func (n *Notifier) SendEscalation(ctx context.Context, channel string, e *Escalation) error {
+	return n.sendOnDemand(ctx, "escalation", channel, e)
+}
+
+// sendOnDemand sends a message someone asked for (an escalation, the weekly summary "send now"):
+// once sent, asking again sends it again.
+func (n *Notifier) sendOnDemand(ctx context.Context, kind, channel string, e *Escalation) error {
+	var payload any
 	switch channel {
 	case "teams":
 		if n.teams == "" {
 			return fmt.Errorf("TEAMS_WEBHOOK_URL no está configurado")
 		}
-		return n.post(ctx, n.teams, TeamsEscalation(e))
+		payload = TeamsEscalation(e)
 	case "slack":
 		if n.slack == "" {
 			return fmt.Errorf("SLACK_WEBHOOK_URL no está configurado")
 		}
-		return n.post(ctx, n.slack, SlackEscalation(e))
+		payload = SlackEscalation(e)
+	default:
+		return fmt.Errorf("canal desconocido: %q", channel)
 	}
-	return fmt.Errorf("canal desconocido: %q", channel)
+	raw, _ := json.Marshal(payload)
+	return n.deliver(ctx, kind, payloadKey(kind, raw), channel, payload, true)
 }
 
 // TeamsEscalation renders an escalation as an Adaptive Card.

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
 )
@@ -99,9 +100,20 @@ func cap5(s []string) []string {
 	return s
 }
 
-// SendWeekly posts the weekly summary to every configured channel. Returns the channels it
-// reached; an error if none is configured or every send failed.
+// SendWeekly posts the weekly summary to every configured channel ("send now"). Returns the
+// channels it reached; an error if none is configured or every send failed. A channel that
+// failed for a transient reason keeps it queued and retries it.
 func (n *Notifier) SendWeekly(ctx context.Context, e *Escalation) ([]string, error) {
+	return n.sendWeekly(ctx, e, "")
+}
+
+// SendWeeklyScheduled is the automatic weekly send of the slot (its day and time): the summary of
+// a slot is sent to each channel once, even if the scheduler fires again for it.
+func (n *Notifier) SendWeeklyScheduled(ctx context.Context, e *Escalation, slot time.Time) ([]string, error) {
+	return n.sendWeekly(ctx, e, "weekly:"+slot.Format("2006-01-02T15:04"))
+}
+
+func (n *Notifier) sendWeekly(ctx context.Context, e *Escalation, slotKey string) ([]string, error) {
 	teams, slack := n.Channels()
 	if !teams && !slack {
 		return nil, errors.New("no hay canal configurado (TEAMS_WEBHOOK_URL o SLACK_WEBHOOK_URL)")
@@ -115,7 +127,14 @@ func (n *Notifier) SendWeekly(ctx context.Context, e *Escalation) ([]string, err
 		if !ch.on {
 			continue
 		}
-		if err := n.SendEscalation(ctx, ch.name, e); err != nil {
+		var err error
+		if slotKey == "" {
+			err = n.sendOnDemand(ctx, "weekly", ch.name, e)
+		} else {
+			payload := map[string]any{"teams": TeamsEscalation(e), "slack": SlackEscalation(e)}[ch.name]
+			err = n.deliver(ctx, "weekly", slotKey, ch.name, payload, false)
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("%s: %w", ch.name, err))
 			continue
 		}
