@@ -38,6 +38,8 @@ type Run struct {
 	Passed      int    `json:"passed"`
 	Failed      int    `json:"failed"`
 	Skipped     int    `json:"skipped"`
+	Warning     int    `json:"warning"`     // tests que terminaron con advertencia
+	Running     int    `json:"running"`     // tests que todavía no terminaron
 	Quarantined int    `json:"quarantined"` // fallos de tests en cuarentena: no ponen la ejecución en rojo
 	Tests       []struct {
 		ID           int64  `json:"id"`
@@ -81,12 +83,16 @@ var labels = map[string]map[string]string{
 		"failing": "{f} de {t} fallaron", "incomplete": "ejecución incompleta", "diagnosis": "Diagnóstico", "incidents": "Incidentes",
 		"test": "test", "tests": "tests", "cause": "Causa probable", "action": "Revisar", "new": "Fallos nuevos frente a #{b}", "fixed": "Arreglados",
 		"flaky": "Flaky (pasan y fallan sin cambios)", "failures": "Fallos", "more": "y {n} más", "report": "Ver el reporte",
-		"retry": "pasó tras reintento", "quarantined": "{n} en cuarentena", "footer": "Comentario de TraceReports: se actualiza en cada push."},
+		"retry": "pasó tras reintento", "quarantined": "{n} en cuarentena", "footer": "Comentario de TraceReports: se actualiza en cada push.",
+		"running": "ejecución en curso", "unfinished": "{n} sin terminar", "nofail": "sin fallos", "warnings": "{n} con advertencia",
+		"allskipped": "todos los tests omitidos", "notests": "sin tests"},
 	"en": {"passed": "Passed", "failed": "Failed", "skipped": "Skipped", "duration": "Duration", "allok": "all green",
 		"failing": "{f} of {t} failed", "incomplete": "incomplete run", "diagnosis": "Diagnosis", "incidents": "Incidents",
 		"test": "test", "tests": "tests", "cause": "Likely cause", "action": "Check", "new": "New failures since #{b}", "fixed": "Fixed",
 		"flaky": "Flaky (pass and fail with no change)", "failures": "Failures", "more": "and {n} more", "report": "Open the report",
-		"retry": "passed on retry", "quarantined": "{n} quarantined", "footer": "TraceReports comment: updated on every push."},
+		"retry": "passed on retry", "quarantined": "{n} quarantined", "footer": "TraceReports comment: updated on every push.",
+		"running": "run in progress", "unfinished": "{n} not finished", "nofail": "no failures", "warnings": "{n} with warnings",
+		"allskipped": "every test skipped", "notests": "no tests"},
 }
 
 const maxItems = 10
@@ -104,9 +110,25 @@ func Markdown(r *Run, cmp *Comparison, lang, link string) string {
 	}
 	var b strings.Builder
 	b.WriteString(Marker(r) + "\n")
+	// sin fallos no es lo mismo que en verde: una ejecución en curso, incompleta, con advertencias o
+	// en la que no corrió nada no se publica como "todo en verde"
 	icon, state := "✅", l["allok"]
-	if real := r.Failed - r.Quarantined; real > 0 {
+	switch real := r.Failed - r.Quarantined; {
+	case real > 0:
 		icon, state = "❌", strings.NewReplacer("{f}", strconv.Itoa(real), "{t}", strconv.Itoa(r.Total)).Replace(l["failing"])
+	case r.Status == "RUNNING" || r.Running > 0:
+		icon, state = "⏳", l["running"]
+		if r.Running > 0 {
+			state += " · " + strings.ReplaceAll(l["unfinished"], "{n}", strconv.Itoa(r.Running))
+		}
+	case r.Total == 0:
+		icon, state = "⚠️", l["notests"]
+	case r.Skipped == r.Total:
+		icon, state = "⚠️", l["allskipped"]
+	case r.Incomplete:
+		state = l["nofail"]
+	case r.Warning > 0:
+		icon, state = "⚠️", l["nofail"]+" · "+strings.ReplaceAll(l["warnings"], "{n}", strconv.Itoa(r.Warning))
 	}
 	if r.Quarantined > 0 { // se ven, pero no ponen la ejecución en rojo
 		if icon == "✅" {

@@ -49,7 +49,8 @@ func (n *Notifier) Enabled() bool { return n.teams != "" || n.slack != "" }
 // Message is the channel-agnostic content of a run notification.
 type Message struct {
 	Title   string
-	Passed  bool
+	Passed  bool // en verde: la ejecución terminó completa y sin fallos ni advertencias
+	Warning bool // sin fallos, pero no en verde: en curso, incompleta, con advertencias o todo omitido
 	Stats   string
 	Summary string
 	Bullets []string
@@ -96,12 +97,16 @@ func (n *Notifier) build(runID int64) (*Message, error) {
 	if n.onlyFails && run.Failed == 0 {
 		return nil, nil
 	}
-	m := &Message{Passed: run.Failed == 0}
-	icon := "✅"
-	if !m.Passed {
-		icon = "❌"
+	// la ausencia de fallos no prueba que terminó: el estado de la ejecución dice si está en verde
+	m := &Message{Passed: run.Failed == 0 && run.Status == "PASS" && !run.Incomplete}
+	m.Warning = run.Failed == 0 && !m.Passed
+	m.Title = "✅ " + run.Name
+	switch {
+	case run.Failed > 0:
+		m.Title = "❌ " + run.Name
+	case m.Warning:
+		m.Title = "⚠️ " + run.Name + " · " + notGreen(&run.Run)
 	}
-	m.Title = fmt.Sprintf("%s %s", icon, run.Name)
 	pct := 0
 	if run.Total > 0 {
 		pct = run.Passed * 100 / run.Total
@@ -110,8 +115,14 @@ func (n *Notifier) build(runID int64) (*Message, error) {
 	if run.EndedAt != nil {
 		dur = " · " + (time.Duration(*run.EndedAt-run.StartedAt) * time.Millisecond).Round(time.Second).String()
 	}
-	m.Stats = fmt.Sprintf("%d tests · %d OK · %d fallidos · %d omitidos · %d%% correctos%s",
-		run.Total, run.Passed, run.Failed, run.Skipped, pct, dur)
+	m.Stats = fmt.Sprintf("%d tests · %d OK · %d fallidos · %d omitidos", run.Total, run.Passed, run.Failed, run.Skipped)
+	if run.Warning > 0 {
+		m.Stats += fmt.Sprintf(" · %d con advertencia", run.Warning)
+	}
+	if run.Running > 0 {
+		m.Stats += fmt.Sprintf(" · %d sin terminar", run.Running)
+	}
+	m.Stats += fmt.Sprintf(" · %d%% correctos%s", pct, dur)
 	if run.Summary != nil {
 		m.Summary = strings.TrimSpace(run.Summary.Headline + " " + run.Summary.Summary)
 		for i, in := range run.Summary.Incidents {
@@ -142,10 +153,28 @@ func (n *Notifier) build(runID int64) (*Message, error) {
 	return m, nil
 }
 
+// notGreen says why a run without failures is not green.
+func notGreen(r *db.Run) string {
+	switch {
+	case r.Status == "RUNNING" || r.Running > 0:
+		return "en curso"
+	case r.Incomplete:
+		return "ejecución incompleta"
+	case r.Total > 0 && r.Skipped == r.Total:
+		return "todos los tests omitidos"
+	case r.Total == 0:
+		return "sin tests"
+	}
+	return "con advertencias"
+}
+
 // TeamsPayload renders an Adaptive Card, accepted by Teams Workflows webhooks.
 func TeamsPayload(m *Message) map[string]any {
 	color := "Good"
-	if !m.Passed {
+	switch {
+	case m.Warning:
+		color = "Warning"
+	case !m.Passed:
 		color = "Attention"
 	}
 	body := []map[string]any{

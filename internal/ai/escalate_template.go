@@ -54,6 +54,24 @@ var tpl = map[string]map[string]string{
 		"ok_step_warn":   "Revisar las advertencias antes de aprobar.",
 		"ok_step_skip":   "Confirmar que los %d tests omitidos se omitieron a propósito.",
 		"owner_none":     "Sin responsable: no hay acciones pendientes",
+		"run_pending":    "%s: en curso",
+		"pend_headline":  "La ejecución \"%s\" sigue en curso: terminaron %d de %d tests y %d todavía corren.",
+		"pend_what":      "La ejecución todavía no terminó: los resultados son parciales y no muestran el resultado final.",
+		"pend_impact":    "Sin conclusión todavía (%d pasaron, %d omitidos, %d en curso): no sirve para aprobar la versión hasta que termine.",
+		"pend_step":      "Esperar a que termine la ejecución y revisar el reporte de nuevo.",
+		"run_incomplete": "%s: ejecución incompleta",
+		"inc_headline":   "La ejecución \"%s\" se cerró en %s sin que terminaran todos sus tests.",
+		"inc_what":       "La ejecución se interrumpió (worker caído, timeout o cancelación): no registró fallos, pero su resultado no está completo.",
+		"inc_impact":     "%d de %d tests pasaron y el resto no terminó: estos resultados no sirven para aprobar la versión.",
+		"inc_step":       "Revisar por qué se interrumpió y volver a correr la suite completa.",
+		"run_skipped":    "%s: todos los tests se omitieron",
+		"skip_headline":  "Ningún test de la ejecución \"%s\" corrió en %s: los %d se omitieron.",
+		"skip_what":      "No hubo fallos porque no se probó nada.",
+		"skip_impact":    "Sin evidencia: esta ejecución no sirve para aprobar la versión.",
+		"skip_step":      "Revisar por qué se omitieron (filtros, marcas o condiciones del ambiente) y volver a correr.",
+		"run_warn":       "%s: sin fallos, %d con advertencias",
+		"warn_headline":  "%d de %d tests de la ejecución \"%s\" pasaron en %s y %d terminaron con advertencias.",
+		"warn_impact":    "%d de %d tests pasaron y %d terminaron con advertencias: revisarlas antes de aprobar la versión.",
 	},
 	"en": {
 		"run_title":      "%s: %d of %d tests failed",
@@ -102,30 +120,90 @@ var tpl = map[string]map[string]string{
 		"ok_step_warn":   "Review the warnings before approving.",
 		"ok_step_skip":   "Confirm that the %d skipped tests were skipped on purpose.",
 		"owner_none":     "No owner: nothing pending",
+		"run_pending":    "%s: run in progress",
+		"pend_headline":  "The run \"%s\" is still in progress: %d of %d tests finished and %d are still running.",
+		"pend_what":      "The run has not finished yet: the results are partial and do not show the final outcome.",
+		"pend_impact":    "No conclusion yet (%d passed, %d skipped, %d running): it cannot approve the release until it finishes.",
+		"pend_step":      "Wait for the run to finish and check the report again.",
+		"run_incomplete": "%s: incomplete run",
+		"inc_headline":   "The run \"%s\" was closed in %s before all its tests finished.",
+		"inc_what":       "The run was interrupted (crashed worker, timeout or cancellation): it recorded no failures, but its result is not complete.",
+		"inc_impact":     "%d of %d tests passed and the rest did not finish: these results cannot approve the release.",
+		"inc_step":       "Check why it was interrupted and re-run the full suite.",
+		"run_skipped":    "%s: every test was skipped",
+		"skip_headline":  "No test of the run \"%s\" ran in %s: all %d were skipped.",
+		"skip_what":      "There were no failures because nothing was tested.",
+		"skip_impact":    "No evidence: this run cannot approve the release.",
+		"skip_step":      "Check why they were skipped (filters, markers or environment conditions) and re-run.",
+		"run_warn":       "%s: no failures, %d with warnings",
+		"warn_headline":  "%d of %d tests of the run \"%s\" passed in %s and %d ended with warnings.",
+		"warn_impact":    "%d of %d tests passed and %d ended with warnings: review them before approving the release.",
 	},
 }
 
-// templateSuccess fills the summary of a run without failures: low severity (green), no impact
-// and no actions, instead of the generic "could not complete its flow" of an unknown cause.
+// templateNoFailures fills the summary of a run without failures from its real state: still
+// running, interrupted and every test skipped are not a success (no failure is not proof that it
+// finished); a complete run is a success, with its warnings if it has any.
+func templateNoFailures(e *Escalation, t map[string]string, env string) {
+	f := e.Facts
+	evidence := []string{fmt.Sprintf(t["ev_run"], f.RunName, env, f.Passed, f.Failed, f.Skipped)}
+	switch {
+	case f.RunStatus == "RUNNING" || f.Running > 0:
+		e.Title = fmt.Sprintf(t["run_pending"], clip(f.RunName, 50))
+		e.Headline = fmt.Sprintf(t["pend_headline"], f.RunName, f.Total-f.Running, f.Total, f.Running)
+		e.WhatHappened = t["pend_what"]
+		e.Impact = fmt.Sprintf(t["pend_impact"], f.Passed, f.Skipped, f.Running)
+		e.Severity, e.Owner, e.RootCause = "low", t["owner_qa"], t["ok_cause"]
+		e.NextSteps = []string{t["pend_step"]}
+	case f.Incomplete:
+		e.Title = fmt.Sprintf(t["run_incomplete"], clip(f.RunName, 50))
+		e.Headline = fmt.Sprintf(t["inc_headline"], f.RunName, env)
+		e.WhatHappened = t["inc_what"]
+		e.Impact = fmt.Sprintf(t["inc_impact"], f.Passed, f.Total)
+		e.Severity, e.Owner, e.RootCause = "medium", t["owner_qa"], t["cause_unknown"]
+		e.NextSteps = []string{t["inc_step"], t["step_report"]}
+	case f.Skipped == f.Total:
+		e.Title = fmt.Sprintf(t["run_skipped"], clip(f.RunName, 50))
+		e.Headline = fmt.Sprintf(t["skip_headline"], f.RunName, env, f.Total)
+		e.WhatHappened = t["skip_what"]
+		e.Impact = t["skip_impact"]
+		e.Severity, e.Owner, e.RootCause = "medium", t["owner_qa"], t["cause_unknown"]
+		e.NextSteps = []string{t["skip_step"]}
+	default:
+		templateSuccess(e, t, env)
+		return
+	}
+	e.Evidence = evidence
+	e.Source = "template"
+}
+
+// templateSuccess fills the summary of a complete run without failures: low severity (green), no
+// impact and no actions, instead of the generic "could not complete its flow" of an unknown cause.
 func templateSuccess(e *Escalation, t map[string]string, env string) {
 	f := e.Facts
-	warnings := f.Total - f.Passed - f.Failed - f.Skipped
-	if warnings < 0 {
-		warnings = 0
+	warnings := f.Warning
+	if warnings > 0 {
+		e.Title = fmt.Sprintf(t["run_warn"], clip(f.RunName, 50), warnings)
 	}
-	if n := f.Total - f.Skipped; n == 1 {
+	switch n := f.Total - f.Skipped; {
+	case warnings > 0: // un test con advertencia no pasó: no se cuenta como tal
+		e.Headline = fmt.Sprintf(t["warn_headline"], f.Passed, f.Total, f.RunName, env, warnings)
+	case n == 1:
 		e.Headline = fmt.Sprintf(t["ok_headline_1"], f.RunName, env)
-	} else {
+	default:
 		e.Headline = fmt.Sprintf(t["ok_headline"], n, f.RunName, env)
 	}
 	e.Severity, e.Owner = "low", t["owner_none"]
 	e.WhatHappened = t["ok_what"]
 	if warnings > 0 {
-		e.WhatHappened = fmt.Sprintf(t["ok_what_warn"], warnings)
+		e.WhatHappened, e.Owner = fmt.Sprintf(t["ok_what_warn"], warnings), t["owner_qa"]
 	}
-	if e.Audience == "business" {
+	switch {
+	case e.Audience == "business":
 		e.Impact = fmt.Sprintf(t["ok_impact_biz"], f.RunName)
-	} else {
+	case warnings > 0:
+		e.Impact = fmt.Sprintf(t["warn_impact"], f.Passed, f.Total, warnings)
+	default:
 		e.Impact = fmt.Sprintf(t["ok_impact_qa"], f.Passed, f.Total, f.Skipped)
 	}
 	e.Evidence = []string{fmt.Sprintf(t["ev_run"], f.RunName, env, f.Passed, f.Failed, f.Skipped)}
@@ -179,7 +257,7 @@ func templateEscalation(e *Escalation) {
 		e.Headline = f.RunHeadline
 	}
 	if e.TestID == 0 && f.Failed == 0 && f.Total > 0 {
-		templateSuccess(e, t, env)
+		templateNoFailures(e, t, env)
 		return
 	}
 

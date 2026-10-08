@@ -88,6 +88,9 @@ type Facts struct {
 	Passed      int           `json:"passed"`
 	Failed      int           `json:"failed"`
 	Skipped     int           `json:"skipped"`
+	Warning     int           `json:"warning,omitempty"`    // tests que terminaron con advertencia
+	Running     int           `json:"running,omitempty"`    // tests que todavía no terminaron
+	Incomplete  bool          `json:"incomplete,omitempty"` // se cerró sin que terminaran todos sus tests
 	TestName    string        `json:"test_name,omitempty"`
 	TestTags    string        `json:"test_tags,omitempty"`
 	TestDesc    string        `json:"test_desc,omitempty"`
@@ -182,6 +185,7 @@ func BuildFacts(store *db.Store, shotsDir string, runID, testID int64) (*Facts, 
 	}
 	f := &Facts{RunName: run.Name, Env: run.Environment, RunStatus: run.Status, StartedAt: run.StartedAt,
 		Total: run.Total, Passed: run.Passed, Failed: run.Failed, Skipped: run.Skipped,
+		Warning: run.Warning, Running: run.Running, Incomplete: run.Incomplete,
 		ReportPath: fmt.Sprintf("#run=%d&view=tests", runID)}
 	if run.EndedAt != nil {
 		f.DurationMs = *run.EndedAt - run.StartedAt
@@ -302,6 +306,9 @@ func (f *Facts) promptBlock(scope string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Run: %s · environment: %s · status: %s · %d tests: %d passed, %d failed, %d skipped.\n",
 		f.RunName, f.Env, f.RunStatus, f.Total, f.Passed, f.Failed, f.Skipped)
+	if f.RunStatus == "RUNNING" || f.Running > 0 || f.Incomplete {
+		fmt.Fprintf(&b, "The run has not finished or was interrupted (%d tests did not finish): the results are partial, do not describe it as successful.\n", f.Running)
+	}
 	if f.RunHeadline != "" {
 		fmt.Fprintf(&b, "Run diagnosis: %s %s\n", f.RunHeadline, f.RunSummary)
 	}
