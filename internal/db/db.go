@@ -76,8 +76,11 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
-	dsn := fmt.Sprintf("file:%s?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)", filepath.ToSlash(path))
-	sqldb, err := sql.Open("sqlite", dsn)
+	uri, err := pathURI(path) // exactamente esa ruta, aunque tenga # ? % (open_existing.go)
+	if err != nil {
+		return nil, err
+	}
+	sqldb, err := sql.Open("sqlite", uri+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
 	if err != nil {
 		return nil, err
 	}

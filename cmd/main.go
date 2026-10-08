@@ -117,6 +117,9 @@ func run() error {
 		return err
 	}
 
+	if err := checkLegacyDB(filepath.Join(dataDir, "tracereports.db")); err != nil {
+		return err
+	}
 	store, err := db.Open(filepath.Join(dataDir, "tracereports.db"))
 	if err != nil {
 		return err
