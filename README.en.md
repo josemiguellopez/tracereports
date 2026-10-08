@@ -37,11 +37,24 @@ is scattered across the HTML report, the backend logs and the QA engineer's head
 | **AI analysis** | *AI* menu: the causes of the run's failures, whether they repeat in previous runs and what to do; you can re-run the analysis (e.g. after a quota limit). |
 | **Escalate** | Turns a failure into a summary for **Business**, **QA** or **Development**, with the screenshot, the failed calls and the diagnosis. Copy it as text, Slack, Markdown, formatted email or an **image**, or send it straight to Teams/Slack. |
 | **Metrics** | Quality over time across runs, filterable by suite, environment, tag and date range: trend, most failing tests and the time they cost, flaky, slowest, causes and stability by category. Click a day or a test for the details. |
-| **Teams / Slack** | When a run finishes, the summary reaches the channel with a *View report* button. |
+| **Teams / Slack** | When a run finishes, the summary reaches the channel with a *View report* button. Optionally, a **weekly summary** (`TRACEREPORTS_WEEKLY_SUMMARY`) with the trend against the previous week. |
+| **Run it locally** | A test's detail has the command to rerun it on your machine at the run's exact commit: `pytest '<nodeid>'`, `npx playwright test … -g …`, Maven/Gradle for JUnit or `go test -run`. |
+| **Compare with the last pass** | On a failed call, the same call (same method, host and path, ids normalized) from the latest run where the test passed: status, duration, response headers and bodies, field by field when they are JSON. |
+| **Browser console** | *Console* tab with `console.error`, warnings and unhandled JavaScript errors, masked, also sent to the AI diagnosis. Captured by itself with pytest-playwright and the Playwright fixtures. |
+| **Playwright trace and video** | The video plays in the test detail; the trace can be downloaded or opened in **Trace Viewer**. Uploaded by the Playwright Test reporter, or attached from Python, Java and Go. |
+| **Backend log correlation** | Trace and request ids found in the headers (W3C `traceparent`, B3, Jaeger, X-Ray, Datadog, `X-Request-Id`…) become **Open logs** / **Open trace** links built from your own templates (Datadog, Kibana, Jaeger…). TraceReports links to your logs; it does not collect them. |
+| **Quarantine** | A known flaky test is quarantined with a reason, an owner and an expiry: its failures are still shown, but they do not turn the run red until the date. |
+| **Owners** | CODEOWNERS-style rules by test identity, tag or suite; the owner reaches Escalate and tickets. |
+| **Failure verdicts** | *Product bug*, *broken test*, *environment*, *test data*, *flaky* or *other*, with a comment; the next time the test fails it offers the same verdict in one click. |
+| **Tickets** | From Escalate, opens the issue in **GitHub**, **Jira** or **Azure DevOps** with the summary, the error, the failed calls and the screenshot. If the test already has one, it shows it instead of duplicating it. |
+| **Release** | The *Release* view answers "can we ship?": **Ready to ship**, **Can ship, with risks** or **Do not ship yet**, with the criteria and the state of each area. Configurable with `TRACEREPORTS_RELEASE_GATE`. |
+| **Pull request comment** | `tracereports pr-comment` posts the run summary on the GitHub PR or GitLab MR (failures, what changed, flaky, incidents, report link) and updates the same comment on every push. |
+| **Without a server** | If the server is down or rejects the token, the clients record the evidence in a folder. `tracereports report <folder>` builds the HTML report (no server, no internet) and `tracereports push <folder>` uploads it later. |
+| **JUnit XML and Allure** | Imports the results of any framework (`POST /api/v1/import/junit`, `/import/allure`), or turns them into a report without a server with `tracereports report`. |
 | **Share** | Exports the run as a ZIP that opens without a server or internet (charts and fonts included), ideal to attach to an email. |
 | **Sensitive data** | The server masks tokens, passwords, cookies and credentials (written as `key=value`, JSON, headers, Bearer/JWT or inside URLs) in the evidence and in names and test identities before storing anything, whatever client sent them; what is stored never reaches the AI, the ZIP or Teams/Slack. Not covered: free text without a key and what is visible in screenshots. Optional retention in days. |
 | **Reliable delivery** | The Python client sends the evidence in the background with retries and idempotency (no duplicates, even when a spool is resent days later), merges pytest-xdist into one report and tells you if something did not arrive. |
-| **Settings** | Language (English / Spanish), theme and AI provider with *Test connection*, no server restart. |
+| **Settings** | Language (English / Spanish), theme and AI provider with *Test connection*, no server restart. **AI usage**: calls, provider-reported tokens, average response time and errors by reason (today, 7 and 30 days), plus the provider's status. Escalate shows how long the AI answer took and why it retried. |
 | **6 themes** | Trace, Trace Dark, Midnight, Paper, Pixel and Terminal. |
 
 A single Go binary (UI included, embedded SQLite, no CGO). Clients for **Python** (pytest plugin),
@@ -122,19 +135,31 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [Java client: JUnit 5, Selenium and Playwright](docs/en/java.md)
 - [Go client and playwright-go](docs/en/go.md)
 - [REST API](docs/en/api.md)
-- [Continuous integration](docs/en/ci.md)
+- [Continuous integration](docs/en/ci.md): GitHub Actions, GitLab, Jenkins, JUnit XML import and the pull request comment.
+- [Without a server](docs/en/offline.md): record, build the report and upload it later.
 - [UI tokens and components](docs/en/ui-tokens.md): for new themes, components or translations.
 
 ## Structure
 
 ```
-cmd/                 server (main)
+cmd/                 server and CLI (report, push, pr-comment, secrets)
 internal/api         REST API, authentication, settings, ZIP export
-internal/db          SQLite: runs, tests, steps, network, history, metrics, settings
-internal/ai          AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama)
+internal/db          SQLite: runs, tests, steps, network, history, metrics, settings, AI usage
+internal/ai          AI diagnosis and escalation (Gemini, Claude, OpenAI, compatible APIs, Ollama)
+internal/redact      masking of secrets in the evidence
+internal/offline     recordings made without a server: report and push
+internal/junit       JUnit XML import
+internal/allure      Allure results import
+internal/tracker     tickets in GitHub, Jira and Azure DevOps
+internal/prcomment   pull request / merge request comment
+internal/correlate   trace and request ids, links to the backend logs
+internal/release     release decision (Release view)
+internal/owners      test owners (CODEOWNERS-style rules)
+internal/repro       command to rerun a test locally
+internal/secret      encryption of the credentials saved from Settings
 internal/locator     selector suggestions when a locator breaks
 internal/live        live events (Server-Sent Events)
-internal/notify      Teams and Slack notifications
+internal/notify      Teams and Slack notifications, weekly summary
 web/                 interface (HTML/CSS/JS with no build step, embedded in the binary; English and Spanish)
 client/python        Python client + pytest plugin
 client/js            JavaScript/TypeScript client + Playwright Test reporter

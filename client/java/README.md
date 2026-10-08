@@ -10,4 +10,12 @@ and Playwright for Java. Java 17+, no runtime dependencies.
 ./gradlew publishToMavenLocal   # to use it from Maven
 ```
 
+- **JUnit 5**: `@ExtendWith(TraceReportsExtension.class)` reports each test with its result; inject
+  `TraceTest` to add steps, screenshots, network, the browser console and Playwright traces or videos.
+- **Never slows down or breaks your tests**: evidence goes out in a background thread with retries
+  and no duplicates; shards can join the same run.
+- **Without a server**: if the server is down or rejects the token, the run is recorded locally;
+  `tracereports report <folder>` builds the HTML report and `tracereports push <folder>` uploads it later.
+- **Configuration** from the environment, system properties or the project's `.env`.
+
 Full documentation: [docs/en/java.md](../../docs/en/java.md).

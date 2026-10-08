@@ -154,8 +154,42 @@ Y además:
 - **Regresiones de latencia.** Marca los tests cuya red se volvió más lenta (p95) que en ejecuciones anteriores.
 - **Comparación de ejecuciones.** Fallos nuevos, tests arreglados y tests más lentos frente a la ejecución anterior.
 - **En vivo.** Los pasos aparecen mientras los tests siguen corriendo.
-- **Métricas.** Tasa de éxito, los tests que más tiempo hacen perder, los flaky y las causas de fallo en el tiempo.
+- **Métricas.** Tasa de éxito, los tests que más tiempo hacen perder, los flaky y las causas de
+  fallo en el tiempo, más un resumen semanal en Teams o Slack.
 - **Comparte sin servidor.** Exporta una ejecución como ZIP que se abre sin servidor ni internet.
+
+**Para quien corrige el fallo**
+
+- **Córrelo en local.** El comando exacto para repetir el test fallido en el commit de la ejecución
+  (pytest, Playwright, Maven/Gradle o `go test`).
+- **Compara con la última vez que pasó.** Una llamada fallida junto a la misma llamada de la última
+  vez que el test pasó: status, duración, headers y bodies, campo por campo.
+- **Consola del navegador.** `console.error`, advertencias y errores de JavaScript no manejados,
+  que también llegan a la IA.
+- **Trace y video de Playwright.** Mira el video en el reporte y abre el trace en Trace Viewer.
+- **Logs del backend.** Los ids de traza y de request que vienen en los headers se convierten en
+  links *Ver logs* y *Ver traza* (Datadog, Kibana, Jaeger…).
+
+**Para el equipo**
+
+- **Vista Release.** *Listo para salir*, *Se puede salir, con riesgos* o *No salir todavía*, con los
+  criterios detrás de la decisión y un gate configurable.
+- **Tickets.** Abre el issue en GitHub, Jira o Azure DevOps directo desde Escalar, sin duplicados.
+- **Comentarios en pull requests.** El resumen de la ejecución en el PR de GitHub o el MR de GitLab,
+  actualizado en cada push.
+- **Cuarentena, dueños y veredictos.** Pon en cuarentena un flaky conocido hasta una fecha, asigna
+  dueños como en un archivo CODEOWNERS y clasifica los fallos para que nadie investigue dos veces el
+  mismo.
+
+**En cualquier lugar**
+
+- **Sin servidor no se pierde la evidencia.** Si el servidor está caído o rechaza el token, los
+  clientes graban en local: `tracereports report` arma el reporte HTML y `tracereports push` lo sube
+  después.
+- **JUnit XML y Allure.** Importa los resultados de cualquier framework, o conviértelos en un
+  reporte sin servidor.
+- **IA que se puede medir.** Ajustes muestra las llamadas, los tokens, los tiempos de respuesta y el
+  estado del proveedor; Escalar dice cuánto tardó la respuesta de la IA y por qué reintentó.
 
 La [guía completa](GUIA-COMPLETA.md) cubre todas las opciones.
 
@@ -174,15 +208,17 @@ supuesto, Pixel.
 
 ```mermaid
 flowchart LR
-    T["Tus tests<br/>pytest · Playwright · Selenium · JUnit · Go"] -->|"pasos, capturas,<br/>red, DOM"| S["Servidor TraceReports<br/>un binario de Go + SQLite"]
+    T["Tus tests<br/>pytest · Playwright · Selenium · JUnit · Go"] -->|"pasos, capturas,<br/>red, DOM, consola"| S["Servidor TraceReports<br/>un binario de Go + SQLite"]
+    R["JUnit XML · Allure"] -->|importar| S
     S --> UI["Reporte web"]
     S <-->|"evidencia enmascarada"| AI["Proveedor de IA<br/>Gemini · Claude · OpenAI · Ollama"]
     S --> N["Teams / Slack"]
+    S --> TK["GitHub · GitLab · Jira · Azure DevOps<br/>tickets y comentarios en PR"]
 ```
 
 Los clientes envían la evidencia en segundo plano, así que un servidor lento o caído nunca rompe
-tus tests. El servidor enmascara los secretos antes de guardar nada, y la IA y los webhooks son
-opcionales.
+tus tests; si no lo alcanzan, graban la evidencia para subirla después. El servidor enmascara los
+secretos antes de guardar nada, y la IA, los webhooks y los trackers son opcionales.
 
 <p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
@@ -321,9 +357,18 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 ### 5. Opcional: IA y token
 
 - **IA:** define `GEMINI_API_KEY` (capa gratuita) o elige Claude, OpenAI, cualquier API
-  compatible u Ollama local en **Configuración**, sin reiniciar.
+  compatible u Ollama local en **Ajustes**, sin reiniciar.
 - **Token:** si el servidor es compartido, protégelo con `TRACEREPORTS_TOKEN`. Mira
   [configuración](docs/es/configuration.md#seguridad).
+
+### 6. Opcional: en el CI
+
+- **Cualquier framework:** envía el JUnit XML que tu runner ya escribe, o arma el reporte con él
+  usando `tracereports report results.xml -o reporte/`. Mira [CI](docs/es/ci.md#cualquier-framework-importar-junit-xml).
+- **Pull requests:** `tracereports pr-comment` publica el resumen de la ejecución en el PR o MR.
+  Mira [comentario en el pull request](docs/es/ci.md#comentario-en-el-pull-request).
+- **Sin servidor en el pipeline:** los clientes graban la ejecución en una carpeta; publica el
+  reporte como artefacto o súbelo después con `push`. Mira [sin servidor](docs/es/offline.md).
 
 🚧 *TraceReports está antes de la 1.0: los clientes, la API y la configuración todavía pueden cambiar entre versiones menores.*
 
@@ -332,7 +377,8 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 - [Guía completa](GUIA-COMPLETA.md)
 - [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Configuración](docs/es/configuration.md)
 - [Python](docs/es/python.md) · [JavaScript](docs/es/javascript.md) · [Java](docs/es/java.md) · [Go](docs/es/go.md) · [API REST](docs/es/api.md)
-- [Integración continua](docs/es/ci.md) · [Tokens de UI y temas](docs/es/ui-tokens.md)
+- [Integración continua](docs/es/ci.md) · [Sin servidor: grabar, reportar y subir después](docs/es/offline.md)
+- [Tokens de UI y temas](docs/es/ui-tokens.md)
 
 ## Contribuir
 
@@ -346,8 +392,10 @@ Las preguntas van a [Discussions](https://github.com/josemiguellopez/tracereport
 TraceReports corre en tu propia máquina o servidor y no envía telemetría. Tokens, contraseñas,
 cookies y credenciales se enmascaran antes de guardar nada, venga del cliente que venga. La
 evidencia solo sale de tu servidor si activas un proveedor de IA en la nube (usa Ollama para
-mantenerla en casa) o un webhook de Teams/Slack. Las capturas se guardan tal cual, así que evita
-mostrar secretos en pantalla.
+mantenerla en casa), un webhook de Teams/Slack, un tracker (GitHub, Jira, Azure DevOps) o el
+comentario en el pull request. Ajustes → Uso de la IA consulta la página de estado pública del
+proveedor, sin enviar evidencia. Las capturas se guardan tal cual, así que evita mostrar secretos en
+pantalla.
 
 <p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 

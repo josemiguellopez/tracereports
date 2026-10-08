@@ -152,8 +152,38 @@ And also:
 - **Latency regressions.** Flags tests whose network got slower (p95) than in previous runs.
 - **Run comparison.** New failures, fixed tests and slower tests compared with the previous run.
 - **Live.** Steps show up while the tests are still running.
-- **Metrics.** Pass rate, the tests that waste the most time, flaky tests and failure causes over time.
+- **Metrics.** Pass rate, the tests that waste the most time, flaky tests and failure causes over
+  time, plus a weekly summary in Teams or Slack.
 - **Share offline.** Export a run as a ZIP that opens without a server or internet.
+
+**For whoever fixes it**
+
+- **Run it locally.** The exact command to rerun the failed test at the run's commit (pytest,
+  Playwright, Maven/Gradle or `go test`).
+- **Compare with the last pass.** A failed call next to the same call the last time the test
+  passed: status, duration, headers and bodies, field by field.
+- **Browser console.** `console.error`, warnings and unhandled JavaScript errors, also fed to the AI.
+- **Playwright trace and video.** Watch the video in the report and open the trace in Trace Viewer.
+- **Backend logs.** Trace and request ids found in the headers become *Open logs* and *Open trace*
+  links (Datadog, Kibana, Jaeger…).
+
+**For the team**
+
+- **Release view.** *Ready to ship*, *Can ship, with risks* or *Do not ship yet*, with the criteria
+  behind the decision and a configurable gate.
+- **Tickets.** Open the GitHub, Jira or Azure DevOps issue straight from Escalate, without duplicates.
+- **Pull request comments.** The run summary on the GitHub PR or GitLab MR, updated on every push.
+- **Quarantine, owners and verdicts.** Quarantine a known flaky test until a date, assign owners
+  like a CODEOWNERS file and classify failures so nobody investigates the same one twice.
+
+**Anywhere**
+
+- **No server, no lost evidence.** If the server is down or rejects the token, the clients record
+  locally: `tracereports report` builds the HTML report and `tracereports push` uploads it later.
+- **JUnit XML and Allure.** Import the results of any framework, or turn them into a report without
+  a server.
+- **AI you can measure.** Settings shows the calls, tokens, response times and the provider's
+  status; Escalate tells how long the AI answer took and why it retried.
 
 The [full feature tour](README.en.md) covers every option.
 
@@ -172,14 +202,17 @@ Pixel.
 
 ```mermaid
 flowchart LR
-    T["Your tests<br/>pytest · Playwright · Selenium · JUnit · Go"] -->|"steps, screenshots,<br/>network, DOM"| S["TraceReports server<br/>single Go binary + SQLite"]
+    T["Your tests<br/>pytest · Playwright · Selenium · JUnit · Go"] -->|"steps, screenshots,<br/>network, DOM, console"| S["TraceReports server<br/>single Go binary + SQLite"]
+    R["JUnit XML · Allure"] -->|import| S
     S --> UI["Web report"]
     S <-->|"masked evidence"| AI["AI provider<br/>Gemini · Claude · OpenAI · Ollama"]
     S --> N["Teams / Slack"]
+    S --> TK["GitHub · GitLab · Jira · Azure DevOps<br/>tickets and PR comments"]
 ```
 
-Clients send evidence in the background, so a slow or offline server never breaks your tests.
-The server masks secrets before storing anything, and the AI and webhooks are optional.
+Clients send evidence in the background, so a slow or offline server never breaks your tests; if
+it cannot be reached, they record the evidence to upload it later. The server masks secrets before
+storing anything, and the AI, webhooks and trackers are optional.
 
 <p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
@@ -322,6 +355,15 @@ its screenshot, network calls and diagnosis.
 - **Token:** if the server is shared, protect it with `TRACEREPORTS_TOKEN`. See
   [configuration](docs/en/configuration.md#security).
 
+### 6. Optional: in CI
+
+- **Any framework:** send the JUnit XML your runner already writes, or build the report from it
+  with `tracereports report results.xml -o report/`. See [CI](docs/en/ci.md#any-framework-importing-junit-xml).
+- **Pull requests:** `tracereports pr-comment` posts the run summary on the PR or MR. See
+  [pull request comment](docs/en/ci.md#pull-request-comment).
+- **No server in the pipeline:** the clients record the run in a folder; publish the report as an
+  artifact or `push` it later. See [without a server](docs/en/offline.md).
+
 🚧 *TraceReports is pre-1.0: clients, API and configuration can still change between minor releases.*
 
 ## Documentation
@@ -329,7 +371,8 @@ its screenshot, network calls and diagnosis.
 - [Full feature tour](README.en.md)
 - [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md)
 - [Python](docs/en/python.md) · [JavaScript](docs/en/javascript.md) · [Java](docs/en/java.md) · [Go](docs/en/go.md) · [REST API](docs/en/api.md)
-- [Continuous integration](docs/en/ci.md) · [UI tokens and themes](docs/en/ui-tokens.md)
+- [Continuous integration](docs/en/ci.md) · [Without a server: record, report and upload later](docs/en/offline.md)
+- [UI tokens and themes](docs/en/ui-tokens.md)
 
 ## Contributing
 
@@ -342,8 +385,10 @@ Questions go to [Discussions](https://github.com/josemiguellopez/tracereports/di
 
 TraceReports runs on your own machine or server and sends no telemetry. Tokens, passwords, cookies
 and credentials are masked before anything is stored, whichever client sent them. Evidence only
-leaves your server if you turn on a cloud AI provider (use Ollama to keep it in-house) or a
-Teams/Slack webhook. Screenshots are stored as taken, so avoid showing secrets on screen.
+leaves your server if you turn on a cloud AI provider (use Ollama to keep it in-house), a
+Teams/Slack webhook, a tracker (GitHub, Jira, Azure DevOps) or the pull request comment. Settings →
+AI usage reads the provider's public status page, without sending any evidence. Screenshots are
+stored as taken, so avoid showing secrets on screen.
 
 <p align="center"><img src="./.github/assets/divider.svg" alt="" width="100%" /></p>
 
