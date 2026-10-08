@@ -936,3 +936,38 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .esc-dev ul { font-size: 13px; }
 .esc-dev a { color: #1565c0; }
 
+/* aviso: empezó otra ejecución (no se cambia sola). Con los colores de la marca en todos los
+   temas: es un aviso de la aplicación, no parte del reporte. */
+.run-toast { position: fixed; top: calc(var(--topbar-h) + 14px); left: 50%; transform: translateX(-50%); z-index: 60;
+	display: flex; align-items: center; gap: 14px; width: max-content; max-width: calc(100vw - 32px);
+	padding: 12px 12px 12px 14px; border-radius: 14px; background: #11130f; color: #eeeee2;
+	border: 1px solid #c9fa6b; box-shadow: 0 0 0 4px rgba(201, 250, 107, .18), 0 18px 40px rgba(0, 0, 0, .35); font-size: 14px; }
+.run-toast[hidden] { display: none; }
+.run-toast-in { animation: toast-in .35s cubic-bezier(.2, .9, .3, 1.2); }
+.run-toast-tag { display: inline-flex; align-items: center; gap: 6px; flex: none; padding: 4px 9px; border-radius: 999px;
+	background: rgba(255, 82, 82, .16); color: #ff8a80; font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .08em; }
+.run-toast-tag .dot, .new-run-badge .dot { width: 8px; height: 8px; flex: none; border-radius: 50%; background: #ff5252; animation: rec 1.4s infinite; }
+.run-toast-body { display: flex; flex-direction: column; min-width: 0; line-height: 1.3; }
+.run-toast-title { font-size: 14.5px; }
+.run-toast-sub { color: #b9bdb0; font-size: 12.5px; overflow-wrap: anywhere; }
+.run-toast-open { flex: none; border: 0; border-radius: 9px; padding: 9px 14px; background: #c9fa6b; color: #18200d; font-weight: 800; font-size: 13.5px; cursor: pointer; }
+.run-toast-open:hover, .run-toast-open:focus-visible { background: #d8ff8a; outline: 2px solid #c9fa6b; outline-offset: 2px; }
+.run-toast-later { flex: none; border: 0; background: none; color: #b9bdb0; font-size: 13px; padding: 8px 6px; cursor: pointer; border-radius: 8px; }
+.run-toast-later:hover, .run-toast-later:focus-visible { color: #eeeee2; background: rgba(255, 255, 255, .08); }
+@keyframes toast-in { from { transform: translate(-50%, -16px); opacity: 0; } }
+@keyframes rec { 0% { box-shadow: 0 0 0 0 rgba(255, 82, 82, .7); } 70% { box-shadow: 0 0 0 7px rgba(255, 82, 82, 0); } 100% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0); } }
+
+/* insignia junto al selector: queda mientras haya ejecuciones nuevas sin ver */
+.new-run-badge { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; border: 1px solid #c9fa6b;
+	background: #11130f; color: #eeeee2; font-size: 12.5px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+.new-run-badge:hover, .new-run-badge:focus-visible { box-shadow: 0 0 0 3px rgba(201, 250, 107, .35); outline: none; }
+.new-run-badge[hidden] { display: none; }
+@media (prefers-reduced-motion: reduce) { .run-toast-in, .run-toast-tag .dot, .new-run-badge .dot { animation: none; } }
+@media (max-width: 600px) {
+	.run-toast { top: auto; bottom: 80px; left: 16px; right: 16px; width: auto; transform: none; flex-wrap: wrap; gap: 10px; }
+	.run-toast-in { animation-name: toast-up; }
+	.run-toast-body { flex: 1 1 60%; }
+	.run-toast-open { flex: 1; }
+	.nrb-text { display: none; }
+}
+@keyframes toast-up { from { transform: translateY(16px); opacity: 0; } }

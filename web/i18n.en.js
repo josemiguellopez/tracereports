@@ -25,7 +25,9 @@
 		"Auto-scroll al último paso": "Auto-scroll to the latest step",
 		"Mientras el test corre, la lista baja sola hasta el último paso. Apágalo para revisar pasos anteriores sin que te mueva.": "While the test runs, the list follows the latest step. Turn it off to review earlier steps without being moved.",
 		"Aún no hay ejecuciones": "No runs yet", "Envía eventos a": "Send events to", "o ejecuta": "or run",
-		"(en curso)": "(running)",
+		"(en curso)": "(running)", "Empezó otra ejecución": "Another run started", "Ver en vivo": "Watch live", "Ahora no": "Not now", "1 nueva": "1 new", "{n} nuevas": "{n} new", "{n} ejecuciones nuevas en curso": "{n} new runs in progress",
+		"Ejecuciones que empezaron mientras mirabas esta. Clic para ver la última en vivo.": "Runs that started while you were looking at this one. Click to watch the latest live.",
+		"Ejecución nueva en curso": "New run in progress",
 
 		// ── lista de tests ──
 		"Todos": "All", "Todas": "All", "Buscar test(s)...": "Search test(s)...",

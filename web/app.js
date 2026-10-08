@@ -20,7 +20,7 @@
 		detailTab: "steps", net: { key: null, list: null }, netFilter: "", netSearch: "", netApiOnly: false,
 		hist: {}, insights: { key: null }, tlAll: false, epAll: false,
 		loc: {}, locLang: "python", replay: { testId: null, index: 0, speed: 1 }, player: null,
-		liveState: "off", autoScroll: true, activity: {},
+		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
@@ -98,11 +98,11 @@
 	async function loadRuns() {
 		S.runs = await api("/api/v1/runs?limit=100");
 		const sel = $("#run-select");
-		const current = sel.value;
 		sel.innerHTML = S.runs.map((r) =>
 			`<option value="${r.id}">#${r.id} · ${esc(r.name)}${r.status === "RUNNING" ? " (en curso)" : r.incomplete ? " (incompleta)" : ""}${r.branch ? ` · ${esc(r.branch)}` : ""} — ${fmtDateTime(r.started_at)}</option>`).join("");
 		if (!S.runId || !S.runs.some((r) => r.id === S.runId)) S.runId = S.runs[0]?.id ?? null;
-		if (S.runId && String(S.runId) !== current) sel.value = String(S.runId);
+		// al reconstruir las opciones el select muestra la primera (la más nueva): vuelve a la que se ve
+		if (S.runId) sel.value = String(S.runId);
 		$("#empty-state").hidden = S.runs.length > 0;
 		$$(".view").forEach((v) => { if (!S.runs.length) v.hidden = true; });
 	}
@@ -131,7 +131,7 @@
 		$("#report-env").textContent = r.environment || "";
 		$("#suite-started").textContent = fmtDateTime(r.started_at);
 		renderLive();
-		document.title = `${r.name} · TraceReports`;
+		document.title = `${S.newRuns.length ? "● " : ""}${r.name} · TraceReports`;
 		$("#export-li").hidden = !!STATIC;
 		$("#export-btn").href = `/api/v1/runs/${r.id}/export`;
 		if (STATIC) {
@@ -1018,13 +1018,75 @@
 	function onLive(type, e) {
 		const sameRun = e.run_id === S.runId;
 		if (e.run_id) S.activity[e.run_id] = Date.now();
-		if (type === "run" && e.data?.action === "created") loadRuns().catch(() => {});
+		if (type === "run" && e.data?.action === "created") loadRuns().then(() => notifyNewRun(e.run_id)).catch(() => {});
 		if (type === "log") {
 			if (e.test_id === S.testId) appendLiveStep(e.data);
 			return;
 		}
 		if (sameRun) scheduleRun();
 		if (e.test_id && e.test_id === S.testId) scheduleTest();
+	}
+
+	/** Cambia a otra ejecución (selector de la barra o aviso de ejecución nueva). */
+	async function switchRun(id) {
+		S.runId = id;
+		$("#run-select").value = String(id);
+		S.testId = null; S.test = null; S.rendered = {};
+		S.newRuns = S.newRuns.filter((x) => x !== id); // ya la está viendo
+		renderNewRuns();
+		writeHash();
+		await loadRun(); await loadTest();
+	}
+
+	/**
+	 * Empezó otra ejecución: no se cambia sola (quien mira un reporte no pierde lo que estaba
+	 * viendo). Un aviso arriba ofrece verla en vivo; con "Ahora no" queda la insignia junto al
+	 * selector y un punto en la pestaña del navegador. Si no se estaba viendo ninguna, se abre.
+	 */
+	function notifyNewRun(id) {
+		const r = S.runs.find((x) => x.id === id);
+		if (!r || id === S.runId || S.newRuns.includes(id)) return;
+		if (!S.run) { switchRun(id).catch(() => {}); return; }
+		S.newRuns.push(id);
+		S.toastClosed = false; // cada ejecución nueva vuelve a avisar
+		renderNewRuns();
+	}
+
+	function renderNewRuns() {
+		const runs = S.newRuns.map((id) => S.runs.find((x) => x.id === id)).filter(Boolean);
+		const latest = runs[runs.length - 1];
+		const badge = $("#new-run-badge");
+		badge.hidden = !latest;
+		document.title = document.title.replace(/^● /, "");
+		let el = $("#run-toast");
+		if (!latest) { if (el) el.hidden = true; return; }
+		document.title = `● ${document.title}`;
+		badge.dataset.run = String(latest.id);
+		$(".nrb-text", badge).textContent = tr(runs.length === 1 ? "1 nueva" : "{n} nuevas", { n: runs.length });
+		badge.dataset.tip = tr("Ejecuciones que empezaron mientras mirabas esta. Clic para ver la última en vivo.");
+		if (!el) {
+			el = document.createElement("div");
+			el.id = "run-toast";
+			el.className = "run-toast";
+			el.setAttribute("role", "status");
+			el.setAttribute("aria-live", "polite");
+			el.addEventListener("click", (ev) => {
+				if (ev.target.closest("[data-toast-open]")) { el.hidden = true; switchRun(Number(el.dataset.run)).catch(() => {}); }
+				else if (ev.target.closest("[data-toast-close]")) { S.toastClosed = true; el.hidden = true; }
+			});
+			document.body.appendChild(el);
+		}
+		el.dataset.run = String(latest.id);
+		const where = [latest.environment, latest.branch].filter(Boolean).map(esc).join(" · ");
+		el.innerHTML = `<span class="run-toast-tag"><span class="dot" aria-hidden="true"></span>${tr("En vivo")}</span>
+			<div class="run-toast-body">
+				<b class="run-toast-title">${runs.length === 1 ? tr("Empezó otra ejecución") : tr("{n} ejecuciones nuevas en curso", { n: runs.length })}</b>
+				<span class="run-toast-sub" data-no-i18n>#${latest.id} · ${esc(latest.name)}${where ? ` · ${where}` : ""}</span>
+			</div>
+			<button class="run-toast-open" data-toast-open>${tr("Ver en vivo")} →</button>
+			<button class="run-toast-later" data-toast-close>${tr("Ahora no")}</button>`;
+		el.hidden = S.toastClosed;
+		if (!el.hidden) { el.classList.remove("run-toast-in"); void el.offsetWidth; el.classList.add("run-toast-in"); }
 	}
 
 	/** Agrega un paso recibido en vivo sin re-renderizar el detalle (animación de entrada). */
@@ -1535,12 +1597,8 @@
 		});
 		$$(".side-nav a").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); setView(a.dataset.view); }));
 
-		$("#run-select").addEventListener("change", async (e) => {
-			S.runId = Number(e.target.value);
-			S.testId = null; S.test = null; S.rendered = {};
-			writeHash();
-			await loadRun(); await loadTest();
-		});
+		$("#run-select").addEventListener("change", (e) => switchRun(Number(e.target.value)));
+		$("#new-run-badge").addEventListener("click", (e) => switchRun(Number(e.currentTarget.dataset.run)));
 		$("#compare-card").addEventListener("change", (e) => {
 			if (e.target.id === "cmp-base") chooseBase(Number(e.target.value));
 		});
