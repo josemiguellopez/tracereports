@@ -148,7 +148,10 @@ func (rec *Recording) Replay(t Target) (*Result, error) {
 			return res, err
 		}
 		if code >= 300 {
-			res.addErr(fmt.Sprintf("closing run %d -> HTTP %d %s", id, code, strings.TrimSpace(string(out))))
+			// cuenta como rechazado: push no termina bien y el CI se entera. Repetirlo es seguro
+			// (misma Idempotency-Key; una respuesta 5xx no queda guardada en el servidor)
+			res.Rejected++
+			res.addErr(fmt.Sprintf("closing run %d -> HTTP %d %s (push again to close it)", id, code, strings.TrimSpace(string(out))))
 		}
 	}
 	return res, nil
