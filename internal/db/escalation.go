@@ -14,23 +14,27 @@ CREATE TABLE IF NOT EXISTS escalations (
 	lang       TEXT    NOT NULL,             -- es | en
 	payload    TEXT    NOT NULL,             -- JSON del resumen generado
 	created_at INTEGER NOT NULL,
+	revision   TEXT    NOT NULL DEFAULT '',  -- huella de la evidencia con que se escribió
 	PRIMARY KEY (run_id, test_id, audience, lang)
 );
 `
 
 // SaveEscalation caches a generated escalation summary (so viewing it again costs no AI quota).
-func (s *Store) SaveEscalation(runID, testID int64, audience, lang, payload string) error {
-	_, err := s.db.Exec(`INSERT INTO escalations(run_id, test_id, audience, lang, payload, created_at) VALUES(?,?,?,?,?,?)
-		ON CONFLICT(run_id, test_id, audience, lang) DO UPDATE SET payload=excluded.payload, created_at=excluded.created_at`,
-		runID, testID, audience, lang, payload, NowMs())
+// revision identifies the evidence it was written from (see GetEscalation).
+func (s *Store) SaveEscalation(runID, testID int64, audience, lang, revision, payload string) error {
+	_, err := s.db.Exec(`INSERT INTO escalations(run_id, test_id, audience, lang, payload, created_at, revision) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(run_id, test_id, audience, lang) DO UPDATE SET payload=excluded.payload, created_at=excluded.created_at, revision=excluded.revision`,
+		runID, testID, audience, lang, payload, NowMs(), revision)
 	return err
 }
 
-// GetEscalation returns a cached escalation payload, or "" if there is none.
-func (s *Store) GetEscalation(runID, testID int64, audience, lang string) (string, error) {
+// GetEscalation returns a cached escalation payload written from the evidence revision, or "" if
+// there is none or it was written from other evidence (a late result, a new diagnosis: it would
+// describe what is no longer true). A summary cached before revisions existed does not match.
+func (s *Store) GetEscalation(runID, testID int64, audience, lang, revision string) (string, error) {
 	var payload string
-	err := s.db.QueryRow(`SELECT payload FROM escalations WHERE run_id=? AND test_id=? AND audience=? AND lang=?`,
-		runID, testID, audience, lang).Scan(&payload)
+	err := s.db.QueryRow(`SELECT payload FROM escalations WHERE run_id=? AND test_id=? AND audience=? AND lang=? AND revision=?`,
+		runID, testID, audience, lang, revision).Scan(&payload)
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}

@@ -130,6 +130,8 @@ func Open(path string) (*Store, error) {
 		{"ai_usage_daily", "err_timeout", "INTEGER NOT NULL DEFAULT 0"},
 		{"ai_usage_daily", "err_network", "INTEGER NOT NULL DEFAULT 0"},
 		{"ai_usage_daily", "err_other", "INTEGER NOT NULL DEFAULT 0"},
+		// escalamiento en caché: huella de la evidencia con que se escribió
+		{"escalations", "revision", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()

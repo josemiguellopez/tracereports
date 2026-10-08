@@ -2,6 +2,8 @@ package api
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/notify"
 )
 
@@ -134,8 +137,20 @@ func (e *escalationRef) valid() error {
 	return nil
 }
 
-func (s *Server) cachedEscalation(ref escalationRef) (*ai.Escalation, error) {
-	raw, err := s.Store.GetEscalation(ref.RunID, ref.TestID, ref.Audience, ref.Lang)
+// factsRevision identifies the evidence an escalation is written from: when the run or the test
+// changes (a result that arrives late, a new AI diagnosis, more failures) the cached summary no
+// longer matches it and is not reused. The developer detail is rebuilt on every response.
+func factsRevision(f *ai.Facts) string {
+	c := *f
+	c.Dev = nil
+	raw, _ := json.Marshal(c)
+	sum := sha256.Sum256(raw)
+	return hex.EncodeToString(sum[:16])
+}
+
+// cachedEscalation returns the cached AI summary written from the current evidence, or nil.
+func (s *Server) cachedEscalation(ref escalationRef, facts *ai.Facts) (*ai.Escalation, error) {
+	raw, err := s.Store.GetEscalation(ref.RunID, ref.TestID, ref.Audience, ref.Lang, factsRevision(facts))
 	if err != nil || raw == "" {
 		return nil, err
 	}
@@ -159,7 +174,16 @@ func (s *Server) getEscalation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	e, err := s.cachedEscalation(ref)
+	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, ref.RunID, ref.TestID)
+	if errors.Is(err, db.ErrNotFound) {
+		w.WriteHeader(http.StatusNoContent) // nada generado de lo que no existe
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	e, err := s.cachedEscalation(ref, facts)
 	if err != nil {
 		serverError(w, err)
 		return
@@ -189,8 +213,14 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	started := time.Now() // el tiempo total incluye reunir la evidencia
+	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, in.RunID, in.TestID)
+	if respondErr(w, err, "run or test") {
+		return
+	}
+	revision := factsRevision(facts) // antes de generar: la IA no cambia la evidencia
 	if !in.Regenerate && !in.NoAI {
-		if e, err := s.cachedEscalation(in.escalationRef); err != nil {
+		if e, err := s.cachedEscalation(in.escalationRef, facts); err != nil {
 			serverError(w, err)
 			return
 		} else if e != nil {
@@ -198,11 +228,6 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, e)
 			return
 		}
-	}
-	started := time.Now() // el tiempo total incluye reunir la evidencia
-	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, in.RunID, in.TestID)
-	if respondErr(w, err, "run or test") {
-		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
@@ -213,28 +238,43 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 		e = s.AI.Escalate(ctx, facts, in.RunID, in.TestID, in.Audience, in.Lang)
 		e.Timing.Finish(time.Since(started))
 	}
-	s.withOwner(e)                                                   // el dueño de las reglas manda sobre el que sugiere la IA
-	if raw, err := json.Marshal(e); err == nil && e.Source == "ai" { // la plantilla es gratis: no se guarda
-		if err := s.Store.SaveEscalation(in.RunID, in.TestID, in.Audience, in.Lang, string(raw)); err != nil {
-			slog.Warn("escalation: cache", "err", err)
-		}
-	}
+	s.withOwner(e) // el dueño de las reglas manda sobre el que sugiere la IA
+	s.saveEscalation(in.escalationRef, revision, e)
 	s.withDev(e) // después de guardar: el detalle técnico no se cachea
 	writeJSON(w, http.StatusOK, e)
+}
+
+// saveEscalation caches an AI summary (the template is free: it is not saved) unless the evidence
+// changed while the AI was writing it: a generation that finishes late does not replace the
+// summary of newer evidence, and it would not be reused anyway.
+func (s *Server) saveEscalation(ref escalationRef, revision string, e *ai.Escalation) {
+	if e.Source != "ai" {
+		return
+	}
+	if now, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, ref.RunID, ref.TestID); err != nil || factsRevision(now) != revision {
+		return
+	}
+	raw, err := json.Marshal(e)
+	if err == nil {
+		err = s.Store.SaveEscalation(ref.RunID, ref.TestID, ref.Audience, ref.Lang, revision, string(raw))
+	}
+	if err != nil {
+		slog.Warn("escalation: cache", "err", err)
+	}
 }
 
 // escalationFor returns the summary to share: the cached AI one, or a new one (the template is
 // immediate; with AI configured and noAI false, the AI writes it).
 func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool) (*ai.Escalation, error) {
-	if !noAI {
-		if e, err := s.cachedEscalation(ref); err != nil || e != nil {
-			s.withDev(e)
-			return e, err
-		}
-	}
 	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, ref.RunID, ref.TestID)
 	if err != nil {
 		return nil, err
+	}
+	if !noAI {
+		if e, err := s.cachedEscalation(ref, facts); err != nil || e != nil {
+			s.withDev(e)
+			return e, err
+		}
 	}
 	var e *ai.Escalation
 	if noAI {
