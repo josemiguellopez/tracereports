@@ -154,7 +154,10 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
   adjuntos de imagen, como capturas; los de texto o JSON, como un paso con su contenido (hasta 16 KB).
   Los labels `tag`, `feature`, `story` y `epic` son las categorías; `parentSuite / suite / subSuite`,
   la suite.
-- Límite: 200 MB por ZIP y 15 MB por adjunto.
+- Límites: 200 MB por ZIP y 15 MB por adjunto; lo que se lee descomprimido, 1 GB en total y 256 MB
+  entre los `*-result.json` (se mide lo que de verdad se lee, no lo que el ZIP declara). Pasados,
+  responde `413`. El ZIP se guarda en un archivo temporal mientras se importa (se borra siempre) y se
+  importan hasta 2 a la vez; el resto espera su turno.
 
 ## Lectura (lo que usa la UI)
 

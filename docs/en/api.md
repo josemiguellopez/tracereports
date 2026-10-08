@@ -153,7 +153,10 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 - Steps (nested, indented), with their status and time, become test steps; image attachments become
   screenshots; text or JSON ones a step with their content (up to 16 KB). The `tag`, `feature`,
   `story` and `epic` labels are the categories; `parentSuite / suite / subSuite`, the suite.
-- Limit: 200 MB per ZIP and 15 MB per attachment.
+- Limits: 200 MB per ZIP and 15 MB per attachment; what is read decompressed, 1 GB in total and
+  256 MB across the `*-result.json` files (it measures what is actually read, not what the ZIP
+  declares). Past them it answers `413`. The ZIP is kept in a temporary file while importing (always
+  deleted) and up to 2 imports run at a time; the rest wait for their turn.
 
 ## Reads (used by the UI)
 

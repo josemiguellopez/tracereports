@@ -2,12 +2,12 @@ package api
 
 import (
 	"archive/zip"
-	"bytes"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -21,6 +21,15 @@ const (
 	maxAllureBody   = 200 << 20 // 200 MiB: un allure-results comprimido trae capturas
 	maxAllureFiles  = 50_000    // entradas del ZIP (protección contra ZIPs patológicos)
 	maxImportOutput = 16 << 10  // system-out / system-err / adjunto de texto que se guarda como paso
+)
+
+// Lo que se lee descomprimido de un ZIP de Allure (no lo que el ZIP declara): todo junto, y
+// los result.json, que quedan en memoria mientras dura la importación. Variables: las pruebas
+// los bajan.
+var (
+	maxAllureUnzipped int64 = 1 << 30   // 1 GiB
+	maxAllureJSON     int64 = 256 << 20 // 256 MiB
+	maxAllureParallel       = 2         // importaciones de Allure a la vez (cada una usa disco y CPU)
 )
 
 // ---------- partes comunes de las importaciones ----------
@@ -263,13 +272,24 @@ func readJUnit(r *http.Request) ([]junit.Suite, error) {
 // the "file" field of a multipart form). Same query and treatment as importJUnit, plus the
 // steps (nested), screenshots and text attachments of each test.
 func (s *Server) importAllure(w http.ResponseWriter, r *http.Request) {
+	// pocas a la vez: el resto espera su turno (o se va si el cliente corta)
+	select {
+	case allureSlots <- struct{}{}:
+		defer func() { <-allureSlots }()
+	case <-r.Context().Done():
+		return
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxAllureBody)
-	data, err := readUpload(r)
+	// el ZIP va a un archivo temporal, no a memoria; se borra al terminar, falle o no
+	tmp, size, err := uploadToTemp(r, "tracereports-allure-*.zip")
+	if tmp != nil {
+		defer func() { tmp.Close(); os.Remove(tmp.Name()) }()
+	}
 	if err != nil {
 		importBodyError(w, err, maxAllureBody)
 		return
 	}
-	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	zr, err := zip.NewReader(tmp, size)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "send the allure-results folder as a ZIP: "+err.Error())
 		return
@@ -278,7 +298,12 @@ func (s *Server) importAllure(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, fmt.Sprintf("the ZIP has more than %d files", maxAllureFiles))
 		return
 	}
-	rep, err := allure.Parse(zr)
+	budget := &allure.Budget{Total: maxAllureUnzipped, JSON: maxAllureJSON}
+	rep, err := allure.ParseBudget(zr, budget)
+	if errors.Is(err, allure.ErrBudget) {
+		writeError(w, http.StatusRequestEntityTooLarge, allureBudgetMsg)
+		return
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
@@ -301,13 +326,60 @@ func (s *Server) importAllure(w http.ResponseWriter, r *http.Request) {
 	}
 	now := time.Now()
 	for _, res := range rep.Results {
+		if err := r.Context().Err(); err != nil { // el cliente se fue: no queda una ejecución a medias
+			ir.abort()
+			return
+		}
 		if err := s.importResult(ir, res, now); err != nil {
 			ir.abort()
+			if errors.Is(err, allure.ErrBudget) {
+				writeError(w, http.StatusRequestEntityTooLarge, allureBudgetMsg)
+				return
+			}
 			serverError(w, err)
 			return
 		}
 	}
 	ir.finish(w)
+}
+
+var (
+	allureSlots     = make(chan struct{}, maxAllureParallel)
+	allureBudgetMsg = fmt.Sprintf("the allure results decompress to more than %d MiB (or their result files to more than %d MiB): import them in parts", maxAllureUnzipped>>20, maxAllureJSON>>20)
+)
+
+// uploadToTemp copies the body (or the "file" field of a multipart form, read as a stream) to a
+// temporary file. The caller closes and removes it, also when err is not nil.
+func uploadToTemp(r *http.Request, pattern string) (*os.File, int64, error) {
+	var src io.Reader = r.Body
+	if strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+		mr, err := r.MultipartReader()
+		if err != nil {
+			return nil, 0, fmt.Errorf("invalid multipart form: %w", err)
+		}
+		for {
+			part, err := mr.NextPart()
+			if err == io.EOF {
+				return nil, 0, errors.New(`multipart field "file" is required`)
+			}
+			if err != nil {
+				return nil, 0, fmt.Errorf("invalid multipart form: %w", err)
+			}
+			if part.FormName() == "file" {
+				src = part
+				break
+			}
+		}
+	}
+	f, err := os.CreateTemp("", pattern)
+	if err != nil {
+		return nil, 0, err
+	}
+	n, err := io.Copy(f, src)
+	if err != nil {
+		return f, 0, err
+	}
+	return f, n, nil
 }
 
 // importResult stores one Allure result: its steps (indented by depth), attachments and result.
@@ -369,6 +441,8 @@ func (s *Server) importAttachments(testID int64, atts []allure.Attachment, statu
 		}
 		data, err := a.Read()
 		switch {
+		case errors.Is(err, allure.ErrBudget):
+			return err
 		case err != nil:
 			continue
 		case a.IsImage():
@@ -396,20 +470,4 @@ func msTime(ms int64, fallback time.Time) time.Time {
 		return fallback
 	}
 	return time.UnixMilli(ms)
-}
-
-// readUpload returns the body, or the "file" field when it is a multipart form.
-func readUpload(r *http.Request) ([]byte, error) {
-	if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
-		return io.ReadAll(r.Body)
-	}
-	if err := r.ParseMultipartForm(32 << 20); err != nil {
-		return nil, fmt.Errorf("invalid multipart form: %w", err)
-	}
-	f, _, err := r.FormFile("file")
-	if err != nil {
-		return nil, errors.New(`multipart field "file" is required`)
-	}
-	defer f.Close()
-	return io.ReadAll(f)
 }

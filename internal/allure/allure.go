@@ -28,7 +28,52 @@ const (
 const (
 	maxResultFile = 16 << 20 // un result.json más grande no es razonable
 	maxAttachment = 15 << 20 // el mismo límite que una captura subida a la API
+	maxExecutor   = 1 << 20  // executor.json
 )
+
+// ErrBudget: the folder decompresses to more than the import allows (see Budget).
+var ErrBudget = errors.New("the allure results are larger than the import allows once decompressed")
+
+// Budget caps the bytes actually read (decompressed) from the folder: Total for everything
+// (result files, executor.json and attachments) and JSON for the result files, which stay in
+// memory while the import runs. It counts what is read, not the sizes a ZIP declares. A nil
+// Budget only applies the per-file limits.
+type Budget struct {
+	Total, JSON int64
+}
+
+// read reads f up to perFile bytes, charging the budget; json also charges the JSON budget.
+func (b *Budget) read(f io.Reader, name string, perFile int64, json bool) ([]byte, error) {
+	limit, byBudget := perFile, false
+	if b != nil {
+		if b.Total < limit {
+			limit, byBudget = b.Total, true
+		}
+		if json && b.JSON < limit {
+			limit, byBudget = b.JSON, true
+		}
+	}
+	if limit < 0 {
+		limit = 0
+	}
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > limit {
+		if byBudget {
+			return nil, ErrBudget
+		}
+		return nil, fmt.Errorf("%s is larger than %d MB", name, perFile>>20)
+	}
+	if b != nil {
+		b.Total -= int64(len(data))
+		if json {
+			b.JSON -= int64(len(data))
+		}
+	}
+	return data, nil
+}
 
 // Result is one test (the last of its retries).
 type Result struct {
@@ -73,6 +118,7 @@ type Step struct {
 type Attachment struct {
 	Name, Type, Source string
 	fsys               fs.FS
+	budget             *Budget
 }
 
 // IsImage reports whether the attachment is a picture (by its declared type or extension).
@@ -97,14 +143,7 @@ func (a Attachment) Read() ([]byte, error) {
 		return nil, err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, maxAttachment+1))
-	if err != nil {
-		return nil, err
-	}
-	if len(data) > maxAttachment {
-		return nil, fmt.Errorf("attachment %s is larger than %d MB", a.Source, maxAttachment>>20)
-	}
-	return data, nil
+	return a.budget.read(f, "attachment "+a.Source, maxAttachment, false)
 }
 
 // ---- JSON shape ----
@@ -154,7 +193,11 @@ type Report struct {
 
 // Parse reads every *-result.json of the folder (the root of fsys, or a single subfolder when
 // the ZIP was made from the folder itself).
-func Parse(fsys fs.FS) (*Report, error) {
+func Parse(fsys fs.FS) (*Report, error) { return ParseBudget(fsys, nil) }
+
+// ParseBudget is Parse with a cap on the decompressed bytes (shared with the attachments, read
+// later): past it, it fails with ErrBudget.
+func ParseBudget(fsys fs.FS, b *Budget) (*Report, error) {
 	root, err := resultsRoot(fsys)
 	if err != nil {
 		return nil, err
@@ -168,12 +211,12 @@ func Parse(fsys fs.FS) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	rep := &Report{Build: buildName(fsys)}
+	rep := &Report{Build: buildName(fsys, b)}
 	sort.Strings(names)
 	byHistory := map[string][]Result{}
 	var order []string
 	for _, name := range names {
-		r, err := readResult(fsys, name)
+		r, err := readResult(fsys, name, b)
 		if err != nil {
 			return nil, err
 		}
@@ -200,9 +243,14 @@ func Parse(fsys fs.FS) (*Report, error) {
 }
 
 // buildName reads executor.json, which the CI plugins write ("" if missing or invalid).
-func buildName(fsys fs.FS) string {
-	raw, err := fs.ReadFile(fsys, "executor.json")
-	if err != nil || len(raw) > 1<<20 {
+func buildName(fsys fs.FS, b *Budget) string {
+	f, err := fsys.Open("executor.json")
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	raw, err := b.read(f, "executor.json", maxExecutor, false) // se corta al pasar el límite, sin leerlo entero
+	if err != nil {
 		return ""
 	}
 	var e struct{ BuildName, Name string }
@@ -232,18 +280,15 @@ func resultsRoot(fsys fs.FS) (string, error) {
 	return "", errors.New("not an allure-results folder: no *-result.json files")
 }
 
-func readResult(fsys fs.FS, name string) (Result, error) {
+func readResult(fsys fs.FS, name string, b *Budget) (Result, error) {
 	f, err := fsys.Open(name)
 	if err != nil {
 		return Result{}, err
 	}
 	defer f.Close()
-	raw, err := io.ReadAll(io.LimitReader(f, maxResultFile+1))
+	raw, err := b.read(f, name, maxResultFile, true)
 	if err != nil {
 		return Result{}, err
-	}
-	if len(raw) > maxResultFile {
-		return Result{}, fmt.Errorf("%s: larger than %d MB", name, maxResultFile>>20)
 	}
 	var j jsonResult
 	if err := json.Unmarshal(raw, &j); err != nil {
@@ -253,7 +298,7 @@ func readResult(fsys fs.FS, name string) (Result, error) {
 		Name: strings.TrimSpace(j.Name), FullName: strings.TrimSpace(j.FullName), Status: status(j.Status),
 		Message: strings.TrimSpace(j.StatusDetails.Message), Trace: strings.TrimSpace(j.StatusDetails.Trace),
 		Description: strings.TrimSpace(j.Description), Start: j.Start, Stop: j.Stop,
-		Steps: steps(fsys, j.Steps), Attachments: attachments(fsys, j.Attachments),
+		Steps: steps(fsys, b, j.Steps), Attachments: attachments(fsys, b, j.Attachments),
 		historyID: j.HistoryID, uuid: j.UUID,
 	}
 	if r.Name == "" {
@@ -313,20 +358,20 @@ func status(s string) string {
 	return Skip
 }
 
-func steps(fsys fs.FS, in []jsonStep) []Step {
+func steps(fsys fs.FS, b *Budget, in []jsonStep) []Step {
 	out := make([]Step, 0, len(in))
 	for _, s := range in {
 		out = append(out, Step{Name: strings.TrimSpace(s.Name), Status: status(s.Status),
 			Message: strings.TrimSpace(s.StatusDetails.Message), Start: s.Start, Stop: s.Stop,
-			Steps: steps(fsys, s.Steps), Attachments: attachments(fsys, s.Attachments)})
+			Steps: steps(fsys, b, s.Steps), Attachments: attachments(fsys, b, s.Attachments)})
 	}
 	return out
 }
 
-func attachments(fsys fs.FS, in []jsonAttachment) []Attachment {
+func attachments(fsys fs.FS, b *Budget, in []jsonAttachment) []Attachment {
 	out := make([]Attachment, 0, len(in))
 	for _, a := range in {
-		out = append(out, Attachment{Name: strings.TrimSpace(a.Name), Type: a.Type, Source: a.Source, fsys: fsys})
+		out = append(out, Attachment{Name: strings.TrimSpace(a.Name), Type: a.Type, Source: a.Source, fsys: fsys, budget: b})
 	}
 	return out
 }
