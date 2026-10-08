@@ -167,9 +167,10 @@ func (a *Analyzer) Test(ctx context.Context, c Config) (time.Duration, error) {
 		return 0, err
 	}
 	start := time.Now()
-	text, err := call(ctx, a.client, c, `Health check. Reply with the JSON object {"ok": true}.`, map[string]any{
+	text, u, err := call(ctx, a.client, c, `Health check. Reply with the JSON object {"ok": true}.`, map[string]any{
 		"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"},
 	})
+	a.recordUsage(UsageTest, c, u, err)
 	if err != nil {
 		return 0, err
 	}
@@ -503,7 +504,7 @@ func (a *Analyzer) classify(ctx context.Context, prompt string, cands []locator.
 		props["recommended_locator"] = map[string]any{"type": "string", "enum": sels}
 		props["locator_reason"] = map[string]any{"type": "string"}
 	}
-	text, err := a.generate(ctx, prompt, map[string]any{
+	text, err := a.generate(ctx, UsageTriage, prompt, map[string]any{
 		"type":       "object",
 		"properties": props,
 		"required":   []string{"category", "summary", "suggestion"},
@@ -520,14 +521,16 @@ func (a *Analyzer) classify(ctx context.Context, prompt string, cands []locator.
 }
 
 // generate asks the configured provider for a JSON answer matching schema (standard JSON Schema)
-// and returns its text, retrying rate limits (429) and server errors with backoff.
-func (a *Analyzer) generate(ctx context.Context, prompt string, schema map[string]any) (string, error) {
+// and returns its text, retrying rate limits (429) and server errors with backoff. Every call to
+// the provider (retries included) is counted in the AI usage under kind.
+func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map[string]any) (string, error) {
 	c := a.Config()
 	// segunda capa: nada sale al proveedor sin pasar por la redacción (datos antiguos incluidos)
 	prompt = a.redactor().Text(prompt)
 	var lastErr error
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
-		text, err := call(ctx, a.client, c, prompt, schema)
+		text, u, err := call(ctx, a.client, c, prompt, schema)
+		a.recordUsage(kind, c, u, err)
 		if err == nil {
 			return text, nil
 		}
@@ -543,6 +546,26 @@ func (a *Analyzer) generate(ctx context.Context, prompt string, schema map[strin
 		}
 	}
 	return "", lastErr
+}
+
+// Kinds of AI calls in the usage report (Settings → AI usage).
+const (
+	UsageTriage     = "triage"      // diagnóstico de un test
+	UsageRunSummary = "run_summary" // resumen de la ejecución
+	UsageEscalation = "escalation"  // escalamiento con IA
+	UsageTest       = "test"        // Probar conexión
+)
+
+// recordUsage counts one call to the provider (a failed one too: a provider may charge it, and
+// errors are shown). Without a store (tests, the static report) nothing is recorded.
+func (a *Analyzer) recordUsage(kind string, c Config, u Usage, err error) {
+	if a.store == nil || c.Provider == "" {
+		return
+	}
+	if e := a.store.AddAIUsage(db.AIUsageCall{At: time.Now(), Provider: c.Provider, Model: c.Model, Kind: kind,
+		Failed: err != nil, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TokensKnown: u.Known}); e != nil {
+		slog.Warn("ai: usage not recorded", "err", e)
+	}
 }
 
 func normalizeCategory(c string) string {

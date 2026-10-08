@@ -270,7 +270,7 @@ Result: %d tests, %d passed, %d failed, %d skipped.
 		},
 		"required": []string{"headline", "summary", "incidents"},
 	}
-	text, err := a.generate(ctx, b.String(), schema)
+	text, err := a.generate(ctx, UsageRunSummary, b.String(), schema)
 	if err != nil {
 		return nil, err
 	}

@@ -26,6 +26,7 @@
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
 		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null },
 		settings: { data: null, form: null, msg: null, busy: false, error: null, loading: false,
+			usage: null, usageError: null, usageLoading: false,
 			gen: {}, snips: {}, connTab: "ps", check: null, checkInput: null, checking: false,
 			tab: (() => { try { return localStorage.getItem("tracereports-settings-tab") || "look"; } catch { return "look"; } })() },
 		charts: {}, rendered: {},
@@ -2959,6 +2960,7 @@
 		const el = $("#view-settings");
 		const st = S.settings;
 		if (!STATIC && !st.data && !st.error && !st.loading) { st.loading = true; loadSettings().finally(() => { st.loading = false; }); }
+		if (!STATIC && !st.usage && !st.usageError && !st.usageLoading) loadUsage();
 		const head = `<div class="page-head"><div><h4 class="page-title">Ajustes</h4>
 				<p class="page-sub">${STATIC ? "Reporte exportado: el idioma y el tema se guardan en este navegador." : "El idioma y el tema son de cada navegador. La IA es del servidor: aplica a todos."}</p></div></div>`;
 		let html;
@@ -2971,7 +2973,7 @@
 			const body = cur.id === "look" ? appearanceCard()
 				: st.error ? `<div class="card placeholder">No se pudieron cargar los ajustes: ${esc(st.error)}</div>`
 				: !st.data ? `<div class="card placeholder">Cargando…</div>`
-				: cur.id === "ai" ? aiCardSettings() : connectCard(st.data);
+				: cur.id === "ai" ? aiCardSettings() : cur.id === "usage" ? usageCard() : connectCard(st.data);
 			html = `${head}<div class="set-layout">
 				<nav class="card set-nav" role="tablist" aria-label="Secciones de Ajustes" aria-orientation="vertical">
 					${tabs.map((t) => `<button role="tab" id="set-tab-${t.id}" aria-selected="${t.id === cur.id}" aria-controls="set-panel" tabindex="${t.id === cur.id ? 0 : -1}" data-set-tab="${t.id}">
@@ -2994,9 +2996,67 @@
 			{ id: "look", icon: "i-palette", title: "Apariencia", sub: `${theme} · ${I18N.lang === "en" ? "English" : "Español"}` },
 			{ id: "ai", icon: "i-spark", title: "Inteligencia artificial",
 				sub: !d ? "…" : ai.enabled ? `${prov?.name || ai.provider} · ${ai.model}` : "Desactivada", tone: d && !ai.enabled ? "muted" : "" },
+			{ id: "usage", icon: "i-chart", title: "Uso de la IA",
+				sub: S.settings.usage ? tr("{n} llamadas hoy", { n: fmtNum(S.settings.usage.usage.today.calls) }) : "…" },
 			{ id: "conn", icon: "i-plug", title: "Conectar tus tests",
 				sub: !d ? "…" : d.token_set ? "Token de API activo" : "Sin token de API", tone: d && !d.token_set ? "warn" : "ok" },
 		];
+	}
+
+	async function loadUsage() {
+		const st = S.settings;
+		st.usageLoading = true;
+		try {
+			st.usage = await api("/api/v1/settings/ai/usage");
+			st.usageError = null;
+		} catch (err) {
+			st.usageError = err.message;
+		}
+		st.usageLoading = false;
+		if (S.view === "settings") renderSettings(true);
+	}
+
+	const USAGE_KINDS = { triage: "Diagnóstico de tests", run_summary: "Resumen de la ejecución", escalation: "Escalamientos", test: "Probar conexión" };
+
+	/** Uso del proveedor de IA: llamadas y tokens que informó, hoy, 7 y 30 días (Ajustes → Uso de la IA). */
+	function usageCard() {
+		const st = S.settings;
+		if (st.usageError) return `<div class="card placeholder">No se pudo cargar el uso de la IA: ${esc(st.usageError)}</div>`;
+		if (!st.usage) return `<div class="card placeholder">Cargando…</div>`;
+		const u = st.usage.usage, max = st.usage.max_per_run;
+		const tokens = (t) => tr("{in} de entrada · {out} de salida", { in: fmtNum(t.input_tokens), out: fmtNum(t.output_tokens) });
+		const tile = (label, t, tip) => `<div class="card kpi" tabindex="0" data-tip="${esc(tip)}">
+			<span class="kpi-label">${label}</span><span class="kpi-value">${fmtNum(t.calls)}</span>
+			<span class="kpi-delta">${esc(tokens(t))}</span>
+			${t.errors ? `<span class="kpi-delta bad">${esc(tr("{n} con error", { n: fmtNum(t.errors) }))}</span>` : ""}</div>`;
+		const num = (n) => `<td class="num">${fmtNum(n)}</td>`;
+		const rowsOf = (list, first) => list.map((r) => `<tr>${first(r)}${num(r.calls)}${num(r.errors)}${num(r.input_tokens)}${num(r.output_tokens)}</tr>`).join("");
+		const head = (first) => `<thead><tr>${first}<th class="num">Llamadas</th><th class="num">Con error</th><th class="num">Tokens de entrada</th><th class="num">Tokens de salida</th></tr></thead>`;
+		const model = (r) => `<td><span data-no-i18n>${esc(r.provider)} · ${esc(r.model || "—")}</span></td>`;
+		const empty = !u.last_30.calls;
+		return `<section class="card set-card" aria-labelledby="set-usage">
+			<div class="set-card-head"><h5 id="set-usage">Uso de la IA</h5>
+				<button class="cf-btn cf-btn-sm" data-usage-refresh ${st.usageLoading ? "disabled" : ""}>Actualizar</button></div>
+			<p class="field-help">Llamadas al proveedor de IA y los tokens que él mismo informó, en la hora del servidor. Incluye reintentos y llamadas con error. El costo real es el de la factura de tu proveedor.</p>
+			<div class="kpi-grid">
+				${tile(tr("Hoy"), u.today, tr("Llamadas de hoy."))}
+				${tile(tr("Últimos 7 días"), u.last_7, tr("Hoy y los 6 días anteriores."))}
+				${tile(tr("Últimos 30 días"), u.last_30, tr("Hoy y los 29 días anteriores."))}
+			</div>
+			${u.last_30.untracked ? `<p class="m-hint">${esc(u.last_30.untracked === 1
+				? tr("1 llamada no informó tokens (una API compatible que no los devuelve, o un error antes de la respuesta).")
+				: tr("{n} llamadas no informaron tokens (una API compatible que no los devuelve, o un error antes de la respuesta).", { n: fmtNum(u.last_30.untracked) }))}</p>` : ""}
+			<p class="m-hint">${esc(max > 0
+				? tr("Límite automático: {max} diagnósticos por ejecución (TRACEREPORTS_AI_MAX_PER_RUN). En 30 días, {n} tests quedaron sin diagnóstico automático por ese límite.", { max: fmtNum(max), n: fmtNum(u.skipped_by_budget) })
+				: tr("Sin límite de diagnósticos automáticos por ejecución (TRACEREPORTS_AI_MAX_PER_RUN=0)."))}</p>
+			${empty ? `<div class="placeholder">Sin llamadas a la IA en los últimos 30 días.</div>` : `
+			<h6>Por modelo (30 días)</h6>
+			<div class="table-scroll"><table class="m-table">${head("<th>Proveedor · modelo</th>")}<tbody>${rowsOf(u.by_model, model)}</tbody></table></div>
+			<h6>Por tipo de uso (30 días)</h6>
+			<div class="table-scroll"><table class="m-table">${head("<th>Tipo</th>")}<tbody>${rowsOf(u.by_kind, (r) => `<td>${esc(tr(USAGE_KINDS[r.kind] || r.kind))}</td>`)}</tbody></table></div>
+			<h6>Por día</h6>
+			<div class="table-scroll"><table class="m-table">${head("<th>Día</th><th>Proveedor · modelo</th>")}<tbody>${rowsOf(u.daily, (r) => `<td>${esc(dayLabel(r.day))}</td>${model(r)}`)}</tbody></table></div>`}
+		</section>`;
 	}
 
 	function appearanceCard() {
@@ -3171,7 +3231,8 @@
 		});
 		root.addEventListener("click", async (e) => {
 			const setTab = e.target.closest("[data-set-tab]");
-			if (setTab) { openSettingsTab(setTab.dataset.setTab, true); return; }
+			if (setTab) { openSettingsTab(setTab.dataset.setTab, true); if (setTab.dataset.setTab === "usage") loadUsage(); return; }
+			if (e.target.closest("[data-usage-refresh]")) { loadUsage(); renderSettings(true); return; }
 			const lang = e.target.closest("[data-set-lang]");
 			if (lang) { I18N.setLang(lang.dataset.setLang); renderSettings(true); return; }
 			const def = e.target.closest("[data-set-default-lang]");

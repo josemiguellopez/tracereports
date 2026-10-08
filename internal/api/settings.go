@@ -468,6 +468,17 @@ func (s *Server) checkToken(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// aiUsage reports the calls to the AI provider and the tokens it reported: today, the last 7
+// and 30 days, by model, by kind and by day (Settings → AI usage).
+func (s *Server) aiUsage(w http.ResponseWriter, r *http.Request) {
+	u, err := s.Store.AIUsage(time.Now())
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"usage": u, "max_per_run": s.AI.MaxPerRun})
+}
+
 // ---------- métricas ----------
 
 // dayStart is the first instant of a calendar date in loc (d may overflow: day+1). Usually its

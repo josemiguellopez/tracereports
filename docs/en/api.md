@@ -197,6 +197,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | PUT | `/settings` | `{language?, ai_language?, ai?: {provider, model, base_url, api_key?}}` | Updated settings |
 | POST | `/settings/ai/test` | `{provider, model, base_url, api_key?}` | `{ok, ms}` or `{ok: false, error}` (saves nothing) |
 | DELETE | `/settings/ai` | — | Goes back to the environment's AI configuration |
+| GET | `/settings/ai/usage` | — | AI provider usage (Settings → AI usage): `{usage: {today, last_7, last_30, by_model, by_kind, daily, skipped_by_budget}, max_per_run}`. Every total has `calls`, `errors`, `input_tokens`, `output_tokens` (as reported by the provider) and `untracked` (calls without token data). Dates in server time; 90 days are kept. No costs |
 
 - `provider`: `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` or `off`.
   An empty or missing `api_key` keeps that provider's current key (the saved one or the

@@ -351,7 +351,7 @@ Evidence:
 %s`, map[string]string{"run": "run", "test": "case"}[scope], language, audienceGuide[e.Audience], e.Facts.promptBlock(scope))
 	str := map[string]any{"type": "string"}
 	list := map[string]any{"type": "array", "items": str}
-	text, err := a.generate(ctx, prompt, map[string]any{
+	text, err := a.generate(ctx, UsageEscalation, prompt, map[string]any{
 		"type": "object",
 		"properties": map[string]any{
 			"title": str, "severity": map[string]any{"type": "string", "enum": []string{"critical", "high", "medium", "low"}},

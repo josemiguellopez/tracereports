@@ -91,7 +91,7 @@ func TestProvidersRoundTrip(t *testing.T) {
 			if err := a.SetConfig(Config{Provider: tc.provider, APIKey: tc.key, BaseURL: srv.URL}); err != nil {
 				t.Fatal(err)
 			}
-			text, err := a.generate(context.Background(), "hola", okSchema)
+			text, err := a.generate(context.Background(), UsageTriage, "hola", okSchema)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -125,7 +125,7 @@ func TestOpenAICompatibleFallsBackToJSONObject(t *testing.T) {
 	if err := a.SetConfig(Config{Provider: "openai_compatible", Model: "llama-3.3-70b", BaseURL: srv.URL}); err != nil {
 		t.Fatal(err)
 	}
-	text, err := a.generate(context.Background(), "hola", okSchema)
+	text, err := a.generate(context.Background(), UsageTriage, "hola", okSchema)
 	if err != nil || text != `{"ok":true}` || calls != 2 {
 		t.Fatalf("text=%q err=%v calls=%d", text, err, calls)
 	}

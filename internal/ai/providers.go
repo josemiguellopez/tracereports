@@ -241,32 +241,41 @@ func HintText(err error, c Config) string {
 	return ""
 }
 
+// Usage is what one provider call consumed, as the provider reported it.
+type Usage struct {
+	InputTokens  int64
+	OutputTokens int64
+	Known        bool // la respuesta informó tokens
+}
+
 // call asks the configured provider for a JSON answer matching schema (standard JSON Schema)
-// and returns the JSON text.
-func call(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, error) {
+// and returns the JSON text and the tokens the provider reported (also when the answer is an
+// error after the provider worked: a refusal, an unreadable answer).
+func call(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
 	var (
 		text string
+		u    Usage
 		err  error
 	)
 	switch c.Provider {
 	case "gemini":
-		text, err = callGemini(ctx, client, c, prompt, schema)
+		text, u, err = callGemini(ctx, client, c, prompt, schema)
 	case "anthropic":
-		text, err = callAnthropic(ctx, client, c, prompt, schema)
+		text, u, err = callAnthropic(ctx, client, c, prompt, schema)
 	case "openai", "openai_compatible":
-		text, err = callOpenAI(ctx, client, c, prompt, schema)
+		text, u, err = callOpenAI(ctx, client, c, prompt, schema)
 	case "ollama":
-		text, err = callOllama(ctx, client, c, prompt, schema)
+		text, u, err = callOllama(ctx, client, c, prompt, schema)
 	default:
-		return "", fmt.Errorf("proveedor de IA desconocido: %q", c.Provider)
+		return "", Usage{}, fmt.Errorf("proveedor de IA desconocido: %q", c.Provider)
 	}
 	if err != nil {
 		// sin la key de esta solicitud: el error se registra, se guarda y se muestra (scrub.go)
-		return "", scrubError(err, c.APIKey)
+		return "", u, scrubError(err, c.APIKey)
 	}
 	// el texto de una respuesta HTTP 200 tampoco: termina en errores locales ("no es JSON": recortado),
 	// diagnósticos, escalados y resúmenes. Se quita entero, antes de cualquier recorte
-	return cleanJSON(scrubKey(text, c.APIKey)), nil
+	return cleanJSON(scrubKey(text, c.APIKey)), u, nil
 }
 
 // cleanJSON strips the ```json fences some models add even when asked for raw JSON.
@@ -392,7 +401,7 @@ type geminiPart struct {
 	Text string `json:"text"`
 }
 
-func callGemini(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, error) {
+func callGemini(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
 	raw, err := postJSON(ctx, client, "gemini", fmt.Sprintf("%s/v1beta/models/%s:generateContent", c.BaseURL, c.Model),
 		map[string]string{"x-goog-api-key": c.APIKey},
 		geminiRequest{
@@ -404,20 +413,29 @@ func callGemini(ctx context.Context, client *http.Client, c Config, prompt strin
 			},
 		})
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	var gr struct {
 		Candidates []struct {
 			Content geminiContent `json:"content"`
 		} `json:"candidates"`
+		UsageMetadata *struct {
+			PromptTokenCount     int64 `json:"promptTokenCount"`
+			CandidatesTokenCount int64 `json:"candidatesTokenCount"`
+			ThoughtsTokenCount   int64 `json:"thoughtsTokenCount"` // razonamiento: se cobra como salida
+		} `json:"usageMetadata"`
 	}
 	if err := json.Unmarshal(raw, &gr); err != nil {
-		return "", fmt.Errorf("decode gemini response: %w", err)
+		return "", Usage{}, fmt.Errorf("decode gemini response: %w", err)
+	}
+	var u Usage
+	if m := gr.UsageMetadata; m != nil {
+		u = Usage{InputTokens: m.PromptTokenCount, OutputTokens: m.CandidatesTokenCount + m.ThoughtsTokenCount, Known: true}
 	}
 	if len(gr.Candidates) == 0 || len(gr.Candidates[0].Content.Parts) == 0 {
-		return "", errors.New("gemini returned no candidates")
+		return "", u, errors.New("gemini returned no candidates")
 	}
-	return gr.Candidates[0].Content.Parts[0].Text, nil
+	return gr.Candidates[0].Content.Parts[0].Text, u, nil
 }
 
 // ---- Anthropic Claude (SDK oficial) ----
@@ -428,7 +446,7 @@ var claudeFallbackModels = map[string]bool{
 	"claude-fable-5-1": true, "claude-opus-5-5": true, "claude-opus-5": true, "claude-sonnet-5-5": true,
 }
 
-func callAnthropic(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, error) {
+func callAnthropic(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
 	opts := []option.RequestOption{option.WithAPIKey(c.APIKey), option.WithHTTPClient(client)}
 	if c.BaseURL != "" {
 		opts = append(opts, option.WithBaseURL(c.BaseURL))
@@ -451,27 +469,30 @@ func callAnthropic(ctx context.Context, client *http.Client, c Config, prompt st
 		var apiErr *anthropic.Error
 		if errors.As(err, &apiErr) {
 			// el SDK ya reintentó 429 y 5xx: no reintentar de nuevo
-			return "", fmt.Errorf("anthropic HTTP %d: %s", apiErr.StatusCode, apiErrorMessage([]byte(apiErr.RawJSON())))
+			return "", Usage{}, fmt.Errorf("anthropic HTTP %d: %s", apiErr.StatusCode, apiErrorMessage([]byte(apiErr.RawJSON())))
 		}
-		return "", err
+		return "", Usage{}, err
 	}
+	// la entrada incluye la que se escribió o leyó del caché de prompts
+	u := Usage{InputTokens: msg.Usage.InputTokens + msg.Usage.CacheCreationInputTokens + msg.Usage.CacheReadInputTokens,
+		OutputTokens: msg.Usage.OutputTokens, Known: true}
 	switch msg.StopReason {
 	case anthropic.BetaStopReasonRefusal:
-		return "", errors.New("Claude rechazó analizar este fallo (refusal)")
+		return "", u, errors.New("Claude rechazó analizar este fallo (refusal)")
 	case anthropic.BetaStopReasonMaxTokens:
-		return "", errors.New("la respuesta de Claude quedó cortada (max_tokens)")
+		return "", u, errors.New("la respuesta de Claude quedó cortada (max_tokens)")
 	}
 	for _, block := range msg.Content {
 		if t, ok := block.AsAny().(anthropic.BetaTextBlock); ok {
-			return t.Text, nil
+			return t.Text, u, nil
 		}
 	}
-	return "", errors.New("Claude no devolvió texto")
+	return "", u, errors.New("Claude no devolvió texto")
 }
 
 // ---- OpenAI y APIs compatibles (Groq, OpenRouter, DeepSeek, LM Studio, vLLM…) ----
 
-func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, error) {
+func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
 	headers := map[string]string{}
 	if c.APIKey != "" {
 		headers["Authorization"] = "Bearer " + c.APIKey
@@ -494,7 +515,7 @@ func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt strin
 		raw, err = postJSON(ctx, client, c.Provider, c.BaseURL+"/chat/completions", headers, body)
 	}
 	if err != nil {
-		return "", err
+		return "", Usage{}, err
 	}
 	var or struct {
 		Choices []struct {
@@ -503,22 +524,30 @@ func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt strin
 				Refusal string `json:"refusal"`
 			} `json:"message"`
 		} `json:"choices"`
+		Usage *struct {
+			PromptTokens     int64 `json:"prompt_tokens"`
+			CompletionTokens int64 `json:"completion_tokens"`
+		} `json:"usage"` // algunas APIs compatibles no lo informan
 	}
 	if err := json.Unmarshal(raw, &or); err != nil {
-		return "", fmt.Errorf("decode %s response: %w", c.Provider, err)
+		return "", Usage{}, fmt.Errorf("decode %s response: %w", c.Provider, err)
+	}
+	var u Usage
+	if or.Usage != nil {
+		u = Usage{InputTokens: or.Usage.PromptTokens, OutputTokens: or.Usage.CompletionTokens, Known: true}
 	}
 	if len(or.Choices) == 0 {
-		return "", fmt.Errorf("%s no devolvió respuesta", c.Provider)
+		return "", u, fmt.Errorf("%s no devolvió respuesta", c.Provider)
 	}
 	if r := or.Choices[0].Message.Refusal; r != "" {
-		return "", fmt.Errorf("el modelo rechazó la solicitud: %s", r)
+		return "", u, fmt.Errorf("el modelo rechazó la solicitud: %s", r)
 	}
-	return or.Choices[0].Message.Content, nil
+	return or.Choices[0].Message.Content, u, nil
 }
 
 // ---- Ollama (local) ----
 
-func callOllama(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, error) {
+func callOllama(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
 	raw, err := postJSON(ctx, client, "ollama", c.BaseURL+"/api/chat", nil, map[string]any{
 		"model":    c.Model,
 		"messages": []map[string]string{{"role": "user", "content": prompt}},
@@ -529,17 +558,29 @@ func callOllama(ctx context.Context, client *http.Client, c Config, prompt strin
 	if err != nil {
 		var ne interface{ Timeout() bool }
 		if errors.As(err, &ne) || strings.Contains(err.Error(), "connection refused") {
-			return "", fmt.Errorf("no se pudo conectar con Ollama en %s (¿está corriendo `ollama serve` y descargaste el modelo con `ollama pull %s`?): %w", c.BaseURL, c.Model, err)
+			return "", Usage{}, fmt.Errorf("no se pudo conectar con Ollama en %s (¿está corriendo `ollama serve` y descargaste el modelo con `ollama pull %s`?): %w", c.BaseURL, c.Model, err)
 		}
-		return "", err
+		return "", Usage{}, err
 	}
 	var or struct {
 		Message struct {
 			Content string `json:"content"`
 		} `json:"message"`
+		PromptEvalCount *int64 `json:"prompt_eval_count"`
+		EvalCount       *int64 `json:"eval_count"`
 	}
 	if err := json.Unmarshal(raw, &or); err != nil {
-		return "", fmt.Errorf("decode ollama response: %w", err)
+		return "", Usage{}, fmt.Errorf("decode ollama response: %w", err)
 	}
-	return or.Message.Content, nil
+	var u Usage
+	if or.PromptEvalCount != nil || or.EvalCount != nil {
+		u.Known = true
+		if or.PromptEvalCount != nil {
+			u.InputTokens = *or.PromptEvalCount
+		}
+		if or.EvalCount != nil {
+			u.OutputTokens = *or.EvalCount
+		}
+	}
+	return or.Message.Content, u, nil
 }

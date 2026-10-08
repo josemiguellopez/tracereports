@@ -403,6 +403,10 @@ body[data-theme="pixel"] .cf-tooltip b { font-family: var(--font-head); font-siz
 .set-card { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
 .set-card h5 { margin: 0; font-size: 16px; color: var(--color-heading); display: inline-flex; align-items: center; gap: 8px; }
 .set-card h5 svg { width: 18px; height: 18px; color: var(--color-accent); }
+/* Ajustes → Uso de la IA */
+.set-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.set-card h6 { margin: 6px 0 -6px; font-size: 13px; color: var(--color-heading); }
+.table-scroll { overflow-x: auto; }
 .set-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
