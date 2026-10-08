@@ -207,8 +207,10 @@ func (a *Analyzer) analyzeAsync(testID int64, force bool) bool {
 		a.testsAgain[testID] = true
 		a.jobsMu.Unlock()
 		if fail, err := a.store.NeedsDiagnosis(testID); err == nil && fail {
-			if state, _, _, err := a.store.TriageBudget(testID); err == nil && state == "" {
-				_ = a.store.SetTriagePending(testID)
+			// reserva atómica: respeta el límite por ejecución, también para un SKIPPED (si no hay
+			// cupo, al terminar el análisis en curso se repite y queda SKIPPED)
+			if state, _, _, err := a.store.TriageBudget(testID); err == nil && (state == "" || state == "SKIPPED") {
+				_, _, _ = a.store.ReserveTriage(testID, a.MaxPerRun)
 			}
 		}
 		return false // no se encola un segundo análisis: solo se revisa al terminar el actual
@@ -234,27 +236,30 @@ func (a *Analyzer) analyzeAsync(testID int64, force bool) bool {
 		}
 		return false
 	}
-	if !force {
-		state, used, runID, err := a.store.TriageBudget(testID)
+	if force {
+		// Re-analizar a mano: no cuenta para el límite automático (comportamiento buscado)
+		if err := a.store.SetTriagePending(testID); err != nil {
+			slog.Error("ai: mark pending", "test_id", testID, "err", err)
+			release()
+			return false
+		}
+	} else {
+		// comprobar el cupo y reservarlo es una sola transacción (ver db.ReserveTriage)
+		outcome, runID, err := a.store.ReserveTriage(testID, a.MaxPerRun)
 		switch {
 		case err != nil:
 			slog.Error("ai: triage budget", "test_id", testID, "err", err)
 			release()
 			return false
-		case state == "DONE":
+		case outcome == db.TriageDone:
 			release()
 			return false
-		case a.MaxPerRun > 0 && state == "" && used >= a.MaxPerRun:
+		case outcome == db.TriageOverBudget:
 			_ = a.store.SaveTriageSkipped(testID, fmt.Sprintf("No se analizó automáticamente: la ejecución #%d alcanzó el límite de %d diagnósticos con IA (TRACEREPORTS_AI_MAX_PER_RUN). Puedes analizarlo con Re-analizar.", runID, a.MaxPerRun))
 			release()
 			a.changed("triage", 0, testID)
 			return false
 		}
-	}
-	if err := a.store.SetTriagePending(testID); err != nil {
-		slog.Error("ai: mark pending", "test_id", testID, "err", err)
-		release()
-		return false
 	}
 	a.wg.Add(1)
 	go func() {

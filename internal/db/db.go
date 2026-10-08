@@ -862,6 +862,51 @@ func (s *Store) SaveTriageSkipped(testID int64, msg string) error {
 	return err
 }
 
+// Outcomes of ReserveTriage.
+const (
+	TriageReserved   = "reserved"    // quedó PENDING: se analiza
+	TriageDone       = "done"        // ya tiene diagnóstico
+	TriageOverBudget = "over_budget" // su ejecución ya usó el límite
+)
+
+// ReserveTriage checks the per-run budget of automatic analyses and, if there is room, marks
+// the test PENDING, in one transaction: two failures finishing at the same time cannot take
+// the same last slot. max <= 0 = no limit. A test that has not used budget yet (no triage row,
+// or SKIPPED because the run had none left: SKIPPED rows are not counted) needs a free slot;
+// one that already used its slot (PENDING or ERROR) is reserved again without spending another.
+// A DONE diagnosis is kept. Manual re-analysis does not go through here (it ignores the limit).
+func (s *Store) ReserveTriage(testID int64, max int) (outcome string, runID int64, err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return "", 0, err
+	}
+	defer tx.Rollback()
+	if err = tx.QueryRow(`SELECT run_id FROM tests WHERE id = ?`, testID).Scan(&runID); errors.Is(err, sql.ErrNoRows) {
+		return "", 0, ErrNotFound
+	} else if err != nil {
+		return "", 0, err
+	}
+	var state string
+	var used int
+	if err = tx.QueryRow(`SELECT COALESCE((SELECT state FROM ai_triage WHERE test_id = ?), ''),
+		(SELECT COUNT(*) FROM ai_triage a JOIN tests t ON t.id = a.test_id WHERE t.run_id = ? AND a.state != 'SKIPPED')`,
+		testID, runID).Scan(&state, &used); err != nil {
+		return "", runID, err
+	}
+	switch {
+	case state == "DONE":
+		return TriageDone, runID, nil
+	case max > 0 && (state == "" || state == "SKIPPED") && used >= max: // aún no consumió cupo
+		return TriageOverBudget, runID, nil
+	}
+	if _, err = tx.Exec(`INSERT INTO ai_triage(test_id, state, updated_at) VALUES(?, 'PENDING', ?)
+		ON CONFLICT(test_id) DO UPDATE SET state='PENDING', category='', summary='', suggestion='', error='', updated_at=excluded.updated_at`,
+		testID, NowMs()); err != nil {
+		return "", runID, err
+	}
+	return TriageReserved, runID, tx.Commit()
+}
+
 // TriageBudget returns the triage state of a test ("" if never analyzed), how many tests of its
 // run already used the AI (pending, done or failed: not skipped) and the run id.
 func (s *Store) TriageBudget(testID int64) (state string, used int, runID int64, err error) {
