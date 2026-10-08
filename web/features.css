@@ -407,6 +407,19 @@ body[data-theme="pixel"] .cf-tooltip b { font-family: var(--font-head); font-siz
 .set-card-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .set-card h6 { margin: 6px 0 -6px; font-size: 13px; color: var(--color-heading); }
 .table-scroll { overflow-x: auto; }
+/* estado del proveedor de IA */
+.prov-status { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface-raised); }
+.prov-status p { margin: 4px 0 0; }
+.prov-dot { width: 10px; height: 10px; border-radius: 50%; flex: none; align-self: flex-start; margin-top: 5px; background: var(--color-text-muted); }
+.prov-status a { color: var(--color-accent); font-weight: 600; text-decoration: none; }
+.prov-status a:hover { text-decoration: underline; }
+.prov-status.ok .prov-dot { background: var(--color-success); }
+.prov-status.warn .prov-dot { background: var(--color-warning); }
+.prov-status.bad .prov-dot { background: var(--color-danger); }
+.prov-status.info .prov-dot { background: var(--color-info); }
+.prov-status.bad { border-color: var(--color-danger); }
+.prov-status-list { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
+.prov-status-sub { font-size: 12px; font-weight: 600; color: var(--color-heading); }
 .set-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field-inline { flex-direction: row; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
@@ -651,6 +664,9 @@ body[data-theme="pixel"] .ai-hint { font-size: 18px; }
 .esc-owner span { color: #78909c; }
 .esc-foot { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; margin-top: 18px; padding-top: 10px; border-top: 1px solid #eef1f4; font-size: 12px; color: #90a4ae; }
 .esc-foot a { color: #1565c0; font-weight: 600; text-decoration: none; }
+/* cuánto tardó la IA: debajo de la tarjeta, fuera de lo que se comparte */
+.esc-timing { display: flex; gap: 8px; align-items: flex-start; margin: 10px 2px 0; font-size: 12px; color: var(--color-text-muted); }
+.esc-timing svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
 
 /* ══ Métricas: filtros y detalle ═══════════════════════════════════════════ */
 .seg button svg { width: 14px; height: 14px; vertical-align: -2px; margin-right: 4px; }

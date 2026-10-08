@@ -199,6 +199,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	started := time.Now() // el tiempo total incluye reunir la evidencia
 	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, in.RunID, in.TestID)
 	if respondErr(w, err, "run or test") {
 		return
@@ -210,6 +211,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 		e = ai.EscalateTemplate(facts, in.RunID, in.TestID, in.Audience, in.Lang)
 	} else {
 		e = s.AI.Escalate(ctx, facts, in.RunID, in.TestID, in.Audience, in.Lang)
+		e.Timing.Finish(time.Since(started))
 	}
 	s.withOwner(e)                                                   // el dueño de las reglas manda sobre el que sugiere la IA
 	if raw, err := json.Marshal(e); err == nil && e.Source == "ai" { // la plantilla es gratis: no se guarda

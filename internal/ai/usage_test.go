@@ -61,6 +61,9 @@ func TestUsageReportsTheTokensOfEachProvider(t *testing.T) {
 				untracked = 1
 			}
 			want := db.AIUsageTotals{Calls: 1, InputTokens: c.in, OutputTokens: c.out, Untracked: untracked}
+			for _, t := range []*db.AIUsageTotals{&u.Today, &u.Last7, &u.Last30} {
+				t.DurationMs, t.AvgMs = 0, 0 // la latencia se prueba aparte
+			}
 			if u.Today != want || u.Last7 != want || u.Last30 != want {
 				t.Fatalf("totals: %+v, want %+v", u.Today, want)
 			}
@@ -127,5 +130,30 @@ func TestUsageOfTestConnection(t *testing.T) {
 	}
 	if _, err := New(nil).Test(context.Background(), c); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// El tiempo de respuesta del proveedor se acumula: la respuesta media refleja cuánto tardó él.
+func TestUsageRecordsTheProviderResponseTime(t *testing.T) {
+	store := usageStore(t)
+	slow := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(150 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(`{"choices":[{"message":{"content":"{\"ok\":true}"}}],"usage":{"prompt_tokens":1,"completion_tokens":1}}`))
+	}))
+	defer slow.Close()
+	a := New(store)
+	c := Config{Provider: "openai", APIKey: "fake-key-123456", BaseURL: slow.URL, Model: "gpt-x"}
+	for i := 0; i < 3; i++ {
+		if _, err := a.Test(context.Background(), c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	u := usageNow(t, store)
+	if u.Today.Calls != 3 || u.Today.AvgMs < 150 || u.Today.AvgMs > 1000 || u.Today.DurationMs < 450 {
+		t.Fatalf("response time: %+v", u.Today)
+	}
+	if u.ByModel[0].AvgMs < 150 || u.Daily[0].AvgMs < 150 {
+		t.Fatalf("per row: %+v %+v", u.ByModel, u.Daily)
 	}
 }

@@ -199,6 +199,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | PUT | `/settings` | `{language?, ai_language?, ai?: {provider, model, base_url, api_key?}}` | Ajustes actualizados |
 | POST | `/settings/ai/test` | `{provider, model, base_url, api_key?}` | `{ok, ms}` o `{ok: false, error}` (no guarda nada) |
 | DELETE | `/settings/ai` | — | Vuelve a la configuración de IA del entorno |
+| GET | `/settings/ai/status` | — | Estado general del proveedor de IA configurado según su página de estado pública (OpenAI, Anthropic; Ollama: si responde; Gemini y APIs compatibles no publican uno consultable): `{provider, source, indicator, description, components, incidents, page_url, error, checked_at}`. En caché un minuto; `?refresh=1` consulta de nuevo. Solo hace un GET a esa página |
 | GET | `/settings/ai/usage` | — | Uso del proveedor de IA (Ajustes → Uso de la IA): `{usage: {today, last_7, last_30, by_model, by_kind, daily, skipped_by_budget}, max_per_run}`. Cada total trae `calls`, `errors`, `input_tokens`, `output_tokens` (los que informó el proveedor) y `untracked` (llamadas sin datos de tokens). Fechas en la hora del servidor; se guardan 90 días. Sin costos |
 
 - `provider`: `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` u `off`.
@@ -219,7 +220,7 @@ o, en modo local, el mismo equipo del servidor.
 |---|---|---|---|
 | POST | `/ui/tests/{test_id}/analyze` | — | `202 {queued}`: vuelve a diagnosticar un test fallido |
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnostica los fallos sin diagnóstico (o todos con `all`) y el resumen de la ejecución |
-| POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché |
+| POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché y trae `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls}` (cuánto esperó al proveedor, las pausas entre reintentos y lo que tardó TraceReports) |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Publica el resumen en `teams` o `slack`. Con `PUBLIC_URL` incluye el link y la captura |
 | POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Crea un ticket en `github`, `jira` o `azure` con el resumen (default para `dev`). `201 {ticket}`; si el mismo fallo ya tiene uno, `200 {ticket, existing: true}` (salvo `force`). Ver [Configuración](configuration.md#tickets-en-github-jira-o-azure-devops) |
 | POST | `/ui/summary/weekly` | `{send, lang}` | Resumen de los últimos 7 días: `{summary, sent}`. Con `send: true` lo publica en Teams/Slack |

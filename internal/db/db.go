@@ -120,6 +120,8 @@ func Open(path string) (*Store, error) {
 		{"tickets", "project", "TEXT"},
 		{"tickets", "target", "TEXT NOT NULL DEFAULT ''"},
 		{"tickets", "state", "TEXT NOT NULL DEFAULT 'created'"},
+		// uso de la IA: tiempo de respuesta del proveedor
+		{"ai_usage_daily", "duration_ms", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()

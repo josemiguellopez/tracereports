@@ -52,6 +52,7 @@ type Analyzer struct {
 	sem    chan struct{}
 	runSem chan struct{} // resúmenes de ejecución simultáneos
 	wg     sync.WaitGroup
+	status statusCache // último estado consultado del proveedor (status.go)
 
 	// trabajos en curso: evitan análisis duplicados (y su costo) del mismo test o ejecución
 	jobsMu    sync.Mutex
@@ -170,7 +171,7 @@ func (a *Analyzer) Test(ctx context.Context, c Config) (time.Duration, error) {
 	text, u, err := call(ctx, a.client, c, `Health check. Reply with the JSON object {"ok": true}.`, map[string]any{
 		"type": "object", "properties": map[string]any{"ok": map[string]any{"type": "boolean"}}, "required": []string{"ok"},
 	})
-	a.recordUsage(UsageTest, c, u, err)
+	a.recordUsage(UsageTest, c, u, err, time.Since(start))
 	if err != nil {
 		return 0, err
 	}
@@ -528,9 +529,13 @@ func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map
 	// segunda capa: nada sale al proveedor sin pasar por la redacción (datos antiguos incluidos)
 	prompt = a.redactor().Text(prompt)
 	var lastErr error
+	timing := callTimingFrom(ctx)
 	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		started := time.Now()
 		text, u, err := call(ctx, a.client, c, prompt, schema)
-		a.recordUsage(kind, c, u, err)
+		took := time.Since(started)
+		timing.addCall(took)
+		a.recordUsage(kind, c, u, err, took)
 		if err == nil {
 			return text, nil
 		}
@@ -539,13 +544,54 @@ func (a *Analyzer) generate(ctx context.Context, kind, prompt string, schema map
 		if !errors.As(err, &se) || !se.retryable() || attempt == maxAttempts {
 			break
 		}
+		paused := time.Now()
 		select {
 		case <-time.After(time.Duration(attempt*attempt) * 5 * time.Second):
 		case <-ctx.Done():
+			timing.addWait(time.Since(paused))
 			return "", ctx.Err()
 		}
+		timing.addWait(time.Since(paused))
 	}
 	return "", lastErr
+}
+
+// callTiming adds up, for one answer, the time spent waiting for the provider and pausing
+// between retries (generate fills it when the context carries one).
+type callTiming struct {
+	mu       sync.Mutex
+	provider time.Duration
+	wait     time.Duration
+	calls    int
+}
+
+type callTimingKey struct{}
+
+func withCallTiming(ctx context.Context) (context.Context, *callTiming) {
+	t := &callTiming{}
+	return context.WithValue(ctx, callTimingKey{}, t), t
+}
+
+func callTimingFrom(ctx context.Context) *callTiming {
+	t, _ := ctx.Value(callTimingKey{}).(*callTiming)
+	return t
+}
+
+func (t *callTiming) addCall(d time.Duration) {
+	if t != nil {
+		t.mu.Lock()
+		t.provider += d
+		t.calls++
+		t.mu.Unlock()
+	}
+}
+
+func (t *callTiming) addWait(d time.Duration) {
+	if t != nil {
+		t.mu.Lock()
+		t.wait += d
+		t.mu.Unlock()
+	}
 }
 
 // Kinds of AI calls in the usage report (Settings → AI usage).
@@ -558,12 +604,12 @@ const (
 
 // recordUsage counts one call to the provider (a failed one too: a provider may charge it, and
 // errors are shown). Without a store (tests, the static report) nothing is recorded.
-func (a *Analyzer) recordUsage(kind string, c Config, u Usage, err error) {
+func (a *Analyzer) recordUsage(kind string, c Config, u Usage, err error, took time.Duration) {
 	if a.store == nil || c.Provider == "" {
 		return
 	}
 	if e := a.store.AddAIUsage(db.AIUsageCall{At: time.Now(), Provider: c.Provider, Model: c.Model, Kind: kind,
-		Failed: err != nil, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TokensKnown: u.Known}); e != nil {
+		Failed: err != nil, InputTokens: u.InputTokens, OutputTokens: u.OutputTokens, TokensKnown: u.Known, Duration: took}); e != nil {
 		slog.Warn("ai: usage not recorded", "err", e)
 	}
 }

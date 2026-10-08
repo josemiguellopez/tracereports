@@ -29,6 +29,12 @@ if (!process.env.E2E_FAKE_GITHUB) {
 		req.on("end", () => {
 			res.setHeader("Content-Type", "application/json");
 			if (req.url === "/__requests") return res.end(JSON.stringify(requests));
+			// página de estado de IA falsa (formato Statuspage): las pruebas nunca consultan la real
+			if (req.url === "/status/api/v2/summary.json") return res.end(JSON.stringify({
+				status: { indicator: "minor", description: "Partially Degraded Service" },
+				components: [{ name: "API", status: "degraded_performance" }],
+				incidents: [{ name: "Elevated latency", status: "investigating", impact: "minor", shortlink: "https://status.example/i/1" }],
+			}));
 			requests.push({ method: req.method, url: req.url, auth: req.headers.authorization, body });
 			res.statusCode = 201;
 			res.end(JSON.stringify({ number: requests.length, html_url: `https://github.example/acme/shop/issues/${requests.length}` }));
@@ -74,6 +80,8 @@ module.exports = defineConfig({
 			// tickets: GitHub falso; Jira y Azure apagados
 			TRACEREPORTS_GITHUB_REPO: "acme/shop", TRACEREPORTS_GITHUB_TOKEN: "e2e-token", TRACEREPORTS_GITHUB_API: process.env.E2E_FAKE_GITHUB,
 			TRACEREPORTS_JIRA_URL: "", TRACEREPORTS_AZURE_URL: "", PUBLIC_URL: process.env.E2E_BASE_URL,
+			// estado del proveedor de IA: la página falsa de arriba, nunca la real
+			TRACEREPORTS_AI_STATUS_URL: `${process.env.E2E_FAKE_GITHUB}/status/api/v2/summary.json`,
 			// correlación con los logs: plantillas de prueba
 			TRACEREPORTS_LOGS_URL: "https://logs.example/search?q={request_id}&from={from}", TRACEREPORTS_TRACE_URL: "https://traces.example/{trace_id}",
 		},

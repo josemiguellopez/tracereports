@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
 )
@@ -39,6 +40,29 @@ type Escalation struct {
 	AIError      string   `json:"ai_error,omitempty"`
 	CreatedAt    int64    `json:"created_at"`
 	Facts        Facts    `json:"facts"`
+	// Timing is how long an AI summary took, split between the provider and TraceReports (shown
+	// under the card in the UI, not shared). Nil for the template.
+	Timing *AITiming `json:"timing,omitempty"`
+}
+
+// AITiming splits how long an AI answer took: waiting for the provider (every call, retries
+// included), pausing between retries, and the rest (TraceReports: evidence, prompt, redaction,
+// parsing the answer).
+type AITiming struct {
+	TotalMs    int64 `json:"total_ms"`
+	ProviderMs int64 `json:"provider_ms"`
+	WaitMs     int64 `json:"wait_ms"`
+	OwnMs      int64 `json:"own_ms"`
+	Calls      int   `json:"calls"`
+}
+
+// Finish sets the total (measured by the caller, from the request) and what TraceReports took.
+func (t *AITiming) Finish(total time.Duration) {
+	if t == nil {
+		return
+	}
+	t.TotalMs = total.Milliseconds()
+	t.OwnMs = max(0, t.TotalMs-t.ProviderMs-t.WaitMs)
 }
 
 // Facts is the evidence an escalation is built from (also what the summary card shows).
@@ -317,11 +341,15 @@ func EscalateTemplate(f *Facts, runID, testID int64, audience, lang string) *Esc
 func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, audience, lang string) *Escalation {
 	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
 	if a.Enabled() {
-		if err := a.escalateAI(ctx, e); err == nil {
+		start := time.Now()
+		ctx, calls := withCallTiming(ctx)
+		err := a.escalateAI(ctx, e)
+		e.Timing = &AITiming{ProviderMs: calls.provider.Milliseconds(), WaitMs: calls.wait.Milliseconds(), Calls: calls.calls}
+		e.Timing.Finish(time.Since(start)) // el que llama lo vuelve a cerrar con su propio comienzo
+		if err == nil {
 			return e
-		} else {
-			e.AIError = a.redactor().Text(err.Error() + HintText(err, a.Config()))
 		}
+		e.AIError = a.redactor().Text(err.Error() + HintText(err, a.Config()))
 	}
 	templateEscalation(e)
 	return e

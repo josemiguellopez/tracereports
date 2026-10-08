@@ -97,6 +97,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/settings/ai/test", s.testAISettings)
 		r.Delete("/settings/ai", s.resetAISettings)
 		r.Get("/settings/ai/usage", s.aiUsage)
+		r.Get("/settings/ai/status", s.aiStatus)
 		r.Get("/metrics", s.getMetrics)
 		r.Get("/runs/{run_id}/recurrence", s.runRecurrence)
 		r.Get("/runs/{run_id}/escalation", s.getEscalation)

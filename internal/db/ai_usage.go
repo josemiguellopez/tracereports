@@ -20,6 +20,7 @@ CREATE TABLE IF NOT EXISTS ai_usage_daily (
 	input_tokens  INTEGER NOT NULL DEFAULT 0,
 	output_tokens INTEGER NOT NULL DEFAULT 0,
 	untracked     INTEGER NOT NULL DEFAULT 0,  -- llamadas cuya respuesta no informó tokens
+	duration_ms   INTEGER NOT NULL DEFAULT 0,  -- tiempo total esperando al proveedor
 	PRIMARY KEY (day, provider, model, kind)
 );
 `
@@ -36,7 +37,8 @@ type AIUsageCall struct {
 	Failed       bool
 	InputTokens  int64
 	OutputTokens int64
-	TokensKnown  bool // la respuesta informó tokens (un error de conexión o algunas APIs compatibles no)
+	TokensKnown  bool          // la respuesta informó tokens (un error de conexión o algunas APIs compatibles no)
+	Duration     time.Duration // cuánto tardó el proveedor en responder (o en fallar)
 }
 
 // AddAIUsage counts one call to the AI provider and forgets the days past aiUsageDays.
@@ -49,12 +51,12 @@ func (s *Store) AddAIUsage(c AIUsageCall) error {
 	if !c.TokensKnown {
 		untracked = 1
 	}
-	if _, err := s.db.Exec(`INSERT INTO ai_usage_daily(day, provider, model, kind, calls, errors, input_tokens, output_tokens, untracked)
-		VALUES(?, ?, ?, ?, 1, ?, ?, ?, ?)
+	if _, err := s.db.Exec(`INSERT INTO ai_usage_daily(day, provider, model, kind, calls, errors, input_tokens, output_tokens, untracked, duration_ms)
+		VALUES(?, ?, ?, ?, 1, ?, ?, ?, ?, ?)
 		ON CONFLICT(day, provider, model, kind) DO UPDATE SET calls = calls + 1, errors = errors + excluded.errors,
 			input_tokens = input_tokens + excluded.input_tokens, output_tokens = output_tokens + excluded.output_tokens,
-			untracked = untracked + excluded.untracked`,
-		day, c.Provider, c.Model, c.Kind, failed, c.InputTokens, c.OutputTokens, untracked); err != nil {
+			untracked = untracked + excluded.untracked, duration_ms = duration_ms + excluded.duration_ms`,
+		day, c.Provider, c.Model, c.Kind, failed, c.InputTokens, c.OutputTokens, untracked, c.Duration.Milliseconds()); err != nil {
 		return err
 	}
 	cutoff := c.At.In(time.Local).AddDate(0, 0, -aiUsageDays).Format("2006-01-02")
@@ -68,7 +70,15 @@ type AIUsageTotals struct {
 	Errors       int64 `json:"errors"`
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
-	Untracked    int64 `json:"untracked"` // llamadas sin datos de tokens
+	Untracked    int64 `json:"untracked"`   // llamadas sin datos de tokens
+	DurationMs   int64 `json:"duration_ms"` // tiempo total esperando al proveedor
+	AvgMs        int64 `json:"avg_ms"`      // respuesta media del proveedor por llamada
+}
+
+func (t *AIUsageTotals) average() {
+	if t.Calls > 0 {
+		t.AvgMs = t.DurationMs / t.Calls
+	}
 }
 
 // AIUsageRow is a group of calls (by model, by kind or by day and model).
@@ -101,9 +111,12 @@ func (s *Store) AIUsage(now time.Time) (*AIUsageReport, error) {
 	from30 := now.AddDate(0, 0, -29).Format("2006-01-02")
 	r := &AIUsageReport{ByModel: []AIUsageRow{}, ByKind: []AIUsageRow{}, Daily: []AIUsageRow{}}
 	totals := func(from string, t *AIUsageTotals) error {
-		return s.db.QueryRow(`SELECT COALESCE(SUM(calls), 0), COALESCE(SUM(errors), 0), COALESCE(SUM(input_tokens), 0),
-			COALESCE(SUM(output_tokens), 0), COALESCE(SUM(untracked), 0) FROM ai_usage_daily WHERE day >= ? AND day <= ?`, from, today).
-			Scan(&t.Calls, &t.Errors, &t.InputTokens, &t.OutputTokens, &t.Untracked)
+		err := s.db.QueryRow(`SELECT COALESCE(SUM(calls), 0), COALESCE(SUM(errors), 0), COALESCE(SUM(input_tokens), 0),
+			COALESCE(SUM(output_tokens), 0), COALESCE(SUM(untracked), 0), COALESCE(SUM(duration_ms), 0)
+			FROM ai_usage_daily WHERE day >= ? AND day <= ?`, from, today).
+			Scan(&t.Calls, &t.Errors, &t.InputTokens, &t.OutputTokens, &t.Untracked, &t.DurationMs)
+		t.average()
+		return err
 	}
 	for _, p := range []struct {
 		from string
@@ -114,7 +127,7 @@ func (s *Store) AIUsage(now time.Time) (*AIUsageReport, error) {
 		}
 	}
 	rows := func(cols, group, order string, out *[]AIUsageRow) error {
-		q, err := s.db.Query(`SELECT `+cols+`, SUM(calls), SUM(errors), SUM(input_tokens), SUM(output_tokens), SUM(untracked)
+		q, err := s.db.Query(`SELECT `+cols+`, SUM(calls), SUM(errors), SUM(input_tokens), SUM(output_tokens), SUM(untracked), SUM(duration_ms)
 			FROM ai_usage_daily WHERE day >= ? AND day <= ? GROUP BY `+group+` ORDER BY `+order, from30, today)
 		if err != nil {
 			return err
@@ -127,10 +140,11 @@ func (s *Store) AIUsage(now time.Time) (*AIUsageReport, error) {
 			for _, c := range splitCols(cols) {
 				ptrs = append(ptrs, dest[c])
 			}
-			ptrs = append(ptrs, &row.Calls, &row.Errors, &row.InputTokens, &row.OutputTokens, &row.Untracked)
+			ptrs = append(ptrs, &row.Calls, &row.Errors, &row.InputTokens, &row.OutputTokens, &row.Untracked, &row.DurationMs)
 			if err := q.Scan(ptrs...); err != nil {
 				return err
 			}
+			row.average()
 			*out = append(*out, row)
 		}
 		return q.Err()

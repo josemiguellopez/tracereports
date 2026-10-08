@@ -26,7 +26,7 @@
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
 		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null },
 		settings: { data: null, form: null, msg: null, busy: false, error: null, loading: false,
-			usage: null, usageError: null, usageLoading: false,
+			usage: null, usageError: null, usageLoading: false, status: null, statusLoading: false,
 			gen: {}, snips: {}, connTab: "ps", check: null, checkInput: null, checking: false,
 			tab: (() => { try { return localStorage.getItem("tracereports-settings-tab") || "look"; } catch { return "look"; } })() },
 		charts: {}, rendered: {},
@@ -2075,6 +2075,27 @@
 		</article>`;
 	}
 
+	/** Duración con décimas (1,5 s): para ver de dónde viene una demora. */
+	const fmtDur = (ms) => (ms < 1000 ? `${fmtNum(ms)} ms` : `${fmtNum(ms / 1000, 1)} s`);
+
+	/** Cuánto tardó la IA en escribir el resumen, separando al proveedor de TraceReports. Va debajo
+	 * de la tarjeta (no se comparte: ni en el texto, ni en el correo, ni en la imagen). */
+	function escTimingHTML(e) {
+		const t = e.timing;
+		if (!t) return "";
+		const parts = [t.calls === 1
+			? tr("{p} esperando al proveedor de IA (1 llamada)", { p: fmtDur(t.provider_ms) })
+			: tr("{p} esperando al proveedor de IA ({n} llamadas)", { p: fmtDur(t.provider_ms), n: t.calls })];
+		if (t.wait_ms) parts.push(tr("{w} en pausas entre reintentos", { w: fmtDur(t.wait_ms) }));
+		parts.push(tr("{o} de TraceReports", { o: fmtDur(t.own_ms) }));
+		const service = t.provider_ms + t.wait_ms;
+		const verdict = !t.total_ms ? ""
+			: service >= t.total_ms * 0.8 ? tr("Casi todo el tiempo fue del proveedor de IA.")
+			: t.own_ms > service && t.own_ms > 2000 ? tr("La mayor parte del tiempo fue de TraceReports: avísanos si se repite.")
+			: "";
+		return `<p class="esc-timing" role="note">${icon("i-timeline")}<span><b>${esc(tr("Tardó {t} en generarse", { t: fmtDur(t.total_ms) }))}</b>: ${esc(parts.join(" · "))}.${verdict ? ` ${esc(verdict)}` : ""}</span></p>`;
+	}
+
 	// ---- formatos para compartir ----
 	function escText(e, style) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
@@ -2268,7 +2289,7 @@
 			? `<div class="card m-empty">${icon("i-megaphone")}<h5>${tr("Escalar no está disponible desde aquí")}</h5><p>${esc(actReason())}</p></div>`
 			: st.loading ? `<div class="card esc-loading"><div class="shimmer"></div><div class="shimmer"></div><div class="shimmer short"></div>
 				<p class="m-hint">${cfg.ai_enabled ? tr("La IA está escribiendo el resumen para {a}…", { a: tr(AUDIENCES.find((a) => a.id === st.audience).name) }) : tr("Armando el resumen…")}</p></div>`
-			: e ? `<div class="esc-frame">${share}${escCard(e)}</div>`
+			: e ? `<div class="esc-frame">${share}${escCard(e)}${escTimingHTML(e)}</div>`
 			: `<div class="card m-empty">${icon("i-megaphone")}<h5>${tr("Elige qué escalar y para quién")}</h5>
 				<p>${tr("El resumen junta el error, la captura, las llamadas al backend que fallaron y el diagnóstico, explicado para la audiencia que elijas. Después lo copias como texto o imagen, o lo envías a Teams o Slack.")}</p></div>`;
 		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Escalar un fallo")}</h4>
@@ -2961,6 +2982,7 @@
 		const st = S.settings;
 		if (!STATIC && !st.data && !st.error && !st.loading) { st.loading = true; loadSettings().finally(() => { st.loading = false; }); }
 		if (!STATIC && !st.usage && !st.usageError && !st.usageLoading) loadUsage();
+		if (!STATIC && st.tab === "usage" && !st.status && !st.statusLoading) loadStatus(false);
 		const head = `<div class="page-head"><div><h4 class="page-title">Ajustes</h4>
 				<p class="page-sub">${STATIC ? "Reporte exportado: el idioma y el tema se guardan en este navegador." : "El idioma y el tema son de cada navegador. La IA es del servidor: aplica a todos."}</p></div></div>`;
 		let html;
@@ -3016,6 +3038,53 @@
 		if (S.view === "settings") renderSettings(true);
 	}
 
+	/** Estado general del proveedor de IA (su página de estado pública); force consulta de nuevo. */
+	async function loadStatus(force) {
+		const st = S.settings;
+		st.statusLoading = true;
+		try {
+			st.status = await api(`/api/v1/settings/ai/status${force ? "?refresh=1" : ""}`);
+		} catch (err) {
+			st.status = { indicator: "unknown", error: err.message, components: [], incidents: [] };
+		}
+		st.statusLoading = false;
+		if (S.view === "settings" && st.tab === "usage") renderSettings(true);
+	}
+
+	const STATUS_LABELS = { none: "Funcionando con normalidad", minor: "Degradación parcial", major: "Interrupción importante",
+		critical: "Interrupción grave", maintenance: "Mantenimiento en curso", unknown: "Estado desconocido" };
+	const STATUS_TONE = { none: "ok", minor: "warn", major: "bad", critical: "bad", maintenance: "info", unknown: "muted" };
+	const COMPONENT_LABELS = { operational: "Operativo", degraded_performance: "Lento", partial_outage: "Interrupción parcial",
+		major_outage: "Interrupción", under_maintenance: "En mantenimiento" };
+	const INCIDENT_LABELS = { investigating: "Investigando", identified: "Identificado", monitoring: "Monitoreando", update: "Actualizado" };
+
+	/** Caja de estado del proveedor: lo que dice su página y lo que observó TraceReports hoy. */
+	function statusBox(u) {
+		const st = S.settings, s = st.status;
+		const ai = st.data?.ai;
+		if (st.data && !ai?.enabled) return `<div class="prov-status muted"><span class="prov-dot"></span><div><b>${tr("IA desactivada")}</b><p class="m-hint">${tr("Configura un proveedor para ver su estado.")}</p></div></div>`;
+		if (!s) return `<div class="prov-status muted"><span class="prov-dot"></span><div>${tr("Consultando el estado del proveedor…")}</div></div>`;
+		const tone = STATUS_TONE[s.indicator] || "muted";
+		const head = s.source === "none"
+			? tr("{p} no publica un estado consultable", { p: s.name || s.provider })
+			: `${esc(s.name || s.provider)}: ${tr(STATUS_LABELS[s.indicator] || STATUS_LABELS.unknown)}`;
+		const comps = (s.components || []).map((c) => `<li><span data-no-i18n>${esc(c.name)}</span>: ${esc(tr(COMPONENT_LABELS[c.status] || c.status))}</li>`).join("");
+		const incs = (s.incidents || []).map((i) => `<li>${i.url ? `<a href="${esc(i.url)}" target="_blank" rel="noopener" data-no-i18n>${esc(i.name)} ↗</a>` : `<span data-no-i18n>${esc(i.name)}</span>`} · ${esc(tr(INCIDENT_LABELS[i.status] || i.status))}</li>`).join("");
+		const t = u?.today;
+		const observed = t?.calls ? tr("Observado por TraceReports hoy: {e} de {n} llamadas con error · respuesta media {t}.", { e: fmtNum(t.errors), n: fmtNum(t.calls), t: fmtDur(t.avg_ms) }) : "";
+		const when = s.checked_at ? new Date(s.checked_at).toLocaleTimeString(locale(), { hour: "2-digit", minute: "2-digit" }) : "";
+		return `<div class="prov-status ${tone}" role="status">
+			<span class="prov-dot" aria-hidden="true"></span>
+			<div>
+				<b>${head}</b>${s.description && s.source === "statuspage" ? ` <span class="m-hint" data-no-i18n>(${esc(s.description)})</span>` : ""}${s.source === "local" ? ` <span class="m-hint">${esc(s.indicator === "none" ? tr("Ollama responde (versión {v})", { v: s.description }) : tr("Ollama no responde en {u}", { u: s.description }))}</span>` : ""}
+				${s.error ? `<p class="m-hint">${esc(tr("No se pudo consultar la página de estado: {e}", { e: s.error }))}</p>` : ""}
+				${comps ? `<ul class="prov-status-list">${comps}</ul>` : ""}
+				${incs ? `<p class="prov-status-sub">${tr("Incidentes abiertos")}</p><ul class="prov-status-list">${incs}</ul>` : ""}
+				${observed ? `<p class="m-hint">${esc(observed)}</p>` : ""}
+				<p class="m-hint">${s.page_url ? `<a href="${esc(s.page_url)}" target="_blank" rel="noopener">${tr("Ver página de estado")} ↗</a>` : ""}${when ? ` · ${esc(tr("Consultado a las {h}", { h: when }))}` : ""}</p>
+			</div></div>`;
+	}
+
 	const USAGE_KINDS = { triage: "Diagnóstico de tests", run_summary: "Resumen de la ejecución", escalation: "Escalamientos", test: "Probar conexión" };
 
 	/** Uso del proveedor de IA: llamadas y tokens que informó, hoy, 7 y 30 días (Ajustes → Uso de la IA). */
@@ -3028,16 +3097,18 @@
 		const tile = (label, t, tip) => `<div class="card kpi" tabindex="0" data-tip="${esc(tip)}">
 			<span class="kpi-label">${label}</span><span class="kpi-value">${fmtNum(t.calls)}</span>
 			<span class="kpi-delta">${esc(tokens(t))}</span>
+			${t.calls ? `<span class="kpi-delta">${esc(tr("respuesta media {t}", { t: fmtDur(t.avg_ms) }))}</span>` : ""}
 			${t.errors ? `<span class="kpi-delta bad">${esc(tr("{n} con error", { n: fmtNum(t.errors) }))}</span>` : ""}</div>`;
 		const num = (n) => `<td class="num">${fmtNum(n)}</td>`;
-		const rowsOf = (list, first) => list.map((r) => `<tr>${first(r)}${num(r.calls)}${num(r.errors)}${num(r.input_tokens)}${num(r.output_tokens)}</tr>`).join("");
-		const head = (first) => `<thead><tr>${first}<th class="num">Llamadas</th><th class="num">Con error</th><th class="num">Tokens de entrada</th><th class="num">Tokens de salida</th></tr></thead>`;
+		const rowsOf = (list, first) => list.map((r) => `<tr>${first(r)}${num(r.calls)}${num(r.errors)}${num(r.input_tokens)}${num(r.output_tokens)}<td class="num">${fmtDur(r.avg_ms)}</td></tr>`).join("");
+		const head = (first) => `<thead><tr>${first}<th class="num">Llamadas</th><th class="num">Con error</th><th class="num">Tokens de entrada</th><th class="num">Tokens de salida</th><th class="num" data-tip="Lo que tardó el proveedor en responder, en promedio por llamada.">Respuesta media</th></tr></thead>`;
 		const model = (r) => `<td><span data-no-i18n>${esc(r.provider)} · ${esc(r.model || "—")}</span></td>`;
 		const empty = !u.last_30.calls;
 		return `<section class="card set-card" aria-labelledby="set-usage">
 			<div class="set-card-head"><h5 id="set-usage">Uso de la IA</h5>
 				<button class="cf-btn cf-btn-sm" data-usage-refresh ${st.usageLoading ? "disabled" : ""}>Actualizar</button></div>
-			<p class="field-help">Llamadas al proveedor de IA y los tokens que él mismo informó, en la hora del servidor. Incluye reintentos y llamadas con error. El costo real es el de la factura de tu proveedor.</p>
+			<p class="field-help">Llamadas al proveedor de IA, los tokens que él mismo informó y cuánto tardó en responder, en la hora del servidor. Incluye reintentos y llamadas con error. El costo real es el de la factura de tu proveedor.</p>
+			${statusBox(u)}
 			<div class="kpi-grid">
 				${tile(tr("Hoy"), u.today, tr("Llamadas de hoy."))}
 				${tile(tr("Últimos 7 días"), u.last_7, tr("Hoy y los 6 días anteriores."))}
@@ -3231,8 +3302,8 @@
 		});
 		root.addEventListener("click", async (e) => {
 			const setTab = e.target.closest("[data-set-tab]");
-			if (setTab) { openSettingsTab(setTab.dataset.setTab, true); if (setTab.dataset.setTab === "usage") loadUsage(); return; }
-			if (e.target.closest("[data-usage-refresh]")) { loadUsage(); renderSettings(true); return; }
+			if (setTab) { openSettingsTab(setTab.dataset.setTab, true); if (setTab.dataset.setTab === "usage") { loadUsage(); loadStatus(false); } return; }
+			if (e.target.closest("[data-usage-refresh]")) { loadUsage(); loadStatus(true); renderSettings(true); return; }
 			const lang = e.target.closest("[data-set-lang]");
 			if (lang) { I18N.setLang(lang.dataset.setLang); renderSettings(true); return; }
 			const def = e.target.closest("[data-set-default-lang]");

@@ -479,6 +479,12 @@ func (s *Server) aiUsage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"usage": u, "max_per_run": s.AI.MaxPerRun})
 }
 
+// aiStatus reports the general state of the configured AI provider from its public status page
+// (cached a minute; ?refresh=1 checks again).
+func (s *Server) aiStatus(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.AI.ProviderStatus(r.Context(), r.URL.Query().Get("refresh") == "1"))
+}
+
 // ---------- métricas ----------
 
 // dayStart is the first instant of a calendar date in loc (d may overflow: day+1). Usually its

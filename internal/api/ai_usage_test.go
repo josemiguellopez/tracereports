@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/josemiguellopez/tracereports/internal/ai"
 )
 
 // Ajustes → Uso de la IA: Probar conexión se cuenta y el endpoint devuelve los totales, el
@@ -53,5 +55,22 @@ func TestAIUsageEndpoint(t *testing.T) {
 	}
 	if out.MaxPerRun != srv.AI.MaxPerRun {
 		t.Fatalf("max per run: %d", out.MaxPerRun)
+	}
+}
+
+// El estado del proveedor llega por la API (página de estado simulada vía TRACEREPORTS_AI_STATUS_URL).
+func TestAIStatusEndpoint(t *testing.T) {
+	clearAIEnv(t)
+	page := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"status":{"indicator":"major","description":"Major Outage"},"components":[],"incidents":[{"name":"API down","status":"identified","impact":"major"}]}`))
+	}))
+	defer page.Close()
+	t.Setenv("TRACEREPORTS_AI_STATUS_URL", page.URL)
+	srv, _ := newTestServer(t)
+	srv.AI.SetConfig(ai.Config{Provider: "openai", APIKey: "fake-key-123456"})
+	rec := call(t, srv, "GET", "/api/v1/settings/ai/status?refresh=1", "")
+	var s ai.ProviderStatus
+	if rec.Code != 200 || json.Unmarshal(rec.Body.Bytes(), &s) != nil || s.Indicator != "major" || len(s.Incidents) != 1 {
+		t.Fatalf("status: %d %s", rec.Code, rec.Body)
 	}
 }
