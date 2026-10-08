@@ -33,6 +33,7 @@ export class Sender {
     this.downUntil = 0;
     this.running = false;
     this.waiters = [];
+    this.pause = null; // backoff en curso: {timer, wake}, para que abandon() lo corte
     this.stats = { sent: 0, retried: 0, rejected: 0, dropped: 0, lost: 0 };
   }
 
@@ -118,7 +119,7 @@ export class Sender {
         item.attempts++;
         this.stats.retried++;
         this.queue.unshift(item);
-        await sleep(Math.min(limits.maxBackoffMs, 500 * 2 ** Math.min(item.attempts, 6)));
+        await this.backoff(Math.min(limits.maxBackoffMs, 500 * 2 ** Math.min(item.attempts, 6)));
         continue;
       }
       this.bytes -= item.size;
@@ -134,10 +135,30 @@ export class Sender {
     for (const w of this.waiters.splice(0)) w();
   }
 
-  /** Espera a que la cola se vacíe (máx. timeoutMs). Devuelve lo que quedó pendiente. */
+  /** Espera de un reintento que abandon() puede cortar (si no, mantendría vivo el proceso). */
+  backoff(ms) {
+    return new Promise((wake) => {
+      const timer = setTimeout(() => { this.pause = null; wake(); }, ms);
+      this.pause = { timer, wake };
+    });
+  }
+
+  /**
+   * Espera a que la cola se vacíe (máx. timeoutMs). Devuelve lo que quedó pendiente. Lo que gana
+   * cancela lo otro: si se vacía, el temporizador del timeout se borra (no retiene el proceso);
+   * si vence, el waiter sale de la lista.
+   */
   async flush(timeoutMs) {
     if (!this.pending) return 0;
-    await Promise.race([new Promise((r) => this.waiters.push(r)), sleep(timeoutMs)]);
+    let timer, waiter;
+    await new Promise((resolve) => {
+      waiter = resolve;
+      this.waiters.push(waiter);
+      timer = setTimeout(resolve, timeoutMs);
+    });
+    clearTimeout(timer);
+    const i = this.waiters.indexOf(waiter);
+    if (i >= 0) this.waiters.splice(i, 1);
     return this.pending;
   }
 
@@ -149,6 +170,13 @@ export class Sender {
     this.inflight = null;
     this.bytes = 0;
     this.stats.lost += items.length;
+    // nada queda esperando: el backoff en curso termina ya y los flush pendientes vuelven
+    if (this.pause) {
+      clearTimeout(this.pause.timer);
+      this.pause.wake();
+      this.pause = null;
+    }
+    this.notify();
     if (items.length) {
       console.warn(`tracereports: ${items.length} eventos de evidencia no se pudieron enviar y se perdieron`);
     }
