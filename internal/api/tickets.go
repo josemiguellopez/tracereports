@@ -83,6 +83,13 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 		}
 		testKey = t.Key
 	}
+	// una solicitud a la vez por fallo y destino: la segunda espera y encuentra el ticket de la
+	// primera, en vez de crear otro (el efecto externo no se puede deshacer)
+	identity := fmt.Sprintf("%s|%s|%d", p.ID(), p.Target(), in.RunID)
+	if in.TestID != 0 {
+		identity = fmt.Sprintf("%s|%s|%s|%s", p.ID(), p.Target(), run.Project, testKey)
+	}
+	defer ticketLocks.lock(identity)()
 	if !in.Force {
 		existing, err := s.Store.ExistingTicket(in.RunID, in.TestID, testKey, run.Project, p.ID(), p.Target())
 		if err != nil {
@@ -93,6 +100,15 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusOK, map[string]any{"ticket": existing, "existing": true})
 			return
 		}
+		// una creación anterior quedó sin confirmar (el servidor se cayó después de pedirla): pudo
+		// haberse creado en el tracker. No se crea otro en silencio
+		if pending, err := s.Store.CreatingTicket(in.RunID, in.TestID, testKey, run.Project, p.ID(), p.Target()); err != nil {
+			serverError(w, err)
+			return
+		} else if pending != nil {
+			writeError(w, http.StatusConflict, fmt.Sprintf("a previous attempt may already have created this ticket in %s (the server stopped before recording it): check %s, or send force to create another one", p.Name(), p.Name()))
+			return
+		}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
@@ -100,19 +116,37 @@ func (s *Server) createTicket(w http.ResponseWriter, r *http.Request) {
 	if respondErr(w, err, "run or test") {
 		return
 	}
-	created, err := p.Create(ctx, s.issueFrom(e))
+	t := &db.Ticket{RunID: in.RunID, TestID: in.TestID, TestKey: testKey, Project: run.Project, Target: p.Target(), Provider: p.ID()}
+	mark, err := s.Store.BeginTicket(t)
 	if err != nil {
-		writeError(w, http.StatusBadGateway, p.Name()+": "+err.Error())
-		return
-	}
-	t := &db.Ticket{RunID: in.RunID, TestID: in.TestID, TestKey: testKey, Project: run.Project, Target: p.Target(),
-		Provider: p.ID(), Key: created.Key, URL: created.URL}
-	if err := s.Store.SaveTicket(t); err != nil {
 		serverError(w, err)
 		return
 	}
+	created, err := p.Create(ctx, s.issueFrom(e))
+	if err != nil {
+		if !tracker.Created(err) {
+			_ = s.Store.DropTicket(mark) // el tracker no creó nada: se puede reintentar
+			writeError(w, http.StatusBadGateway, p.Name()+": "+err.Error())
+			return
+		}
+		// respuesta perdida, tardía o ilegible: el ticket pudo crearse. La marca queda y el próximo
+		// intento avisa en vez de duplicar; force crea otro a propósito (y limpia la marca)
+		writeJSON(w, http.StatusBadGateway, map[string]any{"uncertain": true, "error": fmt.Sprintf(
+			"%s: %s. The ticket may have been created anyway: check %s before retrying, or send force to create another one",
+			p.Name(), err.Error(), p.Name())})
+		return
+	}
+	t.Key, t.URL = created.Key, created.URL
+	if err := s.Store.CompleteTicket(mark, t); err != nil {
+		serverError(w, err)
+		return
+	}
+	_ = s.Store.ClearCreatingTickets(in.RunID, in.TestID, testKey, run.Project, p.ID(), p.Target())
 	writeJSON(w, http.StatusCreated, map[string]any{"ticket": t, "existing": false})
 }
+
+// ticketLocks serializes ticket creation per failure and tracker destination.
+var ticketLocks idemLocks
 
 // listTickets returns the tickets of a run's failures (including those opened from earlier runs
 // of the same tests).

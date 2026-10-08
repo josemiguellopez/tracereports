@@ -116,6 +116,7 @@ func Open(path string) (*Store, error) {
 		// un ticket se reutiliza solo en el mismo proyecto y destino del tracker
 		{"tickets", "project", "TEXT"},
 		{"tickets", "target", "TEXT NOT NULL DEFAULT ''"},
+		{"tickets", "state", "TEXT NOT NULL DEFAULT 'created'"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()

@@ -23,10 +23,12 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html"
 	"io"
 	"mime/multipart"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -70,6 +72,35 @@ type Provider interface {
 	Target() string
 	Create(ctx context.Context, is *Issue) (*Ticket, error)
 }
+
+// A failed Create is either confirmed (the tracker rejected the request, or it never left this
+// server: nothing was created, retrying is safe) or uncertain (the request may have created the
+// ticket: the answer was lost, came late, was a 5xx from a proxy, or could not be read). Only
+// errors marked with NotCreated are confirmed; any other error, including those of a provider
+// that does not classify them, is treated as uncertain.
+
+type notCreatedError struct{ err error }
+
+func (e *notCreatedError) Error() string { return e.err.Error() }
+func (e *notCreatedError) Unwrap() error { return e.err }
+
+// NotCreated marks err as a failure that certainly created nothing.
+func NotCreated(err error) error {
+	if err == nil {
+		return nil
+	}
+	return &notCreatedError{err}
+}
+
+// Created reports whether a failed Create may have created the ticket anyway (false only for
+// errors marked with NotCreated).
+func Created(err error) bool {
+	var nc *notCreatedError
+	return err != nil && !errors.As(err, &nc)
+}
+
+// errNoID is a creation answered with success that does not say which ticket it created.
+var errNoID = errors.New("the tracker answered without the id of the created ticket")
 
 // FromEnv returns the configured providers (none when nothing is set).
 func FromEnv() []Provider {
@@ -135,6 +166,9 @@ func (g *GitHub) Create(ctx context.Context, is *Issue) (*Ticket, error) {
 		map[string]string{"Authorization": "Bearer " + g.Token, "Accept": "application/vnd.github+json", "X-GitHub-Api-Version": "2022-11-28"}, &out)
 	if err != nil {
 		return nil, err
+	}
+	if out.Number == 0 {
+		return nil, errNoID
 	}
 	return &Ticket{Provider: g.ID(), Key: fmt.Sprintf("#%d", out.Number), URL: out.HTMLURL}, nil
 }
@@ -211,6 +245,9 @@ func (j *Jira) Create(ctx context.Context, is *Issue) (*Ticket, error) {
 	if err := call(ctx, j.HTTP, http.MethodPost, base+"/rest/api/2/issue", map[string]any{"fields": fields},
 		map[string]string{"Authorization": j.auth(), "Accept": "application/json"}, &out); err != nil {
 		return nil, err
+	}
+	if out.Key == "" {
+		return nil, errNoID
 	}
 	t := &Ticket{Provider: j.ID(), Key: out.Key, URL: base + "/browse/" + out.Key}
 	if len(is.Image) > 0 { // la captura como adjunto; si falla, el ticket ya existe y lleva el link
@@ -311,7 +348,7 @@ func (a *Azure) Create(ctx context.Context, is *Issue) (*Ticket, error) {
 	raw, _ := json.Marshal(ops)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/workitems/$"+url.PathEscape(a.Type)+"?api-version=7.1", bytes.NewReader(raw))
 	if err != nil {
-		return nil, err
+		return nil, NotCreated(err)
 	}
 	req.Header.Set("Content-Type", "application/json-patch+json")
 	req.Header.Set("Authorization", a.auth())
@@ -325,6 +362,9 @@ func (a *Azure) Create(ctx context.Context, is *Issue) (*Ticket, error) {
 	}
 	if err := do(a.HTTP, req, &out); err != nil {
 		return nil, err
+	}
+	if out.ID == 0 {
+		return nil, errNoID
 	}
 	return &Ticket{Provider: a.ID(), Key: fmt.Sprintf("%s %d", a.Type, out.ID), URL: out.Links.HTML.Href}, nil
 }
@@ -386,11 +426,11 @@ func HTML(is *Issue) string {
 func call(ctx context.Context, client *http.Client, method, u string, body any, headers map[string]string, out any) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return err
+		return NotCreated(err)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, u, bytes.NewReader(raw))
 	if err != nil {
-		return err
+		return NotCreated(err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	for k, v := range headers {
@@ -400,25 +440,73 @@ func call(ctx context.Context, client *http.Client, method, u string, body any, 
 }
 
 // do sends req and decodes a 2xx JSON answer into out; any other answer is an error with the
-// tracker's message (never the request, which carries the token).
+// tracker's message (never the request, which carries the token). Errors that prove nothing was
+// done are marked NotCreated: the connection was never established, or the tracker answered
+// 4xx. A lost or late answer, a 5xx (a proxy may answer it after the tracker acted) or a 2xx
+// that cannot be read are uncertain.
+//
+// Redirects are still followed (a renamed repository answers 307 to its new address), but once
+// the tracker answered one, the first request already reached it and may have acted (a 303 can
+// mean "created, see there"): no later failure (refused connection, DNS, 4xx of the new
+// address) proves that nothing was created, so they are all uncertain.
 func do(client *http.Client, req *http.Request, out any) error {
 	if client == nil {
 		client = http.DefaultClient
 	}
 	req.Header.Set("User-Agent", "tracereports")
-	resp, err := client.Do(req)
+	redirected := false
+	c := *client // copia: el cliente compartido no cambia
+	follow := client.CheckRedirect
+	c.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		redirected = true
+		if follow != nil {
+			return follow(next, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("stopped after 10 redirects")
+		}
+		return nil
+	}
+	resp, err := c.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: %w", req.URL.Host, err)
+		err = fmt.Errorf("%s: %w", req.URL.Host, err)
+		if !redirected && neverSent(err) {
+			return NotCreated(err)
+		}
+		if redirected {
+			err = fmt.Errorf("%w (after the tracker answered a redirect)", err)
+		}
+		return err
 	}
 	defer resp.Body.Close()
-	raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if resp.StatusCode >= 300 {
-		return fmt.Errorf("%s answered HTTP %d: %s", req.URL.Host, resp.StatusCode, clip(oneLine(string(raw)), 300))
+		err := fmt.Errorf("%s answered HTTP %d: %s", req.URL.Host, resp.StatusCode, clip(oneLine(string(raw)), 300))
+		if resp.StatusCode >= 400 && resp.StatusCode < 500 && !redirected {
+			return NotCreated(err)
+		}
+		return err
 	}
-	if out != nil && len(raw) > 0 {
-		return json.Unmarshal(raw, out)
+	if readErr != nil {
+		return fmt.Errorf("%s: reading the answer: %w", req.URL.Host, readErr)
+	}
+	if out != nil {
+		if err := json.Unmarshal(raw, out); err != nil {
+			return fmt.Errorf("%s answered HTTP %d, but the answer could not be read: %w", req.URL.Host, resp.StatusCode, err)
+		}
 	}
 	return nil
+}
+
+// neverSent reports a transport error before the request reached the tracker: the address did
+// not resolve or the connection was refused. Only meaningful for the first request (see do).
+func neverSent(err error) bool {
+	var dns *net.DNSError
+	if errors.As(err, &dns) {
+		return true
+	}
+	var op *net.OpError
+	return errors.As(err, &op) && op.Op == "dial"
 }
 
 func imageExt(img []byte) string {

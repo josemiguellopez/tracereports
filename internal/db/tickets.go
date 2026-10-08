@@ -26,7 +26,8 @@ CREATE TABLE IF NOT EXISTS tickets (
 	url        TEXT    NOT NULL,
 	created_at INTEGER NOT NULL,
 	project    TEXT,                        -- proyecto de la ejecución; NULL = desconocido (ticket antiguo)
-	target     TEXT    NOT NULL DEFAULT ''  -- destino en el tracker (repo, proyecto); '' = desconocido
+	target     TEXT    NOT NULL DEFAULT '', -- destino en el tracker (repo, proyecto); '' = desconocido
+	state      TEXT    NOT NULL DEFAULT 'created' -- creating: se pidió al tracker y todavía no se confirmó
 );
 CREATE INDEX IF NOT EXISTS idx_tickets_run ON tickets(run_id);
 `
@@ -67,6 +68,60 @@ func (s *Store) SaveTicket(t *Ticket) error {
 	return err
 }
 
+// BeginTicket records that a ticket is being created in the tracker, BEFORE asking it: if the
+// server dies after the tracker created it but before CompleteTicket, the mark stays and the next
+// request reports the doubt instead of silently creating a second one.
+func (s *Store) BeginTicket(t *Ticket) (int64, error) {
+	res, err := s.db.Exec(`INSERT INTO tickets(run_id, test_id, test_key, provider, ticket_key, url, created_at, project, target, state)
+		VALUES(?,?,?,?,'','',?,?,?,'creating')`, t.RunID, t.TestID, t.TestKey, t.Provider, NowMs(), t.Project, t.Target)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// CompleteTicket stores the ticket the tracker created on its creating mark.
+func (s *Store) CompleteTicket(id int64, t *Ticket) error {
+	t.ID = id
+	if t.CreatedAt == 0 {
+		t.CreatedAt = NowMs()
+	}
+	_, err := s.db.Exec(`UPDATE tickets SET ticket_key = ?, url = ?, created_at = ?, state = 'created' WHERE id = ?`,
+		t.Key, t.URL, t.CreatedAt, id)
+	return err
+}
+
+// DropTicket removes a creating mark (the tracker answered an error: nothing was created).
+func (s *Store) DropTicket(id int64) error {
+	_, err := s.db.Exec(`DELETE FROM tickets WHERE id = ? AND state = 'creating'`, id)
+	return err
+}
+
+// CreatingTicket returns a creating mark of the same failure and destination left by a creation
+// that never finished (nil if none).
+func (s *Store) CreatingTicket(runID, testID int64, testKey, project, provider, target string) (*Ticket, error) {
+	q, args := `WHERE run_id=? AND test_id=0`, []any{runID}
+	if testID != 0 {
+		q, args = `WHERE test_key=? AND test_key<>'' AND project IS NOT NULL AND project=?`, []any{testKey, project}
+	}
+	t, err := scanTicket(s.db.QueryRow(`SELECT `+ticketCols+` FROM tickets `+q+` AND provider=? AND target=? AND state='creating'
+		ORDER BY id DESC LIMIT 1`, append(args, provider, target)...))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return t, err
+}
+
+// ClearCreatingTickets removes the creating marks of a failure once a ticket for it exists.
+func (s *Store) ClearCreatingTickets(runID, testID int64, testKey, project, provider, target string) error {
+	q, args := `WHERE run_id=? AND test_id=0`, []any{runID}
+	if testID != 0 {
+		q, args = `WHERE test_key=? AND test_key<>'' AND project IS NOT NULL AND project=?`, []any{testKey, project}
+	}
+	_, err := s.db.Exec(`DELETE FROM tickets `+q+` AND provider=? AND target=? AND state='creating'`, append(args, provider, target)...)
+	return err
+}
+
 // ExistingTicket returns the latest ticket of the same failure in a provider and destination:
 // the same test of the same project (by its identity, in any run) or, for a whole run, that run.
 // A ticket whose destination is unknown (saved before it was recorded) also counts. nil when
@@ -76,7 +131,7 @@ func (s *Store) ExistingTicket(runID, testID int64, testKey, project, provider, 
 	if testID != 0 {
 		q, args = `WHERE test_key=? AND test_key<>'' AND project IS NOT NULL AND project=? AND provider=?`, []any{testKey, project, provider}
 	}
-	q += ` AND (target=? OR target='')`
+	q += ` AND (target=? OR target='') AND state='created'`
 	args = append(args, target)
 	t, err := scanTicket(s.db.QueryRow(`SELECT `+ticketCols+` FROM tickets `+q+
 		` ORDER BY created_at DESC, id DESC LIMIT 1`, args...))
@@ -91,9 +146,9 @@ func (s *Store) ExistingTicket(runID, testID int64, testKey, project, provider, 
 func (s *Store) TicketsOfRun(runID int64) ([]Ticket, error) {
 	rows, err := s.db.Query(`SELECT `+ticketCols+`
 		FROM tickets
-		WHERE run_id = ? OR (test_key <> '' AND project IS NOT NULL
+		WHERE state = 'created' AND (run_id = ? OR (test_key <> '' AND project IS NOT NULL
 			AND project = (SELECT project FROM runs WHERE id = ?)
-			AND test_key IN (SELECT test_key FROM tests WHERE run_id = ?))
+			AND test_key IN (SELECT test_key FROM tests WHERE run_id = ?)))
 		ORDER BY created_at, id`, runID, runID, runID)
 	if err != nil {
 		return nil, err
