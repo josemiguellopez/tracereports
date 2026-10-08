@@ -403,6 +403,30 @@
 		return parts.join(" \\\n  ");
 	}
 
+	// Literales de código: lo capturado (URL, método, tipo, cuerpo) se escribe como literal del
+	// lenguaje, nunca pegado entre comillas, así un apóstrofo, una comilla, un backslash o un salto
+	// de línea no rompen el código generado ni cambian los datos.
+	/** String JS entre comillas simples (el estilo de los stubs). */
+	const jsStr = (v) => `'${JSON.stringify(String(v)).slice(1, -1).replace(/\\(.)|'/g, (m, c) => (c === undefined ? "\\'" : c === '"' ? '"' : m))}'`;
+	/** String de Python: un string JSON también es un literal válido de Python, con el mismo valor. */
+	const pyStr = (v) => JSON.stringify(String(v));
+	/** Texto de un comentario de una línea. */
+	const oneLine = (v) => String(v).replace(/[\r\n\u2028\u2029]+/g, " ");
+	/** Un valor JSON como literal de JS o de Python, indentado como JSON.stringify(v, null, ind). */
+	function literal(v, lang, ind, depth = 0) {
+		const pad = " ".repeat(ind * (depth + 1)), end = " ".repeat(ind * depth);
+		if (v === null) return lang === "py" ? "None" : "null";
+		if (typeof v === "boolean") return lang === "py" ? (v ? "True" : "False") : String(v);
+		if (typeof v === "number") return JSON.stringify(v);
+		if (typeof v === "string") return JSON.stringify(v);
+		if (Array.isArray(v)) return v.length ? `[\n${v.map((x) => pad + literal(x, lang, ind, depth + 1)).join(",\n")}\n${end}]` : "[]";
+		const keys = Object.keys(v);
+		if (!keys.length) return "{}";
+		// en un objeto literal de JS, "__proto__": cambia el prototipo; con la clave calculada es un campo
+		const key = (k) => (lang === "js" && k === "__proto__" ? '["__proto__"]' : JSON.stringify(k));
+		return `{\n${keys.map((k) => `${pad}${key(k)}: ${literal(v[k], lang, ind, depth + 1)}`).join(",\n")}\n${end}}`;
+	}
+
 	const MockGenerator = {
 		FORMATS: [
 			{ id: "pw-py", label: "Playwright (Python)", ext: "py", lang: "python" },
@@ -429,44 +453,47 @@
 		generate(format, conn) {
 			const m = this.parse(conn);
 			const pretty = (v, ind = 2) => JSON.stringify(v, null, ind);
-			const bodyJS = m.json !== null ? `JSON.stringify(${pretty(m.json).replace(/\n/g, "\n    ")})` : JSON.stringify(m.body);
+			const status = Number.isInteger(Number(m.status)) ? Number(m.status) : 500;
+			const name = (m.path.split("/").filter(Boolean).pop() || "endpoint").replace(/\W+/g, "_");
+			const note = oneLine(tr("Stub generado por TraceReports a partir de {req} (status {st})", { req: `${m.method} ${m.path}`, st: status }));
+			const bodyJS = m.json !== null ? `JSON.stringify(${literal(m.json, "js", 2).replace(/\n/g, "\n    ")})` : JSON.stringify(m.body);
 			switch (format) {
 			case "pw-py": {
-				const fn = `stub_${(m.path.split("/").filter(Boolean).pop() || "endpoint").replace(/\W+/g, "_")}`;
-				const body = m.json !== null ? `json.dumps(${pretty(m.json, 4).replace(/\n/g, "\n    ").replace(/\bnull\b/g, "None").replace(/\btrue\b/g, "True").replace(/\bfalse\b/g, "False")})` : JSON.stringify(m.body);
+				const fn = `stub_${name}`;
+				const body = m.json !== null ? `json.dumps(${literal(m.json, "py", 4).replace(/\n/g, "\n    ")})` : pyStr(m.body);
 				return `import json
 
-# ${tr("Stub generado por TraceReports a partir de {req} (status {st})", { req: `${m.method} ${m.path}`, st: m.status })}
+# ${note}
 def ${fn}(route):
-    if route.request.method != "${m.method}":
+    if route.request.method != ${pyStr(m.method)}:
         return route.fallback()
     route.fulfill(
-        status=${m.status},
-        content_type="${m.contentType}",
+        status=${status},
+        content_type=${pyStr(m.contentType)},
         body=${body},
     )
 
-page.route("${m.glob}", ${fn})
+page.route(${pyStr(m.glob)}, ${fn})
 `;
 			}
 			case "pw-js":
-				return `// ${tr("Stub generado por TraceReports a partir de {req} (status {st})", { req: `${m.method} ${m.path}`, st: m.status })}
-await page.route('${m.glob}', async (route) => {
-  if (route.request().method() !== '${m.method}') return route.fallback();
+				return `// ${note}
+await page.route(${jsStr(m.glob)}, async (route) => {
+  if (route.request().method() !== ${jsStr(m.method)}) return route.fallback();
   await route.fulfill({
-    status: ${m.status},
-    contentType: '${m.contentType}',
+    status: ${status},
+    contentType: ${jsStr(m.contentType)},
     body: ${bodyJS},
   });
 });
 `;
 			case "cypress":
-				return `// ${tr("Stub generado por TraceReports a partir de {req} (status {st})", { req: `${m.method} ${m.path}`, st: m.status })}
-cy.intercept('${m.method}', '${m.glob}', {
-  statusCode: ${m.status},
-  headers: { 'content-type': '${m.contentType}' },
-  body: ${m.json !== null ? pretty(m.json).replace(/\n/g, "\n  ") : JSON.stringify(m.body)},
-}).as('${(m.path.split("/").filter(Boolean).pop() || "endpoint").replace(/\W+/g, "_")}');
+				return `// ${note}
+cy.intercept(${jsStr(m.method)}, ${jsStr(m.glob)}, {
+  statusCode: ${status},
+  headers: { 'content-type': ${jsStr(m.contentType)} },
+  body: ${m.json !== null ? literal(m.json, "js", 2).replace(/\n/g, "\n  ") : JSON.stringify(m.body)},
+}).as(${jsStr(name)});
 `;
 			case "wiremock": {
 				const req = { method: m.method, urlPath: m.path };
