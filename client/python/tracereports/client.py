@@ -66,6 +66,7 @@ from ._env import env
 from .context import detect_branch, detect_commit
 from .offline import Recorder, new_session_dir
 from .transport import Sender
+from .mirror import Mirror
 
 __all__ = ["TraceReports"]
 __version__ = "0.2.0"
@@ -120,7 +121,7 @@ class TraceReports:
         :param offline_dir: where to record when there is no server (default $TRACEREPORTS_OFFLINE_DIR;
             without it, a new folder per session inside ./tracereports-offline).
         :param offline: "auto" (default, $TRACEREPORTS_OFFLINE): record only if the run cannot be
-            created; "always": record without trying a server; "off": never record.
+            created; "always": record without trying a server; "both": also keep a local copy; "off": never record.
         """
         self.base_url = (base_url or env("URL") or "http://localhost:8080").rstrip("/")
         self.timeout = timeout
@@ -175,9 +176,23 @@ class TraceReports:
                         "`tracereports report %s`, or upload it later with `tracereports push %s`)",
                         reason, directory, directory, directory)
 
+    def _go_mirror(self, run_id, payload=None, directory=None):
+        directory = directory or (self._offline_base if self._offline_explicit else new_session_dir(self._offline_base))
+        try:
+            self._sender = Mirror(self._sender, directory, self.base_url, run_id, payload)
+            self.offline_dir = directory
+        except (OSError, ValueError) as err:
+            log.warning("tracereports: could not start local copy in %s: %s", directory, err)
+
+    @property
+    def report_url(self):
+        if self.run_id and self.run_id > 0:
+            return f"{self.base_url}/#run={self.run_id}&view=dashboard"
+        return self.offline_report or ""
+
     def _offline_finish(self) -> None:
         """Closes the recording and, if the tracereports binary is installed, builds the report."""
-        if not isinstance(self._sender, Recorder):
+        if not isinstance(self._sender, (Recorder, Mirror)):
             return
         self._sender.close()
         binary = env("BIN") or shutil.which("tracereports")
@@ -191,7 +206,7 @@ class TraceReports:
             subprocess.run([binary, "report", "-o", out, self.offline_dir], check=True, timeout=300,
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             self.offline_report = os.path.join(out, "index.html")
-            log.warning("tracereports: no server; static report in %s", self.offline_report)
+            log.warning("tracereports: local report in %s", self.offline_report)
         except (OSError, subprocess.SubprocessError) as err:
             log.warning("tracereports: could not build the report (%s); run `tracereports report %s`", err, self.offline_dir)
 
@@ -245,11 +260,13 @@ class TraceReports:
             if resent:
                 log.info("tracereports: reenviando %d eventos guardados de una ejecución anterior", resent)
         res = self._request("POST", "/api/v1/runs", payload)
-        if not res and self.enabled and self.offline_mode == "auto" and not self.recording:
+        if not res and self.enabled and self.offline_mode in ("auto", "both") and not self.recording:
             # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
             self._go_offline(f"could not create the run at {self.base_url} (server down or wrong token)")
             if self.recording:
                 res = self._request("POST", "/api/v1/runs", payload)
+        if res and res.get("run_id", 0) > 0 and self.offline_mode == "both" and not self.recording:
+            self._go_mirror(res["run_id"], payload)
         self.run_id = res.get("run_id") if res else None
         self.run_created = bool(self.run_id)
         if self.enabled and not self.run_id:
@@ -268,6 +285,8 @@ class TraceReports:
             if offline_dir:
                 self._offline_base, self._offline_explicit = offline_dir, True
             self._go_offline("offline mode")
+        if run_id and int(run_id) > 0 and self.enabled and self.offline_mode == "both" and not self.recording:
+            self._go_mirror(int(run_id), directory=offline_dir)
         self.run_id = int(run_id) if run_id else None
         self.run_created = False
         return self.run_id
@@ -279,17 +298,28 @@ class TraceReports:
         the server never shows an incomplete run as passed.
         """
         rid = run_id or self.run_id
-        self.flush()
+        if isinstance(self._sender, Mirror) and self._sender.closed:
+            return None
+        pending = self.flush()
         self._sender.drain_to_spool()
+        if isinstance(self._sender, Mirror) and not self.run_created:
+            self._sender.close(pending == 0 and self.delivery_problems() == 0 and not interrupted)
+            return None
         if not rid:
             return None
         payload = {"interrupted": bool(interrupted)}
         res = self._request("PATCH", f"/api/v1/runs/{rid}/finish", payload)
         if res is None and self.enabled:
             # el servidor no respondió: el cierre también va al spool (se reenvía con lo demás)
-            self._sender.enqueue("PATCH", f"/api/v1/runs/{rid}/finish", json.dumps(payload).encode(), "application/json", self.timeout)
+            sender = self._sender.sender if isinstance(self._sender, Mirror) else self._sender
+            sender.enqueue("PATCH", f"/api/v1/runs/{rid}/finish", json.dumps(payload).encode(), "application/json", self.timeout)
             self._sender.drain_to_spool()
-        if self.recording:
+        if isinstance(self._sender, Mirror):
+            self._sender.close(pending == 0 and res is not None and self.delivery_problems() == 0 and not interrupted)
+            before = self._sender.prepare()
+            self._offline_finish()
+            self._sender.finalize(self.offline_report, env("OFFLINE_KEEP") == "1", before)
+        elif self.recording:
             self._offline_finish()
         return res
 
@@ -299,7 +329,7 @@ class TraceReports:
         e.g. to attach it to an email from CI. Call after end_run(). Returns the ZIP path or None.
         """
         rid = run_id or self.run_id
-        if self.recording:
+        if self.recording and rid and rid < 0:
             return self._offline_zip(dest_dir)
         if not rid or not self.enabled or self._sender.server_down():
             return None
@@ -365,7 +395,7 @@ class TraceReports:
                    "worker": worker if worker is not None else os.getenv("PYTEST_XDIST_WORKER", "")}
         res = self._request("POST", f"/api/v1/runs/{self.run_id}/tests", payload)
         self._local.test_id = res.get("test_id") if res else None
-        if self.enabled and not self._local.test_id:
+        if self.enabled and (not self._local.test_id or (isinstance(self._sender, Mirror) and self._local.test_id < 0)):
             with self._lock:
                 self.unregistered_tests += 1
         return self._local.test_id

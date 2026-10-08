@@ -73,11 +73,12 @@ type Client struct {
 	Project, Branch, Commit string
 	// OfflineDir is where to record without a server (default $TRACEREPORTS_OFFLINE_DIR; empty: a
 	// new folder per session inside ./tracereports-offline). Offline is "auto" (default: record
-	// only if the run cannot be created), "always" or "off" (default $TRACEREPORTS_OFFLINE).
+	// only if the run cannot be created), "always", "both" or "off" (default $TRACEREPORTS_OFFLINE).
 	OfflineDir, Offline string
 	// OfflineReport is the index.html built when a recording finishes (needs the binary).
 	OfflineReport string
 
+	mirror    *mirror
 	rec       *recorder
 	mu        sync.Mutex
 	failures  int
@@ -140,6 +141,9 @@ func (c *Client) StartRun(name, environment string) (int64, error) {
 		if id < 0 && !c.disabled && !c.Recording() {
 			c.startRecording("")
 		}
+		if id > 0 && !c.disabled && c.offlineMode() == "both" && !c.Recording() {
+			c.startMirror(id, nil)
+		}
 		c.RunID, c.ownsRun = id, false
 		return id, nil
 	}
@@ -160,7 +164,7 @@ func (c *Client) StartRun(name, environment string) (int64, error) {
 	payload := map[string]string{"name": name, "environment": environment,
 		"project": c.Project, "branch": c.Branch, "commit": c.Commit, "framework": "go"}
 	err := c.do(http.MethodPost, "/api/v1/runs", payload, &out)
-	if out.RunID == 0 && !c.disabled && c.offlineMode() == "auto" && !c.Recording() {
+	if out.RunID == 0 && !c.disabled && (c.offlineMode() == "auto" || c.offlineMode() == "both") && !c.Recording() {
 		// sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
 		if c.startRecording(fmt.Sprintf("could not create the run at %s (%v)", c.BaseURL, err)) {
 			c.mu.Lock()
@@ -168,6 +172,9 @@ func (c *Client) StartRun(name, environment string) (int64, error) {
 			c.mu.Unlock()
 			err = c.do(http.MethodPost, "/api/v1/runs", payload, &out)
 		}
+	}
+	if out.RunID > 0 && c.offlineMode() == "both" && !c.Recording() {
+		c.startMirror(out.RunID, payload)
 	}
 	c.RunID, c.ownsRun = out.RunID, out.RunID != 0
 	return out.RunID, err
@@ -182,10 +189,17 @@ func (c *Client) FinishRun() error { return c.finishRun(false) }
 func (c *Client) FinishRunInterrupted() error { return c.finishRun(true) }
 
 func (c *Client) finishRun(interrupted bool) error {
+	if c.mirror != nil && c.mirror.isClosed() {
+		return nil
+	}
 	if c.RunID == 0 {
 		return ErrDisabled
 	}
 	if !c.ownsRun {
+		if c.mirror != nil {
+			c.mirror.close(!interrupted)
+			return nil
+		}
 		c.mu.Lock()
 		if c.rec != nil { // grabando para una ejecución de otro proceso: el dueño arma el reporte
 			c.rec.close()
@@ -194,7 +208,12 @@ func (c *Client) finishRun(interrupted bool) error {
 		return nil
 	}
 	err := c.do(http.MethodPatch, fmt.Sprintf("/api/v1/runs/%d/finish", c.RunID), map[string]bool{"interrupted": interrupted}, nil)
-	if c.Recording() {
+	if c.mirror != nil {
+		c.mirror.close(err == nil && !interrupted)
+		before := c.mirror.prepare()
+		c.finishRecording()
+		c.mirror.finalize(c.OfflineReport, getenv("OFFLINE_KEEP") == "1", before)
+	} else if c.Recording() {
 		c.finishRecording()
 	}
 	return err
@@ -203,7 +222,7 @@ func (c *Client) finishRun(interrupted bool) error {
 // ReportURL is the link to the run in the web UI. When recording without a server it is the
 // static report built at FinishRun ("" if the tracereports binary is not installed).
 func (c *Client) ReportURL() string {
-	if c.Recording() {
+	if c.Recording() && c.RunID < 0 {
 		return c.OfflineReport
 	}
 	return fmt.Sprintf("%s/#run=%d&view=dashboard", c.BaseURL, c.RunID)
@@ -522,6 +541,57 @@ func retryable(code int) bool {
 // send performs the call with up to `retries` retries (same Idempotency-Key, so the server
 // applies it once). While the circuit is open (server unreachable) it fails fast.
 func (c *Client) send(method, path string, body []byte, contentType string, out any, timeout time.Duration) error {
+	c.mu.Lock()
+	m, disabled := c.mirror, c.disabled
+	c.mu.Unlock()
+	if m == nil || disabled {
+		return c.sendRemote(method, path, body, contentType, out, timeout)
+	}
+	m.mu.Lock()
+	m.active++
+	local := m.record(method, path, body, contentType)
+	m.mu.Unlock()
+	defer func() { m.mu.Lock(); m.active--; m.mu.Unlock() }()
+	var remote json.RawMessage
+	target := out
+	creation := method == "POST" && strings.HasSuffix(path, "/tests")
+	if creation {
+		target = &remote
+	}
+	var err error
+	if strings.Contains(path, "/tests/-") || strings.Contains(path, "/runs/-") {
+		err = ErrDisabled
+	} else {
+		err = c.sendRemote(method, path, body, contentType, target, timeout)
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err != nil {
+		m.failed = true
+	}
+	if creation {
+		var l, r struct {
+			ID int64 `json:"test_id"`
+		}
+		_ = json.Unmarshal(local, &l)
+		_ = json.Unmarshal(remote, &r)
+		if r.ID > 0 && l.ID < 0 {
+			m.tests[r.ID] = l.ID
+		}
+		if err != nil && l.ID < 0 {
+			if out != nil {
+				return json.Unmarshal(local, out)
+			}
+			return nil
+		}
+		if err == nil && out != nil {
+			return json.Unmarshal(remote, out)
+		}
+	}
+	return err
+}
+
+func (c *Client) sendRemote(method, path string, body []byte, contentType string, out any, timeout time.Duration) error {
 	c.mu.Lock()
 	off := c.disabled || time.Now().Before(c.downUntil)
 	rec := c.rec

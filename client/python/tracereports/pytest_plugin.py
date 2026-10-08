@@ -162,10 +162,13 @@ class TraceReportsPlugin:
     def pytest_sessionfinish(self, session, exitstatus):
         if self.workerinput is not None:
             # worker: entrega su evidencia; el controlador cierra la ejecución
-            self.cr.flush()
+            pending = self.cr.flush()
             self.cr._sender.drain_to_spool()
             if self.cr.recording:
-                self.cr._sender.close()  # el controlador arma el reporte con todos los archivos
+                if self.cr.run_id > 0:
+                    self.cr._sender.close(pending == 0 and self.cr.delivery_problems() == 0)
+                else:
+                    self.cr._sender.close()  # el controlador arma el reporte con todos los archivos
             self.config.workeroutput["tracereports_problems"] = self.cr.delivery_problems()
             return
         if not self.cr.run_id:
@@ -180,9 +183,14 @@ class TraceReportsPlugin:
             if zip_dir:
                 self.zip_path = self.cr.download_report(zip_dir)
         else:
-            self.cr.flush()
+            pending = self.cr.flush()
             self.cr._sender.drain_to_spool()
-        if self.cr.recording and self.cr.offline_mode == "auto":
+            if self.cr.recording:
+                if self.cr.run_id > 0:
+                    self.cr._sender.close(pending == 0 and self.cr.delivery_problems() == 0)
+                else:
+                    self.cr._sender.close()
+        if self.cr.recording and self.cr.run_id < 0 and self.cr.offline_mode in ("auto", "both"):
             self.problems.append(f"sin servidor: la evidencia quedó grabada en {self.cr.offline_dir}")
         lost = self.cr.delivery_problems() + self.worker_problems
         if lost:
@@ -198,7 +206,11 @@ class TraceReportsPlugin:
     def pytest_terminal_summary(self, terminalreporter):
         if self.workerinput is not None:
             return
-        if self.cr.recording:
+        if self.cr.recording and self.cr.run_id > 0:
+            terminalreporter.write_line(f"TraceReports: {self.cr.report_url}")
+            where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir}`"
+            terminalreporter.write_line(f"TraceReports copia local: {where}")
+        elif self.cr.recording:
             where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir} -o reporte`"
             terminalreporter.write_line(f"TraceReports (sin servidor): evidencia en {self.cr.offline_dir}; reporte: {where}; "
                                         f"para subirla: `tracereports push {self.cr.offline_dir}`")

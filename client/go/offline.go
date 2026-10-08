@@ -157,20 +157,23 @@ func (r *recorder) close() {
 func (c *Client) Recording() bool {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.rec != nil
+	return c.rec != nil || c.mirror != nil
 }
 
 // RecordingDir is the folder being recorded into ("" when sending to a server).
 func (c *Client) RecordingDir() string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.mirror != nil {
+		return c.mirror.dir
+	}
 	if c.rec == nil {
 		return ""
 	}
 	return c.rec.dir
 }
 
-// offlineMode is "auto" (default), "always" or "off" (Client.Offline or $TRACEREPORTS_OFFLINE).
+// offlineMode is "auto" (default), "always", "both" or "off" (Client.Offline or $TRACEREPORTS_OFFLINE).
 func (c *Client) offlineMode() string {
 	m := strings.ToLower(strings.TrimSpace(c.Offline))
 	switch m {
@@ -178,7 +181,7 @@ func (c *Client) offlineMode() string {
 		return "always"
 	case "0", "false", "no":
 		return "off"
-	case "always", "off":
+	case "always", "both", "off":
 		return m
 	}
 	return "auto"
@@ -209,6 +212,9 @@ func (c *Client) startRecording(reason string) bool {
 func (c *Client) finishRecording() {
 	c.mu.Lock()
 	rec := c.rec
+	if c.mirror != nil {
+		rec = c.mirror.rec
+	}
 	c.mu.Unlock()
 	if rec == nil {
 		return
@@ -228,5 +234,5 @@ func (c *Client) finishRecording() {
 		return
 	}
 	c.OfflineReport = filepath.Join(out, "index.html")
-	log.Printf("tracereports: no server; static report in %s", c.OfflineReport)
+	log.Printf("tracereports: local report in %s", c.OfflineReport)
 }

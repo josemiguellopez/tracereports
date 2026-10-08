@@ -74,4 +74,79 @@ final class Json {
         Matcher m = Pattern.compile("\"" + Pattern.quote(key) + "\"\\s*:\\s*(-?\\d+)").matcher(json);
         return m.find() ? Long.parseLong(m.group(1)) : 0;
     }
+
+    /** Lee los metadatos compartidos de una grabación sin perder precisión en los ids. */
+    static Object read(String text) {
+        Reader reader = new Reader(text);
+        Object value = reader.value(0);
+        reader.space();
+        if (reader.pos != text.length()) throw new IllegalArgumentException("JSON trailing data");
+        return value;
+    }
+
+    private static final class Reader {
+        final String text;
+        int pos;
+        Reader(String text) { this.text = text; }
+        void space() { while (pos < text.length() && " \t\r\n".indexOf(text.charAt(pos)) >= 0) pos++; }
+        boolean take(char c) { space(); if (pos < text.length() && text.charAt(pos) == c) { pos++; return true; } return false; }
+        void need(char c) { if (!take(c)) throw new IllegalArgumentException("Invalid JSON at " + pos); }
+        Object value(int depth) {
+            space();
+            if (depth > 100 || pos >= text.length()) throw new IllegalArgumentException("Invalid JSON");
+            char c = text.charAt(pos);
+            if (c == '"') return string();
+            if (take('{')) {
+                Map<String, Object> out = new java.util.LinkedHashMap<>();
+                if (take('}')) return out;
+                do { space(); String key = string(); need(':'); out.put(key, value(depth + 1)); } while (take(','));
+                need('}'); return out;
+            }
+            if (take('[')) {
+                java.util.List<Object> out = new java.util.ArrayList<>();
+                if (take(']')) return out;
+                do { out.add(value(depth + 1)); } while (take(','));
+                need(']'); return out;
+            }
+            for (String literal : new String[]{"true", "false", "null"}) {
+                if (text.startsWith(literal, pos)) {
+                    pos += literal.length();
+                    return literal.equals("null") ? null : Boolean.valueOf(literal);
+                }
+            }
+            Matcher m = Pattern.compile("-?(?:0|[1-9][0-9]*)(?:\\.[0-9]+)?(?:[eE][+-]?[0-9]+)?").matcher(text);
+            m.region(pos, text.length());
+            if (!m.lookingAt()) throw new IllegalArgumentException("Invalid JSON number");
+            String n = m.group(); pos = m.end();
+            if (n.indexOf('.') >= 0 || n.indexOf('e') >= 0 || n.indexOf('E') >= 0) return Double.valueOf(n);
+            return Long.valueOf(n);
+        }
+        String string() {
+            need('"');
+            StringBuilder out = new StringBuilder();
+            while (pos < text.length()) {
+                char c = text.charAt(pos++);
+                if (c == '"') return out.toString();
+                if (c < 32) throw new IllegalArgumentException("Invalid JSON string");
+                if (c == '\\') {
+                    if (pos == text.length()) break;
+                    c = text.charAt(pos++);
+                    switch (c) {
+                        case '"', '\\', '/' -> out.append(c);
+                        case 'b' -> out.append('\b');
+                        case 'f' -> out.append('\f');
+                        case 'n' -> out.append('\n');
+                        case 'r' -> out.append('\r');
+                        case 't' -> out.append('\t');
+                        case 'u' -> {
+                            if (pos + 4 > text.length()) throw new IllegalArgumentException("Invalid JSON escape");
+                            out.append((char) Integer.parseInt(text.substring(pos, pos + 4), 16)); pos += 4;
+                        }
+                        default -> throw new IllegalArgumentException("Invalid JSON escape");
+                    }
+                } else out.append(c);
+            }
+            throw new IllegalArgumentException("Unterminated JSON string");
+        }
+    }
 }

@@ -168,13 +168,16 @@ export default class TraceReportsReporter {
     await this.started;
     const interrupted = result.status === "interrupted" || result.status === "timedout";
     await this.cr.finishRun({ interrupted });
-    const problems = this.cr.deliveryProblems() + (this.cr.recording && this.cr.offlineMode === "auto" ? 1 : 0);
-    if (this.cr.recording) {
+    const problems = this.cr.deliveryProblems() + (this.cr.recording && this.cr.runId < 0 && ["auto", "both"].includes(this.cr.offlineMode) ? 1 : 0);
+    if (this.cr.recording && this.cr.runId > 0) {
+      console.log(`TraceReports: ${this.cr.reportUrl}`);
+      console.log(`TraceReports copia local: ${this.cr.offlineReport || `tracereports report ${this.cr.offlineDir}`}`);
+    } else if (this.cr.recording) {
       console.log(`TraceReports (sin servidor): evidencia en ${this.cr.offlineDir}; reporte: ` +
         (this.cr.reportUrl || `\`tracereports report ${this.cr.offlineDir} -o reporte\``) +
         `; para subirla: \`tracereports push ${this.cr.offlineDir}\``);
     } else if (this.cr.runId) console.log(`TraceReports: ${this.cr.reportUrl}`);
-    if (problems && !this.cr.recording) {
+    if (problems && (!this.cr.recording || this.cr.runId > 0)) {
       const d = this.cr.delivery;
       console.warn(`TraceReports: atención: ${problems - d.runNotClosed} eventos de evidencia no llegaron al servidor ` +
         `(enviados ${d.sent}, rechazados ${d.rejected}, descartados ${d.dropped}, perdidos ${d.lost})` +

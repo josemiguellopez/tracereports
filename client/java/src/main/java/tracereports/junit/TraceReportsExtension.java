@@ -62,7 +62,11 @@ public class TraceReportsExtension implements BeforeEachCallback, AfterTestExecu
         @Override
         public void close() {
             cr.finishRun();
-            if (cr.recording()) {
+            if (cr.recording() && cr.runId() > 0) {
+                System.out.println("TraceReports: " + cr.reportUrl());
+                System.out.println("TraceReports copia local: " + (cr.offlineReport() != null ? cr.offlineReport()
+                        : "`tracereports report " + cr.offlineDir() + "`"));
+            } else if (cr.recording()) {
                 System.out.println("TraceReports (sin servidor): evidencia en " + cr.offlineDir() + "; reporte: "
                         + (cr.offlineReport() != null ? cr.offlineReport() : "`tracereports report " + cr.offlineDir() + " -o reporte`")
                         + "; para subirla: `tracereports push " + cr.offlineDir() + "`");

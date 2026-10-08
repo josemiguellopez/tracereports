@@ -4,7 +4,7 @@ export interface Delivery {
   sent: number; retried: number; rejected: number; dropped: number; lost: number; pending: number; unregisteredTests: number;
   /** 1 si el servidor no confirmó el cierre de la ejecución. */
   runNotClosed: number;
-  /** Events recorded locally instead of sent (offline mode). */
+  /** Events recorded locally, including the copy in both mode. */
   recorded?: number;
 }
 
@@ -13,8 +13,8 @@ export interface TraceReportsOptions {
   flushTimeoutMs?: number; maxQueueItems?: number; maxQueueMB?: number;
   /** Where to record when there is no server (default $TRACEREPORTS_OFFLINE_DIR or ./tracereports-offline/<session>). */
   offlineDir?: string;
-  /** auto (default): record only if the run cannot be created; always: never use a server; off: never record. */
-  offline?: "auto" | "always" | "off";
+  /** auto (default): record if run creation fails; always: no server; both: send and record; off: never record. */
+  offline?: "auto" | "always" | "both" | "off";
 }
 
 export interface RunOptions { environment?: string; project?: string; branch?: string; commit?: string; framework?: string }
@@ -40,7 +40,7 @@ export class TraceReports {
   baseUrl: string; runId: number | null; runCreated: boolean; enabled: boolean;
   readonly delivery: Delivery;
   readonly reportUrl: string;
-  /** True when the evidence is recorded locally (no server, unreachable or wrong token). */
+  /** True when evidence is recorded locally, including both mode. */
   readonly recording: boolean;
   offlineDir: string | null;
   offlineReport: string | null;

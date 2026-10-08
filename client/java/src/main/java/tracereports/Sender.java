@@ -59,6 +59,7 @@ final class Sender {
     int sent, retried, rejected, dropped, lost;
     /** Grabando sin servidor: las llamadas se escriben en una carpeta en vez de enviarse. */
     volatile Recorder recorder;
+    volatile Mirror mirror;
 
     Sender(String baseUrl, Supplier<Map<String, String>> headers, int maxItems, long maxBytes) {
         this.baseUrl = baseUrl;
@@ -108,6 +109,15 @@ final class Sender {
 
     /** Llamada cuya respuesta se necesita (ids): reintentos cortos con la misma Idempotency-Key. */
     String sendNow(String method, String path, byte[] body, String contentType, Duration timeout, int retries, boolean ignoreCircuit) {
+        Mirror copy = mirror;
+        if (copy == null) return sendRemote(method, path, body, contentType, timeout, retries, ignoreCircuit);
+        copy.begin();
+        String local = copy.record(method, path, body, contentType);
+        String remote = path.matches(".*/(?:runs|tests)/-\\d+.*") ? null : sendRemote(method, path, body, contentType, timeout, retries, ignoreCircuit);
+        return copy.delivered(local, remote);
+    }
+
+    private String sendRemote(String method, String path, byte[] body, String contentType, Duration timeout, int retries, boolean ignoreCircuit) {
         Recorder rec = recorder;
         if (rec != null) return rec.record(method, path, body, contentType);
         if (serverDown() && !ignoreCircuit) return null;
@@ -128,6 +138,15 @@ final class Sender {
 
     /** Encola un evento de evidencia; false si la cola está llena. */
     synchronized boolean enqueue(String method, String path, byte[] body, String contentType, Duration timeout) {
+        Mirror copy = mirror;
+        if (copy == null) return enqueueRemote(method, path, body, contentType, timeout);
+        copy.record(method, path, body, contentType);
+        boolean ok = !path.matches(".*/(?:runs|tests)/-\\d+.*") && enqueueRemote(method, path, body, contentType, timeout);
+        if (!ok) copy.rejected();
+        return ok;
+    }
+
+    private synchronized boolean enqueueRemote(String method, String path, byte[] body, String contentType, Duration timeout) {
         Recorder rec = recorder;
         if (rec != null) return rec.record(method, path, body, contentType) != null;
         if (pending() + 1 > maxItems || bytes + body.length > maxBytes) {

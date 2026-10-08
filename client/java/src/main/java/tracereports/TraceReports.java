@@ -83,6 +83,7 @@ public final class TraceReports {
         this.offlineMode = switch (mode) {
             case "1", "true", "yes", "on", "always" -> "always";
             case "0", "false", "no", "off" -> "off";
+            case "both" -> "both";
             default -> "auto";
         };
         String dir = Context.property("offlineDir", Context.env("TRACEREPORTS_OFFLINE_DIR"));
@@ -94,11 +95,11 @@ public final class TraceReports {
     // ─── sin servidor ────────────────────────────────────────────────────
 
     /** true si la evidencia se graba localmente (sin servidor). */
-    public boolean recording() { return sender.recorder != null; }
+    public boolean recording() { return sender.recorder != null || sender.mirror != null; }
 
     /** Carpeta donde se graba, o null si se envía al servidor. */
     public Path offlineDir() {
-        Recorder r = sender.recorder;
+        Recorder r = sender.mirror != null ? sender.mirror.recorder : sender.recorder;
         return r == null ? null : r.dir;
     }
 
@@ -119,9 +120,15 @@ public final class TraceReports {
         }
     }
 
+    private void goMirror(long id, Map<String, Object> payload) {
+        Path dir = offlineExplicit ? offlineBase : Recorder.newSessionDir(offlineBase);
+        try { sender.mirror = new Mirror(dir, baseUrl, id, payload); }
+        catch (IOException | RuntimeException e) { LOG.warning("tracereports: no se pudo iniciar la copia local en " + dir + ": " + e); }
+    }
+
     /** Cierra la grabación y, con el binario instalado ($TRACEREPORTS_BIN o en el PATH), arma el reporte. */
     private void finishRecording() {
-        Recorder rec = sender.recorder;
+        Recorder rec = sender.mirror != null ? sender.mirror.recorder : sender.recorder;
         rec.close();
         String bin = Context.property("bin", Context.env("TRACEREPORTS_BIN"));
         if (bin.isBlank()) bin = findInPath("tracereports");
@@ -137,7 +144,7 @@ public final class TraceReports {
                     .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
             if (p.waitFor() == 0) {
                 offlineReport = out.resolve("index.html");
-                LOG.warning("tracereports: sin servidor; reporte estático en " + offlineReport);
+                LOG.warning("tracereports: reporte local en " + offlineReport);
                 return;
             }
         } catch (IOException e) {
@@ -176,7 +183,7 @@ public final class TraceReports {
 
     /** Link a la ejecución en la interfaz web. */
     public String reportUrl() {
-        if (recording()) return offlineReport == null ? "" : offlineReport.toString();
+        if (recording() && runId < 0) return offlineReport == null ? "" : offlineReport.toString();
         return runId == 0 ? "" : baseUrl + "/#run=" + runId + "&view=dashboard";
     }
 
@@ -224,11 +231,12 @@ public final class TraceReports {
         p.put("commit", info.commit != null ? info.commit : Context.commit());
         p.put("framework", info.framework);
         runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
-        if (runId == 0 && enabled && offlineMode.equals("auto") && !recording()) {
+        if (runId == 0 && enabled && (offlineMode.equals("auto") || offlineMode.equals("both")) && !recording()) {
             // sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
             goOffline("no se pudo crear la ejecución en " + baseUrl + " (servidor caído o token incorrecto)");
             if (recording()) runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
         }
+        if (runId > 0 && offlineMode.equals("both") && !recording()) goMirror(runId, p);
         runCreated = runId != 0;
         if (enabled && runId == 0) {
             LOG.warning("tracereports: no se pudo crear la ejecución en " + baseUrl + "; los tests siguen sin reporte.");
@@ -242,6 +250,7 @@ public final class TraceReports {
      */
     public long joinRun(long id) {
         if (id < 0 && enabled && !recording()) goOffline(null);
+        if (id > 0 && enabled && offlineMode.equals("both") && !recording()) goMirror(id, null);
         runId = id;
         runCreated = false;
         return runId;
@@ -254,14 +263,23 @@ public final class TraceReports {
 
     /** interrupted = true: la ejecución queda incompleta (nunca aparece como exitosa). */
     public void finishRun(boolean interrupted) {
-        flush(flushTimeout);
+        if (sender.mirror != null && sender.mirror.isClosed()) return;
+        int pending = flush(flushTimeout);
         sender.abandon();
-        if (recording() && (runId == 0 || !runCreated)) sender.recorder.close(); // el dueño arma el reporte
+        if (sender.mirror != null && (runId == 0 || !runCreated)) sender.mirror.close(pending == 0 && delivery().problems() == 0 && !interrupted);
+        if (sender.recorder != null && (runId == 0 || !runCreated)) sender.recorder.close(); // el dueño arma el reporte
         if (runId == 0 || !runCreated || !enabled) return; // unido a una ejecución ajena: la cierra su dueño
         // el cierre importa más que un paso: más reintentos (misma Idempotency-Key), aunque el circuito esté abierto
         String res = sender.sendNow("PATCH", "/api/v1/runs/" + runId + "/finish",
                 Json.write(Map.of("interrupted", interrupted)).getBytes(StandardCharsets.UTF_8), "application/json", timeout, 4, true);
         runNotClosed = res == null;
+        if (sender.mirror != null) {
+            sender.mirror.close(pending == 0 && delivery().problems() == 0 && !interrupted);
+            String before = sender.mirror.prepare();
+            finishRecording();
+            sender.mirror.finish(offlineReport, Context.property("offlineKeep", Context.env("TRACEREPORTS_OFFLINE_KEEP")).equals("1"), before);
+            return;
+        }
         if (recording()) {
             finishRecording();
             return;
@@ -295,7 +313,7 @@ public final class TraceReports {
         p.put("params", info.params);
         p.put("worker", info.worker);
         long id = Json.number(request("POST", "/api/v1/runs/" + runId + "/tests", p), "test_id");
-        if (enabled && id == 0) unregisteredTests.incrementAndGet();
+        if (enabled && (id == 0 || (sender.mirror != null && id < 0))) unregisteredTests.incrementAndGet();
         return new TraceTest(this, id);
     }
 

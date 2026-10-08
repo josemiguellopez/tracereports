@@ -1,6 +1,10 @@
 // Chequeo de tipos de la API pública (npm run typecheck): lo que acepta el runtime debe poder
 // escribirse con los tipos publicados en src/index.d.ts, sin casts. No se ejecuta.
 import type { Connection, TraceTest } from "../../src/index.js";
+import { TraceReports } from "../../src/index.js";
+
+const copy = new TraceReports({ offline: "both", offlineDir: "evidence" });
+export const localReport: string | null = copy.offlineReport;
 
 // una llamada capturada normal
 const plain: Connection = { method: "GET", url: "https://example.test/a", status: 200, body_size: 32 };

@@ -23,6 +23,7 @@ import path from "node:path";
 import { detectBranch, detectCommit } from "./context.js";
 import { env } from "./env.js";
 import { Recorder, newSessionDir } from "./offline.js";
+import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 
 export const VERSION = "0.1.0";
@@ -88,7 +89,7 @@ export class TraceReports {
    * @param {number} [opts.maxQueueMB]      default 64
    * @param {string} [opts.offlineDir] dónde grabar sin servidor (default $TRACEREPORTS_OFFLINE_DIR; sin
    *   ella, una carpeta nueva por sesión dentro de ./tracereports-offline)
-   * @param {"auto"|"always"|"off"} [opts.offline] auto (default, $TRACEREPORTS_OFFLINE): grabar solo si
+   * @param {"auto"|"always"|"both"|"off"} [opts.offline] auto (default, $TRACEREPORTS_OFFLINE): grabar solo si
    *   la ejecución no se puede crear; always: grabar sin intentar un servidor; off: nunca
    */
   constructor(opts = {}) {
@@ -139,6 +140,14 @@ export class TraceReports {
     }
   }
 
+  goMirror(runId, payload, directory) {
+    const dir = directory || (this.offlineExplicit ? this.offlineBase : newSessionDir(this.offlineBase));
+    try {
+      this.sender = new Mirror(this.sender, dir, this.baseUrl, runId, payload);
+      this.offlineDir = dir;
+    } catch (err) { console.warn(`tracereports: no se pudo iniciar la copia local en ${dir}: ${err.message}`); }
+  }
+
   /** Con el binario instalado ($TRACEREPORTS_BIN o en el PATH), arma el reporte HTML de la grabación. */
   buildOfflineReport({ zip } = {}) {
     const bin = env("BIN") || findInPath("tracereports");
@@ -156,6 +165,7 @@ export class TraceReports {
       return null;
     }
     this.offlineReport = path.join(out, "index.html");
+    console.warn(`tracereports: reporte local: ${this.offlineReport}`);
     return this.offlineReport;
   }
 
@@ -182,7 +192,7 @@ export class TraceReports {
   }
 
   get reportUrl() {
-    if (this.recording) return this.offlineReport || "";
+    if (this.recording && this.runId < 0) return this.offlineReport || "";
     return this.runId ? `${this.baseUrl}/#run=${this.runId}&view=dashboard` : "";
   }
 
@@ -216,11 +226,12 @@ export class TraceReports {
     };
     const res = await this.request("POST", "/api/v1/runs", payload);
     let created = res;
-    if (!created && this.enabled && this.offlineMode === "auto" && !this.recording) {
+    if (!created && this.enabled && ["auto", "both"].includes(this.offlineMode) && !this.recording) {
       // sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
       this.goOffline(`no se pudo crear la ejecución en ${this.baseUrl} (servidor caído o token incorrecto)`);
       if (this.recording) created = await this.request("POST", "/api/v1/runs", payload);
     }
+    if (created?.run_id > 0 && this.offlineMode === "both" && !this.recording) this.goMirror(created.run_id, payload);
     this.runId = created?.run_id ?? null;
     this.runCreated = Boolean(this.runId);
     if (this.enabled && !this.runId) {
@@ -241,6 +252,7 @@ export class TraceReports {
       }
       this.goOffline();
     }
+    if (Number(runId) > 0 && this.enabled && this.offlineMode === "both" && !this.recording) this.goMirror(Number(runId), null, offlineDir);
     this.runId = runId ? Number(runId) : null;
     this.runCreated = false;
     return this.runId;
@@ -248,14 +260,23 @@ export class TraceReports {
 
   /** Espera la cola (flushTimeoutMs) y cierra la ejecución. interrupted: incompleta, nunca verde. */
   async finishRun({ interrupted = false } = {}) {
-    await this.flush();
+    if (this.sender instanceof Mirror && this.sender.closed) return null;
+    const pending = await this.flush();
     this.sender.abandon();
+    if (!this.runCreated && this.sender instanceof Mirror) this.sender.close(pending === 0 && this.deliveryProblems() === 0 && !interrupted);
     if (!this.runId || !this.runCreated || !this.enabled) return null; // unido a otra: la cierra su dueño
     // el cierre importa más que un paso: más reintentos, siempre con la misma Idempotency-Key
     const res = await this.sender.sendNow("PATCH", `/api/v1/runs/${this.runId}/finish`,
       JSON.stringify({ interrupted }), "application/json", this.timeoutMs, 4, { ignoreCircuit: true });
     this.runNotClosed = res == null;
     if (this.recording) {
+      if (this.sender instanceof Mirror) {
+        this.sender.close(pending === 0 && this.deliveryProblems() === 0 && !interrupted);
+        const before = this.sender.prepare();
+        this.buildOfflineReport();
+        this.sender.finalize(this.offlineReport, env("OFFLINE_KEEP") === "1", before);
+        return res;
+      }
       this.buildOfflineReport();
       return res;
     }
@@ -282,7 +303,7 @@ export class TraceReports {
     if (!this.runId) return new TraceTest(this, null);
     const res = await this.request("POST", `/api/v1/runs/${this.runId}/tests`,
       { name, category, description, key, suite, params, worker: String(worker ?? "") });
-    if (this.enabled && !res?.test_id) this.unregisteredTests++;
+    if (this.enabled && (!res?.test_id || (this.sender instanceof Mirror && res.test_id < 0))) this.unregisteredTests++;
     return new TraceTest(this, res?.test_id ?? null);
   }
 

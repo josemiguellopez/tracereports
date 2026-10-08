@@ -32,8 +32,8 @@ final class Recorder {
 
     final Path dir;
     private final OutputStream events;
-    private final String tag = UUID.randomUUID().toString().substring(0, 8);
-    private final long pid = ProcessHandle.current().pid();
+    final String tag = UUID.randomUUID().toString().substring(0, 8);
+    final long pid = ProcessHandle.current().pid();
     private long seq;
     private long nextId;
     private long block;
@@ -59,7 +59,7 @@ final class Recorder {
     }
 
     /** Id local negativo, único entre los grabadores que graban en la misma carpeta. */
-    private long localId() throws IOException {
+    synchronized long localId() throws IOException {
         if (block == 0 || nextId >= ID_BLOCK - 1) {
             block = reserveBlock();
             nextId = 0;
