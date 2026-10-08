@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"github.com/josemiguellopez/tracereports/internal/redact"
 )
 
 const truncSecret = "TRUNC_SECRET_SENTINEL"
@@ -87,5 +89,33 @@ func TestClientTruncatedContentIsMaskedToo(t *testing.T) {
 	noSecret(t, "client-cut DOM", stored)
 	if !strings.Contains(stored, "Correo electrónico") {
 		t.Errorf("non-sensitive fields kept: %s", stored)
+	}
+}
+
+// Una clave larga configurada como sensible (TRACEREPORTS_REDACT_KEYS) se enmascara en la ingesta
+// de red: lo guardado y lo que devuelve la API no traen el valor.
+func TestIngestMasksALongConfiguredKey(t *testing.T) {
+	key := strings.Repeat("long-field-", 9) + "token"
+	const marker = "FAKE-CURRENT-PRIVATE-VALUE-12345"
+	t.Setenv("TRACEREPORTS_REDACT_KEYS", key)
+	srv, id := newTestServer(t)
+	srv.Redact = redact.FromEnv()
+	body := `{"user":"ana","` + key + `":"` + marker + `","nested":{"` + key + `":{"v":"` + marker + `"}}}`
+	raw, _ := json.Marshal(map[string]any{"connections": []map[string]any{{"method": "POST", "url": "https://fake.test/api", "status": 200,
+		"response_body": body, "post_data": body}}})
+	if rec := call(t, srv, "POST", "/api/v1/tests/"+itoa(id)+"/network", string(raw)); rec.Code != 201 {
+		t.Fatal(rec.Code, rec.Body)
+	}
+	cs, _ := srv.Store.ListNetwork(id)
+	noSecretIn := func(where, s string) {
+		if strings.Contains(s, marker) {
+			t.Fatalf("%s keeps the value: %.200s", where, s)
+		}
+	}
+	noSecretIn("stored body", cs[0].ResponseBody)
+	noSecretIn("stored post data", cs[0].PostData)
+	noSecretIn("network list", call(t, srv, "GET", "/api/v1/tests/"+itoa(id)+"/network", "").Body.String())
+	if !strings.Contains(cs[0].ResponseBody, `"user":"ana"`) {
+		t.Fatalf("the rest is kept: %s", cs[0].ResponseBody)
 	}
 }

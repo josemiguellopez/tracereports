@@ -44,20 +44,21 @@ var (
 	jwtRe      = regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}\.[A-Za-z0-9_-]{5,}`)
 	userinfoRe = regexp.MustCompile(`(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@"']+:[^/\s@"']+@`)
 	// "key": "value" | number | true/false   (JSON, also inside logs or traces); the key may carry
-	// JSON escapes ("\u0074oken")
-	jsonKVRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*|true|false)`)
+	// JSON escapes ("\u0074oken"). Keys of any length: a sensitive key is whatever the policy says
+	// (TRACEREPORTS_REDACT_KEYS has no length limit), and Go's regexp stays linear in the text
+	jsonKVRe = regexp.MustCompile(`"((?:[^"\\]|\\.)+)"(\s*:\s*)("(?:[^"\\]|\\.)*"|-?\d[\d.eE+-]*|true|false)`)
 	// "key": "value…   a string cut at the end of the text (a truncated body or field: the closing
 	// quote was cut off, the value may still be the whole secret). Reference definition: Text uses
 	// openTail, which finds the same without scanning the whole text (tests compare both)
-	jsonOpenTailRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)"(?:[^"\\]|\\.)*\\?$`)
-	// the key part of jsonOpenTailRe, ending at the value's opening quote (see openTail)
-	jsonOpenKeyRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"(\s*:\s*)"$`)
+	jsonOpenTailRe = regexp.MustCompile(`"((?:[^"\\]|\\.)+)"(\s*:\s*)"(?:[^"\\]|\\.)*\\?$`)
+	// the key part of jsonOpenTailRe, ending at the value's opening quote (openTail's rare path)
+	jsonOpenKeyRe = regexp.MustCompile(`"((?:[^"\\]|\\.)+)"(\s*:\s*)"$`)
 	// "key": { ... } | [ ... ]   (a whole object or array under a sensitive key)
-	jsonContainerRe = regexp.MustCompile(`"((?:[^"\\]|\\.){1,80})"\s*:\s*[\[{]`)
+	jsonContainerRe = regexp.MustCompile(`"((?:[^"\\]|\\.)+)"\s*:\s*[\[{]`)
 	// key=value   (query strings, form bodies, logs); the key may be percent-encoded (%74oken)
-	formKVRe = regexp.MustCompile(`([A-Za-z0-9_.\-\[\]%+]{1,120})=([^&\s"'<>,;]*)`)
+	formKVRe = regexp.MustCompile(`([A-Za-z0-9_.\-\[\]%+]+)=([^&\s"'<>,;]*)`)
 	// key: value  (headers or YAML-ish lines copied into logs)
-	colonKVRe = regexp.MustCompile(`(?im)^(\s*[A-Za-z0-9_.\-]{1,60})(\s*:\s+)(\S.*)$`)
+	colonKVRe = regexp.MustCompile(`(?im)^(\s*[A-Za-z0-9_.\-]+)(\s*:\s+)(\S.*)$`)
 )
 
 // Default is the built-in policy.
@@ -274,42 +275,64 @@ func (p *Policy) Headers(h map[string]string) map[string]string {
 	return h
 }
 
-// openKeyWindow is how far before the value's opening quote the key is looked for: an 80
-// character key (escapes included) plus the spaces around the colon.
-const openKeyWindow = 1024
-
-// openTail finds what jsonOpenTailRe matches (a sensitive-looking "key": "value cut at the end)
-// without running a regular expression over the whole text: a value cut at the end starts at
-// the last unescaped quote, so only the key just before it is matched. Same indexes as
-// FindStringSubmatchIndex (match, key, separator); nil when there is none.
 func openTail(s string) []int {
-	q := -1
-	for i := len(s) - 1; i >= 0; i-- {
-		if s[i] != '"' {
-			continue
-		}
-		bs := 0
-		for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
-			bs++
-		}
-		if bs%2 == 0 { // comilla sin escapar
-			q = i
-			break
-		}
-	}
+	q := lastUnescapedQuote(s, len(s)-1) // abre el valor cortado
 	if q < 0 {
 		return nil
 	}
-	start := max(0, q-openKeyWindow)
-	m := jsonOpenKeyRe.FindStringSubmatchIndex(s[start : q+1])
-	if m == nil {
+	// hacia atrás: espacios, ":", espacios, la comilla que cierra la clave y la que la abre
+	j := q - 1
+	for j >= 0 && isJSONSpace(s[j]) {
+		j--
+	}
+	if j < 0 || s[j] != ':' {
 		return nil
 	}
-	for i := range m {
-		if m[i] >= 0 {
-			m[i] += start
+	j--
+	for j >= 0 && isJSONSpace(s[j]) {
+		j--
+	}
+	if j < 0 || s[j] != '"' {
+		return nil
+	}
+	keyEnd := j
+	if !escaped(s, keyEnd) {
+		// la comilla anterior sin escapar abre la clave: ninguna anterior puede (pasaría por esta)
+		if keyStart := lastUnescapedQuote(s, keyEnd-1); keyStart >= 0 {
+			if keyStart+1 == keyEnd {
+				return nil // clave vacía
+			}
+			return []int{keyStart, len(s), keyStart + 1, keyEnd, keyEnd + 1, q}
 		}
+	}
+	// fragmento raro (la clave empieza o termina en una comilla precedida por barras): la
+	// expresión de referencia decide, sobre el texto hasta el valor
+	m := jsonOpenKeyRe.FindStringSubmatchIndex(s[:q+1])
+	if m == nil {
+		return nil
 	}
 	m[1] = len(s)
 	return m
 }
+
+// lastUnescapedQuote is the last '"' at or before i that is not escaped by a backslash (-1).
+func lastUnescapedQuote(s string, i int) int {
+	for ; i >= 0; i-- {
+		if s[i] == '"' && !escaped(s, i) {
+			return i
+		}
+	}
+	return -1
+}
+
+// escaped reports whether s[i] is preceded by an odd number of backslashes.
+func escaped(s string, i int) bool {
+	bs := 0
+	for j := i - 1; j >= 0 && s[j] == '\\'; j-- {
+		bs++
+	}
+	return bs%2 == 1
+}
+
+// isJSONSpace is \s of Go's regexp (the separator of the reference expression).
+func isJSONSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' }

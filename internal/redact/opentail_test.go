@@ -9,7 +9,7 @@ import (
 // openTail encuentra lo mismo que la expresión regular original sobre todo el texto (comparado
 // en miles de textos aleatorios con comillas, barras, claves y espacios), sin recorrerlo entero.
 func TestOpenTailMatchesTheRegexp(t *testing.T) {
-	pieces := []string{`"`, `\`, `\"`, `\\`, `:`, ` `, `token`, `password`, `"token":"`, `"a": "`, `x`, `ñ`, `{`, `}`, `,`, `"tok\"en":"`, `t`}
+	pieces := []string{`"`, `\`, `\"`, `\\`, `:`, ` `, `token`, `password`, `"token":"`, `"a": "`, `x`, `ñ`, `{`, `}`, `,`, `"tok\"en":"`, `\u0074`, `"\u0074oken":"`, `"` + strings.Repeat("k", 300) + `_token":"`, strings.Repeat("y", 200)}
 	r := rand.New(rand.NewSource(42))
 	for n := 0; n < 20000; n++ {
 		var b strings.Builder
