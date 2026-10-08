@@ -16,6 +16,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/env"
+	"github.com/josemiguellopez/tracereports/internal/secret"
 )
 
 // Ajustes guardados (tabla settings). Lo que no está guardado sale del entorno (.env).
@@ -29,6 +30,59 @@ const (
 )
 
 var languages = set("es", "en")
+
+// SecretSettings are the settings that hold credentials: encrypted with TRACEREPORTS_SECRET_KEY
+// (see internal/secret) and never returned by the API.
+var SecretSettings = []string{setAPIKey}
+
+// errSecretKey is returned when a credential cannot be stored or read because of the master key.
+type errSecretKey struct{ err error }
+
+func (e errSecretKey) Error() string { return e.err.Error() }
+func (e errSecretKey) Unwrap() error { return e.err }
+
+// keyState explains the stored AI key for the Settings screen and the logs (never its value).
+func keyState(stored string, err error) string {
+	switch {
+	case stored == "":
+		return ""
+	case errors.Is(err, secret.ErrNoKey):
+		return "master_key_missing"
+	case errors.Is(err, secret.ErrWrongKey):
+		return "master_key_wrong"
+	case errors.Is(err, secret.ErrCorrupt):
+		return "damaged"
+	case !secret.IsSealed(stored):
+		return "plaintext"
+	}
+	return "encrypted"
+}
+
+// savedSettings reads the settings with the saved AI key decrypted. When it cannot be decrypted
+// (missing or wrong TRACEREPORTS_SECRET_KEY, damaged value) the key is left out and keyErr says
+// why; the stored value is never changed here.
+func (s *Server) savedSettings() (saved map[string]string, stored string, keyErr error, err error) {
+	saved, err = s.Store.Settings()
+	if err != nil {
+		return nil, "", nil, err
+	}
+	stored = saved[setAPIKey]
+	if stored != "" {
+		plain, e := s.Secrets.Open(setAPIKey, stored)
+		if e != nil {
+			keyErr = errSecretKey{e}
+			plain = ""
+		}
+		saved[setAPIKey] = plain
+	}
+	return saved, stored, keyErr, nil
+}
+
+// keyProblem is the message for a saved AI key that cannot be used (without revealing it).
+func keyProblem(err error) string {
+	return "the AI key saved from Settings cannot be decrypted: " + err.Error() +
+		". Set the TRACEREPORTS_SECRET_KEY it was saved with (it was not deleted), or type the key again"
+}
 
 type peerKey struct{}
 
@@ -114,9 +168,15 @@ func jsonSameOrigin(w http.ResponseWriter, r *http.Request) bool {
 
 // LoadSettings applies the saved settings over the environment (call once at startup).
 func (s *Server) LoadSettings() error {
-	saved, err := s.Store.Settings()
+	saved, stored, keyErr, err := s.savedSettings()
 	if err != nil {
 		return err
+	}
+	switch {
+	case keyErr != nil:
+		slog.Error("settings: "+keyProblem(keyErr), "state", keyState(stored, keyErr), "key_id", secret.KeyIDOf(stored))
+	case stored != "" && !secret.IsSealed(stored):
+		slog.Warn("settings: the AI key saved from Settings is stored in clear; set TRACEREPORTS_SECRET_KEY and run 'tracereports secrets migrate' (see docs: configuration)")
 	}
 	s.AI.SetLanguage(aiLanguage(saved))
 	if saved[setProvider] == "" {
@@ -170,7 +230,7 @@ type aiView struct {
 }
 
 func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
-	saved, err := s.Store.Settings()
+	saved, stored, keyErr, err := s.savedSettings()
 	if err != nil {
 		serverError(w, err)
 		return
@@ -181,7 +241,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 	keySource := ""
 	switch {
 	case cur.APIKey == "":
-	case saved[setAPIKey] != "" && saved[setProvider] == cur.Provider:
+	case stored != "" && saved[setProvider] == cur.Provider:
 		keySource = "ui"
 	default:
 		keySource = "env"
@@ -207,6 +267,9 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 			KeySet: cur.APIKey != "", KeyHint: keyHint(cur.APIKey), KeySource: keySource},
 		"env_ai":    aiView{Provider: env.Provider, Model: env.Model, BaseURL: env.BaseURL, KeySet: env.APIKey != ""},
 		"providers": ai.Providers,
+		// cifrado de la key guardada: estado, nunca el valor (master_key_missing/_wrong, damaged,
+		// plaintext = guardada antes del cifrado, encrypted)
+		"secrets": map[string]any{"master_key_set": s.Secrets.Enabled(), "saved_key": keyState(stored, keyErr)},
 	})
 }
 
@@ -219,19 +282,22 @@ type aiInput struct {
 
 // resolve builds the config to use; without a new key it reuses the saved one (same provider)
 // or the one in the environment.
-func (s *Server) resolveAI(in aiInput, saved map[string]string) (ai.Config, bool) {
+func (s *Server) resolveAI(in aiInput, saved map[string]string, keyErr error) (ai.Config, bool, error) {
 	p := strings.ToLower(strings.TrimSpace(in.Provider))
 	c := ai.Config{Provider: p, Model: in.Model, BaseURL: in.BaseURL}
 	if in.APIKey != nil && strings.TrimSpace(*in.APIKey) != "" {
 		c.APIKey = strings.TrimSpace(*in.APIKey)
-		return c, true
+		return c, true, nil
+	}
+	if saved[setProvider] == p && keyErr != nil {
+		return c, false, keyErr // no se cambia en silencio por la key del .env
 	}
 	if saved[setProvider] == p && saved[setAPIKey] != "" {
 		c.APIKey = saved[setAPIKey]
 	} else {
 		c.APIKey = ai.EnvKey(p)
 	}
-	return c, false
+	return c, false, nil
 }
 
 func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
@@ -246,7 +312,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	saved, err := s.Store.Settings()
+	saved, _, keyErr, err := s.savedSettings()
 	if err != nil {
 		serverError(w, err)
 		return
@@ -273,7 +339,11 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			newCfg = &ai.Config{}
 			changes[setProvider], changes[setModel], changes[setBaseURL], changes[setAPIKey] = "off", "", "", ""
 		} else {
-			c, newKey := s.resolveAI(*in.AI, saved)
+			c, newKey, err := s.resolveAI(*in.AI, saved, keyErr)
+			if err != nil {
+				writeError(w, http.StatusConflict, keyProblem(err))
+				return
+			}
 			if err := c.Validate(); err != nil {
 				writeError(w, http.StatusBadRequest, err.Error())
 				return
@@ -282,7 +352,15 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			changes[setProvider], changes[setModel], changes[setBaseURL] = c.Provider, strings.TrimSpace(c.Model), strings.TrimSpace(c.BaseURL)
 			switch {
 			case newKey:
-				changes[setAPIKey] = c.APIKey
+				// en la base solo cifrada: sin clave maestra no se guarda (la del .env sigue sirviendo)
+				sealed, err := s.Secrets.Seal(setAPIKey, c.APIKey)
+				if err != nil {
+					writeError(w, http.StatusConflict, "to save an API key from Settings the server needs TRACEREPORTS_SECRET_KEY "+
+						"(32 random bytes, e.g. openssl rand -base64 32), so the key is stored encrypted. "+
+						"Alternatively set the key in the environment (AI_API_KEY or the provider's variable)")
+					return
+				}
+				changes[setAPIKey] = sealed
 			case saved[setProvider] != c.Provider:
 				changes[setAPIKey] = "" // la key guardada era de otro proveedor
 			}
@@ -330,12 +408,16 @@ func (s *Server) testAISettings(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	saved, err := s.Store.Settings()
+	saved, _, keyErr, err := s.savedSettings()
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	c, _ := s.resolveAI(in, saved)
+	c, _, err := s.resolveAI(in, saved, keyErr)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": keyProblem(err)})
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 	defer cancel()
 	took, err := s.AI.Test(ctx, c)

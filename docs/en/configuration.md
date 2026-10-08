@@ -17,6 +17,8 @@ steps to apply it.
 | `PORT` | `8080` | HTTP port |
 | `DATA_DIR` | `./data` | SQLite database and screenshots |
 | `TRACEREPORTS_TOKEN` | — | Token required to **write** to the API (the test clients) |
+| `TRACEREPORTS_SECRET_KEY` | — | Master key (32 bytes, base64 or hex) to store **encrypted** the AI API key typed in Settings. Without it, the key can only be given through the environment. See [Encrypted credentials](#credentials-saved-from-settings-encrypted) |
+| `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | The previous master key, only while you change it (rotation) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: with a token and no login, the same machine (no proxy) may change Settings and use the UI actions |
@@ -139,8 +141,9 @@ Both work, and they can be combined:
   UI.
 - **Settings → Artificial intelligence**: switch provider without restarting the server, with
   *Test connection* before saving. What you save there **overrides the `.env`**; *Go back to the
-  .env configuration* undoes it. The API key is stored in the server database (`DATA_DIR`) and is
-  never sent to the browser (the UI only shows its last 4 characters).
+  .env configuration* undoes it. The API key is stored **encrypted** in the server database
+  (`DATA_DIR`), which requires `TRACEREPORTS_SECRET_KEY` (see below), and is never sent to the
+  browser (the UI only shows its last 4 characters).
 
 In production: configure with the `.env` and set `TRACEREPORTS_SETTINGS_LOCKED=1` so nobody can change
 it from the UI. To try providers on your machine, the screen is faster.
@@ -160,6 +163,51 @@ backend call that failed, the category or the error message.
 
 The analysis runs in the background and shows up in the UI as soon as it finishes. Requests are
 processed a few at a time and retried automatically when a rate limit is hit.
+
+### Credentials saved from Settings (encrypted)
+
+The AI API key typed in **Settings** is stored in SQLite encrypted with AES-256-GCM. The master key
+is **not** in the database: it comes from `TRACEREPORTS_SECRET_KEY`. Keys given through environment
+variables (`AI_API_KEY`, `OPENAI_API_KEY`…) do not change and need no master key.
+
+**Enable**
+
+```bash
+openssl rand -base64 32        # or: python -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+TRACEREPORTS_SECRET_KEY=<what it printed>
+```
+
+Keep it in your infrastructure's secret manager (not in the repository nor next to `DATA_DIR`).
+Without it, saving a key from Settings answers an error that says what is missing: the key is
+**never** stored unencrypted.
+
+**Installations with a key saved by an earlier version (unencrypted)**: it keeps working, and
+Settings and the log warn that it is in clear. To encrypt it, with the server stopped or running:
+
+```bash
+# 1. back up DATA_DIR (it contains the key in clear: keep it protected and delete it afterwards)
+# 2. check the state (it never prints the key)
+TRACEREPORTS_SECRET_KEY=... tracereports secrets status
+# 3. dry run, then apply
+TRACEREPORTS_SECRET_KEY=... tracereports secrets migrate -dry-run
+TRACEREPORTS_SECRET_KEY=... tracereports secrets migrate
+```
+
+With Docker: `docker compose exec tracereports /tracereports secrets migrate` (the variable is
+already in the container). The server never migrates by itself.
+
+**If the master key is missing or changed**: the server starts anyway, the encrypted key is **not
+deleted**, Settings shows why (*TRACEREPORTS_SECRET_KEY is missing* / *encrypted with another key*)
+and the AI uses the environment key if there is one. Changing only the model answers an error
+instead of silently using another key. Fix it by setting the right key or typing the key again.
+
+**Rotate the key**: set the new one in `TRACEREPORTS_SECRET_KEY` and the previous one in
+`TRACEREPORTS_SECRET_KEY_PREVIOUS`, run `tracereports secrets migrate`, then remove the previous one.
+
+**Backup and restore**: a backup of `DATA_DIR` is only useful together with the master key it was
+encrypted with: keep both, in different places. When restoring on another server set the same
+`TRACEREPORTS_SECRET_KEY`. If the key is lost, the saved key cannot be recovered: type it again in
+Settings (the rest of the database does not depend on it).
 
 ## Interface language
 

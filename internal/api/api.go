@@ -28,6 +28,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/owners"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/release"
+	"github.com/josemiguellopez/tracereports/internal/secret"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
@@ -56,6 +57,9 @@ type Server struct {
 	SettingsLocked bool
 	// Redact masks secrets before anything is stored (nil = redact.Default()).
 	Redact *redact.Policy
+	// Secrets encrypts the credentials saved from Settings (TRACEREPORTS_SECRET_KEY); nil = none
+	// configured: credentials cannot be saved from the UI, only read from the environment.
+	Secrets *secret.Box
 	// Hosts accepted on requests without credentials (DNS rebinding); nil checks nothing.
 	Hosts *HostPolicy
 	// Trackers where a failure can be turned into a ticket (GitHub, Jira, Azure DevOps).

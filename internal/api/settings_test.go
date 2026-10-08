@@ -98,6 +98,7 @@ func TestSettingsAccessRules(t *testing.T) {
 func TestSettingsAIProviderLifecycle(t *testing.T) {
 	clearAIEnv(t)
 	srv, _ := newTestServer(t)
+	srv.Secrets = masterBox(t, testMasterKey)         // guardar una key desde la UI exige la clave maestra
 	t.Setenv("GEMINI_API_KEY", "env-gemini-key-1234") // después: newTestServer la vacía
 	srv.AI = ai.New(srv.Store)
 	if err := srv.LoadSettings(); err != nil {
@@ -142,7 +143,7 @@ func TestSettingsAIProviderLifecycle(t *testing.T) {
 	}
 	// persistencia: un servidor nuevo sobre la misma base aplica lo guardado
 	call(t, srv, "PUT", "/api/v1/settings", `{"ai":{"provider":"ollama"},"ai_language":"en"}`)
-	srv2 := &Server{Store: srv.Store, AI: ai.New(srv.Store)}
+	srv2 := &Server{Store: srv.Store, AI: ai.New(srv.Store), Secrets: srv.Secrets}
 	if err := srv2.LoadSettings(); err != nil || srv2.AI.Provider() != "ollama" {
 		t.Fatalf("reload: %v %+v", err, srv2.AI.Config())
 	}

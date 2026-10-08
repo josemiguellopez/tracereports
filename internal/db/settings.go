@@ -54,6 +54,17 @@ func (s *Store) SaveSettings(values map[string]string) error {
 	return tx.Commit()
 }
 
+// ReplaceSetting changes key from old to new only if it still holds old (compare-and-swap):
+// a server running at the same time that saved another value is not overwritten.
+func (s *Store) ReplaceSetting(key, old, new string) (bool, error) {
+	res, err := s.db.Exec(`UPDATE settings SET value = ?, updated_at = ? WHERE key = ? AND value = ?`, new, NowMs(), key, old)
+	if err != nil {
+		return false, err
+	}
+	n, err := res.RowsAffected()
+	return n == 1, err
+}
+
 // DeleteSettings removes every key starting with prefix (e.g. "ai." to go back to the .env).
 func (s *Store) DeleteSettings(prefix string) error {
 	_, err := s.db.Exec(`DELETE FROM settings WHERE substr(key, 1, ?) = ?`, len(prefix), strings.TrimSpace(prefix))

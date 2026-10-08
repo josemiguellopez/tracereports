@@ -3017,6 +3017,17 @@
 		</section>`;
 	}
 
+	/** Estado de la API key guardada desde Ajustes cuando necesita atención (nunca su valor). */
+	function secretKeyNotice(state) {
+		const msg = {
+			master_key_missing: "La API key guardada está cifrada y el servidor arrancó sin TRACEREPORTS_SECRET_KEY: no se puede usar. No se borró: vuelve a definir esa variable con la misma clave, o escribe la key de nuevo.",
+			master_key_wrong: "La API key guardada se cifró con otra TRACEREPORTS_SECRET_KEY: no se puede usar. No se borró: vuelve a poner la clave anterior (o úsala como TRACEREPORTS_SECRET_KEY_PREVIOUS), o escribe la key de nuevo.",
+			damaged: "La API key guardada está dañada y no se puede descifrar. Escríbela de nuevo.",
+			plaintext: "La API key guardada por una versión anterior está sin cifrar. Define TRACEREPORTS_SECRET_KEY y ejecuta 'tracereports secrets migrate'.",
+		}[state];
+		return msg ? `<p class="set-msg ${state === "plaintext" ? "" : "err"}" role="status">${icon(state === "plaintext" ? "i-warning" : "i-fail")}<span>${tr(msg)}</span></p>` : "";
+	}
+
 	function aiCardSettings() {
 		const st = S.settings, d = st.data, f = st.form;
 		const ro = !d.editable;
@@ -3036,7 +3047,7 @@
 					<span class="src-badge" data-tip="${d.ai_source === "ui" ? "Configurada desde esta pantalla: manda sobre el .env." : "Configurada con variables de entorno (.env)."}">${d.ai_source === "ui" ? "desde Ajustes" : "desde .env"}</span></span>
 			</div>
 			<p class="field-help">Diagnostica cada fallo y el resumen de la ejecución. Elige el proveedor: en la nube (Gemini, Claude, OpenAI) o local con Ollama, donde los datos de tus tests no salen de tu red.</p>
-			${ro ? readOnlyHelp(d) : ""}
+			${ro ? readOnlyHelp(d) : ""}${secretKeyNotice(d.secrets?.saved_key)}
 			<fieldset class="prov-grid" ${ro ? "disabled" : ""}>
 				<legend class="field-label">Proveedor</legend>
 				${[...provs, { id: "off", name: "Desactivada", note: "Sin diagnóstico automático." }].map((x) => `
@@ -3055,7 +3066,8 @@
 					<span class="field-help">${p.id === "openai_compatible" ? tr("La URL base que termina en /v1. Ej.: https://api.groq.com/openai/v1, https://openrouter.ai/api/v1, http://localhost:1234/v1 (LM Studio).") : p.id === "ollama" ? tr("Donde corre Ollama. Si el servidor está en Docker: http://host.docker.internal:11434.") : tr("Solo si usas un proxy o un endpoint propio.")}</span></label>
 				${p.needs_key || p.id === "openai_compatible" ? `<label class="field"><span class="field-label">API key${p.needs_key ? "" : ` <small>${tr("(si el servicio la pide)")}</small>`}</span>
 					<input type="password" data-ai-field="api_key" value="" placeholder="${esc(keyNote)}" autocomplete="new-password" spellcheck="false">
-					<span class="field-help">${tr("Se guarda en el servidor y nunca se vuelve a mostrar.")}${p.key_url ? ` <a href="${esc(p.key_url)}" target="_blank" rel="noopener">${tr("Obtener una API key")} ↗</a>` : ""}</span></label>` : ""}
+					<span class="field-help">${d.secrets?.master_key_set ? tr("Se guarda cifrada en el servidor y nunca se vuelve a mostrar.")
+						: tr("Para guardarla aquí el servidor necesita TRACEREPORTS_SECRET_KEY, así queda cifrada. También puedes ponerla en el .env.")}${p.key_url ? ` <a href="${esc(p.key_url)}" target="_blank" rel="noopener">${tr("Obtener una API key")} ↗</a>` : ""}</span></label>` : ""}
 			</fieldset>` : ""}
 			<label class="field field-inline"><span class="field-label">Idioma de los diagnósticos</span>
 				<select data-ai-field="ai_language" ${ro ? "disabled" : ""}>${AI_LANGS.map(([v, l]) => `<option value="${v}" ${f.ai_language === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>

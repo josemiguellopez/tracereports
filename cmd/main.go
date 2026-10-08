@@ -48,6 +48,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/owners"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/release"
+	"github.com/josemiguellopez/tracereports/internal/secret"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
@@ -62,14 +63,17 @@ func main() {
 			err = runPush(os.Args[2:])
 		case "pr-comment":
 			err = runPRComment(os.Args[2:])
+		case "secrets":
+			err = runSecrets(os.Args[2:], os.Stdout)
 		case "-h", "-help", "--help", "help":
 			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
 				"       tracereports report ...   build a static HTML report without a server\n" +
 				"       tracereports push ...     upload a recording made without a server\n" +
-				"       tracereports pr-comment   comment the run summary on the pull request")
+				"       tracereports pr-comment   comment the run summary on the pull request\n" +
+				"       tracereports secrets ...  status / migrate of the credentials saved from Settings")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
@@ -156,6 +160,13 @@ func run() error {
 	if !redaction.Enabled() {
 		slog.Warn("TRACEREPORTS_REDACT=off: secrets in the evidence are stored as received")
 	}
+	secrets, err := secret.FromEnv()
+	if err != nil {
+		return err // una clave maestra mal escrita no se ignora: las credenciales no se podrían leer
+	}
+	if secrets.Enabled() {
+		slog.Info("credentials saved from Settings are encrypted", "key_id", secrets.KeyID())
+	}
 	analyzer := ai.New(store)
 	analyzer.Redact = redaction
 	// los análisis de IA terminan en segundo plano: la UI se entera en vivo por SSE
@@ -172,6 +183,7 @@ func run() error {
 		Web:            webRoot,
 		SettingsLocked: env.Bool("SETTINGS_LOCKED"),
 		Redact:         redaction,
+		Secrets:        secrets,
 		// sin login, solo se atiende a Host locales o permitidos (protección contra DNS rebinding)
 		Hosts: api.NewHostPolicy(env.Get("ALLOWED_HOSTS"), os.Getenv("PUBLIC_URL")),
 		// GitHub, Jira o Azure DevOps para crear tickets desde un fallo (TRACEREPORTS_GITHUB_* ...)

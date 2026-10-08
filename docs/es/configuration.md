@@ -17,6 +17,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `PORT` | `8080` | Puerto HTTP |
 | `DATA_DIR` | `./data` | Base de datos SQLite y capturas |
 | `TRACEREPORTS_TOKEN` | — | Token obligatorio para **escribir** en la API (los clientes de tests) |
+| `TRACEREPORTS_SECRET_KEY` | — | Clave maestra (32 bytes en base64 o hex) para guardar **cifrada** la API key de IA escrita en Ajustes. Sin ella, la key solo se puede dar por el entorno. Ver [Credenciales cifradas](#credenciales-guardadas-desde-ajustes-cifradas) |
+| `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | La clave maestra anterior, solo mientras la cambias (rotación) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: con token y sin login, el mismo equipo (sin proxy) puede cambiar Ajustes y usar las acciones de la UI |
@@ -139,8 +141,9 @@ Las dos sirven, y se pueden combinar:
   la UI.
 - **Ajustes → Inteligencia artificial**: cambia el proveedor sin reiniciar el servidor, con
   *Probar conexión* antes de guardar. Lo guardado ahí **manda sobre el `.env`**; *Volver a la
-  configuración del .env* lo deshace. La API key se guarda en la base de datos del servidor
-  (`DATA_DIR`) y nunca se envía al navegador (la UI solo muestra sus últimos 4 caracteres).
+  configuración del .env* lo deshace. La API key se guarda **cifrada** en la base de datos del
+  servidor (`DATA_DIR`), lo que exige `TRACEREPORTS_SECRET_KEY` (ver abajo), y nunca se envía al
+  navegador (la UI solo muestra sus últimos 4 caracteres).
 
 En producción: configura con el `.env` y usa `TRACEREPORTS_SETTINGS_LOCKED=1` para que nadie la cambie
 desde la UI. Para probar proveedores en tu máquina, la pantalla es más rápida.
@@ -161,6 +164,51 @@ backend que falló, la categoría o el mensaje de error.
 El análisis corre en segundo plano y aparece en la UI apenas termina. Con la capa gratuita se
 Las solicitudes se procesan de a pocas y se reintentan automáticamente si se excede el límite del
 proveedor.
+
+### Credenciales guardadas desde Ajustes (cifradas)
+
+La API key de IA escrita en **Ajustes** se guarda en SQLite cifrada con AES-256-GCM. La clave
+maestra **no** está en la base: la da `TRACEREPORTS_SECRET_KEY`. Las keys dadas por variables de
+entorno (`AI_API_KEY`, `OPENAI_API_KEY`…) no cambian y no necesitan clave maestra.
+
+**Activar**
+
+```bash
+openssl rand -base64 32        # o: python -c "import secrets,base64; print(base64.b64encode(secrets.token_bytes(32)).decode())"
+TRACEREPORTS_SECRET_KEY=<lo que imprimió>
+```
+
+Guárdala en el gestor de secretos de tu infraestructura (no en el repositorio ni en la misma carpeta
+que `DATA_DIR`). Sin ella, guardar una key desde Ajustes responde un error que explica qué falta: la
+key **no** se guarda sin cifrar.
+
+**Instalaciones con una key guardada por una versión anterior (sin cifrar)**: sigue funcionando, y
+Ajustes y el log avisan que está en claro. Para cifrarla, con el servidor detenido o en marcha:
+
+```bash
+# 1. respaldo de DATA_DIR (incluye la key en claro: guárdalo protegido y bórralo al terminar)
+# 2. ver el estado (nunca muestra la key)
+TRACEREPORTS_SECRET_KEY=... tracereports secrets status
+# 3. simular y aplicar
+TRACEREPORTS_SECRET_KEY=... tracereports secrets migrate -dry-run
+TRACEREPORTS_SECRET_KEY=... tracereports secrets migrate
+```
+
+Con Docker: `docker compose exec tracereports /tracereports secrets migrate` (la variable ya está
+en el contenedor). El servidor nunca migra por su cuenta.
+
+**Si falta o cambió la clave maestra**: el servidor arranca igual, la key cifrada **no se borra**,
+Ajustes muestra el motivo (*falta TRACEREPORTS_SECRET_KEY* / *se cifró con otra clave*) y la IA usa
+la key del entorno si hay una. Cambiar solo el modelo responde un error en vez de usar otra key en
+silencio. Se resuelve poniendo la clave correcta o escribiendo la key de nuevo.
+
+**Rotar la clave**: define la nueva en `TRACEREPORTS_SECRET_KEY` y la anterior en
+`TRACEREPORTS_SECRET_KEY_PREVIOUS`, ejecuta `tracereports secrets migrate` y luego quita la anterior.
+
+**Respaldo y restauración**: un respaldo de `DATA_DIR` sirve solo junto con la clave maestra con la
+que se cifró: guarda las dos, en lugares distintos. Al restaurar en otro servidor define la misma
+`TRACEREPORTS_SECRET_KEY`. Si la clave se perdió, la key guardada no se puede recuperar: escríbela de
+nuevo en Ajustes (el resto de la base no depende de ella).
 
 ## Idioma de la interfaz
 

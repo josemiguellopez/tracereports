@@ -28,6 +28,12 @@
 		"(en curso)": "(running)", "Empezó otra ejecución": "Another run started", "Ver en vivo": "Watch live", "Ahora no": "Not now", "1 nueva": "1 new", "{n} nuevas": "{n} new", "{n} ejecuciones nuevas en curso": "{n} new runs in progress",
 		"Ejecuciones que empezaron mientras mirabas esta. Clic para ver la última en vivo.": "Runs that started while you were looking at this one. Click to watch the latest live.",
 		"Ejecución nueva en curso": "New run in progress",
+		"Se guarda cifrada en el servidor y nunca se vuelve a mostrar.": "Stored encrypted on the server and never shown again.",
+		"Para guardarla aquí el servidor necesita TRACEREPORTS_SECRET_KEY, así queda cifrada. También puedes ponerla en el .env.": "To save it here the server needs TRACEREPORTS_SECRET_KEY, so it is stored encrypted. You can also put it in the .env.",
+		"La API key guardada está cifrada y el servidor arrancó sin TRACEREPORTS_SECRET_KEY: no se puede usar. No se borró: vuelve a definir esa variable con la misma clave, o escribe la key de nuevo.": "The saved API key is encrypted and the server started without TRACEREPORTS_SECRET_KEY: it cannot be used. It was not deleted: set that variable again with the same key, or type the key again.",
+		"La API key guardada se cifró con otra TRACEREPORTS_SECRET_KEY: no se puede usar. No se borró: vuelve a poner la clave anterior (o úsala como TRACEREPORTS_SECRET_KEY_PREVIOUS), o escribe la key de nuevo.": "The saved API key was encrypted with another TRACEREPORTS_SECRET_KEY: it cannot be used. It was not deleted: set the previous key back (or as TRACEREPORTS_SECRET_KEY_PREVIOUS), or type the key again.",
+		"La API key guardada está dañada y no se puede descifrar. Escríbela de nuevo.": "The saved API key is damaged and cannot be decrypted. Type it again.",
+		"La API key guardada por una versión anterior está sin cifrar. Define TRACEREPORTS_SECRET_KEY y ejecuta 'tracereports secrets migrate'.": "The API key saved by an earlier version is not encrypted. Set TRACEREPORTS_SECRET_KEY and run 'tracereports secrets migrate'.",
 
 		// ── lista de tests ──
 		"Todos": "All", "Todas": "All", "Buscar test(s)...": "Search test(s)...",
