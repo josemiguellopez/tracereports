@@ -12,6 +12,7 @@ package release
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -55,7 +56,8 @@ func Parse(spec string) (Gate, error) {
 		switch k {
 		case "min_pass_rate":
 			f, err := strconv.ParseFloat(v, 64)
-			if err != nil || f < 0 || f > 100 {
+			// NaN no cumple ninguna comparación (pasaba el rango) y no se puede codificar en JSON
+			if err != nil || math.IsNaN(f) || f < 0 || f > 100 {
 				return g, fmt.Errorf("release gate: min_pass_rate must be 0-100")
 			}
 			g.MinPassRate = f
@@ -214,7 +216,9 @@ func Evaluate(g Gate, d *db.RunDetail, newFailures []string) *Decision {
 	if len(g.Critical) > 0 {
 		add("critical", Block, len(critFails) == 0, strings.Join(g.Critical, ", "), critFails)
 	}
-	add("pass_rate", Block, counted == 0 || out.PassRate >= g.MinPassRate, fmt.Sprintf("%.1f/%.1f", out.PassRate, g.MinPassRate), nil)
+	// la decisión usa la tasa exacta (PassRate está redondeada para mostrarla): 379 de 399 es
+	// 94,987 %, se muestra 95,0 y no llega a un mínimo de 95
+	add("pass_rate", Block, counted == 0 || meetsRate(passed, counted, g.MinPassRate), fmt.Sprintf("%.1f/%.1f", out.PassRate, g.MinPassRate), nil)
 	if newFailures != nil {
 		add("new_failures", Warn, len(newFailures) <= g.MaxNewFailures, fmt.Sprintf("%d/%d", len(newFailures), g.MaxNewFailures), newFailures)
 	}
@@ -232,6 +236,13 @@ func Evaluate(g Gate, d *db.RunDetail, newFailures []string) *Decision {
 		}
 	}
 	return out
+}
+
+// meetsRate reports whether passed/counted reaches min percent, comparing the counters
+// (passed*100 >= min*counted) with a tolerance only for how min is written in binary (99.95).
+func meetsRate(passed, counted int, min float64) bool {
+	need := min * float64(counted)
+	return float64(passed)*100 >= need-1e-9*math.Max(1, need)
 }
 
 func splitTags(category string) []string {
