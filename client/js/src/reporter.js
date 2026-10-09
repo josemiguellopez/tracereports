@@ -16,7 +16,8 @@
 //
 // Opciones (o variables): url (TRACEREPORTS_URL), token (TRACEREPORTS_TOKEN), runName (TRACEREPORTS_RUN_NAME),
 // environment (TRACEREPORTS_ENV), project (TRACEREPORTS_PROJECT), strict (TRACEREPORTS_STRICT),
-// offlineDir (TRACEREPORTS_OFFLINE_DIR), offline: "auto" | "always" | "off" (TRACEREPORTS_OFFLINE).
+// offlineDir (TRACEREPORTS_OFFLINE_DIR), offlineBase (TRACEREPORTS_OFFLINE_BASE),
+// offline: "auto" | "always" | "both" | "off" (TRACEREPORTS_OFFLINE).
 
 import fs from "node:fs";
 import path from "node:path";
@@ -29,7 +30,7 @@ const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase(
 export default class TraceReportsReporter {
   constructor(options = {}) {
     this.options = options;
-    this.cr = new TraceReports({ baseUrl: options.url, token: options.token, offlineDir: options.offlineDir, offline: options.offline });
+    this.cr = new TraceReports({ baseUrl: options.url, token: options.token, offlineDir: options.offlineDir, offlineBase: options.offlineBase, offline: options.offline });
     this.tests = new Map(); // test.id -> { ct: Promise<TraceTest>, lastError }
     this.steps = new Map(); // test.id -> intento -> pasos (test.step)
     this.strict = options.strict ?? truthy(env("STRICT"));

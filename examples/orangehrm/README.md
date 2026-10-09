@@ -18,7 +18,8 @@ python examples/orangehrm/tests/test_orangehrm_pim.py
 
 `HEADLESS=0` shows the browser, and `BROWSER_CHANNEL=chrome` uses your Chrome instead of
 Playwright's Chromium. Local evidence (screenshots, network JSON and log) ends up in
-`examples/orangehrm/output/`.
+`examples/orangehrm/output/`. With `TRACEREPORTS_OFFLINE=both` a copy of the report also stays in
+`output/tracereports/<run>/report/index.html`, even if the server does not answer.
 
 The test code, step messages and file names are in Spanish, as in the team this framework comes
 from; the report UI can be switched to English under Settings.

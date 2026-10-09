@@ -156,7 +156,9 @@ class OrangeHrmBaseTest(unittest.TestCase):
         attach_listeners(cls.page, logger=cls.logger)
 
         # TraceReports: una ejecución por clase de test.
-        cls.cr = TraceReports(timeout=3.0, upload_timeout=8.0)
+        # Sin servidor, o con TRACEREPORTS_OFFLINE=both, la evidencia local queda en output/tracereports/<corrida>,
+        # venga de donde venga el comando.
+        cls.cr = TraceReports(timeout=3.0, upload_timeout=8.0, offline_base=os.path.join(output_dir, "tracereports"))
         cls.cr.start_run(
             cls.NOMBRE_RUN,  # nombre estable: el historial y la comparación agrupan por ejecución
             environment=f"demo pública · {canal} · {'headless' if headless else 'headed'}",

@@ -231,10 +231,7 @@ func (m *mirror) record(method, path string, body []byte, contentType string) []
 	return raw
 }
 func (c *Client) startMirror(runID int64, payload any) {
-	dir := c.OfflineDir
-	if dir == "" {
-		dir = filepath.Join("tracereports-offline", time.Now().Format("20060102-150405")+"-"+randomHex(3))
-	}
+	dir := c.recordingDir()
 	m, err := newMirror(dir, c.BaseURL, runID, payload)
 	if err != nil {
 		log.Printf("tracereports: could not start local copy in %s: %v", dir, err)

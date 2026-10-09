@@ -209,3 +209,24 @@ def test_an_orphaned_lock_does_not_block_the_local_copy(tmp_path):
     assert m.runs[7] < 0 and not (old / ".mirror-lock").exists()
     with pytest.raises(OSError, match="held by another process"):
         Mirror(None, str(fresh), "http://server.test", 7, {"name": "run"})
+
+
+def test_successive_runs_keep_their_own_copy_inside_the_base(server, tmp_path, monkeypatch):
+    """Con TRACEREPORTS_OFFLINE_BASE cada corrida crea su carpeta dentro de la base: la segunda no
+    choca con la copia de la primera (con una carpeta fija, la segunda quedaba sin copia)."""
+    base = tmp_path / "output" / "tracereports"
+    monkeypatch.setenv("TRACEREPORTS_OFFLINE_BASE", str(base))
+    dirs = []
+    for _ in range(2):
+        cr = TraceReports(server["url"], offline="both", timeout=.1, flush_timeout=.1)
+        run_suite(cr)
+        assert cr.recording, "each run keeps its local copy"
+        dirs.append(Path(cr.offline_dir))
+        if cr.offline_report:
+            assert Path(cr.offline_report).is_file() and Path(cr.offline_report).is_relative_to(dirs[-1])
+    assert dirs[0] != dirs[1] and all(d.parent == base for d in dirs)
+    # la carpeta exacta (TRACEREPORTS_OFFLINE_DIR) sigue mandando sobre la base
+    exact = tmp_path / "exact"
+    cr = TraceReports(server["url"], offline="both", offline_dir=str(exact), timeout=.1, flush_timeout=.1)
+    run_suite(cr)
+    assert Path(cr.offline_dir) == exact

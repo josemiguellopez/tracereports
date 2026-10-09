@@ -187,12 +187,22 @@ func (c *Client) offlineMode() string {
 	return "auto"
 }
 
+// recordingDir is OfflineDir, or a new folder for this session inside OfflineBase: successive
+// runs never share a folder unless asked.
+func (c *Client) recordingDir() string {
+	if c.OfflineDir != "" {
+		return c.OfflineDir
+	}
+	base := c.OfflineBase
+	if base == "" {
+		base = "tracereports-offline"
+	}
+	return filepath.Join(base, time.Now().Format("20060102-150405")+"-"+randomHex(3))
+}
+
 // startRecording switches the client to recording; reason "" logs nothing (asked for).
 func (c *Client) startRecording(reason string) bool {
-	dir := c.OfflineDir
-	if dir == "" {
-		dir = filepath.Join("tracereports-offline", time.Now().Format("20060102-150405")+"-"+randomHex(3))
-	}
+	dir := c.recordingDir()
 	rec, err := newRecorder(dir)
 	if err != nil {
 		log.Printf("tracereports: could not record locally in %s: %v", dir, err)

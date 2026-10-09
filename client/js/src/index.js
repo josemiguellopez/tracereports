@@ -113,7 +113,8 @@ export class TraceReports {
     if (["0", "false", "no"].includes(mode)) mode = "off";
     this.offlineMode = mode;
     const explicit = opts.offlineDir || env("OFFLINE_DIR") || "";
-    this.offlineBase = explicit || "tracereports-offline";
+    // sin carpeta exacta, cada sesión crea la suya dentro de la base: corridas sucesivas no se pisan
+    this.offlineBase = explicit || opts.offlineBase || env("OFFLINE_BASE") || "tracereports-offline";
     this.offlineExplicit = Boolean(explicit);
     this.offlineDir = null; // carpeta donde se graba (null: se envía al servidor)
     this.offlineReport = null; // index.html generado al cerrar, si el binario está

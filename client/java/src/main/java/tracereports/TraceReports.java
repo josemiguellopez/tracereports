@@ -88,7 +88,9 @@ public final class TraceReports {
         };
         String dir = Context.property("offlineDir", Context.env("TRACEREPORTS_OFFLINE_DIR"));
         this.offlineExplicit = !dir.isBlank();
-        this.offlineBase = Path.of(offlineExplicit ? dir : "tracereports-offline");
+        // sin carpeta exacta, cada sesión crea la suya dentro de la base: corridas sucesivas no se pisan
+        String base = Context.property("offlineBase", Context.env("TRACEREPORTS_OFFLINE_BASE"));
+        this.offlineBase = Path.of(offlineExplicit ? dir : base.isBlank() ? "tracereports-offline" : base);
         if (enabled && offlineMode.equals("always")) goOffline(null);
     }
 

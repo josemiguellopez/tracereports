@@ -71,10 +71,12 @@ type Client struct {
 	RunID   int64
 	// Run context (defaults: $TRACEREPORTS_PROJECT, and branch/commit from the CI variables or git).
 	Project, Branch, Commit string
-	// OfflineDir is where to record without a server (default $TRACEREPORTS_OFFLINE_DIR; empty: a
-	// new folder per session inside ./tracereports-offline). Offline is "auto" (default: record
-	// only if the run cannot be created), "always", "both" or "off" (default $TRACEREPORTS_OFFLINE).
-	OfflineDir, Offline string
+	// OfflineDir is the exact recording folder, shared by the processes of one run (default
+	// $TRACEREPORTS_OFFLINE_DIR; empty: a new folder per session inside OfflineBase). OfflineBase
+	// is where each session creates its own folder (default $TRACEREPORTS_OFFLINE_BASE or
+	// ./tracereports-offline). Offline is "auto" (default: record only if the run cannot be
+	// created), "always", "both" or "off" (default $TRACEREPORTS_OFFLINE).
+	OfflineDir, OfflineBase, Offline string
 	// OfflineReport is the index.html built when a recording finishes (needs the binary).
 	OfflineReport string
 
@@ -98,15 +100,16 @@ func New(baseURL string) *Client {
 	}
 	d := getenv("DISABLED")
 	return &Client{
-		BaseURL:    strings.TrimRight(baseURL, "/"),
-		Token:      getenv("TOKEN"),
-		HTTP:       &http.Client{Timeout: 3 * time.Second},
-		Project:    getenv("PROJECT"),
-		Branch:     firstEnv("TRACEREPORTS_BRANCH", "GITHUB_HEAD_REF", "GITHUB_REF_NAME", "CI_COMMIT_REF_NAME", "BITBUCKET_BRANCH", "BUILD_SOURCEBRANCHNAME", "BRANCH_NAME", "CIRCLE_BRANCH", "GIT_BRANCH"),
-		Commit:     firstEnv("TRACEREPORTS_COMMIT", "GITHUB_SHA", "CI_COMMIT_SHA", "BITBUCKET_COMMIT", "BUILD_SOURCEVERSION", "CIRCLE_SHA1", "GIT_COMMIT"),
-		disabled:   d == "1" || d == "true",
-		OfflineDir: getenv("OFFLINE_DIR"),
-		Offline:    getenv("OFFLINE"),
+		BaseURL:     strings.TrimRight(baseURL, "/"),
+		Token:       getenv("TOKEN"),
+		HTTP:        &http.Client{Timeout: 3 * time.Second},
+		Project:     getenv("PROJECT"),
+		Branch:      firstEnv("TRACEREPORTS_BRANCH", "GITHUB_HEAD_REF", "GITHUB_REF_NAME", "CI_COMMIT_REF_NAME", "BITBUCKET_BRANCH", "BUILD_SOURCEBRANCHNAME", "BRANCH_NAME", "CIRCLE_BRANCH", "GIT_BRANCH"),
+		Commit:      firstEnv("TRACEREPORTS_COMMIT", "GITHUB_SHA", "CI_COMMIT_SHA", "BITBUCKET_COMMIT", "BUILD_SOURCEVERSION", "CIRCLE_SHA1", "GIT_COMMIT"),
+		disabled:    d == "1" || d == "true",
+		OfflineDir:  getenv("OFFLINE_DIR"),
+		OfflineBase: getenv("OFFLINE_BASE"),
+		Offline:     getenv("OFFLINE"),
 	}
 }
 

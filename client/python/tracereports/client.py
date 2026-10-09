@@ -103,6 +103,7 @@ class TraceReports:
         max_queue_mb: int = 64,
         offline_dir: Optional[str] = None,
         offline: Optional[str] = None,
+        offline_base: Optional[str] = None,
     ) -> None:
         """
         :param base_url: server URL. Defaults to $TRACEREPORTS_URL or http://localhost:8080.
@@ -118,8 +119,10 @@ class TraceReports:
         :param flush_timeout: max seconds end_run waits for the queue (default $TRACEREPORTS_FLUSH_TIMEOUT or 30).
         :param max_queue_items / max_queue_mb: queue limits; when full, new events are dropped
             (counted in ``delivery["dropped"]``) and the already queued ones are kept.
-        :param offline_dir: where to record when there is no server (default $TRACEREPORTS_OFFLINE_DIR;
-            without it, a new folder per session inside ./tracereports-offline).
+        :param offline_dir: exact folder of the recording, shared by the processes of one run
+            (default $TRACEREPORTS_OFFLINE_DIR; without it, a new folder per session inside offline_base).
+        :param offline_base: folder where each session creates its own recording folder
+            (default $TRACEREPORTS_OFFLINE_BASE or ./tracereports-offline).
         :param offline: "auto" (default, $TRACEREPORTS_OFFLINE): record only if the run cannot be
             created; "always": record without trying a server; "both": also keep a local copy; "off": never record.
         """
@@ -149,7 +152,8 @@ class TraceReports:
         elif self.offline_mode in ("0", "false", "no"):
             self.offline_mode = "off"
         explicit = offline_dir or env("OFFLINE_DIR") or ""
-        self._offline_base = explicit or "tracereports-offline"
+        # sin carpeta exacta, cada sesión crea la suya dentro de la base: corridas sucesivas no se pisan
+        self._offline_base = explicit or offline_base or env("OFFLINE_BASE") or "tracereports-offline"
         self._offline_explicit = bool(explicit)
         self.offline_dir: Optional[str] = None  # carpeta donde se está grabando (None: se envía al servidor)
         self.offline_report: Optional[str] = None  # index.html generado al cerrar, si el binario está

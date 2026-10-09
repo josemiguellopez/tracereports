@@ -264,3 +264,27 @@ func TestMirrorOrphanedLockDoesNotBlockTheCopy(t *testing.T) {
 		t.Fatalf("recent lock: %v", err)
 	}
 }
+
+// With OfflineBase each run creates its own folder inside the base: the second one does not clash
+// with the copy of the first (with a fixed folder, the second one had no copy).
+func TestSuccessiveRunsKeepTheirOwnCopyInsideTheBase(t *testing.T) {
+	srv, _, _ := mirrorServer(t)
+	base := filepath.Join(t.TempDir(), "output", "tracereports")
+	t.Setenv("TRACEREPORTS_OFFLINE_BASE", base)
+	var dirs []string
+	for i := 0; i < 2; i++ {
+		c := mirrorClient(t, srv.URL)
+		c.OfflineDir, c.OfflineBase = "", base
+		runSuite(t, c)
+		if !c.Recording() {
+			t.Fatalf("run %d kept no local copy", i)
+		}
+		dirs = append(dirs, c.RecordingDir())
+	}
+	if dirs[0] == dirs[1] || filepath.Dir(dirs[0]) != base || filepath.Dir(dirs[1]) != base {
+		t.Fatalf("one folder per run inside the base: %v", dirs)
+	}
+	if c := New(srv.URL); c.OfflineBase != base {
+		t.Fatalf("OfflineBase from $TRACEREPORTS_OFFLINE_BASE: %q", c.OfflineBase)
+	}
+}

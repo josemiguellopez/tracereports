@@ -38,7 +38,8 @@ nuevo y la ejecución se cierra una sola vez.
 | Variable | Default | Qué hace |
 | --- | --- | --- |
 | `TRACEREPORTS_OFFLINE` | `auto` | `auto`: graba solo si la ejecución no se pudo crear. `always`: graba sin intentar un servidor. `both`: envía al servidor y guarda una copia local. `off`: nunca graba (comportamiento anterior) |
-| `TRACEREPORTS_OFFLINE_DIR` | `./tracereports-offline/<fecha-hora>-<id>` | Carpeta de la grabación. Sin ella, una carpeta nueva por sesión |
+| `TRACEREPORTS_OFFLINE_BASE` | `./tracereports-offline` | Carpeta donde **cada corrida crea la suya** (`<fecha-hora>-<id>`): corridas sucesivas nunca se pisan. Úsala para dejar la evidencia en el `output` de tu proyecto |
+| `TRACEREPORTS_OFFLINE_DIR` | — | Carpeta **exacta** de la grabación, compartida por todos los procesos de una corrida (workers de pytest-xdist, shards del CI). Toda corrida que la use escribe en la misma carpeta: no la pongas en un `.env` que se usa corrida tras corrida |
 | `TRACEREPORTS_OFFLINE_KEEP` | vacío | `1`: conservar siempre los eventos, bodies e ids crudos de la copia local |
 | `TRACEREPORTS_BIN` | el `tracereports` del `PATH` | Binario con el que el cliente arma el reporte al terminar |
 | `TRACEREPORTS_OFFLINE_REPORT` | `1` | `0`: no armar el reporte al terminar (solo grabar) |
@@ -50,13 +51,13 @@ Por cliente:
 - **pytest**: `--tracereports-offline DIR` graba siempre en `DIR`. Con pytest-xdist, el
   controlador y cada worker escriben su propio archivo en la misma carpeta y el reporte las une.
   Con `--tracereports-strict`, haber caído en modo grabación hace fallar la sesión (la evidencia no
-  llegó al servidor). API: `TraceReports(offline_dir=..., offline="always")`, `cr.recording`,
+  llegó al servidor). API: `TraceReports(offline_dir=..., offline_base=..., offline="always")`, `cr.recording`,
   `cr.offline_dir`, `cr.offline_report`.
-- **Playwright Test (JS)**: opciones del reporter `offlineDir` y `offline`; API:
-  `new TraceReports({ offlineDir, offline })`, `cr.recording`, `cr.offlineDir`, `cr.offlineReport`.
-- **Java**: `-Dtracereports.offline=always`, `-Dtracereports.offlineDir=...` (o las variables);
+- **Playwright Test (JS)**: opciones del reporter `offlineDir`, `offlineBase` y `offline`; API:
+  `new TraceReports({ offlineDir, offlineBase, offline })`, `cr.recording`, `cr.offlineDir`, `cr.offlineReport`.
+- **Java**: `-Dtracereports.offline=always`, `-Dtracereports.offlineDir=...`, `-Dtracereports.offlineBase=...` (o las variables);
   `cr.recording()`, `cr.offlineDir()`, `cr.offlineReport()`.
-- **Go**: `Client.Offline`, `Client.OfflineDir`, `c.Recording()`, `c.RecordingDir()`,
+- **Go**: `Client.Offline`, `Client.OfflineDir`, `Client.OfflineBase`, `c.Recording()`, `c.RecordingDir()`,
   `c.OfflineReport`.
 
 Con shards de CI (`TRACEREPORTS_RUN_ID`) sin servidor, el id de la ejecución es negativo (local):

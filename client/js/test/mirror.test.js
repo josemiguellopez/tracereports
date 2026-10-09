@@ -148,3 +148,33 @@ test("un bloqueo huérfano no impide la copia local", async () => {
   assert.throws(() => new Mirror(null, fresh, "http://server.test", 7, { name: "run" }), /lo tiene otro proceso/);
   fs.rmSync(base, { recursive: true, force: true });
 });
+
+// Con TRACEREPORTS_OFFLINE_BASE cada corrida crea su carpeta dentro de la base: la segunda no choca
+// con la copia de la primera (con una carpeta fija, la segunda quedaba sin copia).
+test("corridas sucesivas guardan cada una su copia dentro de la base", async () => {
+  const srv = await fakeServer(), base = path.join(tmp(), "output", "tracereports");
+  process.env.TRACEREPORTS_OFFLINE_BASE = base;
+  try {
+    const dirs = [];
+    for (let i = 0; i < 2; i++) {
+      const cr = new TraceReports({ baseUrl: srv.url, offline: "both", timeoutMs: 100, flushTimeoutMs: 100 });
+      await cr.startRun(`run ${i}`);
+      await evidence(cr);
+      await cr.finishRun();
+      assert.ok(cr.recording, "each run keeps its local copy");
+      dirs.push(cr.offlineDir);
+      if (cr.offlineReport) assert.ok(fs.existsSync(cr.offlineReport) && cr.offlineReport.startsWith(cr.offlineDir));
+    }
+    assert.notEqual(dirs[0], dirs[1]);
+    for (const d of dirs) assert.equal(path.dirname(d), base);
+    // la carpeta exacta sigue mandando sobre la base
+    const exact = path.join(tmp(), "exact");
+    const cr = new TraceReports({ baseUrl: srv.url, offline: "both", offlineDir: exact, timeoutMs: 100, flushTimeoutMs: 100 });
+    await cr.startRun("exact");
+    assert.equal(cr.offlineDir, exact);
+    await cr.finishRun();
+  } finally {
+    delete process.env.TRACEREPORTS_OFFLINE_BASE;
+    await srv.close();
+  }
+});

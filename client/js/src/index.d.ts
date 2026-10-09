@@ -11,8 +11,10 @@ export interface Delivery {
 export interface TraceReportsOptions {
   baseUrl?: string; token?: string; enabled?: boolean; timeoutMs?: number; uploadTimeoutMs?: number;
   flushTimeoutMs?: number; maxQueueItems?: number; maxQueueMB?: number;
-  /** Where to record when there is no server (default $TRACEREPORTS_OFFLINE_DIR or ./tracereports-offline/<session>). */
+  /** Exact recording folder, shared by the processes of one run (default $TRACEREPORTS_OFFLINE_DIR; without it, a new folder per session inside offlineBase). */
   offlineDir?: string;
+  /** Folder where each session creates its own recording folder (default $TRACEREPORTS_OFFLINE_BASE or ./tracereports-offline). */
+  offlineBase?: string;
   /** auto (default): record if run creation fails; always: no server; both: send and record; off: never record. */
   offline?: "auto" | "always" | "both" | "off";
 }

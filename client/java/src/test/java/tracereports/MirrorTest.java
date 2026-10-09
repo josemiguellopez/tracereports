@@ -115,4 +115,24 @@ class MirrorTest {
                 () -> new Mirror(fresh, "http://server.test", 7, java.util.Map.of("name", "run")));
         org.junit.jupiter.api.Assertions.assertTrue(err.getMessage().contains("lo tiene otro proceso"), err.getMessage());
     }
+
+    /** Con offlineBase cada corrida crea su carpeta dentro de la base: la segunda no choca con la primera. */
+    @Test void successiveRunsKeepTheirOwnCopyInsideTheBase() throws Exception {
+        Path base = dir.resolve("output").resolve("tracereports");
+        System.clearProperty("tracereports.offlineDir");
+        System.setProperty("tracereports.offlineBase", base.toString());
+        try (FakeServer server = new FakeServer()) {
+            List<Path> dirs = new java.util.ArrayList<>();
+            for (int i = 0; i < 2; i++) {
+                TraceReports cr = new TraceReports(server.url(), "");
+                OfflineTest.runSuite(cr);
+                assertTrue(cr.recording(), "each run keeps its local copy");
+                dirs.add(cr.offlineDir());
+            }
+            assertNotEquals(dirs.get(0), dirs.get(1));
+            for (Path d : dirs) assertEquals(base, d.getParent());
+        } finally {
+            System.clearProperty("tracereports.offlineBase");
+        }
+    }
 }

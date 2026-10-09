@@ -18,6 +18,8 @@ python examples/orangehrm/tests/test_orangehrm_pim.py
 
 `HEADLESS=0` muestra el navegador, y `BROWSER_CHANNEL=chrome` usa tu Chrome en vez del Chromium de
 Playwright. La evidencia local (capturas, JSON de red y log) queda en `examples/orangehrm/output/`.
+Con `TRACEREPORTS_OFFLINE=both` además queda una copia del reporte en
+`output/tracereports/<corrida>/report/index.html`, aunque el servidor no responda.
 
 Estructura:
 
