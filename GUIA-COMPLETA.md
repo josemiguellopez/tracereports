@@ -135,6 +135,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 - [API REST](docs/es/api.md)
 - [Integración continua](docs/es/ci.md): GitHub Actions, GitLab, Jenkins, importación de JUnit XML y el comentario en el pull request.
 - [Sin servidor](docs/es/offline.md): grabar, armar el reporte y subirlo después.
+- [Reporte local en tu PC](docs/es/local-report.md): el mismo reporte en el servidor y en tu PC, paso a paso.
 - [Tokens de UI y componentes](docs/es/ui-tokens.md): para crear temas, componentes o traducciones.
 
 ## Estructura

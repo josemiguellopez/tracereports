@@ -2,6 +2,9 @@
 
 🌐 **English** · [Español](../es/offline.md)
 
+> Running tests from your PC and want the HTML report there too? Start with the
+> [local report guide](local-report.md); this page has the technical details.
+
 If the server is missing, does not answer or rejects the token (say, someone forgot the key in
 CI), the clients **do not lose the evidence**: they record it in a folder. With it you can:
 
@@ -58,8 +61,8 @@ The cache is `%LOCALAPPDATA%\tracereports\0.2.0\<os>_<arch>\` on Windows,
 All four clients share it, verify the cached executable's saved hash, and coordinate downloads
 with an exclusive directory lock. Temporary files are renamed into place only after verification.
 Downloading and waiting for another process share a 60-second budget, only at the end of the run.
-If a process is killed during installation, remove its `<os>_<arch>.lock` directory only after
-checking that no installer is still running; another run can then retry.
+If a process is killed during installation, its `<os>_<arch>.lock` directory is left behind; a
+later run takes it over once it is older than 5 minutes.
 
 Without internet, set `TRACEREPORTS_BIN_DOWNLOAD=0` and install a binary with `report` support
 via `TRACEREPORTS_BIN`/`PATH`, or reuse a previously populated cache. The pinned release must be

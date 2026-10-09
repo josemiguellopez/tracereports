@@ -137,6 +137,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [REST API](docs/en/api.md)
 - [Continuous integration](docs/en/ci.md): GitHub Actions, GitLab, Jenkins, JUnit XML import and the pull request comment.
 - [Without a server](docs/en/offline.md): record, build the report and upload it later.
+- [Local report on your PC](docs/en/local-report.md): the same report on the server and on your PC, step by step.
 - [UI tokens and components](docs/en/ui-tokens.md): for new themes, components or translations.
 
 ## Structure

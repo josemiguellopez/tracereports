@@ -181,7 +181,8 @@ And also:
 - **No server, no lost evidence.** If the server is down or rejects the token, the clients record
   locally: `tracereports report` builds the HTML report and `tracereports push` uploads it later.
 - **A local copy, always.** With `TRACEREPORTS_OFFLINE=both` the clients send to the server and also
-  keep the evidence in a folder, with its HTML report, even if the server goes down halfway.
+  keep the evidence in a folder, with its HTML report, even if the server goes down halfway. See the
+  [local report guide](docs/en/local-report.md).
 - **JUnit XML and Allure.** Import the results of any framework, or turn them into a report without
   a server.
 - **AI you can measure.** Settings shows the calls, tokens, response times and the provider's
@@ -374,6 +375,7 @@ its screenshot, network calls and diagnosis.
 - [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md)
 - [Python](docs/en/python.md) · [JavaScript](docs/en/javascript.md) · [Java](docs/en/java.md) · [Go](docs/en/go.md) · [REST API](docs/en/api.md)
 - [Continuous integration](docs/en/ci.md) · [Without a server: record, report and upload later](docs/en/offline.md)
+- [Local report on your PC](docs/en/local-report.md): the same report on the server and on your PC, step by step
 - [UI tokens and themes](docs/en/ui-tokens.md)
 
 ## Contributing

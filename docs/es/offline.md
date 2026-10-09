@@ -2,6 +2,9 @@
 
 🌐 [English](../en/offline.md) · **Español**
 
+> ¿Ejecutas las pruebas desde tu PC y quieres el reporte HTML también ahí? Empieza por la
+> [guía del reporte local](local-report.md); esta página tiene el detalle técnico.
+
 Si el servidor no está, no responde o rechaza el token (por ejemplo, porque se olvidó la clave en
 el CI), los clientes **no pierden la evidencia**: la graban en una carpeta. Con ella puedes:
 
@@ -57,8 +60,8 @@ La caché está en `%LOCALAPPDATA%\tracereports\0.2.0\<os>_<arch>\` en Windows,
 Los cuatro clientes la comparten, verifican el hash guardado del ejecutable y coordinan las
 descargas con un directorio de bloqueo exclusivo. Los temporales se renombran solo después de
 verificarlos. La descarga y la espera de otro proceso comparten un límite de 60 segundos, al cerrar.
-Si un proceso muere durante la instalación, elimina su directorio `<os>_<arch>.lock` solo después
-de comprobar que no queda ningún instalador ejecutándose; la siguiente corrida podrá reintentar.
+Si un proceso muere durante la instalación, su directorio `<os>_<arch>.lock` queda; una corrida
+posterior lo retoma cuando tiene más de 5 minutos.
 
 Sin internet, usa `TRACEREPORTS_BIN_DOWNLOAD=0` e instala un binario que incluya `report` mediante
 `TRACEREPORTS_BIN`/`PATH`, o reutiliza una caché preparada previamente. El release fijo debe estar

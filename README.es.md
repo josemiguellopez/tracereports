@@ -188,6 +188,7 @@ Y además:
   después.
 - **Siempre una copia local.** Con `TRACEREPORTS_OFFLINE=both` los clientes envían al servidor y
   además guardan la evidencia en una carpeta, con su reporte HTML, aunque el servidor se caiga a mitad.
+  Mira la [guía del reporte local](docs/es/local-report.md).
 - **JUnit XML y Allure.** Importa los resultados de cualquier framework, o conviértelos en un
   reporte sin servidor.
 - **IA que se puede medir.** Ajustes muestra las llamadas, los tokens, los tiempos de respuesta y el
@@ -380,6 +381,7 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 - [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Configuración](docs/es/configuration.md)
 - [Python](docs/es/python.md) · [JavaScript](docs/es/javascript.md) · [Java](docs/es/java.md) · [Go](docs/es/go.md) · [API REST](docs/es/api.md)
 - [Integración continua](docs/es/ci.md) · [Sin servidor: grabar, reportar y subir después](docs/es/offline.md)
+- [Reporte local en tu PC](docs/es/local-report.md): el mismo reporte en el servidor y en tu PC, paso a paso
 - [Tokens de UI y temas](docs/es/ui-tokens.md)
 
 ## Contribuir
