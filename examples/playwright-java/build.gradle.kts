@@ -5,7 +5,7 @@ repositories { mavenCentral() }
 java { toolchain { languageVersion.set(JavaLanguageVersion.of(17)) } }
 
 dependencies {
-    testImplementation("tracereports:tracereports-java:0.1.0")
+    testImplementation("tracereports:tracereports-java:0.2.0")
     testImplementation("com.microsoft.playwright:playwright:1.63.0")
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")

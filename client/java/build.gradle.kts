@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "tracereports"
-version = "0.1.0"
+version = "0.2.0"
 
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(17)) }
@@ -43,7 +43,7 @@ tasks.test {
     exclude("**/TraceReportsExtensionTest\$Ejemplo.class")
 }
 
-// ./gradlew publishToMavenLocal -> tracereports:tracereports-java:0.1.0 en ~/.m2 (para Maven)
+// ./gradlew publishToMavenLocal -> tracereports:tracereports-java:0.2.0 en ~/.m2 (para Maven)
 publishing {
     publications { create<MavenPublication>("maven") { from(components["java"]) } }
 }

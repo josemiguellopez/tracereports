@@ -70,7 +70,7 @@ from .transport import Sender
 from .mirror import Mirror
 
 __all__ = ["TraceReports"]
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 log = logging.getLogger("tracereports")
 
