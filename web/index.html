@@ -74,6 +74,7 @@
 			<span class="static-pill" id="static-pill" hidden tabindex="0" data-tip-title="Reporte exportado" data-tip="Copia de solo lectura que funciona sin servidor. Lo que pase después de exportar no aparece aquí."></span>
 			<button class="new-run-badge" id="new-run-badge" hidden data-tip-title="Ejecución nueva en curso"><span class="dot" aria-hidden="true"></span><span class="nrb-text"></span></button>
 			<select class="run-select" id="run-select" aria-label="Ejecución" data-tip-title="Ejecución" data-tip="Cambia a otra ejecución guardada. Las que siguen corriendo dicen (en curso)."></select>
+			<button class="recents-search" id="recents-search" title="Ver todas las ejecuciones">Ver todas →</button>
 			<span id="export-li" hidden>
 				<a class="export-btn" id="export-btn" download data-tip-title="Exportar ZIP" data-tip="Descarga esta ejecución como un reporte autocontenido: se abre sin servidor, ideal para adjuntar a un correo.">
 					<svg><use href="#i-download"/></svg><span>Exportar ZIP</span>
@@ -88,6 +89,7 @@
 	</header>
 
 	<nav class="side-nav" aria-label="Vistas">
+		<a href="#" data-view="search" class="nav-search" data-tip-pos="right" data-tip-title="Buscar" data-tip="Explora el historial de ejecuciones con filtros y comparación."><svg><use href="#i-search"/></svg><span>Buscar</span></a>
 		<a href="#" data-view="tests" class="active" data-tip-pos="right" data-tip-title="Tests" data-tip="Cada test con sus pasos, capturas, red, replay y el diagnóstico de la IA."><svg><use href="#i-tests"/></svg><span>Tests</span></a>
 		<a href="#" data-view="categories" data-tip-pos="right" data-tip-title="Categorías" data-tip="Resultados agrupados por tag (login, smoke…): qué área de la aplicación está fallando."><svg><use href="#i-tag"/></svg><span>Categorías</span></a>
 		<a href="#" data-view="exceptions" data-tip-pos="right" data-tip-title="Errores" data-tip="Los fallos agrupados por mensaje de error: un mismo error que rompe varios tests aparece una sola vez."><svg><use href="#i-bug"/></svg><span>Errores</span></a>
@@ -109,6 +111,27 @@
 
 		<!-- conclusión del diagnóstico de la ejecución (vista de tests) -->
 		<div class="card run-banner" id="run-banner" hidden></div>
+
+		<section id="view-search" class="view run-search-view" hidden>
+			<div class="search-hero card">
+				<label class="run-search-box" for="run-search-input"><svg><use href="#i-search"/></svg><input id="run-search-input" type="search" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="run-search-results" placeholder="Buscar ejecuciones, tests, ramas, commits…"><kbd>Ctrl K</kbd></label>
+				<div class="search-filters" id="search-filters">
+					<label>Proyecto <select data-search-filter="project"><option value="">Todos</option></select></label>
+					<label>Ambiente <select data-search-filter="environment"><option value="">Todos</option></select></label>
+					<label>Rama <select data-search-filter="branch"><option value="">Todas</option></select></label>
+					<label>Tag <select data-search-filter="tag"><option value="">Todos</option></select></label>
+					<label>Dueño <input data-search-filter="owner" type="search" autocomplete="off"></label>
+					<label>Estado <select data-search-filter="status"><option value="">Todos</option><option value="FAIL">FAIL</option><option value="PASS">PASS</option><option value="WARNING">WARNING</option><option value="SKIP">SKIP</option><option value="RUNNING">RUNNING</option></select></label>
+					<label>Desde <input type="date" data-search-filter="from"></label>
+					<label>Hasta <input type="date" data-search-filter="to"></label>
+				</div>
+				<div class="search-shortcuts" id="search-shortcuts"><button data-search-quick="fail">Con fallos</button><button data-search-quick="flaky">Flaky</button><button data-search-quick="running">En curso</button><button data-search-quick="incomplete">Incompletas</button><button data-search-owner>Por dueño…</button><button data-search-range="0">Hoy</button><button data-search-range="7">7 días</button><button data-search-range="30">30 días</button><button data-search-save>Guardar búsqueda</button><select id="search-saved" aria-label="Búsquedas guardadas"><option value="">Búsquedas guardadas</option></select><button data-search-clear>Limpiar todo</button></div>
+				<div class="search-chips" id="search-chips" aria-live="polite"></div>
+			</div>
+			<div class="search-result-toolbar"><span id="search-result-count" role="status"></span><label>Orden <select id="search-sort"><option value="recent">Más reciente</option><option value="oldest">Más antiguo</option><option value="failures">Más fallos</option><option value="duration">Más lentas</option></select></label></div>
+			<div class="search-layout"><div class="card search-results" id="run-search-results" role="listbox" aria-label="Resultados de ejecuciones"></div><aside class="card search-preview" id="run-search-preview"><p>Selecciona una ejecución para ver el resumen.</p></aside></div>
+			<div class="search-more"><button id="search-more" hidden>Cargar más</button></div>
+		</section>
 
 		<!-- tests view -->
 		<section id="view-tests" class="view split">
@@ -218,6 +241,9 @@
 		<button class="lightbox-close" aria-label="Cerrar"><svg><use href="#i-close"/></svg></button>
 		<img alt="Captura de pantalla">
 		<div class="lightbox-caption"></div>
+	</div>
+	<div class="command-palette" id="command-palette" role="dialog" aria-modal="true" aria-label="Paleta de comandos" hidden>
+		<div class="command-panel"><label class="run-search-box"><svg><use href="#i-search"/></svg><input id="command-input" type="search" role="combobox" aria-expanded="true" aria-controls="command-results" placeholder="Buscar ejecuciones o ir a una vista…" autocomplete="off"><kbd>Esc</kbd></label><div id="command-results" role="listbox"></div></div>
 	</div>
 </body>
 </html>

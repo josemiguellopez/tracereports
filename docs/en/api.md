@@ -176,6 +176,8 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/settings` | Settings: language, AI provider (without the key: only its last 4 characters), whether they can be edited and why not |
 | GET | `/auth/check` | With `X-TraceReports-Token`: `{token_required, token_sent, token_valid}`. Checks a token without writing anything |
 | GET | `/runs?limit=50` | Runs with counters |
+| GET | `/runs/search?...` | Paginated history for Search: `{items, next_cursor, total_estimate}` |
+| GET | `/runs/facets?...` | Frequent filter values for Search: project, environment, branch and tag |
 | GET | `/runs/{run_id}` | Run with its tests (includes `flaky`, `flaky_info`, `net_drift`, network counters) and `summary` (diagnosis) |
 | GET | `/runs/{run_id}/compare?base={id}` | Comparison (`base` default: the related previous run) |
 | GET | `/runs/{run_id}/endpoints` | Backend endpoint ranking |
@@ -189,6 +191,16 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/network/{id}/body` | Full stored body (JSON or plain text, never executable HTML) |
 | GET | `/network/{id}/baseline` | The same call in the last run where the test passed (`{conn, run_id, test_id, same_context}`), or `204` |
 | GET | `/screenshots/{file}` | Screenshot (outside `/api/v1`) |
+
+### Search runs
+
+`GET /runs/search` accepts `q` (at most 200 characters), `project`, `environment`, `branch`,
+`tag`, `owner`, `status` (repeat it or use comma-separated values), `incomplete`, `flaky`, `from`,
+`to` (`YYYY-MM-DD`), `sort` (`recent`, `oldest`, `duration`, `failures`), `limit` (1–100), and
+`cursor`. `q` searches the run name, project, branch, commit, environment, and test name or key
+without returning tests. `%` and `_` are literal characters. Every item includes counters, duration
+and `flaky_count`; the opaque cursor keeps a page stable when new runs arrive. `GET /runs/facets`
+accepts the same filters and returns at most 20 values for each group.
 
 ## Settings (Settings screen)
 

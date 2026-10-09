@@ -23,6 +23,7 @@
 		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
+		runSearch: { q: "", project: "", environment: "", branch: "", tag: "", owner: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent", items: [], cursor: "", total: 0, loading: false, error: null, selected: 0, compare: [], facets: {}, timer: 0, newCount: 0 },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
 		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0 },
 		settings: { data: null, form: null, msg: null, busy: false, error: null, loading: false,
@@ -87,12 +88,22 @@
 		if (p.get("view")) S.view = p.get("view");
 		if (p.get("run")) S.runId = Number(p.get("run"));
 		if (p.get("test")) S.testId = Number(p.get("test"));
+		if (p.get("view") === "search") {
+			const x = S.runSearch;
+			["q", "project", "environment", "branch", "tag", "owner", "status", "from", "to", "sort"].forEach((k) => { x[k] = p.get(k) || (k === "sort" ? "recent" : ""); });
+			x.incomplete = p.get("incomplete") === "true"; x.flaky = p.get("flaky") === "true";
+		}
 	}
 	function writeHash() {
 		const p = new URLSearchParams();
 		if (S.runId) p.set("run", S.runId);
 		p.set("view", S.view);
 		if (S.testId && S.view === "tests") p.set("test", S.testId);
+		if (S.view === "search") {
+			const x = S.runSearch;
+			["q", "project", "environment", "branch", "tag", "owner", "status", "from", "to"].forEach((k) => { if (x[k]) p.set(k, x[k]); });
+			if (x.incomplete) p.set("incomplete", "true"); if (x.flaky) p.set("flaky", "true"); if (x.sort !== "recent") p.set("sort", x.sort);
+		}
 		history.replaceState(null, "", "#" + p.toString());
 	}
 
@@ -110,7 +121,7 @@
 		const current = turn("runs");
 		let runs;
 		try {
-			runs = await api("/api/v1/runs?limit=100");
+			runs = await api("/api/v1/runs?limit=10");
 		} catch (err) {
 			if (current()) throw err;
 			return;
@@ -120,7 +131,8 @@
 		const sel = $("#run-select");
 		sel.innerHTML = S.runs.map((r) =>
 			`<option value="${r.id}">#${r.id} · ${esc(r.name)}${r.status === "RUNNING" ? " (en curso)" : r.incomplete ? " (incompleta)" : ""}${r.branch ? ` · ${esc(r.branch)}` : ""} — ${fmtDateTime(r.started_at)}</option>`).join("");
-		if (!S.runId || !S.runs.some((r) => r.id === S.runId)) S.runId = S.runs[0]?.id ?? null;
+		// A shared link can point to an older run which is no longer in the compact list.
+		if (!S.runId) S.runId = S.runs[0]?.id ?? null;
 		// al reconstruir las opciones el select muestra la primera (la más nueva): vuelve a la que se ve
 		if (S.runId) sel.value = String(S.runId);
 		$("#empty-state").hidden = S.runs.length > 0;
@@ -191,10 +203,11 @@
 		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
 		renderView();
 		writeHash();
+		if (view === "search" && !STATIC && !S.runSearch.items.length && !S.runSearch.loading) loadRunSearch();
 	}
 
 	// vistas que no dependen de la ejecución elegida
-	const GLOBAL_VIEWS = new Set(["metrics", "settings"]);
+	const GLOBAL_VIEWS = new Set(["search", "metrics", "settings"]);
 
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
@@ -205,8 +218,93 @@
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
 		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
-		({ tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
+		({ search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
 			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
+	}
+
+	// ---------- run explorer ----------
+	function searchParams(cursor = "") {
+		const x = S.runSearch, p = new URLSearchParams();
+		["q", "project", "environment", "branch", "tag", "owner", "status", "from", "to", "sort"].forEach((k) => { if (x[k]) p.set(k, x[k]); });
+		if (x.incomplete) p.set("incomplete", "true"); if (x.flaky) p.set("flaky", "true"); if (cursor) p.set("cursor", cursor);
+		p.set("limit", "30"); return p;
+	}
+	function relativeRun(ms) {
+		const sec = Math.max(0, Math.round((Date.now() - ms) / 1000));
+		if (sec < 60) return tr("Hace menos de un minuto");
+		if (sec < 3600) return tr("Hace {n} min", { n: Math.floor(sec / 60) });
+		if (sec < 86400) return tr("Hace {n} h", { n: Math.floor(sec / 3600) });
+		return tr("Hace {n} días", { n: Math.floor(sec / 86400) });
+	}
+	function scheduleRunSearch(reset = true) {
+		const x = S.runSearch; clearTimeout(x.timer); x.timer = setTimeout(() => loadRunSearch(reset), 250);
+	}
+	async function loadRunSearch(reset = true) {
+		if (STATIC) return;
+		const x = S.runSearch, current = turn("run-search"); x.loading = true; x.error = null;
+		if (reset) { x.cursor = ""; x.items = []; x.selected = 0; }
+		renderRunSearch();
+		try {
+			const data = await api(`/api/v1/runs/search?${searchParams(reset ? "" : x.cursor)}`);
+			if (!current()) return;
+			x.items = reset ? data.items : x.items.concat(data.items); x.cursor = data.next_cursor || ""; x.total = data.total_estimate || 0; x.loading = false;
+			writeHash(); renderRunSearch(); loadRunFacets();
+		} catch (err) { if (!current()) return; x.loading = false; x.error = err; renderRunSearch(); }
+	}
+	async function loadRunFacets() {
+		const x = S.runSearch, current = turn("run-facets");
+		try { const facets = await api(`/api/v1/runs/facets?${searchParams()}`); if (current()) { x.facets = facets; renderSearchFilters(); } } catch { /* search remains usable without suggestions */ }
+	}
+	function renderSearchFilters() {
+		const x = S.runSearch;
+		["project", "environment", "branch", "tag"].forEach((key) => {
+			const el = $(`[data-search-filter="${key}"]`); if (!el) return;
+			const initial = el.options[0]?.textContent || tr("Todos");
+			el.innerHTML = `<option value="">${initial}</option>${(x.facets[key] || []).map((f) => `<option value="${esc(f.value)}">${esc(f.value)} (${f.count})</option>`).join("")}`;
+			el.value = x[key] || "";
+		});
+		["status", "from", "to", "owner"].forEach((key) => { const el = $(`[data-search-filter="${key}"]`); if (el) el.value = x[key] || ""; });
+		const sort = $("#search-sort"); if (sort) sort.value = x.sort;
+		renderSavedRunSearches();
+	}
+	function savedRunSearches() { try { return JSON.parse(localStorage.getItem("tracereports-run-searches") || "[]"); } catch { return []; } }
+	function renderSavedRunSearches() { const el = $("#search-saved"); if (!el) return; const items = savedRunSearches(); el.innerHTML = `<option value="">${tr("Búsquedas guardadas")}</option>${items.map((item, i) => `<option value="${i}">${esc(item.name)}</option>`).join("")}`; }
+	function saveRunSearch() { const name = window.prompt(tr("Nombre de la búsqueda")); if (!name?.trim()) return; const x = S.runSearch, query = {}; ["q", "project", "environment", "branch", "tag", "owner", "status", "from", "to", "sort", "incomplete", "flaky"].forEach((key) => { query[key] = x[key]; }); try { const items = savedRunSearches().filter((item) => item.name !== name.trim()).slice(-9); items.push({ name: name.trim(), query }); localStorage.setItem("tracereports-run-searches", JSON.stringify(items)); renderSavedRunSearches(); } catch { /* optional convenience only */ } }
+	function runSearchChips() {
+		const x = S.runSearch, names = { q: "Texto", project: "Proyecto", environment: "Ambiente", branch: "Rama", tag: "Tag", owner: "Dueño", status: "Estado", from: "Desde", to: "Hasta", incomplete: "Incompletas", flaky: "Flaky" };
+		return Object.entries(names).filter(([key]) => x[key]).map(([key, name]) => `<button class="search-chip" data-search-remove="${key}">${tr(name)}: ${key === "incomplete" || key === "flaky" ? "✓" : esc(x[key])}<b aria-hidden="true">×</b><span class="sr-only">${tr("Quitar")}</span></button>`).join("");
+	}
+	function renderRunSearch() {
+		const x = S.runSearch, root = $("#view-search"); if (!root) return;
+		if (STATIC) { root.innerHTML = `<div class="card placeholder">${tr("La búsqueda de historial no está disponible en un reporte exportado.")}</div>`; return; }
+		const input = $("#run-search-input"); if (input && input.value !== x.q) input.value = x.q;
+		renderSearchFilters();
+		$("#search-chips").innerHTML = runSearchChips();
+		$("#search-result-count").textContent = x.loading ? tr("Buscando…") : x.error ? tr("No se pudo buscar") : tr("{n} resultados", { n: x.total });
+		const list = $("#run-search-results");
+		if (x.error) list.innerHTML = `<div class="placeholder">${tr("No se pudieron cargar las ejecuciones.")} <button data-search-retry>${tr("Reintentar")}</button></div>`;
+		else if (x.loading && !x.items.length) list.innerHTML = `<div class="placeholder"><div class="shimmer"></div><div class="shimmer"></div><div class="shimmer"></div></div>`;
+		else if (!x.items.length) list.innerHTML = `<div class="placeholder">${tr("Sin resultados: quita un filtro o prueba otra búsqueda.")}</div>`;
+		else list.innerHTML = x.items.map((r) => `<button class="search-row" data-search-run="${r.id}" role="option" aria-selected="${x.selected === r.id}">
+			<span class="search-state ${lower(r.status)}" style="--c:var(--${lower(r.status)})"></span><span class="search-main"><b>${esc(r.name)}</b><span>${[r.branch, r.environment, r.project].filter(Boolean).map(esc).join(" · ")}</span></span>
+			<span class="search-meta" title="${esc(fmtDateTime(r.started_at))}">${esc(relativeRun(r.started_at))}</span><span class="search-count">${r.passed}/${r.total} OK${r.failed ? ` · <b class="fail">${r.failed} ${tr("fallos")}</b>` : ""}${r.flaky_count ? ` · <b class="flaky">${r.flaky_count} flaky</b>` : ""}</span><label title="${tr("Marcar para comparar")}" onclick="event.stopPropagation()"><input type="checkbox" data-search-compare="${r.id}" ${x.compare.includes(r.id) ? "checked" : ""}></label></button>`).join("");
+		$("#search-more").hidden = !x.cursor || x.loading;
+		if (!x.selected) renderSearchPreview();
+	}
+	function renderSearchPreview(detail) {
+		const x = S.runSearch, el = $("#run-search-preview"); if (!el) return;
+		const r = detail || x.items.find((item) => item.id === x.selected);
+		if (!r) { el.innerHTML = `<p>${tr("Selecciona una ejecución para ver el resumen.")}</p>`; return; }
+		if (!detail) { el.innerHTML = `<div class="placeholder">${tr("Cargando vista previa…")}</div>`; return; }
+		const failed = detail.tests?.filter((t) => t.status === "FAIL").slice(0, 4) || [];
+		el.innerHTML = `<h3>${esc(detail.name)}</h3><p>${statusLabel(detail.status)} · ${esc(fmtDateTime(detail.started_at))}</p><dl><dt>${tr("Tests")}</dt><dd>${detail.passed}/${detail.total} OK · ${detail.failed} ${tr("fallos")}</dd><dt>${tr("Duración")}</dt><dd>${esc(fmtDuration(durationOf(detail)))}</dd><dt>${tr("Release")}</dt><dd id="search-release">${tr("Cargando…")}</dd></dl>${failed.length ? `<p><b>${tr("Tests fallidos")}</b><br>${failed.map((t) => esc(t.name)).join("<br>")}</p>` : ""}<div class="search-preview-actions"><button data-search-open="${detail.id}">${tr("Ver reporte")}</button><button data-search-compare-open="${detail.id}" ${x.compare.length !== 1 || x.compare[0] === detail.id ? "disabled" : ""}>${tr("Comparar")}</button></div>`;
+	}
+	async function selectSearchRun(id) {
+		const x = S.runSearch; x.selected = id; renderRunSearch(); const current = turn("search-preview");
+		try { const [detail, release] = await Promise.all([api(`/api/v1/runs/${id}`), api(`/api/v1/runs/${id}/release`).catch(() => null)]); if (!current() || x.selected !== id) return; renderSearchPreview(detail); const cell = $("#search-release"); if (cell) cell.textContent = release?.decision || release?.status || tr("Sin decisión"); } catch { if (current()) $("#run-search-preview").innerHTML = `<p>${tr("No se pudo cargar la vista previa.")}</p>`; }
+	}
+	async function compareSearchRuns(first, second) {
+		await switchRun(second); setView("dashboard"); await chooseBase(first);
 	}
 
 	// only touch the DOM when content actually changed (keeps scroll position & avoids flicker while polling)
@@ -1637,6 +1735,25 @@
 	}
 	const closeLightbox = () => { $("#lightbox").hidden = true; };
 
+	// ---------- command palette ----------
+	let paletteFocus = null, paletteIndex = 0, paletteTimer = 0, paletteItems = [];
+	function renderPalette() {
+		const el = $("#command-results"), q = $("#command-input").value.trim();
+		const views = [["tests", "Tests"], ["dashboard", "Análisis"], ["metrics", "Métricas"], ["release", "Release"], ["escalate", "Escalar"], ["settings", "Ajustes"], ["search", "Buscar"]]
+			.filter(([, name]) => !q || lower(name).includes(lower(q))).map(([view, name]) => ({ type: "view", view, name }));
+		paletteItems = views.concat(paletteItems.filter((x) => x.type === "run"));
+		if (paletteIndex >= paletteItems.length) paletteIndex = 0;
+		el.innerHTML = paletteItems.length ? paletteItems.map((item, i) => `<button class="command-option ${i === paletteIndex ? "active" : ""}" role="option" aria-selected="${i === paletteIndex}" data-command-index="${i}">${item.type === "run" ? `${icon(STATUS_ICON[item.run.status] || "i-list")}<span>${esc(item.run.name)}<br><small>#${item.run.id} · ${esc(item.run.branch || item.run.environment || "")}</small></span>` : `${icon("i-list")}<span>${tr("Ir a")} ${tr(item.name)}</span>`}</button>`).join("") : `<p class="placeholder">${tr("Sin coincidencias")}</p>`;
+	}
+	function openPalette() { if (STATIC) return; const box = $("#command-palette"); paletteFocus = document.activeElement; box.hidden = false; $("#command-input").value = ""; paletteItems = []; paletteIndex = 0; renderPalette(); $("#command-input").focus(); }
+	function closePalette() { const box = $("#command-palette"); if (box.hidden) return; box.hidden = true; paletteFocus?.focus?.(); }
+	async function searchPalette() {
+		const q = $("#command-input").value.trim(), current = turn("command-search");
+		paletteItems = []; renderPalette(); if (!q) return;
+		try { const data = await api(`/api/v1/runs/search?q=${encodeURIComponent(q)}&limit=8`); if (!current()) return; paletteItems = data.items.map((run) => ({ type: "run", run })); paletteIndex = 0; renderPalette(); } catch { /* navigation remains available */ }
+	}
+	function activatePalette(item) { if (!item) return; closePalette(); if (item.type === "run") switchRun(item.run.id).catch(() => {}); else setView(item.view); }
+
 	// ---------- events ----------
 	function bindEvents() {
 		bindMetricsEvents();
@@ -1652,6 +1769,29 @@
 		$$(".side-nav a").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); setView(a.dataset.view); }));
 
 		$("#run-select").addEventListener("change", (e) => switchRun(Number(e.target.value)));
+		$("#recents-search").addEventListener("click", () => setView("search"));
+		$("#run-search-input").addEventListener("input", (e) => { S.runSearch.q = e.target.value; scheduleRunSearch(); });
+		$("#search-filters").addEventListener("change", (e) => { const key = e.target.dataset.searchFilter; if (!key) return; S.runSearch[key] = e.target.value; scheduleRunSearch(); });
+		$("#search-filters").addEventListener("input", (e) => { const key = e.target.dataset.searchFilter; if (key === "owner") { S.runSearch.owner = e.target.value; scheduleRunSearch(); } });
+		$("#search-sort").addEventListener("change", (e) => { S.runSearch.sort = e.target.value; scheduleRunSearch(); });
+		$("#search-shortcuts").addEventListener("click", (e) => {
+			const quick = e.target.closest("[data-search-quick]");
+			if (quick) { const x = S.runSearch; Object.assign(x, { status: "", flaky: false, incomplete: false }); if (quick.dataset.searchQuick === "fail") x.status = "FAIL"; if (quick.dataset.searchQuick === "flaky") x.flaky = true; if (quick.dataset.searchQuick === "running") x.status = "RUNNING"; if (quick.dataset.searchQuick === "incomplete") x.incomplete = true; scheduleRunSearch(); return; }
+			if (e.target.closest("[data-search-owner]")) { const owner = window.prompt(tr("Nombre del dueño")); if (owner != null) { S.runSearch.owner = owner.trim(); scheduleRunSearch(); } return; }
+			const range = e.target.closest("[data-search-range]"); if (range) { const days = Number(range.dataset.searchRange); const to = new Date(), from = new Date(to); from.setDate(from.getDate() - Math.max(0, days - 1)); S.runSearch.from = from.toLocaleDateString("sv"); S.runSearch.to = to.toLocaleDateString("sv"); scheduleRunSearch(); return; }
+			if (e.target.closest("[data-search-save]")) { saveRunSearch(); return; }
+			if (e.target.closest("[data-search-clear]")) { Object.assign(S.runSearch, { q: "", project: "", environment: "", branch: "", tag: "", owner: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent" }); scheduleRunSearch(); }
+		});
+		$("#search-saved").addEventListener("change", (e) => { const item = savedRunSearches()[Number(e.target.value)]; if (!item) return; Object.assign(S.runSearch, item.query, { items: [], cursor: "", selected: 0 }); scheduleRunSearch(); e.target.value = ""; });
+		$("#search-chips").addEventListener("click", (e) => { const b = e.target.closest("[data-search-remove]"); if (!b) return; const key = b.dataset.searchRemove; S.runSearch[key] = key === "incomplete" || key === "flaky" ? false : ""; scheduleRunSearch(); });
+		$("#run-search-results").addEventListener("click", (e) => {
+			const check = e.target.closest("[data-search-compare]");
+			if (check) { const id = Number(check.dataset.searchCompare), x = S.runSearch; x.compare = check.checked ? [...x.compare.filter((n) => n !== id), id].slice(-2) : x.compare.filter((n) => n !== id); renderRunSearch(); if (x.compare.length === 2) compareSearchRuns(x.compare[0], x.compare[1]).catch(() => {}); return; }
+			const row = e.target.closest("[data-search-run]"); if (row) selectSearchRun(Number(row.dataset.searchRun));
+		});
+		$("#run-search-preview").addEventListener("click", (e) => { const open = e.target.closest("[data-search-open]"); if (open) switchRun(Number(open.dataset.searchOpen)).catch(() => {}); const cmp = e.target.closest("[data-search-compare-open]"); if (cmp) compareSearchRuns(S.runSearch.compare[0], Number(cmp.dataset.searchCompareOpen)).catch(() => {}); });
+		$("#search-more").addEventListener("click", () => loadRunSearch(false));
+		$("#run-search-results").addEventListener("click", (e) => { if (e.target.closest("[data-search-retry]")) loadRunSearch(); });
 		$("#new-run-badge").addEventListener("click", (e) => switchRun(Number(e.currentTarget.dataset.run)));
 		$("#compare-card").addEventListener("change", (e) => {
 			if (e.target.id === "cmp-base") chooseBase(Number(e.target.value));
@@ -1838,7 +1978,15 @@
 				lb.classList.toggle("zoomed");
 			} else closeLightbox();
 		});
-		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && !CF.Drawer.isOpen()) closeLightbox(); });
+		document.addEventListener("keydown", (e) => {
+			if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") { e.preventDefault(); openPalette(); return; }
+			const palette = $("#command-palette");
+			if (!palette.hidden) { if (e.key === "Escape") { e.preventDefault(); closePalette(); } else if (e.key === "ArrowDown" || e.key === "ArrowUp") { e.preventDefault(); paletteIndex = (paletteIndex + (e.key === "ArrowDown" ? 1 : -1) + paletteItems.length) % Math.max(1, paletteItems.length); renderPalette(); } else if (e.key === "Enter") { e.preventDefault(); activatePalette(paletteItems[paletteIndex]); } else if (e.key === "Tab") { e.preventDefault(); $("#command-input").focus(); } return; }
+			if (e.key === "Escape" && !CF.Drawer.isOpen()) closeLightbox();
+		});
+		$("#command-input").addEventListener("input", () => { clearTimeout(paletteTimer); paletteTimer = setTimeout(searchPalette, 150); });
+		$("#command-results").addEventListener("click", (e) => activatePalette(paletteItems[Number(e.target.closest("[data-command-index]")?.dataset.commandIndex)]));
+		$("#command-palette").addEventListener("click", (e) => { if (e.target.id === "command-palette") closePalette(); });
 
 		// links directos (#run=..&view=..&test=..) y atrás/adelante del navegador
 		window.addEventListener("hashchange", async () => {

@@ -178,6 +178,8 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/settings` | Ajustes: idioma, proveedor de IA (sin la key: solo sus 4 últimos caracteres), si se pueden editar y por qué no |
 | GET | `/auth/check` | Con `X-TraceReports-Token`: `{token_required, token_sent, token_valid}`. Verifica un token sin escribir nada |
 | GET | `/runs?limit=50` | Ejecuciones con contadores |
+| GET | `/runs/search?...` | Historial paginado para Buscar: `{items, next_cursor, total_estimate}` |
+| GET | `/runs/facets?...` | Valores frecuentes para los filtros de Buscar: proyecto, ambiente, rama y tag |
 | GET | `/runs/{run_id}` | Ejecución con sus tests (incluye `flaky`, `flaky_info`, `net_drift`, contadores de red) y `summary` (diagnóstico) |
 | GET | `/runs/{run_id}/compare?base={id}` | Comparación (`base` default: la ejecución anterior relacionada) |
 | GET | `/runs/{run_id}/endpoints` | Ranking de endpoints del backend |
@@ -191,6 +193,16 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/network/{id}/body` | Body guardado completo (JSON o texto plano, nunca HTML ejecutable) |
 | GET | `/network/{id}/baseline` | La misma llamada en la última ejecución donde el test pasó (`{conn, run_id, test_id, same_context}`), o `204` |
 | GET | `/screenshots/{archivo}` | Captura (fuera de `/api/v1`) |
+
+### Buscar ejecuciones
+
+`GET /runs/search` acepta `q` (máx. 200 caracteres), `project`, `environment`, `branch`, `tag`,
+`owner`, `status` (puede repetirse o separarse por comas), `incomplete`, `flaky`, `from`, `to`
+(`YYYY-MM-DD`), `sort` (`recent`, `oldest`, `duration`, `failures`), `limit` (1–100) y `cursor`.
+`q` busca nombre, proyecto, rama, commit, ambiente y nombre o key del test, sin incluir tests en
+la respuesta. Los caracteres `%` y `_` se buscan literalmente. Cada fila devuelve sus contadores,
+duración y `flaky_count`; el cursor es opaco y mantiene la página estable si entran ejecuciones
+nuevas. `GET /runs/facets` acepta los mismos filtros y devuelve hasta 20 valores por grupo.
 
 ## Ajustes (pantalla de Ajustes)
 
