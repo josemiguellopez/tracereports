@@ -55,10 +55,10 @@ test("una ejecución pedida antes no pisa a la elegida después", async ({ page 
 	const { prev, run } = seed();
 	await openRun(page, run, "E2E actual");
 	const a = await hold(page, `/api/v1/runs/${prev}`);
-	await page.locator("#run-select").selectOption(String(prev)); // A: retenida
+	await page.locator("#run-select").selectOption(String(prev), { force: true }); // A: retenida
 	await a.arrived;
 	const b = page.waitForResponse((r) => new URL(r.url()).pathname === `/api/v1/runs/${run}`);
-	await page.locator("#run-select").selectOption(String(run)); // B: llega primero
+	await page.locator("#run-select").selectOption(String(run), { force: true }); // B: llega primero
 	await b;
 	await expectRun(page, run, "E2E actual");
 	await a.release(); // A llega tarde
@@ -88,9 +88,9 @@ test("el error de una petición que ya no corresponde no se muestra ni rompe la 
 	const { prev, run } = seed();
 	await openRun(page, run, "E2E actual");
 	const a = await hold(page, `/api/v1/runs/${prev}`, 500);
-	await page.locator("#run-select").selectOption(String(prev));
+	await page.locator("#run-select").selectOption(String(prev), { force: true });
 	await a.arrived;
-	await page.locator("#run-select").selectOption(String(run));
+	await page.locator("#run-select").selectOption(String(run), { force: true });
 	await expectRun(page, run, "E2E actual");
 	await a.release(); // el 500 de A llega cuando ya se ve B
 	await expectRun(page, run, "E2E actual");

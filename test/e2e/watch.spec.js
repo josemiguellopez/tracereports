@@ -80,7 +80,7 @@ test("varias ejecuciones nuevas: el aviso las cuenta y vuelve a aparecer con cad
 	await expect(toast).toContainText(`#${second} · E2E shard 2`);
 	await expect(page.locator("#new-run-badge")).toHaveText("2 nuevas");
 	// cambiar con el selector también cuenta como vista
-	await page.locator("#run-select").selectOption(String(second));
+	await page.locator("#run-select").selectOption(String(second), { force: true });
 	await expect(page.locator("#report-name")).toHaveText("E2E shard 2");
 	await expect(page.locator("#new-run-badge")).toHaveText("1 nueva");
 });

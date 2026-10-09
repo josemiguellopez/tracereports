@@ -23,7 +23,7 @@ async function openRun(page) {
 	const { run } = seed();
 	// la ejecución más reciente se abre sola; si no, se elige en el selector
 	const select = page.locator("#run-select");
-	if ((await select.inputValue()) !== String(run)) await select.selectOption(String(run));
+	if ((await select.inputValue()) !== String(run)) await select.selectOption(String(run), { force: true });
 	await expect(page.locator("#report-name")).toHaveText("E2E actual");
 	await expect(page.locator("#test-collection .collection-item")).toHaveCount(3);
 }

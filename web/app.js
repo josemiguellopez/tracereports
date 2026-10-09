@@ -290,12 +290,12 @@
 		else if (!x.items.length) list.innerHTML = `<div class="placeholder">${tr("Sin resultados: quita un filtro o prueba otra búsqueda.")}</div>`;
 		else list.innerHTML = x.items.map((r) => `<button class="search-row" data-search-run="${r.id}" role="option" aria-selected="${x.selected === r.id}">
 			<span class="search-state ${lower(r.status)}" style="--c:var(--${lower(r.status)})"></span><span class="search-main"><b>${esc(r.name)}</b><span>${[r.branch, r.environment, r.project].filter(Boolean).map(esc).join(" · ")}</span></span>
-			<span class="search-meta" title="${esc(fmtDateTime(r.started_at))}">${esc(relativeRun(r.started_at))}</span><span class="search-count">${r.passed}/${r.total} OK${r.failed ? ` · <b class="fail">${r.failed} ${tr("fallos")}</b>` : ""}${r.flaky_count ? ` · <b class="flaky">${r.flaky_count} flaky</b>` : ""}</span><label title="${tr("Marcar para comparar")}" onclick="event.stopPropagation()"><input type="checkbox" data-search-compare="${r.id}" ${x.compare.includes(r.id) ? "checked" : ""}></label></button>`).join("");
+			<span class="search-meta" title="${esc(fmtDateTime(r.started_at))}">${esc(relativeRun(r.started_at))}</span><span class="search-count">${r.passed}/${r.total} OK${r.failed ? ` · <b class="fail">${plural(r.failed, tr("fallo"), tr("fallos"))}</b>` : ""}${r.flaky_count ? ` · <b class="flaky">${r.flaky_count} flaky</b>` : ""}</span><label title="${tr("Marcar para comparar")}" onclick="event.stopPropagation()"><input type="checkbox" data-search-compare="${r.id}" ${x.compare.includes(r.id) ? "checked" : ""}></label></button>`).join("");
 		$("#search-more").hidden = !x.cursor || x.loading;
 		if (!x.selected) renderSearchPreview();
 	}
 	function shortDuration(ms) { const s = Math.max(0, Math.round((ms || 0) / 1000)); const m = Math.floor(s / 60), h = Math.floor(m / 60); return `${h ? `${h} h ` : ""}${m % 60 ? `${m % 60} m ` : ""}${s % 60} s`; }
-	function releasePreview(release) { const labels = { go: "Listo para salir", risk: "Salir con riesgo", no_go: "No listo para salir" }; const d = release?.decision; return d ? `<span class="label ${d === "go" ? "pass" : d === "risk" ? "warning" : "fail"}">${tr(labels[d] || d)}</span>` : tr("Sin decisión"); }
+	function releasePreview(release) { const labels = { go: "Listo para salir", risk: "Se puede salir, con riesgos", no_go: "No salir todavía" }; const d = release?.decision; return d ? `<span class="label ${d === "go" ? "pass" : d === "risk" ? "warning" : "fail"}">${tr(labels[d] || d)}</span>` : tr("Sin decisión"); }
 	function renderSearchPreview(detail, release, compare) {
 		const x = S.runSearch, el = $("#run-search-preview"); if (!el) return;
 		const r = detail || x.items.find((item) => item.id === x.selected);

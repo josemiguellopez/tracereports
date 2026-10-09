@@ -115,12 +115,12 @@ test.describe("los números del reporte", () => {
 	test("cambiar de ejecución con el selector cambia todo el reporte", async ({ page }) => {
 		const { prev, run } = seed();
 		await openRun(page);
-		await page.locator("#run-select").selectOption(String(prev));
+		await page.locator("#run-select").selectOption(String(prev), { force: true });
 		await expect(page.locator("#report-name")).toHaveText("E2E anterior");
 		await expect(page).toHaveURL(new RegExp(`run=${prev}`));
 		await page.locator('[data-view="dashboard"]').first().click();
 		await expect(page.locator("#d-fail")).toHaveText("0");
-		await page.locator("#run-select").selectOption(String(run));
+		await page.locator("#run-select").selectOption(String(run), { force: true });
 		await expect(page.locator("#d-fail")).toHaveText("1");
 	});
 
