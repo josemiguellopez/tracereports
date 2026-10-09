@@ -43,12 +43,23 @@ type mirror struct {
 	active                   int
 }
 
+// staleLock: a process holds the lock for milliseconds; an older one was left by a process that died.
+const staleLock = 30 * time.Second
+
 func (m *mirror) locked(fn func() error) error {
 	lock := filepath.Join(m.dir, ".mirror-lock")
 	for n := 0; ; n++ {
 		if err := os.Mkdir(lock, 0o755); err != nil {
-			if !errors.Is(err, os.ErrExist) || n == 50 {
+			if !errors.Is(err, os.ErrExist) {
 				return err
+			}
+			if n >= 50 {
+				info, statErr := os.Stat(lock)
+				if statErr == nil && time.Since(info.ModTime()) <= staleLock {
+					return fmt.Errorf("%s is held by another process (remove it if no run is using this folder)", lock)
+				}
+				_ = os.Remove(lock) // orphaned: removed and tried again
+				n = 0
 			}
 			time.Sleep(10 * time.Millisecond)
 		} else {

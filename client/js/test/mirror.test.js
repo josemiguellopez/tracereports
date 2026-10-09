@@ -132,3 +132,19 @@ test("missing shared id warns and never claims complete", async () => {
     assert.ok(events(dir).every(e => /^\/api\/v1\/(runs|tests)\/-\d+\//.test(e.path)));
   } finally { await srv.close(); }
 });
+
+// Un bloqueo que quedó de un proceso muerto (más de 30 s) se retira; uno reciente es de otro
+// proceso y se informa con claridad.
+test("un bloqueo huérfano no impide la copia local", async () => {
+  const { Mirror } = await import("../src/mirror.js");
+  const base = fs.mkdtempSync(path.join(os.tmpdir(), "tr-lock-"));
+  const old = path.join(base, "old"), fresh = path.join(base, "fresh");
+  for (const d of [old, fresh]) fs.mkdirSync(path.join(d, ".mirror-lock"), { recursive: true });
+  const past = new Date(Date.now() - 120_000);
+  fs.utimesSync(path.join(old, ".mirror-lock"), past, past);
+  const m = new Mirror(null, old, "http://server.test", 7, { name: "run" });
+  assert.ok(m.runs.get(7) < 0);
+  assert.ok(!fs.existsSync(path.join(old, ".mirror-lock")));
+  assert.throws(() => new Mirror(null, fresh, "http://server.test", 7, { name: "run" }), /lo tiene otro proceso/);
+  fs.rmSync(base, { recursive: true, force: true });
+});

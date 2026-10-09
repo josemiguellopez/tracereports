@@ -15,6 +15,8 @@ import uuid
 from .offline import Recorder
 
 MARKER = "tracereports-offline.json"
+# Un proceso tiene el bloqueo unos milisegundos: uno más viejo quedó de un proceso que murió.
+STALE_LOCK_SECONDS = 30
 log = logging.getLogger("tracereports")
 
 
@@ -79,13 +81,23 @@ class Mirror:
     @contextlib.contextmanager
     def locked(self):
         lock = self.directory / ".mirror-lock"
-        for n in range(51):
+        n = 0
+        while True:
             try:
                 lock.mkdir()
                 break
             except FileExistsError:
-                if n == 50:
-                    raise
+                n += 1
+                if n > 50:
+                    try:
+                        stale = time.time() - lock.stat().st_mtime > STALE_LOCK_SECONDS
+                    except OSError:
+                        stale = False
+                    if not stale:
+                        raise OSError(f"{lock} is held by another process (remove it if no run is using this folder)")
+                    with contextlib.suppress(OSError):
+                        lock.rmdir()  # huérfano: se retira y se vuelve a intentar
+                    n = 0
                 time.sleep(.01)
         try:
             yield

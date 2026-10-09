@@ -192,3 +192,20 @@ def test_pytest_xdist_both_merges_workers_and_cleans(server, tmp_path):
     data = (rec / "report/data.js").read_text(encoding="utf-8")
     for n in range(4):
         assert "worker evidence " + str(n) in data
+
+
+def test_an_orphaned_lock_does_not_block_the_local_copy(tmp_path):
+    """Un bloqueo que quedó de un proceso muerto (más de 30 s) se retira; uno reciente es de otro
+    proceso y se informa con claridad."""
+    import time
+    from tracereports.mirror import Mirror
+    old, fresh = tmp_path / "old", tmp_path / "fresh"
+    for d in (old, fresh):
+        (d / ".mirror-lock").mkdir(parents=True)
+    past = time.time() - 120
+    os.utime(old / ".mirror-lock", (past, past))
+    m = Mirror(None, str(old), "http://server.test", 7, {"name": "run"})
+    m.recorder.close()
+    assert m.runs[7] < 0 and not (old / ".mirror-lock").exists()
+    with pytest.raises(OSError, match="held by another process"):
+        Mirror(None, str(fresh), "http://server.test", 7, {"name": "run"})

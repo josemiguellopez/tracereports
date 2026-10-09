@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync/atomic"
@@ -72,7 +73,25 @@ func mirrorClient(t *testing.T, url string) *Client {
 	c.HTTP.Timeout = 100 * time.Millisecond
 	return c
 }
+
+// needBinary skips a test that builds the HTML report when the tracereports binary is missing
+// ($TRACEREPORTS_BIN or PATH), like TestEndToEndReportWithTheBinary.
+func needBinary(t *testing.T) {
+	t.Helper()
+	bin := os.Getenv("TRACEREPORTS_BIN")
+	if bin == "" {
+		if p, err := exec.LookPath("tracereports"); err == nil {
+			bin = p
+		}
+	}
+	if bin == "" {
+		t.Skip("needs the tracereports binary ($TRACEREPORTS_BIN or PATH)")
+	}
+	t.Setenv("TRACEREPORTS_BIN", bin)
+}
+
 func TestMirrorKeepRecordsAndSends(t *testing.T) {
+	needBinary(t)
 	srv, _, calls := mirrorServer(t)
 	c := mirrorClient(t, srv.URL)
 	t.Setenv("TRACEREPORTS_OFFLINE_KEEP", "1")
@@ -106,6 +125,7 @@ func TestMirrorKeepRecordsAndSends(t *testing.T) {
 	}
 }
 func TestMirrorCleansOnlyAfterHTML(t *testing.T) {
+	needBinary(t)
 	srv, _, _ := mirrorServer(t)
 	c := mirrorClient(t, srv.URL)
 	runSuite(t, c)
@@ -122,6 +142,7 @@ func TestMirrorCleansOnlyAfterHTML(t *testing.T) {
 	}
 }
 func TestMirrorOutageKeepsNewTests(t *testing.T) {
+	needBinary(t)
 	srv, fail, _ := mirrorServer(t)
 	c := mirrorClient(t, srv.URL)
 	c.StartRun("outage", "")
@@ -212,5 +233,34 @@ func TestMirrorMissingMappingNeverRecordsRemoteIDs(t *testing.T) {
 		if !strings.Contains(e.Path, "/-") {
 			t.Fatalf("remote path could modify an existing run on push: %s", e.Path)
 		}
+	}
+}
+
+// An orphaned lock (older than staleLock, left by a process that died) is removed; a recent one
+// belongs to another process and is reported clearly.
+func TestMirrorOrphanedLockDoesNotBlockTheCopy(t *testing.T) {
+	old, fresh := t.TempDir(), t.TempDir()
+	for _, d := range []string{old, fresh} {
+		if err := os.Mkdir(filepath.Join(d, ".mirror-lock"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	past := time.Now().Add(-2 * time.Minute)
+	if err := os.Chtimes(filepath.Join(old, ".mirror-lock"), past, past); err != nil {
+		t.Fatal(err)
+	}
+	m, err := newMirror(old, "http://server.test", 7, map[string]any{"name": "run"})
+	if err != nil {
+		t.Fatalf("orphaned lock: %v", err)
+	}
+	m.rec.close()
+	if m.runs[7] >= 0 {
+		t.Fatalf("local run id: %v", m.runs)
+	}
+	if _, err := os.Stat(filepath.Join(old, ".mirror-lock")); !os.IsNotExist(err) {
+		t.Fatal("the orphaned lock is removed")
+	}
+	if _, err := newMirror(fresh, "http://server.test", 7, map[string]any{"name": "run"}); err == nil || !strings.Contains(err.Error(), "held by another process") {
+		t.Fatalf("recent lock: %v", err)
 	}
 }

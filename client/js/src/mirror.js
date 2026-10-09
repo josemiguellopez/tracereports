@@ -4,6 +4,9 @@ import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Recorder, MARKER } from "./offline.js";
 
+// Un proceso tiene el bloqueo unos milisegundos: uno más viejo quedó de un proceso que murió.
+const STALE_LOCK_MS = 30_000;
+
 export class Mirror {
   constructor(sender, directory, server, runId, payload) {
     this.sender = sender;
@@ -50,7 +53,14 @@ export class Mirror {
     const lock = path.join(this.directory, ".mirror-lock");
     for (let n = 0; ; n++) {
       try { fs.mkdirSync(lock); break; } catch (err) {
-        if (err.code !== "EEXIST" || n === 50) throw err;
+        if (err.code !== "EEXIST") throw err;
+        if (n >= 50) {
+          let stale = false;
+          try { stale = Date.now() - fs.statSync(lock).mtimeMs > STALE_LOCK_MS; } catch { /* ya no existe */ }
+          if (!stale) throw new Error(`${lock} lo tiene otro proceso (bórralo si ninguna ejecución usa esta carpeta)`);
+          try { fs.rmdirSync(lock); } catch { /* otro proceso lo retiró antes */ }
+          n = 0; // huérfano: se retira y se vuelve a intentar
+        }
         Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 10);
       }
     }

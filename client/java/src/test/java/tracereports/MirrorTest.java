@@ -101,4 +101,18 @@ class MirrorTest {
             for (String line : OfflineTest.lines(dir)) assertTrue(line.contains("/-"), line);
         }
     }
+
+    /** Un bloqueo que quedó de un proceso muerto (más de 30 s) se retira; uno reciente es de otro proceso. */
+    @Test void orphanedLockDoesNotBlockTheCopy(@org.junit.jupiter.api.io.TempDir java.nio.file.Path base) throws Exception {
+        java.nio.file.Path old = base.resolve("old"), fresh = base.resolve("fresh");
+        java.nio.file.Files.createDirectories(old.resolve(".mirror-lock"));
+        java.nio.file.Files.createDirectories(fresh.resolve(".mirror-lock"));
+        java.nio.file.Files.setLastModifiedTime(old.resolve(".mirror-lock"),
+                java.nio.file.attribute.FileTime.fromMillis(System.currentTimeMillis() - 120_000));
+        new Mirror(old, "http://server.test", 7, java.util.Map.of("name", "run")).close(false);
+        org.junit.jupiter.api.Assertions.assertFalse(java.nio.file.Files.exists(old.resolve(".mirror-lock")));
+        java.io.IOException err = org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class,
+                () -> new Mirror(fresh, "http://server.test", 7, java.util.Map.of("name", "run")));
+        org.junit.jupiter.api.Assertions.assertTrue(err.getMessage().contains("lo tiene otro proceso"), err.getMessage());
+    }
 }

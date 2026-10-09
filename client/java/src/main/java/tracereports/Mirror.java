@@ -74,12 +74,21 @@ final class Mirror {
         } finally { Files.deleteIfExists(tmp); }
     }
     private interface Action { void run() throws IOException; }
+    /** Un proceso tiene el bloqueo unos milisegundos: uno más viejo quedó de un proceso que murió. */
+    static final long STALE_LOCK_MS = 30_000;
     private void locked(Action action) throws IOException {
         Path lock = dir.resolve(".mirror-lock");
         for (int n = 0; ; n++) {
             try { Files.createDirectory(lock); break; }
             catch (FileAlreadyExistsException e) {
-                if (n == 50) throw e;
+                if (n >= 50) {
+                    boolean stale;
+                    try { stale = System.currentTimeMillis() - Files.getLastModifiedTime(lock).toMillis() > STALE_LOCK_MS; }
+                    catch (IOException gone) { stale = true; } // ya no existe: se vuelve a intentar
+                    if (!stale) throw new IOException(lock + " lo tiene otro proceso (bórralo si ninguna ejecución usa esta carpeta)");
+                    Files.deleteIfExists(lock); // huérfano: se retira y se vuelve a intentar
+                    n = 0;
+                }
                 try { Thread.sleep(10); } catch (InterruptedException interrupted) { Thread.currentThread().interrupt(); throw new IOException(interrupted); }
             }
         }
