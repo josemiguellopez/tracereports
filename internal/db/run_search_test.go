@@ -43,5 +43,7 @@ func TestSearchRunsTwentyThousandRowsUnder150ms(t *testing.T) {
 	}
 	if elapsed := time.Since(started); elapsed > 150*time.Millisecond {
 		t.Fatalf("search and facets took %s (want <150ms)", elapsed)
+	} else {
+		t.Logf("search and facets: %s", elapsed)
 	}
 }
