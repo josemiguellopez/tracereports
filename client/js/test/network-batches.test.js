@@ -4,6 +4,7 @@ import { TraceReports } from "../src/index.js";
 import { limits } from "../src/transport.js";
 import { fakeServer } from "./fake-server.js";
 process.env.TRACEREPORTS_ENV_FILE = "off";
+process.env.TRACEREPORTS_BIN_DOWNLOAD ??= "0"; // los tests nunca descargan el binario de GitHub
 
 limits.maxBackoffMs = 100;
 limits.circuitMs = 300;

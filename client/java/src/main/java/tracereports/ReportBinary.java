@@ -17,6 +17,7 @@ final class ReportBinary {
     static final String VERSION = "0.2.0";
     private static final String RELEASES = "https://github.com/josemiguellopez/tracereports/releases/download";
     private static final int MAX_BINARY = 256 * 1024 * 1024;
+    private static final long STALE_LOCK_MS = 300_000;
 
     static String download() throws Exception {
         String os = System.getProperty("os.name").toLowerCase(Locale.ROOT);
@@ -38,7 +39,17 @@ final class ReportBinary {
             if (cached(binary)) return binary.toString();
             remaining(deadline);
             try { Files.createDirectory(lock); break; }
-            catch (FileAlreadyExistsException e) { Thread.sleep(50); }
+            catch (FileAlreadyExistsException e) {
+                // Una descarga tiene el bloqueo como mucho su timeout: uno más viejo quedó de un proceso
+                // que murió a mitad y bloquearía todas las corridas siguientes.
+                try {
+                    if (System.currentTimeMillis() - Files.getLastModifiedTime(lock).toMillis() > STALE_LOCK_MS) {
+                        Files.deleteIfExists(lock);
+                        continue;
+                    }
+                } catch (java.io.IOException gone) { /* otro proceso lo retiró o lo tomó */ }
+                Thread.sleep(50);
+            }
         }
         Path staging = null;
         try {

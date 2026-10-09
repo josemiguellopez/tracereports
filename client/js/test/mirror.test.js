@@ -8,6 +8,7 @@ import { TraceReports } from "../src/index.js";
 import { fakeServer } from "./fake-server.js";
 
 process.env.TRACEREPORTS_ENV_FILE = "off";
+process.env.TRACEREPORTS_BIN_DOWNLOAD ??= "0"; // los tests nunca descargan el binario de GitHub
 for (const key of ["RUN_ID", "DISABLED", "OFFLINE", "OFFLINE_DIR", "OFFLINE_KEEP"]) delete process.env[`TRACEREPORTS_${key}`];
 const marker = dir => JSON.parse(fs.readFileSync(path.join(dir, "tracereports-offline.json")));
 const events = dir => fs.readdirSync(dir).filter(n => /^events-.*\.jsonl$/.test(n)).flatMap(n => fs.readFileSync(path.join(dir, n), "utf8").trim().split("\n").filter(Boolean).map(JSON.parse));

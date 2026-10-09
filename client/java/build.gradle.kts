@@ -37,6 +37,8 @@ tasks.test {
     environment("TRACEREPORTS_DISABLED", "")
     // los tests corren dentro del repositorio: que el cliente no lea el .env real del proyecto
     environment("TRACEREPORTS_ENV_FILE", "off")
+    // los tests nunca descargan el binario de GitHub
+    environment("TRACEREPORTS_BIN_DOWNLOAD", "0")
     // la clase de ejemplo (falla a propósito) solo la corre EngineTestKit dentro de TraceReportsExtensionTest
     exclude("**/TraceReportsExtensionTest\$Ejemplo.class")
 }

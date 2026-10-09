@@ -6,6 +6,7 @@ import path from "node:path";
 import { TraceReports } from "../src/index.js";
 import { fakeServer } from "./fake-server.js";
 process.env.TRACEREPORTS_ENV_FILE = "off";
+process.env.TRACEREPORTS_BIN_DOWNLOAD ??= "0"; // los tests nunca descargan el binario de GitHub
 
 test("artifact: Buffer o ruta, y un no-op sin test activo", async () => {
   const srv = await fakeServer();

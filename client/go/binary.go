@@ -23,6 +23,9 @@ const reportVersion = "0.2.0"
 const reportReleases = "https://github.com/josemiguellopez/tracereports/releases/download"
 const maxReportBinary = 256 << 20
 
+// staleCacheLock: a cache lock older than this was left by a process that died mid-download.
+const staleCacheLock = 5 * time.Minute
+
 func reportBinary(ctx context.Context) (string, error) {
 	if explicit := getenv("BIN"); explicit != "" {
 		return explicit, nil
@@ -45,7 +48,9 @@ func reportBinary(ctx context.Context) (string, error) {
 			return "", err
 		}
 		base = filepath.Join(home, ".cache")
-		if runtime.GOOS == "darwin" { base = filepath.Join(home, "Library", "Caches") }
+		if runtime.GOOS == "darwin" {
+			base = filepath.Join(home, "Library", "Caches")
+		}
 	}
 	parent := filepath.Join(base, "tracereports", reportVersion)
 	target := filepath.Join(parent, runtime.GOOS+"_"+runtime.GOARCH)
@@ -89,6 +94,13 @@ func reportBinary(ctx context.Context) (string, error) {
 		}
 		if !os.IsExist(err) {
 			return "", err
+		}
+		// A download holds the lock for at most its timeout: an older one was left by a process
+		// that died mid-download and would otherwise block every later run.
+		if info, statErr := os.Stat(lock); statErr == nil && time.Since(info.ModTime()) > staleCacheLock {
+			if os.Remove(lock) == nil {
+				continue
+			}
 		}
 		select {
 		case <-ctx.Done():

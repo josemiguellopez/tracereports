@@ -194,6 +194,16 @@ class ClientTests(unittest.TestCase):
             self.assertRegex(folder.name, r"^orangehrm-pim-\d{8}-\d{6}-[0-9a-f]{6}$")
         self.assert_downloads(1)
 
+    def stale_lock(self, client):
+        # un proceso murió a mitad de la descarga y dejó el bloqueo: la corrida siguiente lo retoma
+        lock = self.directory / "cache/tracereports" / VERSION / f"{SYSTEM}_{ARCH}.lock"
+        lock.mkdir(parents=True)
+        past = time.time() - 3600
+        os.utime(lock, (past, past))
+        result, output = self.run_client(client)
+        self.assert_html(result); self.assert_downloads(1)
+        self.assertFalse(lock.exists(), output)
+
     def both(self, client):
         self.status = 201; self.env["TRACEREPORTS_OFFLINE"] = "both"
         result, output = self.run_client(client)
@@ -220,7 +230,7 @@ class ClientTests(unittest.TestCase):
 
 
 for client in ("python", "js", "java", "go"):
-    for scenario in ("unauthorized", "checksum", "disabled", "cached", "concurrent", "named_parallel", "both", "explicit", "always", "unavailable"):
+    for scenario in ("unauthorized", "checksum", "disabled", "cached", "concurrent", "named_parallel", "both", "explicit", "always", "unavailable", "stale_lock"):
         def run(self, client=client, scenario=scenario): getattr(self, scenario)(client)
         setattr(ClientTests, f"test_{client}_{scenario}", run)
 

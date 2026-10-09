@@ -12,6 +12,7 @@ import { MARKER } from "../src/offline.js";
 import { limits } from "../src/transport.js";
 // los tests corren dentro del repositorio: que el cliente no lea el .env real del proyecto
 process.env.TRACEREPORTS_ENV_FILE = "off";
+process.env.TRACEREPORTS_BIN_DOWNLOAD ??= "0"; // los tests nunca descargan el binario de GitHub
 for (const v of ["TRACEREPORTS_RUN_ID", "TRACEREPORTS_DISABLED", "TRACEREPORTS_TOKEN", "TRACEREPORTS_OFFLINE_DIR", "TRACEREPORTS_OFFLINE"]) delete process.env[v];
 limits.circuitMs = 300;
 

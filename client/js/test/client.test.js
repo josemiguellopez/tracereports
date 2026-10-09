@@ -6,6 +6,7 @@ import { withDriver } from "../src/selenium.js";
 import { fakeServer } from "./fake-server.js";
 // los tests corren dentro del repositorio: que el cliente no lea el .env real del proyecto
 process.env.TRACEREPORTS_ENV_FILE = "off";
+process.env.TRACEREPORTS_BIN_DOWNLOAD ??= "0"; // los tests nunca descargan el binario de GitHub
 
 limits.maxBackoffMs = 100;
 limits.circuitMs = 300;

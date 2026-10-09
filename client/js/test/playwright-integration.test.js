@@ -18,6 +18,7 @@ const SPEC = `
 import { test, expect } from "@playwright/test";
 // los tests corren dentro del repositorio: que el cliente no lea el .env real del proyecto
 process.env.TRACEREPORTS_ENV_FILE = "off";
+process.env.TRACEREPORTS_BIN_DOWNLOAD ??= "0"; // los tests nunca descargan el binario de GitHub
 test("normal pass", () => { expect(1).toBe(1); });
 test("normal fail", () => { expect(1).toBe(2); });
 test("expected failure", () => { test.fail(); expect(1).toBe(2); });

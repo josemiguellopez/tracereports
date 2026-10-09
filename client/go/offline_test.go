@@ -190,7 +190,9 @@ func TestShardJoinsANegativeRunAndSharesTheFolder(t *testing.T) {
 
 func TestEndToEndReportWithTheBinary(t *testing.T) {
 	bin := os.Getenv("TRACEREPORTS_BIN")
-	if bin == "" { bin = os.Getenv("TRACEREPORTS_TEST_BIN") }
+	if bin == "" {
+		bin = os.Getenv("TRACEREPORTS_TEST_BIN")
+	}
 	if bin == "" {
 		if p, err := exec.LookPath("tracereports"); err == nil {
 			bin = p
@@ -336,7 +338,9 @@ func TestTwoRecordersInOneFolderNeverRepeatLocalIDs(t *testing.T) {
 		t.Fatalf("reserved blocks: %d", len(blocks))
 	}
 	bin := os.Getenv("TRACEREPORTS_BIN")
-	if bin == "" { bin = os.Getenv("TRACEREPORTS_TEST_BIN") }
+	if bin == "" {
+		bin = os.Getenv("TRACEREPORTS_TEST_BIN")
+	}
 	if bin == "" {
 		return
 	}

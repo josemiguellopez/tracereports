@@ -9,6 +9,7 @@ import { env } from "./env.js";
 export const REPORT_VERSION = "0.2.0";
 const RELEASES = "https://github.com/josemiguellopez/tracereports/releases/download";
 const MAX_BINARY = 256 * 1024 * 1024;
+const STALE_LOCK_MS = 300_000;
 const sha = data => createHash("sha256").update(data).digest("hex");
 
 // Read only the exact executable member; archive paths are never used as output paths.
@@ -71,7 +72,13 @@ export async function downloadBinary(timeoutMs = 60_000) {
     if (cached()) return binary;
     if (Date.now() >= deadline) throw Error("waiting for report binary cache timed out");
     try { fs.mkdirSync(lock); break; }
-    catch (err) { if (err.code !== "EEXIST") throw err; await sleep(50); }
+    catch (err) {
+      if (err.code !== "EEXIST") throw err;
+      // A download holds the lock for at most its timeout: an older one was left by a process that
+      // died mid-download and would otherwise block every later run.
+      try { if (Date.now() - fs.statSync(lock).mtimeMs > STALE_LOCK_MS) { fs.rmdirSync(lock); continue; } } catch { /* removed meanwhile */ }
+      await sleep(50);
+    }
   }
   let staging;
   const controller = new AbortController(), timer = setTimeout(() => controller.abort(), Math.max(1, deadline - Date.now()));

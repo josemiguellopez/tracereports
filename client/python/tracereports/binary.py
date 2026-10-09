@@ -18,6 +18,9 @@ REPORT_VERSION = "0.2.0"
 RELEASES = "https://github.com/josemiguellopez/tracereports/releases/download"
 MAX_ARCHIVE = 128 * 1024 * 1024
 MAX_BINARY = 256 * 1024 * 1024
+# A download holds the cache lock for at most its timeout; an older lock was left by a process that
+# died mid-download (Ctrl+C, crash) and would otherwise block every later run.
+STALE_LOCK_SECONDS = 300
 
 
 def resolve_binary(timeout=60):
@@ -61,6 +64,12 @@ def resolve_binary(timeout=60):
             lock.mkdir()
             break
         except FileExistsError:
+            try:
+                if time.time() - lock.stat().st_mtime > STALE_LOCK_SECONDS:
+                    lock.rmdir()
+                    continue
+            except OSError:
+                pass  # another process removed or took it meanwhile
             time.sleep(.05)
     try:
         if cached():
