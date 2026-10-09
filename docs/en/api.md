@@ -195,7 +195,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 ### Search runs
 
 `GET /runs/search` accepts `q` (at most 200 characters), `project`, `environment`, `branch`,
-`tag`, `owner`, `status` (repeat it or use comma-separated values), `incomplete`, `flaky`, `from`,
+`tag`, `status` (repeat it or use comma-separated values), `incomplete`, `flaky`, `from`,
 `to` (`YYYY-MM-DD`), `sort` (`recent`, `oldest`, `duration`, `failures`), `limit` (1–100), and
 `cursor`. `q` searches the run name, project, branch, commit, environment, and test name or key
 without returning tests. `%` and `_` are literal characters. Every item includes counters, duration

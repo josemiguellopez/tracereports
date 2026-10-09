@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/url"
+	"strings"
 	"testing"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
@@ -19,7 +20,7 @@ func seedSearchRun(t *testing.T, srv *Server, name, project, branch string, star
 		t.Fatal(err)
 	}
 	if failed {
-		tid, err := srv.Store.CreateTestWithMeta(id, "checkout", "smoke", "", db.TestMeta{Key: "checkout"})
+		tid, err := srv.Store.CreateTestWithMeta(id, "checkout", "smoke, checkout", "", db.TestMeta{Key: "checkout"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -84,8 +85,14 @@ func TestRunSearchFacetsAndValidation(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &facets); err != nil {
 		t.Fatal(err)
 	}
-	if len(facets["branch"]) != 2 || len(facets["tag"]) != 1 || facets["tag"][0].Value != "smoke" {
+	if len(facets["branch"]) != 2 || len(facets["tag"]) != 2 || facets["tag"][0].Value != "checkout" {
 		t.Fatalf("facets: %#v", facets)
+	}
+	if rec := call(t, srv, http.MethodGet, "/api/v1/runs/search?tag=checkout", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"items"`) {
+		t.Fatalf("exact tag search: %d %s", rec.Code, rec.Body)
+	}
+	if rec := call(t, srv, http.MethodGet, "/api/v1/runs/search?q=checkout", ""); rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"one"`) {
+		t.Fatalf("indexed text search: %d %s", rec.Code, rec.Body)
 	}
 	if rec := call(t, srv, http.MethodGet, "/api/v1/runs/search?q="+url.QueryEscape(string(make([]byte, 201))), ""); rec.Code != http.StatusBadRequest {
 		t.Fatalf("q limit: %d", rec.Code)

@@ -142,6 +142,10 @@ func Open(path string) (*Store, error) {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := ensureRunSearchIndex(sqldb); err != nil {
+		sqldb.Close()
+		return nil, fmt.Errorf("migrate run search index: %w", err)
+	}
 	if err := ensureAIBudget(sqldb); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate ai budget: %w", err)
@@ -653,6 +657,9 @@ func (s *Store) CreateTestWithMeta(runID int64, name, category, description stri
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
+		return 0, err
+	}
+	if err := addRunTags(tx, runID, category); err != nil {
 		return 0, err
 	}
 	// creado después del cierre (spool recuperado): la ejecución deja de verse verde mientras corre

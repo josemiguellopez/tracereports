@@ -10,12 +10,12 @@ import (
 // RunSearchQuery is the bounded, read-only query used by the run explorer.
 // Dates are Unix milliseconds at the beginning/end of their respective days.
 type RunSearchQuery struct {
-	Q, Project, Environment, Branch, Tag, Owner, Sort string
-	Status                                            []string
-	Incomplete, Flaky                                 *bool
-	From, To                                          int64
-	Limit                                             int
-	Cursor                                            string
+	Q, Project, Environment, Branch, Tag, Sort string
+	Status                                     []string
+	Incomplete, Flaky                          *bool
+	From, To                                   int64
+	Limit                                      int
+	Cursor                                     string
 }
 
 // RunSearchItem deliberately contains only list data. Opening a run still uses GetRunDetail.
@@ -93,10 +93,7 @@ func runSearchWhere(q RunSearchQuery) (string, []any) {
 		add("r.status IN ("+marks+")", values...)
 	}
 	if q.Tag != "" {
-		add("EXISTS (SELECT 1 FROM tests tagt WHERE tagt.run_id=r.id AND (tagt.category=? OR ',' || REPLACE(tagt.category, ' ', '') || ',' LIKE ? ESCAPE '\\'))", q.Tag, "%,"+likeEscape(q.Tag)+",%")
-	}
-	if q.Owner != "" {
-		add("EXISTS (SELECT 1 FROM tests ownert JOIN quarantine oq ON oq.project=r.project AND oq.test_key=ownert.test_key WHERE ownert.run_id=r.id AND oq.owner=?)", q.Owner)
+		add("EXISTS (SELECT 1 FROM run_tags rt WHERE rt.run_id=r.id AND rt.tag=?)", q.Tag)
 	}
 	if q.Flaky != nil {
 		if *q.Flaky {
@@ -106,14 +103,28 @@ func runSearchWhere(q RunSearchQuery) (string, []any) {
 		}
 	}
 	if q.Q != "" {
-		needle := "%" + likeEscape(strings.ToLower(q.Q)) + "%"
-		add(`(LOWER(r.name) LIKE ? ESCAPE '\' OR LOWER(r.project) LIKE ? ESCAPE '\' OR LOWER(r.branch) LIKE ? ESCAPE '\' OR LOWER(r.commit_sha) LIKE ? ESCAPE '\' OR LOWER(r.environment) LIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM tests qt WHERE qt.run_id=r.id AND (LOWER(qt.name) LIKE ? ESCAPE '\' OR LOWER(qt.test_key) LIKE ? ESCAPE '\')))`, needle, needle, needle, needle, needle, needle, needle)
+		if ftsQuery, ok := runSearchFTSQuery(q.Q); ok {
+			add("r.id IN (SELECT DISTINCT CAST(run_id AS INTEGER) FROM run_search_fts WHERE run_search_fts MATCH ?)", ftsQuery)
+		} else {
+			needle := "%" + likeEscape(strings.ToLower(q.Q)) + "%"
+			add(`(LOWER(r.name) LIKE ? ESCAPE '\' OR LOWER(r.project) LIKE ? ESCAPE '\' OR LOWER(r.branch) LIKE ? ESCAPE '\' OR LOWER(r.commit_sha) LIKE ? ESCAPE '\' OR LOWER(r.environment) LIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM tests qt WHERE qt.run_id=r.id AND (LOWER(qt.name) LIKE ? ESCAPE '\' OR LOWER(qt.test_key) LIKE ? ESCAPE '\')))`, needle, needle, needle, needle, needle, needle, needle)
+		}
 	}
 	return strings.Join(parts, " AND "), args
 }
 
 func likeEscape(s string) string {
 	return strings.NewReplacer("\\", "\\\\", "%", "\\%", "_", "\\_").Replace(s)
+}
+
+// FTS5 trigram is both fast and safe for ordinary text. Keep the LIKE fallback for very short
+// terms and wildcard characters, whose literal semantics are part of the public API.
+func runSearchFTSQuery(q string) (string, bool) {
+	q = strings.TrimSpace(q)
+	if len([]rune(q)) < 3 || strings.ContainsAny(q, "%_") {
+		return "", false
+	}
+	return `"` + strings.ReplaceAll(q, `"`, `""`) + `"`, true
 }
 
 func searchOrder(sort string) (value, direction string) {
@@ -229,7 +240,7 @@ func (s *Store) RunFacets(q RunSearchQuery) (map[string][]RunFacet, error) {
 		}
 		rows.Close()
 	}
-	rows, err := s.db.Query(`SELECT t.category,COUNT(DISTINCT r.id) FROM runs r JOIN tests t ON t.run_id=r.id WHERE `+where+` AND t.category<>'' GROUP BY t.category ORDER BY COUNT(DISTINCT r.id) DESC,t.category LIMIT 20`, args...)
+	rows, err := s.db.Query(`SELECT rt.tag,COUNT(*) FROM runs r JOIN run_tags rt ON rt.run_id=r.id WHERE `+where+` GROUP BY rt.tag ORDER BY COUNT(*) DESC,rt.tag LIMIT 20`, args...)
 	if err != nil {
 		return nil, err
 	}

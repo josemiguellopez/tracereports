@@ -197,7 +197,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 ### Buscar ejecuciones
 
 `GET /runs/search` acepta `q` (máx. 200 caracteres), `project`, `environment`, `branch`, `tag`,
-`owner`, `status` (puede repetirse o separarse por comas), `incomplete`, `flaky`, `from`, `to`
+`status` (puede repetirse o separarse por comas), `incomplete`, `flaky`, `from`, `to`
 (`YYYY-MM-DD`), `sort` (`recent`, `oldest`, `duration`, `failures`), `limit` (1–100) y `cursor`.
 `q` busca nombre, proyecto, rama, commit, ambiente y nombre o key del test, sin incluir tests en
 la respuesta. Los caracteres `%` y `_` se buscan literalmente. Cada fila devuelve sus contadores,

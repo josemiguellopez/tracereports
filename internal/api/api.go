@@ -195,7 +195,7 @@ func runSearchQuery(w http.ResponseWriter, r *http.Request) (db.RunSearchQuery, 
 	q := db.RunSearchQuery{
 		Q: strings.TrimSpace(p.Get("q")), Project: strings.TrimSpace(p.Get("project")),
 		Environment: strings.TrimSpace(p.Get("environment")), Branch: strings.TrimSpace(p.Get("branch")),
-		Tag: strings.TrimSpace(p.Get("tag")), Owner: strings.TrimSpace(p.Get("owner")),
+		Tag:  strings.TrimSpace(p.Get("tag")),
 		Sort: strings.TrimSpace(p.Get("sort")), Cursor: strings.TrimSpace(p.Get("cursor")), Limit: 25,
 	}
 	if len(q.Q) > 200 {
