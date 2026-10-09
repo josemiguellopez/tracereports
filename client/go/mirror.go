@@ -80,7 +80,14 @@ func (m *mirror) write(name string, v any) error {
 		return err
 	}
 	defer os.Remove(tmp)
-	return os.Rename(tmp, dest)
+	if err = os.Rename(tmp, dest); err == nil {
+		return nil
+	}
+	// Windows can reject a replacement rename even while this process owns the lock.
+	if errors.Is(err, os.ErrPermission) {
+		return os.WriteFile(dest, raw, 0o644)
+	}
+	return err
 }
 func (m *mirror) marker() (mirrorMarker, error) {
 	var v mirrorMarker
@@ -103,19 +110,14 @@ func newMirror(dir, server string, runID int64, payload any) (*mirror, error) {
 		if prior.RawRemoved {
 			return errors.New("only the report remains; use a new recording directory")
 		}
-		m.status = fmt.Sprintf("status-%d-%s.json", os.Getpid(), randomHex(4))
-		if err = m.write(m.status, mirrorStatus{Reason: "active"}); err != nil {
-			return err
-		}
 		m.rec, err = newRecorder(dir)
 		if err != nil {
 			return err
 		}
-		actual := fmt.Sprintf("status-%d-%s.json", m.rec.pid, m.rec.tag)
-		if err = os.Rename(filepath.Join(dir, m.status), filepath.Join(dir, actual)); err != nil {
+		m.status = fmt.Sprintf("status-%d-%s.json", m.rec.pid, m.rec.tag)
+		if err = m.write(m.status, mirrorStatus{Reason: "active"}); err != nil {
 			return err
 		}
-		m.status = actual
 		marker, err := m.marker()
 		if err != nil {
 			return err

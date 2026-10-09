@@ -69,8 +69,16 @@ export class Mirror {
 
   write(name, value) {
     const dest = path.join(this.directory, name), tmp = `${dest}.${randomUUID()}.tmp`;
-    fs.writeFileSync(tmp, JSON.stringify(value));
-    fs.renameSync(tmp, dest);
+    try {
+      fs.writeFileSync(tmp, JSON.stringify(value));
+      try { fs.renameSync(tmp, dest); }
+      catch (err) {
+        // Windows can reject a replacement rename even while this process owns the lock.
+        if (err.code !== "EPERM" && err.code !== "EACCES") throw err;
+        fs.copyFileSync(tmp, dest);
+        fs.rmSync(tmp, { force: true });
+      }
+    } finally { fs.rmSync(tmp, { force: true }); }
   }
 
   diskError(err) {

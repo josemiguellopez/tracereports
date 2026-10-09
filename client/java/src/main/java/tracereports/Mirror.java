@@ -26,11 +26,9 @@ final class Mirror {
             locked(() -> {
                 Path marker = dir.resolve(Recorder.MARKER);
                 if (Files.exists(marker) && Boolean.TRUE.equals(read(marker).get("raw_removed"))) throw new IOException("la carpeta solo contiene el reporte; usa otra carpeta");
-                status = "status-" + ProcessHandle.current().pid() + "-" + UUID.randomUUID().toString().substring(0, 8) + ".json";
-                write(status, Map.of("complete", false, "reason", "active"));
                 recorder = new Recorder(dir);
-                String actual = "status-" + recorder.pid + "-" + recorder.tag + ".json";
-                Files.move(dir.resolve(status), dir.resolve(actual)); status = actual;
+                status = "status-" + recorder.pid + "-" + recorder.tag + ".json";
+                write(status, Map.of("complete", false, "reason", "active"));
                 Map<String, Object> m = read(marker);
                 Map<String, Object> mirror = m.containsKey("mirror") ? object(m.get("mirror")) : new LinkedHashMap<>(Map.of("server", server, "runs", new ArrayList<>()));
                 if (!server.equals(mirror.get("server"))) throw new IOException("la carpeta pertenece a otro servidor");
@@ -70,7 +68,10 @@ final class Mirror {
         try {
             Files.writeString(tmp, Json.write(value));
             try { Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
-            catch (AtomicMoveNotSupportedException e) { Files.move(tmp, dest, StandardCopyOption.REPLACE_EXISTING); }
+            catch (AtomicMoveNotSupportedException | AccessDeniedException e) {
+                Files.copy(tmp, dest, StandardCopyOption.REPLACE_EXISTING);
+                Files.deleteIfExists(tmp);
+            }
         } finally { Files.deleteIfExists(tmp); }
     }
     private interface Action { void run() throws IOException; }

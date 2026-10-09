@@ -91,7 +91,7 @@ test("disk failure disables local writes once while server delivery continues", 
   console.warn = msg => warnings.push(msg);
   try {
     const cr = client(srv.url, dir); await cr.startRun("disk");
-    fs.renameSync(cr.sender.recorder.file, cr.sender.recorder.file + ".saved");
+    fs.rmSync(cr.sender.recorder.file);
     fs.mkdirSync(cr.sender.recorder.file); // append to a directory fails on every platform
     await evidence(cr); await cr.finishRun();
     assert.equal(srv.requests.length, 6);
