@@ -114,6 +114,8 @@ func (s *Server) Router() http.Handler {
 		r.Get("/stream", s.stream)
 
 		r.Get("/runs", s.listRuns)
+		r.Get("/runs/search", s.searchRuns)
+		r.Get("/runs/facets", s.runFacets)
 		r.Post("/runs", s.createRun)
 		r.Get("/runs/{run_id}", s.getRun)
 		r.Get("/runs/{run_id}/export", s.exportRun)
@@ -184,6 +186,129 @@ func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, runs)
+}
+
+var runSearchStatuses = set("PASS", "FAIL", "WARNING", "SKIP", "RUNNING")
+
+func runSearchQuery(w http.ResponseWriter, r *http.Request) (db.RunSearchQuery, bool) {
+	p := r.URL.Query()
+	q := db.RunSearchQuery{
+		Q: strings.TrimSpace(p.Get("q")), Project: strings.TrimSpace(p.Get("project")),
+		Environment: strings.TrimSpace(p.Get("environment")), Branch: strings.TrimSpace(p.Get("branch")),
+		Tag: strings.TrimSpace(p.Get("tag")), Owner: strings.TrimSpace(p.Get("owner")),
+		Sort: strings.TrimSpace(p.Get("sort")), Cursor: strings.TrimSpace(p.Get("cursor")), Limit: 25,
+	}
+	if len(q.Q) > 200 {
+		writeError(w, http.StatusBadRequest, "q must be at most 200 characters")
+		return q, false
+	}
+	if raw := p.Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 || n > 100 {
+			writeError(w, http.StatusBadRequest, "limit must be between 1 and 100")
+			return q, false
+		}
+		q.Limit = n
+	}
+	if q.Sort == "" {
+		q.Sort = "recent"
+	}
+	if q.Sort != "recent" && q.Sort != "oldest" && q.Sort != "duration" && q.Sort != "failures" {
+		writeError(w, http.StatusBadRequest, "sort must be recent, oldest, duration or failures")
+		return q, false
+	}
+	for _, raw := range p["status"] {
+		for _, status := range strings.Split(raw, ",") {
+			status = strings.ToUpper(strings.TrimSpace(status))
+			if status == "" {
+				continue
+			}
+			if !runSearchStatuses[status] {
+				writeError(w, http.StatusBadRequest, "invalid status")
+				return q, false
+			}
+			q.Status = append(q.Status, status)
+		}
+	}
+	parseBool := func(name string) (*bool, bool) {
+		raw, ok := p[name]
+		if !ok {
+			return nil, true
+		}
+		if len(raw) != 1 {
+			writeError(w, http.StatusBadRequest, "invalid "+name)
+			return nil, false
+		}
+		b, err := strconv.ParseBool(raw[0])
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "invalid "+name)
+			return nil, false
+		}
+		return &b, true
+	}
+	var ok bool
+	if q.Incomplete, ok = parseBool("incomplete"); !ok {
+		return q, false
+	}
+	if q.Flaky, ok = parseBool("flaky"); !ok {
+		return q, false
+	}
+	parseDate := func(name string, end bool) (int64, bool) {
+		raw := p.Get(name)
+		if raw == "" {
+			return 0, true
+		}
+		d, err := time.Parse("2006-01-02", raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, name+" must be YYYY-MM-DD")
+			return 0, false
+		}
+		if end {
+			d = d.AddDate(0, 0, 1)
+		}
+		return d.UnixMilli(), true
+	}
+	if q.From, ok = parseDate("from", false); !ok {
+		return q, false
+	}
+	if q.To, ok = parseDate("to", true); !ok {
+		return q, false
+	}
+	if q.From > 0 && q.To > 0 && q.From >= q.To {
+		writeError(w, http.StatusBadRequest, "from must be before to")
+		return q, false
+	}
+	return q, true
+}
+
+func (s *Server) searchRuns(w http.ResponseWriter, r *http.Request) {
+	q, ok := runSearchQuery(w, r)
+	if !ok {
+		return
+	}
+	items, next, total, err := s.Store.SearchRuns(q)
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid cursor") {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items, "next_cursor": next, "total_estimate": total})
+}
+
+func (s *Server) runFacets(w http.ResponseWriter, r *http.Request) {
+	q, ok := runSearchQuery(w, r)
+	if !ok {
+		return
+	}
+	facets, err := s.Store.RunFacets(q)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, facets)
 }
 
 func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {

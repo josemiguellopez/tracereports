@@ -159,6 +159,7 @@ const migrations = `
 UPDATE tests SET test_key = 'name:' || name WHERE test_key = '';
 CREATE INDEX IF NOT EXISTS idx_tests_key ON tests(test_key, run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_context ON runs(project, environment, branch, id);
+CREATE INDEX IF NOT EXISTS idx_runs_search_started ON runs(started_at DESC, id DESC);
 `
 
 // NameKey is the identity of a test reported without its own key: only its name, so two
