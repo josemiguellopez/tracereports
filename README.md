@@ -180,6 +180,8 @@ And also:
 
 - **No server, no lost evidence.** If the server is down or rejects the token, the clients record
   locally: `tracereports report` builds the HTML report and `tracereports push` uploads it later.
+- **A local copy, always.** With `TRACEREPORTS_OFFLINE=both` the clients send to the server and also
+  keep the evidence in a folder, with its HTML report, even if the server goes down halfway.
 - **JUnit XML and Allure.** Import the results of any framework, or turn them into a report without
   a server.
 - **AI you can measure.** Settings shows the calls, tokens, response times and the provider's
@@ -363,8 +365,6 @@ its screenshot, network calls and diagnosis.
   [pull request comment](docs/en/ci.md#pull-request-comment).
 - **No server in the pipeline:** the clients record the run in a folder; publish the report as an
   artifact or `push` it later. See [without a server](docs/en/offline.md).
-
-`TRACEREPORTS_OFFLINE=both` sends to the server and keeps a local copy; it builds HTML on close and retains raw evidence when delivery is incomplete.
 
 🚧 *TraceReports is pre-1.0: clients, API and configuration can still change between minor releases.*
 

@@ -30,7 +30,8 @@ tracereports report allure-results -o reporte/           # resultados de Allure 
 
 Subir la misma grabación dos veces no duplica nada: cada evento lleva una `Idempotency-Key`
 derivada de la grabación. Una ejecución que quedó sin cerrar (el proceso se cortó) se cierra como
-incompleta, a la hora de su último evento.
+incompleta, a la hora de su último evento; si ese cierre falla, `push` termina con error: súbela de
+nuevo y la ejecución se cierra una sola vez.
 
 ## Configuración (todos los clientes)
 
@@ -138,7 +139,8 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -w /w ghcr.io/josemiguel
 
 Una carpeta con `tracereports-offline.json` (`{"format": "tracereports-offline", "version": 1,
 "id": …}`), un `events-<pid>-<id>.jsonl` por proceso y `bodies/` con lo que no es JSON (capturas).
-Cada línea es una llamada a la API:
+Cada línea es una llamada a la API (hasta 49 MiB, suficiente para la solicitud de red más grande
+que acepta el servidor):
 
 ```json
 {"seq": 3, "ts": 1791319221317, "method": "POST", "path": "/api/v1/tests/-2846400002/logs",

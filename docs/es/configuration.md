@@ -40,7 +40,9 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
-| `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. `0` = sin límite |
+| `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. Cuenta un diagnóstico por **resultado** de cada test: reenviar el mismo resultado, un reinicio o un error del proveedor no gastan otro, y un *Re-analizar* manual no cuenta. `0` = sin límite |
+| `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
+| `TRACEREPORTS_LEGACY_DB` | — | Solo si el servidor lo pide al arrancar: `ignore` arranca con una base nueva cuando `DATA_DIR` tiene `#`, `?` o `%` y una versión anterior guardó la base en otra ruta (para conservar los datos, muévela) |
 | `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Cierra como *incompleta* una ejecución que sigue *en curso* sin recibir nada en N horas (el cliente murió sin cerrarla). `0` = nunca. Ver [Ejecuciones abandonadas](#ejecuciones-abandonadas) |
 
 ## Seguridad
@@ -98,6 +100,9 @@ TRACEREPORTS_UI_PASSWORD=una-clave-segura
   quien administra. Los clientes lo envían igual que el otro (`TRACEREPORTS_TOKEN=<token de ingesta>`
   en el entorno del pipeline o `Authorization: Bearer`). `GET /api/v1/auth/check` dice el alcance:
   `token_scope` = `admin` o `ingest`.
+- Sin login de UI, una solicitud con un token válido (de administración o de ingesta) se atiende
+  desde cualquier host, así que el CI no necesita estar en `TRACEREPORTS_ALLOWED_HOSTS`; las
+  solicitudes sin credenciales desde hosts no listados se siguen rechazando.
 - Configurar solo `TRACEREPORTS_INGEST_TOKEN` también cuenta como servidor desplegado: el mismo
   equipo necesita login para cambiar Ajustes, salvo `TRACEREPORTS_LOCAL_ADMIN=1`.
 - **Pendiente (cambio incompatible, no aplicado)**: que `TRACEREPORTS_TOKEN` deje de administrar.
@@ -264,7 +269,12 @@ servidor) llega cada semana a los canales configurados un resumen de los último
 tasa de éxito subió o bajó frente a la semana anterior, ejecuciones, tests que fallaron, flaky, lo
 que más falla, lo que ya se arregló y los inestables a vigilar, con el link a **Métricas** (con
 `PUBLIC_URL`). Desde **Métricas → Resumen semanal** se ve la vista previa y se puede enviar en el
-momento. Idioma: el de **Ajustes**.
+momento. Idioma: el de **Ajustes**. Si el servidor estaba suspendido o detenido a esa hora, al
+despertar envía una vez el resumen pendiente y sigue con la semana siguiente (no envía uno por cada
+semana perdida).
+
+**Tasa de éxito** (métricas, resumen semanal y release): `PASS` sobre los tests que corrieron, es
+decir, todo menos `SKIP`. Un `WARNING` corrió y no pasó.
 
 **Reintentos**: cada envío queda guardado (uno por canal) antes del primer intento. Si el canal no
 responde, responde `429` o un `5xx`, se reintenta hasta 8 veces con espera creciente (30 s, 1 min,
@@ -301,6 +311,13 @@ servidor: la interfaz solo sabe qué trackers hay.
 Un tracker aparece en la interfaz solo si tiene todas sus variables obligatorias. Por API:
 `POST /api/v1/ui/tickets` con `{run_id, test_id, provider, audience, lang, force}` y
 `GET /api/v1/runs/{id}/tickets` (ver la [API](api.md)).
+
+**Sin duplicados, aunque algo falle a mitad:** dos solicitudes para el mismo fallo y tracker se
+atienden una después de la otra. Si la respuesta del tracker se pierde (timeout, `5xx`, el servidor
+se detuvo justo entonces), el ticket puede existir igual: TraceReports responde `502` con
+`uncertain: true` y, hasta que revises el tracker, `409` a los intentos siguientes. Envía `force`
+para crear otro a propósito. El token del tracker nunca aparece en el error que se muestra
+(`[credential]`).
 
 Un ticket se reutiliza solo para el mismo test **del mismo proyecto** y el mismo destino del
 tracker (repositorio de GitHub, proyecto de Jira o Azure DevOps): dos proyectos con un test de la
@@ -425,7 +442,7 @@ los criterios detrás de la decisión y el estado de cada funcionalidad (los tag
 | --- | --- | --- |
 | La ejecución terminó completa | — | bloquea |
 | Ningún test con un tag crítico falló | sin tags críticos | bloquea |
-| Tasa de éxito mínima (sin contar omitidos ni fallos en cuarentena) | 95 % | bloquea |
+| Tasa de éxito mínima (sin contar omitidos ni fallos en cuarentena; un `WARNING` no es un éxito) | 95 % | bloquea |
 | Fallos nuevos frente a la ejecución anterior | 0 | riesgo |
 | Fallos en cuarentena | — | riesgo |
 | Tests flaky | 3 | riesgo |

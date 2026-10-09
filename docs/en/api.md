@@ -32,7 +32,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 | POST | `/tests/{test_id}/screenshot` | multipart: `file` (PNG/JPEG/GIF/WEBP), `message`, `status` | `201 {url, log}` |
 | POST | `/tests/{test_id}/artifact` | multipart: `file`, `kind` (`trace` or `video`), `name` | `201` artifact. Playwright trace (ZIP) or video (WebM/MP4), up to 100 MB |
 | POST | `/tests/{test_id}/console` | `{entries: [{level, text, location, timestamp}]}` | `201 {stored, dropped}`. Browser console: `error`, `warning`, `pageerror`, `info`, `log`, `debug` (max 500 per test) |
-| POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (up to 5000 per batch) | `201 {stored, errors}` |
+| POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (up to 5000 per batch, 48 MiB per request) | `201 {stored, errors}`. `body_size` is the original size in UTF-8 bytes; send `body_truncated: true` when the body arrives already cut, so the report does not show it as complete |
 | POST | `/tests/{test_id}/dom` | Page snapshot on failure (see below), up to 4 MB / 2000 elements | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
 | PATCH | `/runs/{run_id}/finish` | `{interrupted}` (optional) | `200` run |
@@ -220,7 +220,7 @@ in local mode, the server's own machine.
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnoses the failures without a diagnosis (or all with `all`) and the run summary |
 | POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Summary for `business`, `qa` or `dev` (`test_id` 0 = the whole run). Cached when written by AI, with `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (time waiting for the provider, pauses between retries and TraceReports' own time; `attempts`: every call with `ms`, `ok`, `status`, `reason` and the following pause `wait_ms`/`wait_asked`). On a 429/5xx it waits what the provider asks (`Retry-After`, `retry-after-ms` or Gemini's `RetryInfo`), up to 90 s |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Posts the summary to `teams` or `slack`. With `PUBLIC_URL` it includes the link and the screenshot |
-| POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Creates a ticket in `github`, `jira` or `azure` with the summary (default for `dev`). `201 {ticket}`; if the same failure already has one, `200 {ticket, existing: true}` (unless `force`). See [Configuration](configuration.md#tickets-in-github-jira-or-azure-devops) |
+| POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Creates a ticket in `github`, `jira` or `azure` with the summary (default for `dev`). `201 {ticket}`; if the same failure already has one, `200 {ticket, existing: true}` (unless `force`). If it is unknown whether the tracker created it, `502 {uncertain: true}` and then `409` until `force` is sent. See [Configuration](configuration.md#tickets-in-github-jira-or-azure-devops) |
 | POST | `/ui/summary/weekly` | `{send, lang}` | Summary of the last 7 days: `{summary, sent}`. With `send: true` it posts it to Teams/Slack |
 | POST | `/ui/quarantine` | `{test_id, reason, owner, days}` | Quarantines the test (in its project) for `days` days (default 14, max 180). `reason` is required. Answers the quarantine and the recomputed run |
 | DELETE | `/ui/quarantine/{test_id}` | `{}` | Lifts the test's quarantine |
@@ -231,5 +231,5 @@ in local mode, the server's own machine.
 
 Related reads: `GET /runs/{run_id}/recurrence` (in how many previous runs of the same suite each
 incident showed up) and `GET /runs/{run_id}/escalation?test=&audience=&lang=` (the saved summary,
-or `204`). `GET /metrics` also accepts `env`, `tag`, `from` and `to` (`YYYY-MM-DD`), and
+if the evidence did not change since it was written, or `204`). `GET /metrics` also accepts `env`, `tag`, `from` and `to` (`YYYY-MM-DD`), and
 `GET /tests/{test_id}/history` accepts `limit` (up to 60).

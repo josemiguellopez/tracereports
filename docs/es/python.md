@@ -17,6 +17,9 @@ Solo usa la librería estándar. El cliente nunca rompe ni frena tu suite:
   en línea; ~420 bytes por evento en espera);
 - los envíos fallidos (sin conexión, timeout, 5xx, 408, 429) se **reintentan** con backoff, y cada
   uno lleva una clave `Idempotency-Key`: un reintento **nunca duplica** un paso en el servidor;
+- la red se envía en lotes de hasta 8 MiB o 200 llamadas (el servidor acepta 48 MiB por solicitud);
+  una sola llamada de más de 40 MiB se envía sin sus bodies, marcada `body_truncated` con su tamaño
+  original (`body_size`, en bytes UTF-8);
 - si el servidor no responde, las llamadas que necesitan su respuesta (crear ejecución o test)
   fallan al instante durante 30 s en vez de esperar su timeout en cada test;
 - `end_run()` espera la cola (`TRACEREPORTS_FLUSH_TIMEOUT`, 30 s) antes de cerrar la ejecución. Lo que

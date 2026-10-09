@@ -16,7 +16,7 @@ pytest --tracereports                     # reporta tu suite de pytest sin cambi
   duplicados; lo que no se pudo enviar se puede guardar y reenviar después.
 - **Sin servidor**: si el servidor está caído o rechaza el token, la ejecución se graba en local;
   `tracereports report <carpeta>` arma el reporte HTML y `tracereports push <carpeta>` lo sube después.
-  `TRACEREPORTS_OFFLINE=both` envía al servidor y conserva una copia local; genera el HTML al cerrar y conserva lo crudo si la entrega queda incompleta.
+  Con `TRACEREPORTS_OFFLINE=both` además guarda esa copia local mientras envía al servidor.
 - **Configuración** desde el entorno o el `.env` del proyecto (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
 
 Documentación completa: [docs/es/python.md](https://github.com/josemiguellopez/tracereports/blob/main/docs/es/python.md).

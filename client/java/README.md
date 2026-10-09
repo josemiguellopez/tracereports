@@ -16,7 +16,7 @@ and Playwright for Java. Java 17+, no runtime dependencies.
   and no duplicates; shards can join the same run.
 - **Without a server**: if the server is down or rejects the token, the run is recorded locally;
   `tracereports report <folder>` builds the HTML report and `tracereports push <folder>` uploads it later.
-  `TRACEREPORTS_OFFLINE=both` sends to the server and keeps a local copy; it builds HTML on close and retains raw evidence when delivery is incomplete.
+  With `TRACEREPORTS_OFFLINE=both` it also keeps that local copy while sending to the server.
 - **Configuration** from the environment, system properties or the project's `.env`.
 
 Full documentation: [docs/en/java.md](../../docs/en/java.md).

@@ -40,7 +40,9 @@ steps to apply it.
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Status page (Statuspage format, `…/api/v2/summary.json`) that Settings → AI usage shows instead of the provider's: a mirror, a proxy or the page of an OpenAI-compatible provider |
-| `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. `0` = no limit |
+| `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. It counts one diagnosis per test **result**: resending the same result, a restart or a provider error do not spend another one, and a manual *Re-analyze* does not count. `0` = no limit |
+| `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
+| `TRACEREPORTS_LEGACY_DB` | — | Only if the server asks for it on start: `ignore` starts with a new database when `DATA_DIR` has `#`, `?` or `%` and an older version kept the database elsewhere (move it instead to keep the data) |
 | `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Closes as *incomplete* a run still *in progress* that received nothing for N hours (the client died without closing it). `0` = never. See [Abandoned runs](#abandoned-runs) |
 
 ## Security
@@ -98,6 +100,9 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
   whoever administers. Clients send it like the other one (`TRACEREPORTS_TOKEN=<ingest token>` in
   the pipeline environment, or `Authorization: Bearer`). `GET /api/v1/auth/check` tells the scope:
   `token_scope` = `admin` or `ingest`.
+- Without UI login, a request with a valid token (admin or ingest) is answered from any host, so
+  CI does not need to be listed in `TRACEREPORTS_ALLOWED_HOSTS`; requests without credentials from
+  unlisted hosts are still rejected.
 - Setting only `TRACEREPORTS_INGEST_TOKEN` also counts as a deployed server: the same machine needs
   the login to change Settings, unless `TRACEREPORTS_LOCAL_ADMIN=1`.
 - **Pending (incompatible change, not applied)**: making `TRACEREPORTS_TOKEN` stop administering. It
@@ -264,7 +269,12 @@ time) the configured channels get, every week, a summary of the last 7 days: whe
 went up or down against the previous week, runs, failed tests, flaky tests, what fails the most,
 what already got fixed and the flaky tests to watch, with the link to **Metrics** (with
 `PUBLIC_URL`). **Metrics → Weekly summary** shows the preview and can send it right away.
-Language: the one in **Settings**.
+Language: the one in **Settings**. If the server was asleep or stopped at that time, it sends the
+pending summary once when it wakes up and goes on with the next week (it does not send one per
+missed week).
+
+**Pass rate** (metrics, weekly summary and release): `PASS` over the tests that ran, that is,
+everything but `SKIP`. A `WARNING` ran and did not pass.
 
 **Retries**: each send is stored (one per channel) before the first attempt. If the channel does
 not answer, answers `429` or a `5xx`, it is retried up to 8 times with a growing wait (30 s, 1 min,
@@ -301,6 +311,12 @@ the interface only learns which trackers exist.
 A tracker shows up in the interface only when all its required variables are set. Through the API:
 `POST /api/v1/ui/tickets` with `{run_id, test_id, provider, audience, lang, force}` and
 `GET /api/v1/runs/{id}/tickets` (see the [API](api.md)).
+
+**No duplicates, even if something fails halfway:** two requests for the same failure and tracker are
+handled one after the other. If the tracker's answer is lost (timeout, `5xx`, the server stopped
+right then), the ticket may exist anyway: TraceReports answers `502` with `uncertain: true` and,
+until you check the tracker, `409` to the next attempts. Send `force` to create another one on
+purpose. The tracker's token never appears in the error shown (`[credential]`).
 
 A ticket is reused only for the same test **of the same project** and the same tracker destination
 (GitHub repository, Jira or Azure DevOps project): two projects with a test of the same key do not
@@ -424,7 +440,7 @@ the decision and the state of each functional area (the tests' tags).
 | --- | --- | --- |
 | The run finished complete | — | blocks |
 | No test with a critical tag failed | no critical tags | blocks |
-| Minimum pass rate (skipped and quarantined failures do not count) | 95 % | blocks |
+| Minimum pass rate (skipped and quarantined failures do not count; a `WARNING` is not a pass) | 95 % | blocks |
 | New failures against the previous run | 0 | risk |
 | Quarantined failures | — | risk |
 | Flaky tests | 3 | risk |

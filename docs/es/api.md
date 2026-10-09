@@ -32,7 +32,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 | POST | `/tests/{test_id}/screenshot` | multipart: `file` (PNG/JPEG/GIF/WEBP), `message`, `status` | `201 {url, log}` |
 | POST | `/tests/{test_id}/artifact` | multipart: `file`, `kind` (`trace` o `video`), `name` | `201` artefacto. Trace de Playwright (ZIP) o video (WebM/MP4), hasta 100 MB |
 | POST | `/tests/{test_id}/console` | `{entries: [{level, text, location, timestamp}]}` | `201 {stored, dropped}`. Consola del navegador: `error`, `warning`, `pageerror`, `info`, `log`, `debug` (máx. 500 por test) |
-| POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (hasta 5000 por lote) | `201 {stored, errors}` |
+| POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (hasta 5000 por lote, 48 MiB por solicitud) | `201 {stored, errors}`. `body_size` es el tamaño original en bytes UTF-8; envía `body_truncated: true` si el body llega ya recortado, para que el reporte no lo muestre como completo |
 | POST | `/tests/{test_id}/dom` | Snapshot de la página al fallar (ver abajo), hasta 4 MB / 2000 elementos | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
 | PATCH | `/runs/{run_id}/finish` | `{interrupted}` (opcional) | `200` ejecución |
@@ -222,7 +222,7 @@ o, en modo local, el mismo equipo del servidor.
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnostica los fallos sin diagnóstico (o todos con `all`) y el resumen de la ejecución |
 | POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché y trae `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (cuánto esperó al proveedor, las pausas entre reintentos y lo que tardó TraceReports; `attempts`: cada llamada con `ms`, `ok`, `status`, `reason` y la espera siguiente `wait_ms`/`wait_asked`). Ante un 429/5xx se espera lo que pide el proveedor (`Retry-After`, `retry-after-ms` o el `RetryInfo` de Gemini), hasta 90 s |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Publica el resumen en `teams` o `slack`. Con `PUBLIC_URL` incluye el link y la captura |
-| POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Crea un ticket en `github`, `jira` o `azure` con el resumen (default para `dev`). `201 {ticket}`; si el mismo fallo ya tiene uno, `200 {ticket, existing: true}` (salvo `force`). Ver [Configuración](configuration.md#tickets-en-github-jira-o-azure-devops) |
+| POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Crea un ticket en `github`, `jira` o `azure` con el resumen (default para `dev`). `201 {ticket}`; si el mismo fallo ya tiene uno, `200 {ticket, existing: true}` (salvo `force`). Si no se sabe si el tracker lo creó, `502 {uncertain: true}` y luego `409` hasta enviar `force`. Ver [Configuración](configuration.md#tickets-en-github-jira-o-azure-devops) |
 | POST | `/ui/summary/weekly` | `{send, lang}` | Resumen de los últimos 7 días: `{summary, sent}`. Con `send: true` lo publica en Teams/Slack |
 | POST | `/ui/quarantine` | `{test_id, reason, owner, days}` | Pone en cuarentena el test (en su proyecto) por `days` días (default 14, máx. 180). `reason` es obligatorio. Responde la cuarentena y la ejecución recalculada |
 | DELETE | `/ui/quarantine/{test_id}` | `{}` | Quita la cuarentena del test |
@@ -233,5 +233,5 @@ o, en modo local, el mismo equipo del servidor.
 
 Lecturas relacionadas: `GET /runs/{run_id}/recurrence` (en cuántas ejecuciones anteriores de la
 misma suite apareció cada incidente) y `GET /runs/{run_id}/escalation?test=&audience=&lang=` (el
-resumen guardado, o `204`). `GET /metrics` acepta también `env`, `tag`, `from` y `to`
+resumen guardado si la evidencia no cambió desde que se escribió, o `204`). `GET /metrics` acepta también `env`, `tag`, `from` y `to`
 (`AAAA-MM-DD`), y `GET /tests/{test_id}/history` acepta `limit` (hasta 60).

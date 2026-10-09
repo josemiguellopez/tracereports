@@ -24,6 +24,10 @@ esperar el timeout en cada test. A diferencia del de Python, los envíos son sí
 en segundo plano). Un `*tracereports.Test` nil es seguro de usar, así que si el servidor no responde los
 tests siguen corriendo.
 
+La red se envía en lotes de hasta 8 MiB o 200 llamadas (el servidor acepta 48 MiB por solicitud);
+una sola llamada de más de 40 MiB se envía sin sus bodies, marcada `body_truncated` con su tamaño
+original (`body_size`, en bytes UTF-8).
+
 **Sin servidor**: si la ejecución no se puede crear (servidor caído o token incorrecto), la evidencia no
 se pierde: se graba en `./tracereports-offline/<sesión>` y `tracereports report <carpeta>` arma el reporte
 HTML, o `tracereports push <carpeta>` la sube después. Ver [Sin servidor](offline.md).

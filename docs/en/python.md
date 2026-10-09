@@ -17,6 +17,9 @@ Standard library only. The client never breaks or slows down your suite:
   ~11 ms sending it inline; ~420 bytes per waiting event);
 - failed sends (no connection, timeout, 5xx, 408, 429) are **retried** with backoff, and each one
   carries an `Idempotency-Key`: a retry **never duplicates** a step on the server;
+- the network goes in batches of up to 8 MiB or 200 calls (the server accepts 48 MiB per request); a
+  single call over 40 MiB is sent without its bodies, marked `body_truncated` with its original size
+  (`body_size`, in UTF-8 bytes);
 - when the server does not answer, the calls that need its answer (create run or test) fail fast
   for 30 s instead of waiting their timeout in every test;
 - `end_run()` waits for the queue (`TRACEREPORTS_FLUSH_TIMEOUT`, 30 s) before closing the run. Whatever

@@ -186,6 +186,8 @@ Y además:
 - **Sin servidor no se pierde la evidencia.** Si el servidor está caído o rechaza el token, los
   clientes graban en local: `tracereports report` arma el reporte HTML y `tracereports push` lo sube
   después.
+- **Siempre una copia local.** Con `TRACEREPORTS_OFFLINE=both` los clientes envían al servidor y
+  además guardan la evidencia en una carpeta, con su reporte HTML, aunque el servidor se caiga a mitad.
 - **JUnit XML y Allure.** Importa los resultados de cualquier framework, o conviértelos en un
   reporte sin servidor.
 - **IA que se puede medir.** Ajustes muestra las llamadas, los tokens, los tiempos de respuesta y el
@@ -369,8 +371,6 @@ para ver su captura, sus llamadas de red y el diagnóstico.
   Mira [comentario en el pull request](docs/es/ci.md#comentario-en-el-pull-request).
 - **Sin servidor en el pipeline:** los clientes graban la ejecución en una carpeta; publica el
   reporte como artefacto o súbelo después con `push`. Mira [sin servidor](docs/es/offline.md).
-
-`TRACEREPORTS_OFFLINE=both` envía al servidor y conserva una copia local; genera el HTML al cerrar y conserva lo crudo si la entrega queda incompleta.
 
 🚧 *TraceReports está antes de la 1.0: los clientes, la API y la configuración todavía pueden cambiar entre versiones menores.*
 

@@ -30,7 +30,8 @@ tracereports report allure-results -o report/           # Allure results (or the
 
 Pushing the same recording twice duplicates nothing: each event carries an `Idempotency-Key`
 derived from the recording. A run left open (the process was cut) is closed as incomplete, at the
-time of its last event.
+time of its last event; if that close fails, `push` ends with an error: push again and the run is
+closed once.
 
 ## Configuration (every client)
 
@@ -137,7 +138,8 @@ Without `--ai`, `report` makes no network call.
 
 A folder with `tracereports-offline.json` (`{"format": "tracereports-offline", "version": 1,
 "id": …}`), one `events-<pid>-<id>.jsonl` per process and `bodies/` for what is not JSON
-(screenshots). Each line is one API call:
+(screenshots). Each line is one API call (up to 49 MiB, enough for the largest network request the
+server accepts):
 
 ```json
 {"seq": 3, "ts": 1791319221317, "method": "POST", "path": "/api/v1/tests/-2846400002/logs",

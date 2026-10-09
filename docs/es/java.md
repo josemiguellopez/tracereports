@@ -23,6 +23,10 @@ plano con reintentos e `Idempotency-Key`; si el servidor no responde, los métod
 `delivery()` dice qué no llegó, incluido `runNotClosed` si el servidor no confirmó el cierre de la
 ejecución (la extensión lo advierte al terminar).
 
+La red se envía en lotes de hasta 8 MiB o 200 llamadas (el servidor acepta 48 MiB por solicitud);
+una sola llamada de más de 40 MiB se envía sin sus bodies, marcada `body_truncated` con su tamaño
+original (`body_size`, en bytes UTF-8).
+
 **Sin servidor**: si la ejecución no se puede crear (servidor caído o token incorrecto), la evidencia no
 se pierde: se graba en `./tracereports-offline/<sesión>` y `tracereports report <carpeta>` arma el reporte
 HTML, o `tracereports push <carpeta>` la sube después. Ver [Sin servidor](offline.md).
