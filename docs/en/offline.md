@@ -7,7 +7,8 @@ CI), the clients **do not lose the evidence**: they record it in a folder. With 
 
 - **build the HTML report without a server**: `tracereports report <folder>`. It is the same folder
   as "Export ZIP": open it with a double click, no internet, with incidents, timeline, network,
-  cURL, locators and replay;
+  cURL, locators, replay, the **Escalate** summaries (template, ready to copy as text or an image)
+  and the **Release** decision of that run;
 - **upload it to the server later**: `tracereports push <folder>`, once you have the right token.
 
 The same `report` command also builds the report from **JUnit XML** or **Allure**, without a server:

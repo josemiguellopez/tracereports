@@ -7,7 +7,8 @@ el CI), los clientes **no pierden la evidencia**: la graban en una carpeta. Con 
 
 - **armar el reporte HTML sin servidor**: `tracereports report <carpeta>`. Es la misma carpeta que
   el "Exportar ZIP": se abre con doble clic, sin internet, con incidentes, timeline, red, cURL,
-  locators y replay;
+  locators, replay, los resúmenes de **Escalar** (plantilla, listos para copiar como texto o imagen)
+  y la decisión de **Release** de esa ejecución;
 - **subirla al servidor después**: `tracereports push <carpeta>`, cuando tengas el token correcto.
 
 El mismo comando `report` también arma el reporte desde **JUnit XML** o **Allure**, sin servidor:

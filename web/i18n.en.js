@@ -407,6 +407,7 @@
 		"Sin IA configurada se arma con una plantilla a partir de la evidencia. Configura un proveedor en Ajustes para un resumen redactado.": "Without AI it is built from a template using the evidence. Configure a provider in Settings for a written summary.",
 		"Esta ejecución no tiene fallos: el resumen será del resultado general.": "This run has no failures: the summary covers the overall result.",
 		"Elige qué escalar y para quién": "Choose what to escalate and for whom",
+		"Reporte exportado: el resumen se armó al exportar, con la evidencia de esta ejecución. Cópialo como texto o imagen; para enviarlo a Teams, Slack o un ticket, usa el servidor.": "Exported report: the summary was built when exporting, from this run's evidence. Copy it as text or an image; to send it to Teams, Slack or a ticket, use the server.",
 		"El resumen junta el error, la captura, las llamadas al backend que fallaron y el diagnóstico, explicado para la audiencia que elijas. Después lo copias como texto o imagen, o lo envías a Teams o Slack.": "The summary brings together the error, the screenshot, the failed backend calls and the diagnosis, explained for the audience you choose. Then copy it as text or image, or send it to Teams or Slack.",
 		"Escalar no está disponible desde aquí": "Escalating is not available from here",
 		"La IA está escribiendo el resumen para {a}…": "The AI is writing the summary for {a}…", "Armando el resumen…": "Building the summary…",

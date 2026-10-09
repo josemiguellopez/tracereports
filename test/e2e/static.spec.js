@@ -83,4 +83,24 @@ test("grabación sin servidor: red enmascarada y cURL en el reporte estático", 
 	await expect(detail).not.toContainText("STATIC-SECRET");
 });
 
+test("grabación sin servidor: Escalar y Release también en el reporte estático", async ({ page }) => {
+	await page.goto(report("offline-escalate", recording()));
+	await expect(page.locator("#report-name")).toHaveText("Grabación sin servidor");
+	// Escalar: el resumen ya viene armado (plantilla), sin servidor ni red
+	await page.locator('[data-view="escalate"]').first().click();
+	const card = page.locator("#esc-card");
+	await expect(card).toBeVisible();
+	await expect(page.locator("[data-esc-gen]")).toHaveCount(0); // nada que generar: ya está
+	await expect(page.locator('[data-esc-share="teams"], [data-esc-ticket]')).toHaveCount(0); // enviar necesita el servidor
+	await page.locator("#esc-scope").selectOption({ label: "test_offline_checkout" });
+	await expect(card).toContainText("test_offline_checkout");
+	await page.locator('input[name="esc-aud"][value="dev"]').check({ force: true });
+	await page.locator('[data-esc-lang="en"]').click();
+	await expect(card).toContainText("pago rechazado");
+	await expect(card).not.toContainText("STATIC-SECRET");
+	// Release: la decisión de esta ejecución (falló un test)
+	await page.locator('[data-view="release"]').first().click();
+	await expect(page.locator("#view-release")).toContainText(/No salir todavía|Do not ship yet|Se puede salir, con riesgos|Can ship, with risks/);
+});
+
 test.afterAll(() => fs.rmSync(out, { recursive: true, force: true }));

@@ -17,6 +17,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
+	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 )
@@ -136,8 +137,18 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Escalar y Release también sin servidor: se calculan ahora y van en el reporte
+	escalations := s.exportEscalations(id, detail, &shots)
+	decision, err := s.releaseOf(id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+
 	data, err := json.Marshal(map[string]any{
 		"config":      map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(), "ai_provider": s.AI.Provider(), "static": true},
+		"escalations": escalations,
+		"release":     decision,
 		"run":         detail,
 		"tests":       tests,
 		"history":     history,
@@ -310,6 +321,61 @@ func redactValue(p *redact.Policy, v any) any {
 		}
 	}
 	return v
+}
+
+// maxExportEscalations caps the failed tests whose escalation summaries go in an exported report
+// (each one carries 3 audiences x 2 languages; the run summary always goes).
+const maxExportEscalations = 20
+
+// exportEscalations builds the escalation summaries an exported report shows without a server:
+// for the whole run and each failed test, every audience and language, written with the template
+// (no AI call, nothing leaves the server). An AI summary already cached for the same evidence goes
+// too. Keys: "<test_id>:<audience>:<lang>:<tpl|ai>". The failure screenshot points inside the ZIP.
+func (s *Server) exportEscalations(runID int64, detail *db.RunDetail, shots *[]string) map[string]*ai.Escalation {
+	targets := []int64{0}
+	for _, t := range detail.Tests {
+		if t.Status == "FAIL" && len(targets) <= maxExportEscalations {
+			targets = append(targets, t.ID)
+		}
+	}
+	have := map[string]bool{}
+	for _, name := range *shots {
+		have[name] = true
+	}
+	out := map[string]*ai.Escalation{}
+	for _, testID := range targets {
+		facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, runID, testID)
+		if err != nil {
+			slog.Warn("export: escalation facts", "run_id", runID, "test_id", testID, "err", err)
+			continue
+		}
+		for _, audience := range ai.Audiences {
+			for _, lang := range []string{"es", "en"} {
+				ref := escalationRef{RunID: runID, TestID: testID, Audience: audience, Lang: lang}
+				f := *facts
+				e := ai.EscalateTemplate(&f, runID, testID, audience, lang)
+				s.withOwner(e)
+				s.withDev(e)
+				out[fmt.Sprintf("%d:%s:%s:tpl", testID, audience, lang)] = e
+				if cached, err := s.cachedEscalation(ref, facts); err == nil && cached != nil {
+					s.withDev(cached)
+					out[fmt.Sprintf("%d:%s:%s:ai", testID, audience, lang)] = cached
+				}
+			}
+		}
+	}
+	for _, e := range out {
+		if name := screenshotFile(e.Facts.Screenshot); name != "" {
+			e.Facts.Screenshot = "screenshots/" + name
+			if !have[name] {
+				have[name] = true
+				*shots = append(*shots, name)
+			}
+		} else {
+			e.Facts.Screenshot = ""
+		}
+	}
+	return out
 }
 
 // screenshotFile extracts a safe file name from a "/screenshots/<file>" URL.

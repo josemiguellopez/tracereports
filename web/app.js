@@ -70,6 +70,7 @@
 		if (/^\/api\/v1\/runs\/\d+\/compare$/.test(p)) return STATIC.compare || {};
 		if (/^\/api\/v1\/runs\/\d+\/endpoints$/.test(p)) return STATIC.endpoints || [];
 		if ((m = p.match(/^\/api\/v1\/tests\/(\d+)\/drift$/))) return STATIC.drifts?.[m[1]] || [];
+		if (/^\/api\/v1\/runs\/\d+\/release$/.test(p) && STATIC.release) return STATIC.release;
 		throw new Error(`no disponible en el reporte exportado: ${path}`);
 	}
 
@@ -2008,7 +2009,15 @@
 		turn("escalate"); turn("escalate-cache");
 	}
 
-	function escReportURL(e) { return `${location.origin}/${e.facts.report_path}`; }
+	function escReportURL(e) {
+		return STATIC ? `${location.href.split("#")[0]}${e.facts.report_path}` : `${location.origin}/${e.facts.report_path}`;
+	}
+
+	/** Reporte exportado: el resumen ya armado al exportar (con IA si estaba guardado; si no, la plantilla). */
+	function staticEscalation() {
+		const base = `${S.esc.test}:${S.esc.audience}:${S.esc.lang}`, all = STATIC.escalations || {};
+		return (!escNoAI() && all[`${base}:ai`]) || all[`${base}:tpl`] || null;
+	}
 
 	async function loadCachedEscalation() {
 		const key = escKey();
@@ -2342,7 +2351,8 @@
 		const r = S.run, st = S.esc;
 		const failed = r.tests.filter((t) => t.status === "FAIL");
 		if (st.test && !failed.some((t) => t.id === st.test)) st.test = 0;
-		if (canAct()) loadCachedEscalation();
+		if (STATIC) st.data = staticEscalation();
+		else if (canAct()) loadCachedEscalation();
 		const e = st.data;
 		const cfg = S.config;
 		const share = e ? `<div class="esc-share" role="toolbar" aria-label="${tr("Compartir")}">
@@ -2364,7 +2374,7 @@
 					${cfg.trackers.map((k) => `<button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(k.id)}" data-tip="${tr("Crea un ticket en {t} con este resumen, la captura y el link al reporte. Si el mismo test ya tiene uno, te muestra ese en vez de duplicarlo.", { t: k.name })}">${icon("i-bug")}${esc(k.name)}</button>`).join("")}
 				</div>` : ""}
 			</div>` : "";
-		const preview = !canAct()
+		const preview = !canAct() && !STATIC
 			? `<div class="card m-empty">${icon("i-megaphone")}<h5>${tr("Escalar no está disponible desde aquí")}</h5><p>${esc(actReason())}</p></div>`
 			: st.loading ? `<div class="card esc-loading"><div class="shimmer"></div><div class="shimmer"></div><div class="shimmer short"></div>
 				<p class="m-hint">${cfg.ai_enabled ? tr("La IA está escribiendo el resumen para {a}…", { a: tr(AUDIENCES.find((a) => a.id === st.audience).name) }) : tr("Armando el resumen…")}</p></div>`
@@ -2389,7 +2399,7 @@
 						<div class="seg" role="group" aria-label="${tr("Idioma del resumen")}"><button data-esc-lang="es" aria-pressed="${st.lang === "es"}" data-no-i18n>ES</button><button data-esc-lang="en" aria-pressed="${st.lang === "en"}" data-no-i18n>EN</button></div></div>
 					<div class="field"><span class="field-label">${tr("Redacción")}</span>
 						<div class="seg" role="group" aria-label="${tr("Redacción")}">
-							<button data-esc-ai="1" aria-pressed="${!escNoAI()}" ${cfg.ai_enabled ? "" : "disabled"} data-tip="${esc(tr(cfg.ai_enabled ? "La IA redacta el resumen con la evidencia del reporte." : "Configura un proveedor de IA en Ajustes para usar esta opción."))}">${icon("i-spark")}${tr("Con IA")}</button>
+							<button data-esc-ai="1" aria-pressed="${!escNoAI()}" ${(STATIC ? Object.keys(STATIC.escalations || {}).some((k) => k.endsWith(":ai")) : cfg.ai_enabled) ? "" : "disabled"} data-tip="${esc(tr(cfg.ai_enabled ? "La IA redacta el resumen con la evidencia del reporte." : "Configura un proveedor de IA en Ajustes para usar esta opción."))}">${icon("i-spark")}${tr("Con IA")}</button>
 							<button data-esc-ai="0" aria-pressed="${escNoAI()}" data-tip="${esc(tr("Plantilla armada con la evidencia: no usa cuota y nada sale a un proveedor externo."))}">${tr("Sin IA")}</button>
 						</div></div>
 					</div>
@@ -2397,6 +2407,7 @@
 						<p class="field-help">${!escNoAI() ? tr("Lo escribe la IA ({m}) con la evidencia del reporte. Queda guardado: verlo de nuevo no gasta cuota.", { m: cfg.ai_model })
 						: cfg.ai_enabled ? tr("Se arma con una plantilla a partir de la evidencia: es inmediato, no usa cuota y la evidencia no sale a ningún proveedor externo.")
 						: tr("Sin IA configurada se arma con una plantilla a partir de la evidencia. Configura un proveedor en Ajustes para un resumen redactado.")}</p>` : ""}
+					${STATIC ? `<p class="field-help">${tr("Reporte exportado: el resumen se armó al exportar, con la evidencia de esta ejecución. Cópialo como texto o imagen; para enviarlo a Teams, Slack o un ticket, usa el servidor.")}</p>` : ""}
 					${failed.length ? "" : `<p class="field-help">${tr("Esta ejecución no tiene fallos: el resumen será del resultado general.")}</p>`}
 				</aside>
 				<div class="esc-preview">${st.msg ? `<p class="set-msg ${st.msg.ok ? "ok" : "err"}" role="status">${icon(st.msg.ok ? "i-info" : "i-fail")}<span>${esc(st.msg.text)}${st.msg.link ? ` <a href="${esc(st.msg.link)}" target="_blank" rel="noopener" data-no-i18n>${esc(st.msg.key || st.msg.link)} ↗</a>` : ""}${st.msg.force ? ` <button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(st.msg.force)}" data-force="1">${tr("Crear otro igual")}</button>` : ""}</span></p>` : ""}${preview}</div>
@@ -3522,8 +3533,9 @@
 	async function init() {
 		applyTheme(initialTheme(), false);
 		$(".nav-global").hidden = !!STATIC; // las métricas cruzan ejecuciones: no van en el ZIP
-		$(".nav-server").hidden = !!STATIC; // escalar necesita el servidor (IA, Teams/Slack)
-		$(".nav-release").hidden = !!STATIC; // la decisión compara con ejecuciones anteriores: necesita el servidor
+		// exportado: Escalar y Release van ya calculados (los reportes de versiones anteriores no los traen)
+		$(".nav-server").hidden = !!STATIC && !STATIC.escalations;
+		$(".nav-release").hidden = !!STATIC && !STATIC.release;
 		readHash();
 		bindEvents();
 		CF.Tips.init();
