@@ -104,7 +104,7 @@ func runSearchWhere(q RunSearchQuery) (string, []any) {
 	}
 	if q.Q != "" {
 		if ftsQuery, ok := runSearchFTSQuery(q.Q); ok {
-			add("r.id IN (SELECT DISTINCT CAST(run_id AS INTEGER) FROM run_search_fts WHERE run_search_fts MATCH ?)", ftsQuery)
+			add("r.id IN (SELECT DISTINCT CAST(run_id AS INTEGER) FROM run_search_text WHERE run_search_text MATCH ?)", ftsQuery)
 		} else {
 			needle := "%" + likeEscape(strings.ToLower(q.Q)) + "%"
 			add(`(LOWER(r.name) LIKE ? ESCAPE '\' OR LOWER(r.project) LIKE ? ESCAPE '\' OR LOWER(r.branch) LIKE ? ESCAPE '\' OR LOWER(r.commit_sha) LIKE ? ESCAPE '\' OR LOWER(r.environment) LIKE ? ESCAPE '\' OR EXISTS (SELECT 1 FROM tests qt WHERE qt.run_id=r.id AND (LOWER(qt.name) LIKE ? ESCAPE '\' OR LOWER(qt.test_key) LIKE ? ESCAPE '\')))`, needle, needle, needle, needle, needle, needle, needle)
