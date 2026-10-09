@@ -12,6 +12,7 @@ import (
 // Una grabación con un evento de más de 16 MiB la lee el CLI (report).
 func TestAnEventOver16MiBCanBeReported(t *testing.T) {
 	bin := os.Getenv("TRACEREPORTS_BIN")
+	if bin == "" { bin = os.Getenv("TRACEREPORTS_TEST_BIN") }
 	if bin == "" {
 		t.Skip("needs the tracereports binary ($TRACEREPORTS_BIN)")
 	}

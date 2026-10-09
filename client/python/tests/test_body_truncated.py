@@ -110,14 +110,14 @@ def _free_port():
     return port
 
 
-@pytest.mark.skipif(not os.environ.get("TRACEREPORTS_BIN"), reason="needs $TRACEREPORTS_BIN")
+@pytest.mark.skipif(not (os.environ.get("TRACEREPORTS_BIN") or os.environ.get("TRACEREPORTS_TEST_BIN")), reason="needs $TRACEREPORTS_BIN")
 def test_capture_client_server_round_trip(tmp_path):
     port = _free_port()
     data = tmp_path / "data"
     env = dict(os.environ, PORT=str(port), DATA_DIR=str(data), TRACEREPORTS_ENV_FILE=str(tmp_path / "no.env"),
                TRACEREPORTS_TOKEN="", TRACEREPORTS_INGEST_TOKEN="", TRACEREPORTS_UI_USER="", TRACEREPORTS_UI_PASSWORD="",
                AI_PROVIDER="", TEAMS_WEBHOOK_URL="", SLACK_WEBHOOK_URL="")
-    proc = subprocess.Popen([os.environ["TRACEREPORTS_BIN"]], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    proc = subprocess.Popen([(os.environ.get("TRACEREPORTS_BIN") or os.environ["TRACEREPORTS_TEST_BIN"])], env=env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     url = f"http://127.0.0.1:{port}"
     try:
         for _ in range(100):

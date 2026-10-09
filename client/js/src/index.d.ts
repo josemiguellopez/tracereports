@@ -15,6 +15,8 @@ export interface TraceReportsOptions {
   offlineDir?: string;
   /** Folder where each session creates its own recording folder (default $TRACEREPORTS_OFFLINE_BASE or ./tracereports-offline). */
   offlineBase?: string;
+  /** Label for automatically created recording folders (default: the run name). */
+  offlineName?: string;
   /** auto (default): record if run creation fails; always: no server; both: send and record; off: never record. */
   offline?: "auto" | "always" | "both" | "off";
 }

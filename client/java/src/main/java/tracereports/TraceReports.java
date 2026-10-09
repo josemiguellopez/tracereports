@@ -52,6 +52,7 @@ public final class TraceReports {
     private final String offlineMode;
     private Path offlineBase;
     private boolean offlineExplicit;
+    private String offlineName;
     private volatile Path offlineReport;
 
     /**
@@ -91,7 +92,7 @@ public final class TraceReports {
         // sin carpeta exacta, cada sesión crea la suya dentro de la base: corridas sucesivas no se pisan
         String base = Context.property("offlineBase", Context.env("TRACEREPORTS_OFFLINE_BASE"));
         this.offlineBase = Path.of(offlineExplicit ? dir : base.isBlank() ? "tracereports-offline" : base);
-        if (enabled && offlineMode.equals("always")) goOffline(null);
+        this.offlineName = Context.property("offlineName", Context.env("TRACEREPORTS_OFFLINE_NAME"));
     }
 
     // ─── sin servidor ────────────────────────────────────────────────────
@@ -109,7 +110,7 @@ public final class TraceReports {
     public Path offlineReport() { return offlineReport; }
 
     private void goOffline(String reason) {
-        Path dir = offlineExplicit ? offlineBase : Recorder.newSessionDir(offlineBase);
+        Path dir = offlineExplicit ? offlineBase : Recorder.newSessionDir(offlineBase, offlineName);
         try {
             sender.recorder = new Recorder(dir);
         } catch (IOException e) {
@@ -117,44 +118,48 @@ public final class TraceReports {
             return;
         }
         if (reason != null) {
-            LOG.warning("tracereports: " + reason + "; la evidencia se graba en " + dir + " (reporte: `tracereports report "
-                    + dir + "`; subirla después: `tracereports push " + dir + "`)");
+            LOG.warning("tracereports: " + reason + "; la evidencia se graba en " + dir);
         }
     }
 
     private void goMirror(long id, Map<String, Object> payload) {
-        Path dir = offlineExplicit ? offlineBase : Recorder.newSessionDir(offlineBase);
+        Path dir = offlineExplicit ? offlineBase : Recorder.newSessionDir(offlineBase, offlineName);
         try { sender.mirror = new Mirror(dir, baseUrl, id, payload); }
         catch (IOException | RuntimeException e) { LOG.warning("tracereports: no se pudo iniciar la copia local en " + dir + ": " + e); }
     }
 
-    /** Cierra la grabación y, con el binario instalado ($TRACEREPORTS_BIN o en el PATH), arma el reporte. */
+    /** Cierra la grabación y arma el reporte con el binario instalado o descargado y verificado. */
     private void finishRecording() {
         Recorder rec = sender.mirror != null ? sender.mirror.recorder : sender.recorder;
         rec.close();
-        String bin = Context.property("bin", Context.env("TRACEREPORTS_BIN"));
-        if (bin.isBlank()) bin = findInPath("tracereports");
-        String auto = Context.property("offlineReport", Context.env("TRACEREPORTS_OFFLINE_REPORT")).toLowerCase();
-        if (bin == null || auto.equals("0") || auto.equals("false") || auto.equals("no")) {
-            LOG.warning("tracereports: evidencia grabada en " + rec.dir + ". Reporte sin servidor: `tracereports report "
-                    + rec.dir + " -o reporte`; subirla: `tracereports push " + rec.dir + "`");
-            return;
-        }
         Path out = rec.dir.resolve("report");
+        String reason = "renderer failed";
+        Process process = null;
         try {
-            Process p = new ProcessBuilder(bin, "report", "-o", out.toString(), rec.dir.toString())
+            String auto = Context.property("offlineReport", Context.env("TRACEREPORTS_OFFLINE_REPORT")).toLowerCase(java.util.Locale.ROOT);
+            if (auto.equals("0") || auto.equals("false") || auto.equals("no")) throw new IOException("automatic report disabled");
+            String bin = Context.property("bin", Context.env("TRACEREPORTS_BIN"));
+            if (bin.isBlank()) bin = findInPath("tracereports");
+            if (bin == null) bin = ReportBinary.download();
+            process = new ProcessBuilder(bin, "report", "-o", out.toString(), rec.dir.toString())
                     .redirectErrorStream(true).redirectOutput(ProcessBuilder.Redirect.DISCARD).start();
-            if (p.waitFor() == 0) {
+            if (process.waitFor(300, java.util.concurrent.TimeUnit.SECONDS) && process.exitValue() == 0 && Files.isRegularFile(out.resolve("index.html"))) {
                 offlineReport = out.resolve("index.html");
+                if (runId > 0) LOG.warning("tracereports: server report: " + reportUrl());
                 LOG.warning("tracereports: reporte local en " + offlineReport);
                 return;
             }
-        } catch (IOException e) {
-            // abajo
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            reason = "interrupted";
+        } catch (Exception e) {
+            reason = e.getMessage();
+        } finally {
+            if (process != null && process.isAlive()) process.destroyForcibly();
         }
-        LOG.warning("tracereports: no se pudo armar el reporte; usa `tracereports report " + rec.dir + "`");
+        LOG.warning("tracereports: local report unavailable (" + reason + "); evidence retained in " + rec.dir
+                + ". install the binary and run `tracereports report " + rec.dir + "`, or run `tracereports push "
+                + rec.dir + "` with the correct token when the server is available.");
     }
 
     private static String findInPath(String name) {
@@ -218,6 +223,7 @@ public final class TraceReports {
 
     /** Crea la ejecución. Con $TRACEREPORTS_RUN_ID se une a una ya creada (shards de CI) y no la cierra. */
     public long startRun(RunInfo info) {
+        if (!info.name.isBlank()) offlineName = info.name;
         String shared = Context.env("TRACEREPORTS_RUN_ID");
         if (!shared.isEmpty()) return joinRun(Long.parseLong(shared));
         Map<String, Object> p = new LinkedHashMap<>();
@@ -232,6 +238,7 @@ public final class TraceReports {
         p.put("branch", info.branch != null ? info.branch : Context.branch());
         p.put("commit", info.commit != null ? info.commit : Context.commit());
         p.put("framework", info.framework);
+        if (enabled && offlineMode.equals("always") && !recording()) goOffline(null);
         runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
         if (runId == 0 && enabled && (offlineMode.equals("auto") || offlineMode.equals("both")) && !recording()) {
             // sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo

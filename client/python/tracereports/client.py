@@ -63,6 +63,7 @@ import uuid
 from typing import Any, Callable, Iterator, Optional, Union
 
 from ._env import env
+from .binary import resolve_binary
 from .context import detect_branch, detect_commit
 from .offline import Recorder, new_session_dir
 from .transport import Sender
@@ -104,6 +105,7 @@ class TraceReports:
         offline_dir: Optional[str] = None,
         offline: Optional[str] = None,
         offline_base: Optional[str] = None,
+        offline_name: Optional[str] = None,
     ) -> None:
         """
         :param base_url: server URL. Defaults to $TRACEREPORTS_URL or http://localhost:8080.
@@ -123,6 +125,7 @@ class TraceReports:
             (default $TRACEREPORTS_OFFLINE_DIR; without it, a new folder per session inside offline_base).
         :param offline_base: folder where each session creates its own recording folder
             (default $TRACEREPORTS_OFFLINE_BASE or ./tracereports-offline).
+        :param offline_name: label for automatically created recording folders (default run name).
         :param offline: "auto" (default, $TRACEREPORTS_OFFLINE): record only if the run cannot be
             created; "always": record without trying a server; "both": also keep a local copy; "off": never record.
         """
@@ -155,10 +158,9 @@ class TraceReports:
         # sin carpeta exacta, cada sesión crea la suya dentro de la base: corridas sucesivas no se pisan
         self._offline_base = explicit or offline_base or env("OFFLINE_BASE") or "tracereports-offline"
         self._offline_explicit = bool(explicit)
+        self._offline_name = offline_name or env("OFFLINE_NAME", "")
         self.offline_dir: Optional[str] = None  # carpeta donde se está grabando (None: se envía al servidor)
-        self.offline_report: Optional[str] = None  # index.html generado al cerrar, si el binario está
-        if self.enabled and self.offline_mode == "always":
-            self._go_offline("offline mode")
+        self.offline_report: Optional[str] = None  # index.html generado al cerrar
 
     # ------------------------------------------------------------- offline
 
@@ -168,7 +170,7 @@ class TraceReports:
         return self.offline_dir is not None
 
     def _go_offline(self, reason: str) -> None:
-        directory = self._offline_base if self._offline_explicit else new_session_dir(self._offline_base)
+        directory = self._offline_base if self._offline_explicit else new_session_dir(self._offline_base, self._offline_name)
         try:
             self._sender = Recorder(directory)
         except OSError as err:
@@ -176,12 +178,10 @@ class TraceReports:
             return
         self.offline_dir = directory
         if reason != "offline mode":
-            log.warning("tracereports: %s; recording the evidence in %s (build the report with "
-                        "`tracereports report %s`, or upload it later with `tracereports push %s`)",
-                        reason, directory, directory, directory)
+            log.warning("tracereports: %s; recording the evidence in %s", reason, directory)
 
     def _go_mirror(self, run_id, payload=None, directory=None):
-        directory = directory or (self._offline_base if self._offline_explicit else new_session_dir(self._offline_base))
+        directory = directory or (self._offline_base if self._offline_explicit else new_session_dir(self._offline_base, self._offline_name))
         try:
             self._sender = Mirror(self._sender, directory, self.base_url, run_id, payload)
             self.offline_dir = directory
@@ -195,24 +195,29 @@ class TraceReports:
         return self.offline_report or ""
 
     def _offline_finish(self) -> None:
-        """Closes the recording and, if the tracereports binary is installed, builds the report."""
+        """Close the recording and build its report with the installed or cached renderer."""
         if not isinstance(self._sender, (Recorder, Mirror)):
             return
         self._sender.close()
-        binary = env("BIN") or shutil.which("tracereports")
-        if not binary or env("OFFLINE_REPORT", "1") in ("0", "false", "no"):
-            log.warning("tracereports: evidence recorded in %s. Report without a server: "
-                        "`tracereports report %s -o report`; upload it: `tracereports push %s`",
-                        self.offline_dir, self.offline_dir, self.offline_dir)
-            return
         out = os.path.join(self.offline_dir, "report")
         try:
+            if env("OFFLINE_REPORT", "1").lower() in ("0", "false", "no"):
+                raise OSError("automatic report disabled")
+            binary = resolve_binary()
             subprocess.run([binary, "report", "-o", out, self.offline_dir], check=True, timeout=300,
                            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            self.offline_report = os.path.join(out, "index.html")
+            index = os.path.join(out, "index.html")
+            if not os.path.isfile(index):
+                raise OSError("renderer did not create index.html")
+            self.offline_report = index
+            if self.run_id and self.run_id > 0:
+                log.warning("tracereports: server report: %s", self.report_url)
             log.warning("tracereports: local report in %s", self.offline_report)
-        except (OSError, subprocess.SubprocessError) as err:
-            log.warning("tracereports: could not build the report (%s); run `tracereports report %s`", err, self.offline_dir)
+        except Exception as err:
+            log.warning("tracereports: local report unavailable (%s); evidence retained in %s. "
+                        "install the binary and run `tracereports report %s`, or run "
+                        "`tracereports push %s` with the correct token when the server is available.",
+                        err, self.offline_dir, self.offline_dir, self.offline_dir)
 
     # -------------------------------------------------------------- delivery
 
@@ -254,6 +259,9 @@ class TraceReports:
         git) define the context: history, flakiness and comparisons only use runs of the same
         project, environment and branch.
         """
+        self._offline_name = name or self._offline_name
+        if self.enabled and self.offline_mode == "always" and not self.recording:
+            self._go_offline("offline mode")
         if detect_context:
             branch = detect_branch() if branch is None else branch
             commit = detect_commit() if commit is None else commit

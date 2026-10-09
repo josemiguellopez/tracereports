@@ -22,10 +22,15 @@ const MIN_BLOCK = 1_000_000;
 const MAX_BLOCK = 90_000_000_000;
 
 /** Carpeta nueva para una sesión dentro de `base` (no mezcla corridas distintas). */
-export function newSessionDir(base) {
+export function sessionSlug(name) {
+  const ascii = String(name || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  return (ascii.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "") || "run");
+}
+
+export function newSessionDir(base, name = "") {
   const d = new Date();
   const stamp = `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}${pad(d.getSeconds())}`;
-  return path.join(base, `${stamp}-${randomUUID().slice(0, 6)}`);
+  return path.join(base, `${sessionSlug(name)}-${stamp}-${randomUUID().replace(/-/g, "").slice(0, 6)}`);
 }
 
 /** Reemplaza al Sender: graba cada llamada y responde con ids locales (negativos). */

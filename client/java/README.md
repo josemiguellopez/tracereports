@@ -20,3 +20,5 @@ and Playwright for Java. Java 17+, no runtime dependencies.
 - **Configuration** from the environment, system properties or the project's `.env`.
 
 Full documentation: [docs/en/java.md](../../docs/en/java.md).
+
+Without an installed binary, closing downloads and verifies the v0.2.0 renderer in the user cache; `TRACEREPORTS_BIN_DOWNLOAD=0` supports offline use with an installed or cached binary. See [offline mode](../../docs/en/offline.md).

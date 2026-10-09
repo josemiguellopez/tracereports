@@ -76,8 +76,8 @@ type Client struct {
 	// is where each session creates its own folder (default $TRACEREPORTS_OFFLINE_BASE or
 	// ./tracereports-offline). Offline is "auto" (default: record only if the run cannot be
 	// created), "always", "both" or "off" (default $TRACEREPORTS_OFFLINE).
-	OfflineDir, OfflineBase, Offline string
-	// OfflineReport is the index.html built when a recording finishes (needs the binary).
+	OfflineDir, OfflineBase, Offline, OfflineName string
+	// OfflineReport is the index.html built when a recording finishes.
 	OfflineReport string
 
 	mirror    *mirror
@@ -110,6 +110,7 @@ func New(baseURL string) *Client {
 		OfflineDir:  getenv("OFFLINE_DIR"),
 		OfflineBase: getenv("OFFLINE_BASE"),
 		Offline:     getenv("OFFLINE"),
+		OfflineName: getenv("OFFLINE_NAME"),
 	}
 }
 
@@ -139,6 +140,9 @@ func git(args ...string) string {
 // $TRACEREPORTS_RUN_ID set it joins that run instead (CI shards); the creator closes it. If the
 // run cannot be created, the evidence is recorded locally (see the package doc).
 func (c *Client) StartRun(name, environment string) (int64, error) {
+	if name != "" {
+		c.OfflineName = name
+	}
 	if id, err := strconv.ParseInt(getenv("RUN_ID"), 10, 64); err == nil && id != 0 {
 		// negativo: una ejecución que otro proceso graba sin servidor ($TRACEREPORTS_OFFLINE_DIR)
 		if id < 0 && !c.disabled && !c.Recording() {

@@ -20,3 +20,5 @@ Selenium y Playwright para Java. Java 17+, sin dependencias en tiempo de ejecuci
 - **Configuración** desde el entorno, propiedades del sistema o el `.env` del proyecto.
 
 Documentación completa: [docs/es/java.md](../../docs/es/java.md).
+
+Sin binario instalado, al cerrar se descarga y verifica el renderer v0.2.0 en la caché del usuario; `TRACEREPORTS_BIN_DOWNLOAD=0` permite trabajar sin internet con un binario instalado o en caché. Ver [modo offline](../../docs/es/offline.md).

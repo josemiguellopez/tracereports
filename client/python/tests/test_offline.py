@@ -159,7 +159,7 @@ def test_xdist_workers_share_the_recording(tmp_path, monkeypatch):
 
 
 def binary():
-    return os.environ.get("TRACEREPORTS_BIN") or shutil.which("tracereports")
+    return (os.environ.get("TRACEREPORTS_BIN") or os.environ.get("TRACEREPORTS_TEST_BIN")) or shutil.which("tracereports")
 
 
 @pytest.mark.skipif(not binary(), reason="needs the tracereports binary ($TRACEREPORTS_BIN or PATH)")

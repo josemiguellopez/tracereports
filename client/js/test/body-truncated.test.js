@@ -63,7 +63,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const example = path.resolve(here, "../../../examples/playwright-js");
 const cli = path.join(example, "node_modules/@playwright/test/cli.js");
 const reporter = path.resolve(here, "../src/reporter.js");
-const binary = process.env.TRACEREPORTS_BIN;
+const binary = (process.env.TRACEREPORTS_BIN || process.env.TRACEREPORTS_TEST_BIN);
 
 const freePort = () => new Promise((resolve) => {
   const s = net.createServer().listen(0, "127.0.0.1", () => { const p = s.address().port; s.close(() => resolve(p)); });

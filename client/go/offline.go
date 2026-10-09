@@ -1,6 +1,7 @@
 package tracereports
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 )
 
 // Recording without a server: when the run cannot be created (no server, unreachable, wrong
@@ -189,6 +191,48 @@ func (c *Client) offlineMode() string {
 
 // recordingDir is OfflineDir, or a new folder for this session inside OfflineBase: successive
 // runs never share a folder unless asked.
+func sessionSlug(name string) string {
+	name = strings.ToLower(name)
+	var b strings.Builder
+	dash := false
+	for _, r := range name {
+		switch r {
+		case 'á', 'à', 'ä', 'â', 'ã', 'å':
+			r = 'a'
+		case 'é', 'è', 'ë', 'ê':
+			r = 'e'
+		case 'í', 'ì', 'ï', 'î':
+			r = 'i'
+		case 'ó', 'ò', 'ö', 'ô', 'õ':
+			r = 'o'
+		case 'ú', 'ù', 'ü', 'û':
+			r = 'u'
+		case 'ñ':
+			r = 'n'
+		case 'ç':
+			r = 'c'
+		}
+		if unicode.Is(unicode.Mn, r) {
+			continue
+		}
+		if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+			b.WriteRune(r)
+			dash = false
+		} else if b.Len() > 0 && !dash {
+			b.WriteByte('-')
+			dash = true
+		}
+	}
+	s := strings.Trim(b.String(), "-")
+	if len(s) > 40 {
+		s = strings.TrimRight(s[:40], "-")
+	}
+	if s == "" {
+		return "run"
+	}
+	return s
+}
+
 func (c *Client) recordingDir() string {
 	if c.OfflineDir != "" {
 		return c.OfflineDir
@@ -197,7 +241,7 @@ func (c *Client) recordingDir() string {
 	if base == "" {
 		base = "tracereports-offline"
 	}
-	return filepath.Join(base, time.Now().Format("20060102-150405")+"-"+randomHex(3))
+	return filepath.Join(base, sessionSlug(c.OfflineName)+"-"+time.Now().Format("20060102-150405")+"-"+randomHex(3))
 }
 
 // startRecording switches the client to recording; reason "" logs nothing (asked for).
@@ -212,13 +256,12 @@ func (c *Client) startRecording(reason string) bool {
 	c.rec = rec
 	c.mu.Unlock()
 	if reason != "" {
-		log.Printf("tracereports: %s; recording the evidence in %s (report: `tracereports report %s`; upload later: `tracereports push %s`)", reason, dir, dir, dir)
+		log.Printf("tracereports: %s; recording the evidence in %s", reason, dir)
 	}
 	return true
 }
 
-// finishRecording closes the recording and, with the tracereports binary installed
-// ($TRACEREPORTS_BIN or in the PATH), builds the static report into <dir>/report.
+// finishRecording uses the installed or verified cached renderer to build <dir>/report.
 func (c *Client) finishRecording() {
 	c.mu.Lock()
 	rec := c.rec
@@ -230,19 +273,35 @@ func (c *Client) finishRecording() {
 		return
 	}
 	rec.close()
-	bin := getenv("BIN")
-	if bin == "" {
-		bin, _ = exec.LookPath("tracereports")
+	warn := func(err error) {
+		log.Printf("tracereports: local report unavailable (%v); evidence retained in %s. install the binary and run `tracereports report %s`, or run `tracereports push %s` with the correct token when the server is available.", err, rec.dir, rec.dir, rec.dir)
 	}
-	if v := strings.ToLower(getenv("OFFLINE_REPORT")); bin == "" || v == "0" || v == "false" || v == "no" {
-		log.Printf("tracereports: evidence recorded in %s. Report without a server: `tracereports report %s -o report`; upload it: `tracereports push %s`", rec.dir, rec.dir, rec.dir)
+	if v := strings.ToLower(getenv("OFFLINE_REPORT")); v == "0" || v == "false" || v == "no" {
+		warn(fmt.Errorf("automatic report disabled"))
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	bin, err := reportBinary(ctx)
+	cancel()
+	if err != nil {
+		warn(err)
 		return
 	}
 	out := filepath.Join(rec.dir, "report")
-	if msg, err := exec.Command(bin, "report", "-o", out, rec.dir).CombinedOutput(); err != nil {
-		log.Printf("tracereports: could not build the report (%v: %s); run `tracereports report %s`", err, strings.TrimSpace(string(msg)), rec.dir)
+	ctx, cancel = context.WithTimeout(context.Background(), 300*time.Second)
+	defer cancel()
+	if err := exec.CommandContext(ctx, bin, "report", "-o", out, rec.dir).Run(); err != nil {
+		warn(err)
 		return
 	}
-	c.OfflineReport = filepath.Join(out, "index.html")
+	index := filepath.Join(out, "index.html")
+	if info, err := os.Stat(index); err != nil || !info.Mode().IsRegular() {
+		warn(fmt.Errorf("renderer did not create index.html"))
+		return
+	}
+	c.OfflineReport = index
+	if c.RunID > 0 {
+		log.Printf("tracereports: server report: %s", c.ReportURL())
+	}
 	log.Printf("tracereports: local report in %s", c.OfflineReport)
 }

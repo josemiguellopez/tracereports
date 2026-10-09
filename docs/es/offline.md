@@ -23,8 +23,11 @@ tracereports report allure-results -o reporte/           # resultados de Allure 
 1. Al empezar, el cliente intenta crear la ejecución en el servidor. Si no puede (servidor caído,
    sin conexión, `401` por token incorrecto), avisa y pasa a **grabar**: escribe en la carpeta las
    mismas llamadas a la API que habría hecho, con su hora real. Los tests nunca se rompen.
-2. Al terminar, si el binario `tracereports` está instalado (en el `PATH` o en `TRACEREPORTS_BIN`),
-   el cliente arma el reporte solo en `<carpeta>/report/index.html`. Si no, imprime el comando.
+2. Al terminar, el cliente arma `<carpeta>/report/index.html` usando `TRACEREPORTS_BIN`, después
+   `PATH` y después la caché verificada del usuario. Si hace falta, descarga el renderer fijo
+   **v0.2.0** de los releases de GitHub de `josemiguellopez/tracereports` y verifica el archivo
+   contra `checksums.txt` del mismo release (SHA-256). Funciona en `auto`, `always` y `both`,
+   incluso cuando el servidor rechaza el token.
 3. `report` reproduce la grabación en un servidor en memoria (mismo código, mismo enmascarado de
    secretos) y exporta el reporte. `push` la reproduce contra un servidor real.
 
@@ -38,11 +41,32 @@ nuevo y la ejecución se cierra una sola vez.
 | Variable | Default | Qué hace |
 | --- | --- | --- |
 | `TRACEREPORTS_OFFLINE` | `auto` | `auto`: graba solo si la ejecución no se pudo crear. `always`: graba sin intentar un servidor. `both`: envía al servidor y guarda una copia local. `off`: nunca graba (comportamiento anterior) |
-| `TRACEREPORTS_OFFLINE_BASE` | `./tracereports-offline` | Carpeta donde **cada corrida crea la suya** (`<fecha-hora>-<id>`): corridas sucesivas nunca se pisan. Úsala para dejar la evidencia en el `output` de tu proyecto |
+| `TRACEREPORTS_OFFLINE_BASE` | `./tracereports-offline` | Carpeta donde **cada corrida crea la suya** (`<nombre-corrida>-<AAAAMMDD-HHMMSS>-<6 hex>`). El nombre queda en minúsculas ASCII, con guiones y hasta 40 caracteres; las corridas no se pisan. Úsala para dejar la evidencia en el `output` de tu proyecto |
 | `TRACEREPORTS_OFFLINE_DIR` | — | Carpeta **exacta** de la grabación, compartida por todos los procesos de una corrida (workers de pytest-xdist, shards del CI). Toda corrida que la use escribe en la misma carpeta: no la pongas en un `.env` que se usa corrida tras corrida |
+| `TRACEREPORTS_OFFLINE_NAME` | nombre de la corrida | Etiqueta opcional para una carpeta creada automáticamente cuando no hay nombre de corrida |
 | `TRACEREPORTS_OFFLINE_KEEP` | vacío | `1`: conservar siempre los eventos, bodies e ids crudos de la copia local |
-| `TRACEREPORTS_BIN` | el `tracereports` del `PATH` | Binario con el que el cliente arma el reporte al terminar |
+| `TRACEREPORTS_BIN` | `PATH`, después caché/descarga | Ruta explícita del binario; tiene prioridad, incluso si esa ruta falla |
+| `TRACEREPORTS_BIN_DOWNLOAD` | `1` | `0`: desactiva descargas; siguen funcionando los binarios instalados o ya guardados en caché |
+| `TRACEREPORTS_BIN_BASE_URL` | GitHub Releases | Solo servidor HTTP local de tests (loopback); rutas `/v0.2.0/checksums.txt` y `/v0.2.0/<asset>` |
 | `TRACEREPORTS_OFFLINE_REPORT` | `1` | `0`: no armar el reporte al terminar (solo grabar) |
+
+La caché está en `%LOCALAPPDATA%\tracereports\0.2.0\<os>_<arch>\` en Windows,
+`${XDG_CACHE_HOME:-~/.cache}/tracereports/0.2.0/<os>_<arch>/` en Linux y
+`~/Library/Caches/tracereports/0.2.0/<os>_<arch>/` en macOS (amd64 o arm64).
+Los cuatro clientes la comparten, verifican el hash guardado del ejecutable y coordinan las
+descargas con un directorio de bloqueo exclusivo. Los temporales se renombran solo después de
+verificarlos. La descarga y la espera de otro proceso comparten un límite de 60 segundos, al cerrar.
+Si un proceso muere durante la instalación, elimina su directorio `<os>_<arch>.lock` solo después
+de comprobar que no queda ningún instalador ejecutándose; la siguiente corrida podrá reintentar.
+
+Sin internet, usa `TRACEREPORTS_BIN_DOWNLOAD=0` e instala un binario que incluya `report` mediante
+`TRACEREPORTS_BIN`/`PATH`, o reutiliza una caché preparada previamente. El release fijo debe estar
+publicado para que funcione la descarga automática. Si falla la descarga, la verificación o el
+reporte, los tests continúan y se conserva lo crudo: un aviso explica cómo instalar el binario y
+correr `tracereports report <carpeta>`, o `tracereports push <carpeta>` con el token correcto cuando
+vuelva el servidor. En `both`, la limpieza sigue requiriendo entrega completa y HTML existente.
+El resumen final de pytest, el reporter JS y los logs de Java/Go muestran la URL del servidor y
+el `index.html` local cuando existen ambos. Este archivo se abre directamente y no necesita internet.
 
 Agrega `tracereports-offline/` a tu `.gitignore`: la grabación puede traer capturas y datos de prueba.
 
@@ -54,10 +78,10 @@ Por cliente:
   llegó al servidor). API: `TraceReports(offline_dir=..., offline_base=..., offline="always")`, `cr.recording`,
   `cr.offline_dir`, `cr.offline_report`.
 - **Playwright Test (JS)**: opciones del reporter `offlineDir`, `offlineBase` y `offline`; API:
-  `new TraceReports({ offlineDir, offlineBase, offline })`, `cr.recording`, `cr.offlineDir`, `cr.offlineReport`.
+  `new TraceReports({ offlineDir, offlineBase, offlineName, offline })`, `cr.recording`, `cr.offlineDir`, `cr.offlineReport`.
 - **Java**: `-Dtracereports.offline=always`, `-Dtracereports.offlineDir=...`, `-Dtracereports.offlineBase=...` (o las variables);
   `cr.recording()`, `cr.offlineDir()`, `cr.offlineReport()`.
-- **Go**: `Client.Offline`, `Client.OfflineDir`, `Client.OfflineBase`, `c.Recording()`, `c.RecordingDir()`,
+- **Go**: `Client.Offline`, `Client.OfflineDir`, `Client.OfflineBase`, `Client.OfflineName`, `c.Recording()`, `c.RecordingDir()`,
   `c.OfflineReport`.
 
 Con shards de CI (`TRACEREPORTS_RUN_ID`) sin servidor, el id de la ejecución es negativo (local):

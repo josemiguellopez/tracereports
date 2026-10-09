@@ -142,7 +142,7 @@ test("joinRun con id negativo: otro proceso graba en la misma carpeta", async ()
   assert.ok(events(dir).some((e) => e.path === `/api/v1/runs/${runId}/tests`));
 });
 
-const binary = process.env.TRACEREPORTS_BIN;
+const binary = (process.env.TRACEREPORTS_BIN || process.env.TRACEREPORTS_TEST_BIN);
 test("con el binario: finishRun arma el reporte HTML sin servidor", { skip: !binary && "needs $TRACEREPORTS_BIN" }, async () => {
   delete process.env.TRACEREPORTS_OFFLINE_REPORT;
   const srv = await unauthorized();

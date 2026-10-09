@@ -17,10 +17,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import threading
 import time
 import uuid
+import unicodedata
 from typing import Optional
 
 FORMAT_VERSION = 1
@@ -35,10 +37,16 @@ MIN_BLOCK = 1_000_000
 MAX_BLOCK = 90_000_000_000
 
 
-def new_session_dir(base: str) -> str:
-    """Carpeta nueva para una sesión dentro de ``base`` (no mezcla corridas distintas)."""
-    name = time.strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:6]
-    return os.path.join(base, name)
+def session_slug(name: str) -> str:
+    """Filesystem-safe label shared by the local recording folders in every client."""
+    text = unicodedata.normalize("NFKD", name or "").encode("ascii", "ignore").decode("ascii").lower()
+    text = re.sub(r"[^a-z0-9]+", "-", text).strip("-")
+    return (text[:40].rstrip("-") or "run")
+
+
+def new_session_dir(base: str, name: str = "") -> str:
+    """Carpeta única para una corrida dentro de ``base``."""
+    return os.path.join(base, f"{session_slug(name)}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}")
 
 
 class Recorder:

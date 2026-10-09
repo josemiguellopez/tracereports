@@ -27,6 +27,7 @@ class OfflineLargeTest {
     @Test
     void anEventOver16MiBCanBeReported() throws Exception {
         String bin = System.getenv("TRACEREPORTS_BIN");
+        if (bin == null || bin.isBlank()) bin = System.getenv("TRACEREPORTS_TEST_BIN");
         Assumptions.assumeTrue(bin != null && !bin.isBlank(), "needs $TRACEREPORTS_BIN");
         Path rec = tmp.resolve("rec");
         System.setProperty("tracereports.offline", "always");

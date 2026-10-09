@@ -19,3 +19,5 @@ pytest --tracereports                     # reports your pytest suite with no co
 - **Configuration** from the environment or the project's `.env` (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
 
 Full documentation: [docs/en/python.md](https://github.com/josemiguellopez/tracereports/blob/main/docs/en/python.md).
+
+Without an installed binary, closing downloads and verifies the v0.2.0 renderer in the user cache; `TRACEREPORTS_BIN_DOWNLOAD=0` supports offline use with an installed or cached binary. See [offline mode](../../docs/en/offline.md).

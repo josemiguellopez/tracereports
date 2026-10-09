@@ -13,6 +13,7 @@ import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ThreadLocalRandom;
+import java.text.Normalizer;
 
 /**
  * Grabación local cuando no hay servidor (no responde o rechaza el token): en vez de perder la
@@ -53,9 +54,17 @@ final class Recorder {
     }
 
     /** Carpeta nueva para una sesión dentro de {@code base} (no mezcla corridas distintas). */
-    static Path newSessionDir(Path base) {
+    static String sessionSlug(String name) {
+        String normalized = Normalizer.normalize(name == null ? "" : name, Normalizer.Form.NFKD)
+                .replaceAll("\\p{M}+", "").toLowerCase(java.util.Locale.ROOT)
+                .replaceAll("[^a-z0-9]+", "-").replaceAll("^-+|-+$", "");
+        if (normalized.length() > 40) normalized = normalized.substring(0, 40).replaceFirst("-+$", "");
+        return normalized.isEmpty() ? "run" : normalized;
+    }
+
+    static Path newSessionDir(Path base, String name) {
         String stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"));
-        return base.resolve(stamp + "-" + UUID.randomUUID().toString().substring(0, 6));
+        return base.resolve(sessionSlug(name) + "-" + stamp + "-" + UUID.randomUUID().toString().replace("-", "").substring(0, 6));
     }
 
     /** Id local negativo, único entre los grabadores que graban en la misma carpeta. */

@@ -9,7 +9,7 @@ import path from "node:path";
 import { TraceReports } from "../src/index.js";
 
 process.env.TRACEREPORTS_ENV_FILE = "off";
-const binary = process.env.TRACEREPORTS_BIN;
+const binary = (process.env.TRACEREPORTS_BIN || process.env.TRACEREPORTS_TEST_BIN);
 
 test("un evento de más de 16 MiB grabado sin servidor se puede abrir con report", { skip: !binary && "needs $TRACEREPORTS_BIN" }, async () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tr-offline-large-"));

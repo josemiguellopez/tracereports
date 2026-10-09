@@ -25,6 +25,7 @@ import { env } from "./env.js";
 import { Recorder, newSessionDir } from "./offline.js";
 import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
+import { downloadBinary } from "./binary.js";
 
 export const VERSION = "0.1.0";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
@@ -115,10 +116,10 @@ export class TraceReports {
     const explicit = opts.offlineDir || env("OFFLINE_DIR") || "";
     // sin carpeta exacta, cada sesión crea la suya dentro de la base: corridas sucesivas no se pisan
     this.offlineBase = explicit || opts.offlineBase || env("OFFLINE_BASE") || "tracereports-offline";
-    this.offlineExplicit = Boolean(explicit);
+   this.offlineExplicit = Boolean(explicit);
+    this.offlineName = opts.offlineName || env("OFFLINE_NAME", "");
     this.offlineDir = null; // carpeta donde se graba (null: se envía al servidor)
-    this.offlineReport = null; // index.html generado al cerrar, si el binario está
-    if (this.enabled && mode === "always") this.goOffline();
+    this.offlineReport = null; // index.html generado al cerrar
   }
 
   /** true si la evidencia se graba localmente (sin servidor). */
@@ -127,7 +128,7 @@ export class TraceReports {
   }
 
   goOffline(reason = "") {
-    const dir = this.offlineExplicit ? this.offlineBase : newSessionDir(this.offlineBase);
+    const dir = this.offlineExplicit ? this.offlineBase : newSessionDir(this.offlineBase, this.offlineName);
     try {
       this.sender = new Recorder(dir);
     } catch (err) {
@@ -136,38 +137,39 @@ export class TraceReports {
     }
     this.offlineDir = dir;
     if (reason) {
-      console.warn(`tracereports: ${reason}; la evidencia se graba en ${dir} (reporte: \`tracereports report ${dir}\`; ` +
-        `subirla después: \`tracereports push ${dir}\`)`);
+      console.warn(`tracereports: ${reason}; la evidencia se graba en ${dir}`);
     }
   }
 
   goMirror(runId, payload, directory) {
-    const dir = directory || (this.offlineExplicit ? this.offlineBase : newSessionDir(this.offlineBase));
+    const dir = directory || (this.offlineExplicit ? this.offlineBase : newSessionDir(this.offlineBase, this.offlineName));
     try {
       this.sender = new Mirror(this.sender, dir, this.baseUrl, runId, payload);
       this.offlineDir = dir;
     } catch (err) { console.warn(`tracereports: no se pudo iniciar la copia local en ${dir}: ${err.message}`); }
   }
 
-  /** Con el binario instalado ($TRACEREPORTS_BIN o en el PATH), arma el reporte HTML de la grabación. */
-  buildOfflineReport({ zip } = {}) {
-    const bin = env("BIN") || findInPath("tracereports");
-    if (!bin || ["0", "false", "no"].includes(String(env("OFFLINE_REPORT", "1")).toLowerCase())) {
-      console.warn(`tracereports: evidencia grabada en ${this.offlineDir}. Reporte sin servidor: ` +
-        `\`tracereports report ${this.offlineDir} -o reporte\`; subirla: \`tracereports push ${this.offlineDir}\``);
+  /** Arma el HTML con el binario instalado o el renderer verificado de la caché. */
+  async buildOfflineReport({ zip } = {}) {
+    try {
+      if (["0", "false", "no"].includes(String(env("OFFLINE_REPORT", "1")).toLowerCase())) throw Error("automatic report disabled");
+      const bin = env("BIN") || findInPath("tracereports") || await downloadBinary();
+      const out = path.join(this.offlineDir, "report");
+      const args = ["report", "-o", out, ...(zip ? ["--zip", zip] : []), this.offlineDir];
+      const res = spawnSync(bin, args, { timeout: 300_000, encoding: "utf8" });
+      if (res.status !== 0) throw Error((res.stderr || res.error?.message || "renderer failed").trim());
+      const index = path.join(out, "index.html");
+      if (!fs.statSync(index).isFile()) throw Error("renderer did not create index.html");
+      this.offlineReport = index;
+      if (this.runId > 0) console.warn(`tracereports: server report: ${this.reportUrl}`);
+      console.warn(`tracereports: reporte local: ${this.offlineReport}`);
+      return this.offlineReport;
+    } catch (err) {
+      console.warn(`tracereports: local report unavailable (${err.message}); evidence retained in ${this.offlineDir}. ` +
+        `install the binary and run \`tracereports report ${this.offlineDir}\`, or run ` +
+        `\`tracereports push ${this.offlineDir}\` with the correct token when the server is available.`);
       return null;
     }
-    const out = path.join(this.offlineDir, "report");
-    const args = ["report", "-o", out, ...(zip ? ["--zip", zip] : []), this.offlineDir];
-    const res = spawnSync(bin, args, { timeout: 300_000, encoding: "utf8" });
-    if (res.status !== 0) {
-      console.warn(`tracereports: no se pudo armar el reporte (${(res.stderr || res.error?.message || "").trim()}); ` +
-        `usa \`tracereports report ${this.offlineDir}\``);
-      return null;
-    }
-    this.offlineReport = path.join(out, "index.html");
-    console.warn(`tracereports: reporte local: ${this.offlineReport}`);
-    return this.offlineReport;
   }
 
   headers() {
@@ -216,6 +218,7 @@ export class TraceReports {
    * ambiente y rama.
    */
   async startRun(name, { environment = "", project, branch, commit, framework = "" } = {}) {
+    this.offlineName = name || this.offlineName;
     if (env("RUN_ID")) return this.joinRun(env("RUN_ID"));
     const payload = {
       name,
@@ -225,6 +228,7 @@ export class TraceReports {
       commit: commit ?? detectCommit(),
       framework,
     };
+    if (this.enabled && this.offlineMode === "always" && !this.recording) this.goOffline("offline mode");
     const res = await this.request("POST", "/api/v1/runs", payload);
     let created = res;
     if (!created && this.enabled && ["auto", "both"].includes(this.offlineMode) && !this.recording) {
@@ -274,11 +278,11 @@ export class TraceReports {
       if (this.sender instanceof Mirror) {
         this.sender.close(pending === 0 && this.deliveryProblems() === 0 && !interrupted);
         const before = this.sender.prepare();
-        this.buildOfflineReport();
+        await this.buildOfflineReport();
         this.sender.finalize(this.offlineReport, env("OFFLINE_KEEP") === "1", before);
         return res;
       }
-      this.buildOfflineReport();
+      await this.buildOfflineReport();
       return res;
     }
     if (this.runNotClosed) {

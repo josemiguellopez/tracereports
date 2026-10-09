@@ -190,6 +190,7 @@ class OfflineTest {
             assertEquals(3, blocks.count());
         }
         String bin = System.getenv("TRACEREPORTS_BIN");
+        if (bin == null || bin.isBlank()) bin = System.getenv("TRACEREPORTS_TEST_BIN");
         if (bin == null || bin.isBlank()) return;
         Path out = tmp.resolve("report");
         Process p = new ProcessBuilder(bin, "report", tmp.resolve("rec").toString(), "-o", out.toString()).redirectErrorStream(true).start();
@@ -213,6 +214,7 @@ class OfflineTest {
     @Test
     void conElBinarioFinishRunArmaElReporteSinServidor() throws Exception {
         String bin = System.getenv("TRACEREPORTS_BIN");
+        if (bin == null || bin.isBlank()) bin = System.getenv("TRACEREPORTS_TEST_BIN");
         org.junit.jupiter.api.Assumptions.assumeTrue(bin != null && !bin.isBlank(), "needs $TRACEREPORTS_BIN");
         Path dir = tmp.resolve("rec");
         System.setProperty("tracereports.offlineDir", dir.toString());

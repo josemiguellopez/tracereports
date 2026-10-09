@@ -10,7 +10,7 @@ from tracereports import TraceReports
 
 
 def _binary():
-    return os.environ.get("TRACEREPORTS_BIN") or shutil.which("tracereports")
+    return (os.environ.get("TRACEREPORTS_BIN") or os.environ.get("TRACEREPORTS_TEST_BIN")) or shutil.which("tracereports")
 
 
 @pytest.mark.skipif(not _binary(), reason="needs the tracereports binary ($TRACEREPORTS_BIN or PATH)")

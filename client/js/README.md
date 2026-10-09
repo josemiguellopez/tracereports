@@ -21,3 +21,5 @@ npm install --save-dev tracereports
 - **Configuration** from the environment or the project's `.env` (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
 
 Full documentation: [docs/en/javascript.md](https://github.com/josemiguellopez/tracereports/blob/main/docs/en/javascript.md).
+
+Without an installed binary, closing downloads and verifies the v0.2.0 renderer in the user cache; `TRACEREPORTS_BIN_DOWNLOAD=0` supports offline use with an installed or cached binary. See [offline mode](../../docs/en/offline.md).
