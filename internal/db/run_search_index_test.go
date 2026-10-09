@@ -27,16 +27,26 @@ func seedSearch(t *testing.T, s *Store, runs int) {
 	}
 }
 
+// slow: with -race or -short the timing checks are skipped and less data is used.
+func slow() bool { return raceEnabled || testing.Short() }
+
+func searchRuns() int {
+	if slow() {
+		return 300
+	}
+	return 3000
+}
+
 // Deleting a run (retention, the UI) removes its rows from the search index without scanning it,
 // and the index never returns a deleted run.
 func TestRunSearchIndexFollowsDeletes(t *testing.T) {
 	s := openTestStore(t)
-	seedSearch(t, s, 3000)
+	seedSearch(t, s, searchRuns())
 	start := time.Now()
 	if _, err := s.db.Exec(`DELETE FROM runs WHERE id = 7`); err != nil {
 		t.Fatal(err)
 	}
-	if took := time.Since(start); took > 500*time.Millisecond {
+	if took := time.Since(start); !slow() && took > 500*time.Millisecond {
 		t.Fatalf("deleting one run took %v: the index is scanned", took)
 	}
 	var left int
@@ -55,7 +65,7 @@ func TestRunSearchIndexIsFilledOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	seedSearch(t, s, 3000)
+	seedSearch(t, s, searchRuns())
 	// como una base de una versión anterior: sin índice ni marca
 	for _, q := range []string{`DELETE FROM run_search_init`, `DELETE FROM run_search_text`, `DELETE FROM run_tags`} {
 		if _, err := s.db.Exec(q); err != nil {
@@ -67,7 +77,7 @@ func TestRunSearchIndexIsFilledOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	items, _, total, err := s.SearchRuns(RunSearchQuery{Q: "case_29", Tag: "checkout", Limit: 5, Sort: "recent"})
-	if err != nil || total != 3000 || len(items) != 5 {
+	if err != nil || total != searchRuns() || len(items) != 5 {
 		t.Fatalf("the first start fills text and tags: total=%d items=%d err=%v", total, len(items), err)
 	}
 	s.Close()
@@ -76,7 +86,7 @@ func TestRunSearchIndexIsFilledOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	if took := time.Since(start); took > 2*time.Second {
+	if took := time.Since(start); !slow() && took > 2*time.Second {
 		t.Fatalf("a later start took %v: the index is filled again", took)
 	}
 }

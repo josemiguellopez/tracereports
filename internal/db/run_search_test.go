@@ -8,6 +8,9 @@ import (
 )
 
 func TestSearchRunsTwentyThousandRowsUnder150ms(t *testing.T) {
+	if raceEnabled || testing.Short() {
+		t.Skip("timing test: not meaningful with -race or -short")
+	}
 	s, err := Open(filepath.Join(t.TempDir(), "search.db"))
 	if err != nil {
 		t.Fatal(err)
