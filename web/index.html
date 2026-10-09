@@ -73,8 +73,9 @@
 			<span class="live-pill" id="live-pill" hidden role="status" aria-live="polite" tabindex="0"><span class="dot"></span><span class="live-text">En vivo</span></span>
 			<span class="static-pill" id="static-pill" hidden tabindex="0" data-tip-title="Reporte exportado" data-tip="Copia de solo lectura que funciona sin servidor. Lo que pase después de exportar no aparece aquí."></span>
 			<button class="new-run-badge" id="new-run-badge" hidden data-tip-title="Ejecución nueva en curso"><span class="dot" aria-hidden="true"></span><span class="nrb-text"></span></button>
+			<details class="recents-control" id="recents-control"><summary>Recientes</summary><div id="recents-list" role="listbox" aria-label="Ejecuciones recientes"></div></details>
 			<select class="run-select" id="run-select" aria-label="Ejecución" data-tip-title="Ejecución" data-tip="Cambia a otra ejecución guardada. Las que siguen corriendo dicen (en curso)."></select>
-			<button class="recents-search" id="recents-search" title="Ver todas las ejecuciones">Ver todas →</button>
+			<button class="recents-search" id="recents-search" title="Ver todas las ejecuciones">Buscar todas →</button>
 			<span id="export-li" hidden>
 				<a class="export-btn" id="export-btn" download data-tip-title="Exportar ZIP" data-tip="Descarga esta ejecución como un reporte autocontenido: se abre sin servidor, ideal para adjuntar a un correo.">
 					<svg><use href="#i-download"/></svg><span>Exportar ZIP</span>
@@ -120,15 +121,14 @@
 					<label>Ambiente <select data-search-filter="environment"><option value="">Todos</option></select></label>
 					<label>Rama <select data-search-filter="branch"><option value="">Todas</option></select></label>
 					<label>Tag <select data-search-filter="tag"><option value="">Todos</option></select></label>
-					<label>Dueño <input data-search-filter="owner" type="search" autocomplete="off"></label>
 					<label>Estado <select data-search-filter="status"><option value="">Todos</option><option value="FAIL">FAIL</option><option value="PASS">PASS</option><option value="WARNING">WARNING</option><option value="SKIP">SKIP</option><option value="RUNNING">RUNNING</option></select></label>
 					<label>Desde <input type="date" data-search-filter="from"></label>
 					<label>Hasta <input type="date" data-search-filter="to"></label>
 				</div>
-				<div class="search-shortcuts" id="search-shortcuts"><button data-search-quick="fail">Con fallos</button><button data-search-quick="flaky">Flaky</button><button data-search-quick="running">En curso</button><button data-search-quick="incomplete">Incompletas</button><button data-search-owner>Por dueño…</button><button data-search-range="0">Hoy</button><button data-search-range="7">7 días</button><button data-search-range="30">30 días</button><button data-search-save>Guardar búsqueda</button><select id="search-saved" aria-label="Búsquedas guardadas"><option value="">Búsquedas guardadas</option></select><button data-search-clear>Limpiar todo</button></div>
+				<div class="search-shortcuts" id="search-shortcuts"><button data-search-quick="fail">Con fallos</button><button data-search-quick="flaky">Flaky</button><button data-search-quick="running">En curso</button><button data-search-quick="incomplete">Incompletas</button><button data-search-range="0">Hoy</button><button data-search-range="7">7 días</button><button data-search-range="30">30 días</button><button data-search-save>Guardar búsqueda</button><select id="search-saved" aria-label="Búsquedas guardadas"><option value="">Búsquedas guardadas</option></select><button data-search-clear>Limpiar todo</button></div>
 				<div class="search-chips" id="search-chips" aria-live="polite"></div>
 			</div>
-			<div class="search-result-toolbar"><span id="search-result-count" role="status"></span><label>Orden <select id="search-sort"><option value="recent">Más reciente</option><option value="oldest">Más antiguo</option><option value="failures">Más fallos</option><option value="duration">Más lentas</option></select></label></div>
+			<div class="search-result-toolbar"><span id="search-result-count" role="status"></span><button id="search-new-runs" hidden></button><label>Orden <select id="search-sort"><option value="recent">Más reciente</option><option value="oldest">Más antiguo</option><option value="failures">Más fallos</option><option value="duration">Más lentas</option></select></label></div>
 			<div class="search-layout"><div class="card search-results" id="run-search-results" role="listbox" aria-label="Resultados de ejecuciones"></div><aside class="card search-preview" id="run-search-preview"><p>Selecciona una ejecución para ver el resumen.</p></aside></div>
 			<div class="search-more"><button id="search-more" hidden>Cargar más</button></div>
 		</section>

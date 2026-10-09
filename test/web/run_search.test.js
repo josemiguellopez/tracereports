@@ -6,7 +6,7 @@ const en = load(["i18n.js", "i18n.en.js"], { lang: "en" }).TraceReportsI18n;
 
 test("la vista Buscar conserva filtros en el hash y usa cursores", () => {
 	const src = read("app.js");
-	for (const token of ["view === \"search\"", "next_cursor", "searchParams", "turn(\"run-search\")", "incomplete", "flaky"]) {
+	for (const token of ["view === \"search\"", "next_cursor", "searchParams", "turn(\"run-search\")", "incomplete", "flaky", "await loadRunSearch()", "hashchange"]) {
 		assert.match(src, new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 	}
 });
