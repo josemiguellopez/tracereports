@@ -159,7 +159,7 @@
 		"Enviar ahora a Teams/Slack": "Send now to Teams/Slack",
 		"El resumen de los últimos 7 días para el equipo: tendencia, lo que más falla y lo que se arregló. Con TRACEREPORTS_WEEKLY_SUMMARY se envía solo a Teams/Slack cada semana.": "The summary of the last 7 days for the team: trend, what fails the most and what got fixed. With TRACEREPORTS_WEEKLY_SUMMARY it is sent to Teams/Slack every week by itself.",
 		"Configura TEAMS_WEBHOOK_URL o SLACK_WEBHOOK_URL para enviarlo, y TRACEREPORTS_WEEKLY_SUMMARY (por ejemplo 'mon 09:00') para que salga solo cada semana.": "Set TEAMS_WEBHOOK_URL or SLACK_WEBHOOK_URL to send it, and TRACEREPORTS_WEEKLY_SUMMARY (for example 'mon 09:00') to have it go out every week by itself.",
-		"Listo para salir": "Ready to ship", "Se puede salir, con riesgos": "Can ship, with risks", "No salir todavía": "Do not ship yet",
+		"Listo para salir": "Ready to ship", "Se puede salir, con riesgos": "Can ship, with risks", "No salir todavía": "Do not ship yet", "Comparar con la anterior": "Compare with the previous one", "Compara esta ejecución con la que marcaste en la lista.": "Compares this run with the one you checked in the list.", "Compara con la ejecución anterior del mismo proyecto y ambiente. Para elegir otra, márcala en la lista.": "Compares with the previous run of the same project and environment. To pick another one, check it in the list.",
 		"Ningún criterio del equipo se incumple.": "No team criterion is broken.",
 		"Nada bloquea, pero hay puntos que alguien debería revisar antes.": "Nothing blocks, but someone should review a few points first.",
 		"Se incumple al menos un criterio que bloquea la salida.": "At least one criterion that blocks the release is broken.",
@@ -558,6 +558,7 @@
 	});
 
 	EN.patterns.push(
+		[/^Comparar con #(\d+)$/, "Compare with #$1"],
 		[/^(\d+) días$/, "$1 days"],
 		[/^Ejecuciones de los últimos (\d+) días$/, "Runs from the last $1 days"],
 		[/^Sin ejecuciones terminadas en los últimos (\d+) días$/, "No finished runs in the last $1 days"],

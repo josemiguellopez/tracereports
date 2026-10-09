@@ -304,14 +304,18 @@
 		const failed = detail.tests?.filter((t) => t.status === "FAIL").slice(0, 4) || [];
 		const incidents = detail.summary?.incidents?.slice(0, 2) || [];
 		const delta = compare?.base_run ? `${plural(compare.new_failures?.length || 0, "fallo nuevo", "fallos nuevos")} · ${plural(compare.fixed?.length || 0, "arreglado", "arreglados")}` : tr("Sin ejecución anterior");
-		el.innerHTML = `<h3>${esc(detail.name)}</h3><p>${statusLabel(detail.status)} · ${esc(fmtDateTime(detail.started_at))}</p><dl><dt>${tr("Tests")}</dt><dd>${detail.passed}/${detail.total} OK · ${plural(detail.failed, "fallo", "fallos")}</dd><dt>${tr("Duración")}</dt><dd>${esc(shortDuration(durationOf(detail)))}</dd><dt>${tr("Release")}</dt><dd>${releasePreview(release)}</dd><dt>${tr("Cambios")}</dt><dd>${esc(delta)}</dd></dl>${incidents.length ? `<p><b>${tr("Incidentes")}</b><br>${incidents.map((i) => esc(i.title || i.summary || i.category || "")).join("<br>")}</p>` : ""}${failed.length ? `<p><b>${tr("Tests fallidos")}</b><br>${failed.map((t) => `<button class="search-failed-test" data-search-test="${t.id}" data-search-test-run="${detail.id}">${esc(t.name)}</button>`).join("<br>")}</p>` : ""}<div class="search-preview-actions"><button data-search-open="${detail.id}">${tr("Ver reporte")}</button><button data-search-compare-open="${detail.id}" ${x.compare.length !== 1 || x.compare[0] === detail.id ? "disabled" : ""}>${tr("Comparar")}</button></div>`;
+		el.innerHTML = `<h3>${esc(detail.name)}</h3><p>${statusLabel(detail.status)} · ${esc(fmtDateTime(detail.started_at))}</p><dl><dt>${tr("Tests")}</dt><dd>${detail.passed}/${detail.total} OK · ${plural(detail.failed, "fallo", "fallos")}</dd><dt>${tr("Duración")}</dt><dd>${esc(shortDuration(durationOf(detail)))}</dd><dt>${tr("Release")}</dt><dd>${releasePreview(release)}</dd><dt>${tr("Cambios")}</dt><dd>${esc(delta)}</dd></dl>${incidents.length ? `<p><b>${tr("Incidentes")}</b><br>${incidents.map((i) => esc(i.title || i.summary || i.category || "")).join("<br>")}</p>` : ""}${failed.length ? `<p><b>${tr("Tests fallidos")}</b><br>${failed.map((t) => `<button class="search-failed-test" data-search-test="${t.id}" data-search-test-run="${detail.id}">${esc(t.name)}</button>`).join("<br>")}</p>` : ""}<div class="search-preview-actions"><button data-search-open="${detail.id}">${tr("Ver reporte")}</button>${(() => { const other = x.compare.find((c) => c !== detail.id); return `<button data-search-compare-open="${detail.id}" data-search-compare-base="${other || 0}" data-tip="${esc(tr(other ? "Compara esta ejecución con la que marcaste en la lista." : "Compara con la ejecución anterior del mismo proyecto y ambiente. Para elegir otra, márcala en la lista."))}">${other ? tr("Comparar con #{n}", { n: other }) : tr("Comparar con la anterior")}</button>`; })()}</div>`;
 	}
 	async function selectSearchRun(id) {
 		const x = S.runSearch; x.selected = id; renderRunSearch(); const current = turn("search-preview");
-		try { const [detail, release, compare] = await Promise.all([api(`/api/v1/runs/${id}`), api(`/api/v1/runs/${id}/release`).catch(() => null), api(`/api/v1/runs/${id}/compare`).catch(() => null)]); if (!current() || x.selected !== id) return; renderSearchPreview(detail, release, compare); } catch { if (current()) $("#run-search-preview").innerHTML = `<p>${tr("No se pudo cargar la vista previa.")}</p>`; }
+		try { const [detail, release, compare] = await Promise.all([api(`/api/v1/runs/${id}`), api(`/api/v1/runs/${id}/release`).catch(() => null), api(`/api/v1/runs/${id}/compare`).catch(() => null)]); if (!current() || x.selected !== id) return; x.preview = [detail, release, compare]; renderSearchPreview(detail, release, compare); } catch { if (current()) $("#run-search-preview").innerHTML = `<p>${tr("No se pudo cargar la vista previa.")}</p>`; }
 	}
-	async function compareSearchRuns(first, second) {
-		await switchRun(second); setView("dashboard"); await chooseBase(first);
+	/** Abre run en el Dashboard con su comparación: contra base, o la automática (0). */
+	async function compareSearchRuns(base, run) {
+		await switchRun(run);
+		setView("dashboard");
+		if (base) await chooseBase(base);
+		$("#compare-card")?.scrollIntoView({ block: "start", behavior: "smooth" });
 	}
 
 	// only touch the DOM when content actually changed (keeps scroll position & avoids flicker while polling)
@@ -1457,7 +1461,8 @@
 			STATIC ? Promise.resolve([]) : api(`/api/v1/runs/${S.run.id}/baselines`).catch(() => [])])
 			.then(([compare, endpoints, baselines]) => {
 				if (S.insights.key !== key) return;
-				Object.assign(S.insights, { compare, endpoints, baselines });
+				Object.assign(S.insights, { endpoints, baselines });
+				if (!S.insights.base) S.insights.compare = compare; // 0 = la automática; si se eligió otra, manda esa
 				renderInsights();
 			})
 			.catch((err) => console.warn("insights", err));
@@ -1794,12 +1799,16 @@
 		});
 		$("#search-saved").addEventListener("change", (e) => { const item = savedRunSearches()[Number(e.target.value)]; if (!item) return; Object.assign(S.runSearch, item.query, { items: [], cursor: "", selected: 0 }); scheduleRunSearch(); e.target.value = ""; });
 		$("#search-chips").addEventListener("click", (e) => { const b = e.target.closest("[data-search-remove]"); if (!b) return; const key = b.dataset.searchRemove; S.runSearch[key] = key === "incomplete" || key === "flaky" ? false : ""; scheduleRunSearch(); });
-		$("#run-search-results").addEventListener("click", (e) => {
+		// la casilla está dentro de una etiqueta que corta el click: se escucha change
+		$("#run-search-results").addEventListener("change", (e) => {
 			const check = e.target.closest("[data-search-compare]");
-			if (check) { const id = Number(check.dataset.searchCompare), x = S.runSearch; x.compare = check.checked ? [...x.compare.filter((n) => n !== id), id].slice(-2) : x.compare.filter((n) => n !== id); renderRunSearch(); if (x.compare.length === 2) compareSearchRuns(x.compare[0], x.compare[1]).catch(() => {}); return; }
+			if (check) { const id = Number(check.dataset.searchCompare), x = S.runSearch; x.compare = check.checked ? [...x.compare.filter((n) => n !== id), id].slice(-2) : x.compare.filter((n) => n !== id); renderRunSearch(); if (x.preview && x.preview[0].id === x.selected) renderSearchPreview(...x.preview); /* su botón Comparar depende de la marca */ if (x.compare.length === 2) compareSearchRuns(x.compare[0], x.compare[1]).catch(() => {}); return; }
+		});
+		$("#run-search-results").addEventListener("click", (e) => {
+			if (e.target.closest("[data-search-compare]")) return;
 			const row = e.target.closest("[data-search-run]"); if (row) selectSearchRun(Number(row.dataset.searchRun));
 		});
-		$("#run-search-preview").addEventListener("click", (e) => { const test = e.target.closest("[data-search-test]"); if (test) { S.testId = Number(test.dataset.searchTest); switchRun(Number(test.dataset.searchTestRun)).then(() => { S.testId = Number(test.dataset.searchTest); setView("tests"); return loadTest(); }).catch(() => {}); return; } const open = e.target.closest("[data-search-open]"); if (open) switchRun(Number(open.dataset.searchOpen)).catch(() => {}); const cmp = e.target.closest("[data-search-compare-open]"); if (cmp) compareSearchRuns(S.runSearch.compare[0], Number(cmp.dataset.searchCompareOpen)).catch(() => {}); });
+		$("#run-search-preview").addEventListener("click", (e) => { const test = e.target.closest("[data-search-test]"); if (test) { S.testId = Number(test.dataset.searchTest); switchRun(Number(test.dataset.searchTestRun)).then(() => { S.testId = Number(test.dataset.searchTest); setView("tests"); return loadTest(); }).catch(() => {}); return; } const open = e.target.closest("[data-search-open]"); if (open) { switchRun(Number(open.dataset.searchOpen)).then(() => setView("dashboard")).catch(() => {}); return; } const cmp = e.target.closest("[data-search-compare-open]"); if (cmp) compareSearchRuns(Number(cmp.dataset.searchCompareBase), Number(cmp.dataset.searchCompareOpen)).catch(() => {}); });
 		$("#search-more").addEventListener("click", () => loadRunSearch(false));
 		$("#search-new-runs").addEventListener("click", () => { S.runSearch.newCount = 0; loadRunSearch(); });
 		$("#run-search-results").addEventListener("click", (e) => { if (e.target.closest("[data-search-retry]")) loadRunSearch(); });
