@@ -668,6 +668,10 @@
 
 	// ── FixLab: checks y verificación ──
 	Object.assign(EN.exact, {
+		"En tu terminal:": "In your terminal:", "En tu terminal o en CI:": "In your terminal or CI:", "Descargar cápsula": "Download capsule", "Copiar comando": "Copy command",
+		"Archivo con el contexto, el comando del test y esta llamada (solo datos enmascarados)": "File with the context, the test command and this call (masked data only)",
+		"tracereports repro: muestra cómo correr el test y reenvía la llamada desde tu máquina": "tracereports repro: shows how to run the test and resends the call from your machine",
+		"tracereports verify: corre estos checks y sale con código 1 si alguno no pasa": "tracereports verify: runs these checks and exits with code 1 if one fails",
 		"Guardar como check": "Save as a check", "Nombre": "Name", "Status esperado": "Expected status",
 		"La respuesta debe contener (uno por línea, opcional)": "The answer must contain (one per line, optional)", "Guardar check": "Save check",
 		"Un check es esta llamada más la respuesta que cuenta como buena. Verificar el incidente corre todos sus checks.": "A check is this call plus the answer that counts as good. Verifying the incident runs all its checks.",

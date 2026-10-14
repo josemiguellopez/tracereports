@@ -144,3 +144,51 @@ test("Lab: guardar un check y verificar el incidente (sigue fallando → resuelt
 	await page.reload();
 	await expect(page.locator(".incident-card", { hasText: "/api/orders" }).locator(".lab-verified.ok")).toBeVisible();
 });
+
+// La cápsula y el comando copiados desde el reporte funcionan de verdad en la terminal.
+const path = require("node:path");
+const { execFileSync } = require("node:child_process");
+const cli = (args, password) => {
+	try {
+		return { code: 0, out: execFileSync("go", ["run", "./cmd", ...args], { cwd: path.join(__dirname, "..", ".."), encoding: "utf8",
+			env: { ...process.env, TRACEREPORTS_LAB_PASSWORD: password }, timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] }) };
+	} catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; }
+};
+const shellWords = (cmd) => [...cmd.matchAll(/'((?:[^']|'\'')*)'|(\S+)/g)].map((m) => (m[1] !== undefined ? m[1].replace(/'\''/g, "'") : m[2]));
+
+test("Lab: la cápsula y el comando copiado reproducen el fallo en la terminal", async ({ page, request }) => {
+	test.setTimeout(180_000);
+	await setBroken(request, true);
+	const detail = await openNetwork(page);
+	await detail.locator(".net-card-error [data-lab]").click();
+	const lab = page.locator(".cf-drawer .lab");
+	const href = await lab.locator(".lab-capsule a[download]").getAttribute("href");
+	const capsule = await (await request.get(href)).json();
+	expect(capsule.format).toBe("tracereports-capsule");
+	expect(JSON.stringify(capsule)).not.toContain(PASSWORD);
+
+	await lab.locator("[data-lab-cmd]").click();
+	const cmd = await page.evaluate(() => navigator.clipboard.readText());
+	expect(cmd).toMatch(/^tracereports repro 'http:\/\/localhost:\d+\/api\/v1\/network\/\d+\/capsule'$/);
+	const [, verb, url] = shellWords(cmd);
+	const res = cli([verb, url], PASSWORD);
+	expect(res.code, res.out).toBe(0);
+	expect(res.out).toContain("REPRODUCED");
+	expect(res.out).not.toContain(PASSWORD);
+
+	// verify: con el check guardado en el test anterior, sale con 1 mientras sigue roto y 0 al arreglarlo
+	await page.keyboard.press("Escape");
+	await page.goto(`/#run=${runId()}&view=ai`);
+	await page.locator(".incident-card", { hasText: "/api/orders" }).locator("[data-lab-verify]").click();
+	await page.locator("[data-verify-cmd]").click();
+	const vcmd = await page.evaluate(() => navigator.clipboard.readText());
+	const [, vverb, vurl] = shellWords(vcmd);
+	expect(vverb).toBe("verify");
+	let v = cli([vverb, vurl], PASSWORD);
+	expect(v.code, v.out).toBe(1);
+	expect(v.out).toContain("Still failing");
+	await setBroken(request, false);
+	v = cli([vverb, vurl], PASSWORD);
+	expect(v.code, v.out).toBe(0);
+	expect(v.out).toContain("Fixed and verified");
+});

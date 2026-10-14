@@ -18,7 +18,12 @@ All notable changes to TraceReports. The format follows
   response looks made up by the test (no `date` nor `server` headers).
 - **Save as a check** (the call plus the expected status and texts) and **Verify** on the incident:
   runs its checks and records **Verified: fixed** or **still failing**, with the before and after.
-- API: `GET /api/v1/network/{id}/lab`, `POST /api/v1/ui/lab/send`, `POST|DELETE /api/v1/ui/lab/checks`,
+- **Capsule** (JSON with the context, the test command and each call with its checks) and two new
+  commands: `tracereports repro <capsule|URL>` resends the calls from your machine and
+  `tracereports verify <capsule|URL>` runs the checks, exit code 1 if one fails (CI). The report
+  copies both commands. Values with `-var`, `TRACEREPORTS_LAB_<NAME>` or a hidden prompt.
+- API: `GET /api/v1/network/{id}/lab`, `GET /api/v1/network/{id}/capsule`,
+  `GET /api/v1/runs/{id}/lab/capsule`, `POST /api/v1/ui/lab/send`, `POST|DELETE /api/v1/ui/lab/checks`,
   `POST /api/v1/ui/lab/verify` and `GET /api/v1/runs/{id}/lab`. Same access rule as the UI
   actions; on a shared server only the hosts the test called and `TRACEREPORTS_LAB_HOSTS`;
   link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it. Typed values are never

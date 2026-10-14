@@ -447,6 +447,17 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
     que nunca se guardan) y deja el resultado en el incidente, **Verificado: resuelto** o
     **Verificado: sigue fallando**, con el antes y el después de cada check. Los checks se borran con
     su ejecución.
+  - **En tu terminal (cápsula)**: *Descargar cápsula* entrega un JSON con el contexto de la
+    ejecución, el comando que corre el test en local y el plan de cada llamada con sus checks (solo
+    datos enmascarados, como el reporte). *Copiar comando* copia `tracereports repro '<URL de la
+    cápsula>'`: muestra cómo correr el test y reenvía cada llamada desde tu máquina, a cualquier host
+    que alcances (VPN, `localhost`). En *Verificar* del incidente el comando es
+    `tracereports verify '<URL>'`: corre los checks y sale con código **1** si alguno no pasa, así
+    que sirve como paso de CI. Valores: `-var password=…`, `TRACEREPORTS_LAB_<NOMBRE>`
+    (`TRACEREPORTS_LAB_PASSWORD`) o, en una terminal, escritos sin mostrarse; `-base
+    http://localhost:3000` apunta a otro entorno; los flags van antes o después de la cápsula. Para
+    leerla de un servidor con credenciales: `TRACEREPORTS_TOKEN` o `TRACEREPORTS_UI_USER`/`_PASSWORD`.
+    API: `GET /api/v1/network/{id}/capsule` y `GET /api/v1/runs/{id}/lab/capsule?incident=<clave>`.
   - No está en el ZIP exportado (no hay servidor desde donde enviar). API:
     `GET /api/v1/network/{id}/lab` (el plan), `POST /api/v1/ui/lab/send`, `POST /api/v1/ui/lab/checks`,
     `DELETE /api/v1/ui/lab/checks/{id}`, `POST /api/v1/ui/lab/verify` y `GET /api/v1/runs/{id}/lab`

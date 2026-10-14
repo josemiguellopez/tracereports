@@ -109,3 +109,9 @@ test("verification resume el resultado de cada check", () => {
 	assert.match(html, /status 500 \(se esperaba 200\)/);
 	assert.match(L.verification({ ok: true, results: [{ name: "a", ok: true, before: "500", status: 200 }] }), /Resuelto y verificado[\s\S]*El check pasa\./);
 });
+
+test("capsuleCommand deja la URL entre comillas para la shell", () => {
+	assert.equal(L.capsuleCommand("verify", "/api/v1/runs/3/lab/capsule?incident=backend%3AGET&x=1", "http://localhost:8080"),
+		"tracereports verify 'http://localhost:8080/api/v1/runs/3/lab/capsule?incident=backend%3AGET&x=1'");
+	assert.equal(L.capsuleCommand("repro", "/a'b", "http://h"), "tracereports repro 'http://h/a'\\''b'");
+});

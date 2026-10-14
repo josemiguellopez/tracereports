@@ -443,6 +443,17 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
     **Verify (n)**: it runs its checks (asking again for the secrets, which are never stored) and
     records the result on the incident, **Verified: fixed** or **Verified: still failing**, with the
     before and after of each check. Checks are deleted with their run.
+  - **In your terminal (capsule)**: *Download capsule* gives a JSON file with the run's context, the
+    command that runs the test locally and the plan of each call with its checks (masked data only,
+    like the report). *Copy command* copies `tracereports repro '<capsule URL>'`: it shows how to run
+    the test and resends each call from your machine, with any host it can reach (VPN, `localhost`).
+    In the incident's *Verify*, the command is `tracereports verify '<URL>'`: it runs the checks and
+    exits with code **1** if one fails, so it works as a CI step. Values: `-var password=…`,
+    `TRACEREPORTS_LAB_<NAME>` (`TRACEREPORTS_LAB_PASSWORD`) or, in a terminal, typed without being
+    shown; `-base http://localhost:3000` points to another environment; flags go before or after
+    the capsule. To read it from a server with credentials: `TRACEREPORTS_TOKEN` or
+    `TRACEREPORTS_UI_USER`/`_PASSWORD`. API: `GET /api/v1/network/{id}/capsule` and
+    `GET /api/v1/runs/{id}/lab/capsule?incident=<key>`.
   - Not in the exported ZIP (there is no server to send from). API: `GET /api/v1/network/{id}/lab`
     (the plan), `POST /api/v1/ui/lab/send`, `POST /api/v1/ui/lab/checks`,
     `DELETE /api/v1/ui/lab/checks/{id}`, `POST /api/v1/ui/lab/verify` and

@@ -48,6 +48,11 @@
 		return parts.join("");
 	}
 
+	/** Comando de la terminal que lee una cápsula del servidor: tracereports repro|verify '<url>'. */
+	function capsuleCommand(verb, path, origin) {
+		return `tracereports ${verb} ${shq(origin + path)}`;
+	}
+
 	/** cURL de una petición del Lab: las variables quedan como $VARIABLES, nunca con su valor. */
 	function labCurl(req) {
 		const method = String(req.method || "GET").toUpperCase();
@@ -171,6 +176,9 @@
 				<button class="cf-btn cf-btn-primary" data-lab-send ${data.can_send ? "" : "disabled"}>${icon("i-play")}${tr("Enviar")}</button>
 				<button class="cf-btn" data-lab-curl>${icon("i-copy")}${tr("Copiar cURL")}</button>
 			</div>
+			<div class="lab-capsule"><span>${tr("En tu terminal:")}</span>
+				<a class="cf-btn cf-btn-sm" href="/api/v1/network/${p.conn_id}/capsule" download data-tip="${esc(tr("Archivo con el contexto, el comando del test y esta llamada (solo datos enmascarados)"))}">${icon("i-download")}${tr("Descargar cápsula")}</a>
+				<button class="cf-btn cf-btn-sm" data-lab-cmd data-tip="${esc(tr("tracereports repro: muestra cómo correr el test y reenvía la llamada desde tu máquina"))}">${icon("i-copy")}${tr("Copiar comando")}</button></div>
 			${data.can_send ? "" : `<p class="lab-note">${tr(REASONS[data.reason] || REASONS.remote)}</p>`}
 			<div class="lab-result" aria-live="polite"></div>`;
 
@@ -220,6 +228,10 @@
 				$("[data-lab-method]").value = t.method; $("[data-lab-url]").value = t.url;
 				$("[data-lab-headers]").value = headersText(t.headers); $("[data-lab-body]").value = t.body || "";
 				edited = false;
+				return;
+			}
+			if (e.target.closest("[data-lab-cmd]")) {
+				CF.copyText(capsuleCommand("repro", `/api/v1/network/${p.conn_id}/capsule`, location.origin), e.target.closest("button"));
 				return;
 			}
 			if (e.target.closest("[data-lab-curl]")) {
@@ -329,6 +341,7 @@
 		const wrap = document.createElement("div");
 		wrap.className = "lab lab-verify";
 		let checks = opts.checks.slice();
+		const capsulePath = `/api/v1/runs/${opts.runId}/lab/capsule?incident=${encodeURIComponent(opts.incidentKey)}`;
 		const draw = () => {
 			const needs = [...new Set(checks.flatMap((c) => c.needs || []))];
 			wrap.innerHTML = `<p class="lab-hint">${tr("Corre los checks guardados de este incidente contra el backend y guarda el resultado con el antes y el después.")}</p>
@@ -339,12 +352,19 @@
 				${needs.map((n) => `<label class="lab-var"><span><code data-no-i18n>${esc(n)}</code></span><input data-lab-var="${esc(n)}" data-lab-required type="${isSecretName(n) ? "password" : "text"}" autocomplete="off" spellcheck="false" placeholder="${esc(tr("Escribe el valor"))}"></label>`).join("")}
 				<label class="lab-var"><span>${tr("Enviar a")}</span><input data-lab-base type="url" spellcheck="false" placeholder="${esc(tr("el mismo host de la ejecución"))}"></label>
 				<div class="cf-actions"><button class="cf-btn cf-btn-primary" data-verify-run ${opts.canSend && checks.length ? "" : "disabled"}>${icon("i-check")}${tr("Verificar")}</button></div>
+				<div class="lab-capsule"><span>${tr("En tu terminal o en CI:")}</span>
+					<a class="cf-btn cf-btn-sm" href="${esc(capsulePath)}" download>${icon("i-download")}${tr("Descargar cápsula")}</a>
+					<button class="cf-btn cf-btn-sm" data-verify-cmd data-tip="${esc(tr("tracereports verify: corre estos checks y sale con código 1 si alguno no pasa"))}">${icon("i-copy")}${tr("Copiar comando")}</button></div>
 				${opts.canSend ? "" : `<p class="lab-note">${tr(REASONS.remote)}</p>`}
 				<div class="lab-result" aria-live="polite"></div>`;
 		};
 		draw();
 		wrap.addEventListener("input", (e) => e.target.classList.remove("lab-missing"));
 		wrap.addEventListener("click", async (e) => {
+			if (e.target.closest("[data-verify-cmd]")) {
+				CF.copyText(capsuleCommand("verify", capsulePath, location.origin), e.target.closest("button"));
+				return;
+			}
 			const del = e.target.closest("[data-check-del]");
 			if (del) {
 				const id = Number(del.dataset.checkDel);
@@ -398,5 +418,5 @@
 				${(x.failures || []).map((f) => `<small class="lab-step-note">${esc(failureText(f))}</small>`).join("")}</li>`).join("")}</ol>`;
 	}
 
-	window.TraceReportsLab = { open, verify, verification, labCurl, parseHeaders, headersText, verdictInfo, envName, expectText, failureText };
+	window.TraceReportsLab = { open, verify, verification, labCurl, capsuleCommand, parseHeaders, headersText, verdictInfo, envName, expectText, failureText };
 })();
