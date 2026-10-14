@@ -17,7 +17,7 @@ repositories { mavenCentral() }
 
 dependencies {
     compileOnly("org.junit.jupiter:junit-jupiter-api:6.1.3")
-    compileOnly("org.seleniumhq.selenium:selenium-api:4.50.0")
+    compileOnly("org.seleniumhq.selenium:selenium-api:4.51.0")
     compileOnly("com.microsoft.playwright:playwright:1.63.0")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
