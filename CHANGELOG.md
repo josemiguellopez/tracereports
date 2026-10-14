@@ -8,6 +8,12 @@ All notable changes to TraceReports. The format follows
 
 ### Added
 
+**Try it in a minute**
+- `tracereports demo`: the server with sample data (Python, JavaScript, Java and Go suites, a REST API suite and a
+  JUnit XML import, 12 nights of history) and a demo shop whose backend you can break and fix to try the Lab.
+  Temporary, only on this machine and isolated from your configuration.
+- `TRACEREPORTS_BIND` chooses the address to listen on (`127.0.0.1` = only this machine).
+
 **FixLab: Request Lab**
 - **Open in Lab** on a failed call (Network tab) or a backend incident resends the call to see
   whether the failure still happens. The Lab rebuilds a fresh session from the recording (repeats

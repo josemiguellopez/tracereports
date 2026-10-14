@@ -43,6 +43,24 @@ Para otro sistema operativo: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o 
 Durante el desarrollo puedes usar `go run ./cmd`. La UI se compila dentro del binario, así que si
 cambias archivos de `web/` tienes que reiniciar el servidor.
 
+## Pruébalo con datos de ejemplo
+
+```bash
+tracereports demo        # desde el repositorio: go run ./cmd demo
+```
+
+Levanta TraceReports con una base temporal y lo abre en el navegador: un equipo que prueba una tienda desde
+Python (Playwright y una suite de API), JavaScript (Playwright), Java (Selenium + JUnit 5), Go y una importación
+de JUnit XML de Maven, con 12 noches de historia, fallos agrupados en incidentes, un selector roto, un test
+inestable, red y capturas. También levanta una **tienda de prueba** (su página tiene un botón para romper o
+arreglar el backend) para probar el Lab de punta a punta: reenviar el `POST /api/orders` que falló (contraseña
+`demo`), arreglar la tienda, verificar.
+
+- Solo en este equipo (`127.0.0.1`) y aislado de tu configuración: sin tokens, Teams/Slack, tickets ni `.env`.
+  La IA está apagada salvo con `-ai` (usa el proveedor de tu entorno y gasta tokens).
+- Los datos se borran al detenerlo con Ctrl+C; `-keep` los conserva. `-port` y `-shop-port` eligen los puertos
+  (por defecto los primeros libres desde 8080 y 8180); `-no-open` no abre el navegador.
+
 ## Primer uso
 
 1. Abre <http://localhost:8080>. Sin ejecuciones verás una pantalla vacía.

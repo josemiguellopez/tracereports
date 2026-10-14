@@ -42,6 +42,10 @@ pytest --tracereports                      # listo, sin cambiar tu código
 
 👉 **[Prueba la demo en vivo](https://tracereports.netlify.app/demo/)**: un reporte real para recorrer, sin instalar nada.
 
+👉 **O en tu equipo en un minuto**: `tracereports demo` levanta el servidor con datos de ejemplo de suites en Python,
+JavaScript, Java y Go, más una tienda de prueba cuyo backend puedes romper y arreglar para probar el **Lab**
+(reenviar una llamada que falló, verificar el arreglo). Nada más que instalar; los datos son temporales y no salen de tu PC.
+
 ¿No usas pytest? TraceReports funciona igual con **Playwright Test**, **Selenium**, **JUnit 5**, **Go** o
 cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en-tu-lenguaje).
 

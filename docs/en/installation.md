@@ -43,6 +43,23 @@ For another OS: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o tracereports 
 During development you can use `go run ./cmd`. The UI is compiled into the binary, so restart the
 server after changing files in `web/`.
 
+## Try it with sample data
+
+```bash
+tracereports demo        # from the repository: go run ./cmd demo
+```
+
+It starts TraceReports with a temporary database and opens it in the browser: a team that tests a shop from
+Python (Playwright and an API suite), JavaScript (Playwright), Java (Selenium + JUnit 5), Go and a Maven JUnit
+XML import, with 12 nights of history, failures grouped into incidents, a broken selector, a flaky test, network
+and screenshots. It also starts a **demo shop** (its page has a button to break or fix the backend) so you can
+try the Lab end to end: resend the failed `POST /api/orders` (password `demo`), fix the shop, verify.
+
+- Only on this machine (`127.0.0.1`) and isolated from your configuration: no tokens, Teams/Slack, tickets nor
+  `.env`. The AI is off unless you pass `-ai` (it uses the provider of your environment and spends tokens).
+- The data is deleted when you stop it with Ctrl+C; `-keep` keeps it. `-port` and `-shop-port` choose the ports
+  (by default the first free ones from 8080 and 8180); `-no-open` does not open the browser.
+
 ## First run
 
 1. Open <http://localhost:8080>. With no runs you will see an empty screen.
