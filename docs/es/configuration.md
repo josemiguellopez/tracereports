@@ -39,6 +39,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
+| `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [Reenviar en el Lab](#para-quien-corrige-reproducir-y-comparar) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. Cuenta un diagnóstico por **resultado** de cada test: reenviar el mismo resultado, un reinicio o un error del proveedor no gastan otro, y un *Re-analizar* manual no cuenta. `0` = sin límite |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
@@ -419,6 +421,28 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   `npx playwright test <archivo> -g '<título>' --project=<proyecto>`, Maven/Gradle para JUnit o
   `go test ./<paquete>/... -run '^TestX$'`. Sale de la identidad del test, así que necesita que el
   cliente la reporte (todos lo hacen).
+- **Reenviar en el Lab (FixLab)**: *Abrir en Lab* en una llamada con error (pestaña **Red**) o en un
+  incidente de backend reenvía la llamada para ver si el fallo **sigue ocurriendo**. La evidencia se
+  enmascaró al guardarla, así que el Lab rearma lo que necesita: una sesión nueva repitiendo el
+  login grabado (cookies, o el token de su respuesta JSON como `Bearer`) y los tokens anti-CSRF
+  leídos en vivo de la página donde empieza el flujo; tú solo escribes lo que nadie puede adivinar
+  (la contraseña, una API key). Puedes editar la petición como en Postman y apuntarla a otro entorno
+  (`http://localhost:3000` para probar tu arreglo). El veredicto compara con la ejecución: **se
+  reproduce**, **ya no falla**, **falta sesión** (401/403 o redirección al login), **otro error** o
+  **sin conexión**; si la respuesta original no trae `date` ni `server` avisa que probablemente la
+  fabricó el propio test (un mock o `route.fulfill`).
+  - **Quién y a dónde**: la regla de las acciones de la UI (token de admin, login de la UI o, sin
+    login, solo el mismo equipo del servidor; nunca el token de ingesta). Desde el equipo del
+    servidor puede llamar a cualquier host, como tu terminal; en un servidor compartido solo a los
+    hosts que usó el test y a `TRACEREPORTS_LAB_HOSTS`. Las direcciones link-local (metadatos de la
+    nube, `169.254.169.254`) se bloquean siempre y las redirecciones se muestran, no se siguen.
+    `TRACEREPORTS_LAB=off` lo desactiva.
+  - **Secretos**: los valores que escribes se usan solo en ese envío, nunca se guardan ni van a los
+    logs, y la respuesta pasa por la política de enmascarado antes de mostrarse (un token nuevo no
+    queda a la vista). *Copiar cURL* los deja como `$VARIABLES`.
+  - No está en el ZIP exportado (no hay servidor desde donde enviar). API:
+    `GET /api/v1/network/{id}/lab` (el plan) y `POST /api/v1/ui/lab/send`. Diseño:
+    [docs/rfc/fixlab.md](../rfc/fixlab.md).
 - **Comparar con la última vez que pasó**: en una llamada con error (pestaña **Red**), busca la
   misma llamada (mismo método, host y ruta, con los ids normalizados: `/orders/123` = `/orders/456`)
   en la ejecución más reciente donde el test pasó, del mismo proyecto, ambiente y rama (o, si no

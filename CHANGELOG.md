@@ -4,6 +4,23 @@ All notable changes to TraceReports. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may change behavior).
 
+## [Unreleased]
+
+### Added
+
+**FixLab: Request Lab**
+- **Open in Lab** on a failed call (Network tab) or a backend incident resends the call to see
+  whether the failure still happens. The Lab rebuilds a fresh session from the recording (repeats
+  the recorded login: cookies, or its JSON token as `Bearer`) and reads anti-CSRF tokens live from
+  the page; you only type the secrets nobody can guess. Edit the request like in Postman, point it
+  to another environment (`http://localhost:3000`) and get a verdict against the run: reproduced,
+  no longer fails, session missing, different error or no connection. It warns when the original
+  response looks made up by the test (no `date` nor `server` headers).
+- API: `GET /api/v1/network/{id}/lab` and `POST /api/v1/ui/lab/send`. Same access rule as the UI
+  actions; on a shared server only the hosts the test called and `TRACEREPORTS_LAB_HOSTS`;
+  link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it. Typed values are never
+  stored and the answer is masked before it is shown. Design: [docs/rfc/fixlab.md](docs/rfc/fixlab.md).
+
 ## [0.2.0] - 2026-10-09
 
 Client versions released with it: **Python 0.3.0** (PyPI), **JavaScript 0.2.0** (npm),

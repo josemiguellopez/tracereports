@@ -39,6 +39,8 @@ steps to apply it.
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
+| `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [Resend it in the Lab](#for-whoever-fixes-it-reproduce-and-compare) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Status page (Statuspage format, `…/api/v2/summary.json`) that Settings → AI usage shows instead of the provider's: a mirror, a proxy or the page of an OpenAI-compatible provider |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. It counts one diagnosis per test **result**: resending the same result, a restart or a provider error do not spend another one, and a manual *Re-analyze* does not count. `0` = no limit |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
@@ -417,6 +419,26 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
   `npx playwright test <file> -g '<title>' --project=<project>`, Maven/Gradle for JUnit or
   `go test ./<package>/... -run '^TestX$'`. It comes from the test identity, so the client must
   report it (all of them do).
+- **Resend it in the Lab (FixLab)**: *Open in Lab* on a failed call (**Network** tab) or on a
+  backend incident resends the call to see whether the failure **still happens**. The evidence was
+  masked when stored, so the Lab rebuilds what it needs: a fresh session by repeating the recorded
+  login (cookies, or the token of its JSON response as `Bearer`) and anti-CSRF tokens read live
+  from the page the flow starts from; you only type what nobody can guess (the password, an API
+  key). You can edit the request like in Postman and point it to another environment
+  (`http://localhost:3000` to try your fix). The verdict compares with the run: **reproduced**,
+  **no longer fails**, **session missing** (401/403 or a redirect to the login), **different error**
+  or **no connection**; when the original response lacks `date` and `server` it warns that the test
+  probably made it up (a mock or `route.fulfill`).
+  - **Who and where**: the rule of the UI actions (admin token, UI login, or without login only the
+    server's own machine; never the ingest token). From the server's own machine it may call any
+    host, like your terminal; on a shared server only the hosts the test called and
+    `TRACEREPORTS_LAB_HOSTS`. Link-local addresses (cloud metadata, `169.254.169.254`) are always
+    blocked and redirects are shown, not followed. `TRACEREPORTS_LAB=off` disables it.
+  - **Secrets**: the values you type are used for that send only, never stored nor logged, and the
+    answer goes through the masking policy before it is shown (a new token stays hidden). *Copy
+    cURL* keeps them as `$VARIABLES`.
+  - Not in the exported ZIP (there is no server to send from). API: `GET /api/v1/network/{id}/lab`
+    (the plan) and `POST /api/v1/ui/lab/send`. Design: [docs/rfc/fixlab.md](../rfc/fixlab.md).
 - **Compare with the last time it passed**: on a failed call (**Network** tab), it finds the same
   call (same method, host and path, with ids normalized: `/orders/123` = `/orders/456`) in the most
   recent run where the test passed, in the same project, environment and branch (or, if none, the
