@@ -33,6 +33,7 @@ steps to apply it.
 | `TEAMS_WEBHOOK_URL` | — | Sends each run's summary to Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Sends each run's summary to Slack |
 | `PUBLIC_URL` | — | Public URL of the server, for the *View report* button in notifications |
+| `TRACEREPORTS_BIND` | all interfaces | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows) |
 | `NOTIFY_ON` | `always` | `always`, or `failures` to notify only when something failed |
 | `NETWORK_MAX_BODY_KB` | `256` | Maximum stored size of each network *response body*; `0` = store no bodies |
 | `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |

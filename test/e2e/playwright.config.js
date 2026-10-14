@@ -100,6 +100,8 @@ module.exports = defineConfig({
 		stderr: "pipe",
 		env: {
 			PORT,
+			// solo este equipo: sin el aviso del firewall de Windows por cada binario nuevo
+			TRACEREPORTS_BIND: "127.0.0.1",
 			DATA_DIR: process.env.E2E_DATA_DIR,
 			// nada del .env local (login, token, IA): el archivo indicado no existe
 			TRACEREPORTS_ENV_FILE: path.join(process.env.E2E_DATA_DIR, "no.env"),

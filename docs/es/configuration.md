@@ -33,6 +33,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TEAMS_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Slack |
 | `PUBLIC_URL` | — | URL pública del servidor, para el botón *Ver reporte* de las notificaciones |
+| `TRACEREPORTS_BIND` | todas las interfaces | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows) |
 | `NOTIFY_ON` | `always` | `always`, o `failures` para avisar solo si hubo fallos |
 | `NETWORK_MAX_BODY_KB` | `256` | Máximo guardado por cada *response body* de red; `0` = no guardar bodies |
 | `TRACEREPORTS_REDACT` | activo | `off` guarda los secretos tal como llegan (no recomendado) |

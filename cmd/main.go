@@ -3,6 +3,7 @@
 // Environment variables:
 //
 //	PORT            HTTP port (default 8080)
+//	TRACEREPORTS_BIND  address to listen on (default: all interfaces; 127.0.0.1 = only this machine)
 //	DATA_DIR        data directory for SQLite + screenshots (default ./data)
 //	AI_PROVIDER     gemini | anthropic | openai | openai_compatible | ollama (optional; inferred
 //	                from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST)
@@ -37,6 +38,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -238,7 +240,8 @@ func run() error {
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
 
 	srv := &http.Server{
-		Addr:              ":" + port,
+		// TRACEREPORTS_BIND=127.0.0.1 atiende solo a este equipo (vacío: todas las interfaces)
+		Addr:              net.JoinHostPort(strings.TrimSpace(env.Get("BIND")), port),
 		Handler:           apiServer.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
