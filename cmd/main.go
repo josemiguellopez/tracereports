@@ -26,6 +26,8 @@
 //	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit)
 //	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
 //	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
+//	TRACEREPORTS_LAB      off = disable FixLab's Request Lab (resending captured calls from the report)
+//	TRACEREPORTS_LAB_HOSTS  extra hosts a shared server's Lab may call (host, host:port or *.domain)
 package main
 
 import (
@@ -39,6 +41,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -213,6 +216,8 @@ func run() error {
 		Owners: ownerRules,
 		// criterios de "¿podemos salir a producción?" (TRACEREPORTS_RELEASE_GATE)
 		ReleaseGate: &gate,
+		// FixLab: reenviar llamadas capturadas desde el reporte (TRACEREPORTS_LAB=off lo apaga)
+		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS"))},
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())
@@ -266,6 +271,15 @@ func run() error {
 	_ = srv.Shutdown(shutdownCtx)
 	analyzer.Wait(shutdownCtx)
 	return nil
+}
+
+// labOff reports whether TRACEREPORTS_LAB turns the Lab off (off, 0, false or no).
+func labOff(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "0", "false", "no":
+		return true
+	}
+	return false
 }
 
 func envOr(key, def string) string {

@@ -72,6 +72,8 @@ type Server struct {
 	Owners *owners.Rules
 	// ReleaseGate are the "can we ship?" criteria (TRACEREPORTS_RELEASE_GATE); nil = defaults.
 	ReleaseGate *release.Gate
+	// Lab configures FixLab's Request Lab (TRACEREPORTS_LAB, TRACEREPORTS_LAB_HOSTS).
+	Lab LabConfig
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -111,6 +113,7 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/ui/quarantine/{test_id}", s.removeQuarantine)
 		r.Get("/quarantine", s.listQuarantine)
 		r.Post("/ui/tests/{test_id}/verdict", s.setVerdict)
+		r.Post("/ui/lab/send", s.labSend)
 		r.Get("/stream", s.stream)
 
 		r.Get("/runs", s.listRuns)
@@ -143,6 +146,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/tests/{test_id}/network", s.addNetwork)
 		r.Get("/network/{conn_id}/body", s.networkBody)
 		r.Get("/network/{conn_id}/baseline", s.networkBaseline)
+		r.Get("/network/{conn_id}/lab", s.labPlan)
 	})
 
 	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))
