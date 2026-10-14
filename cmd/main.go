@@ -80,6 +80,8 @@ func main() {
 			err = runVerify(os.Args[2:])
 		case "mcp":
 			err = runMCP(os.Args[2:])
+		case "demo":
+			err = runDemo(os.Args[2:])
 		case "-h", "-help", "--help", "help":
 			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
 				"       tracereports report ...   build a static HTML report without a server\n" +
@@ -88,10 +90,11 @@ func main() {
 				"       tracereports secrets ...  status / migrate of the credentials saved from Settings\n" +
 				"       tracereports repro ...    resend the calls of a FixLab capsule with a fresh session\n" +
 				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)\n" +
-				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code")
+				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code\n" +
+				"       tracereports demo         try it in a minute: sample data and a demo shop, only on this machine")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
@@ -108,7 +111,10 @@ func main() {
 	}
 }
 
-func run() error {
+func run() error { return runServer(context.Background()) }
+
+// runServer starts the server and serves until parent is cancelled, Ctrl+C or SIGTERM.
+func runServer(parent context.Context) error {
 	// el binario lee el mismo .env que usa Docker Compose (las variables ya definidas mandan)
 	envFile := env.Get("ENV_FILE")
 	if envFile == "" {
@@ -255,7 +261,7 @@ func run() error {
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	startRetention(ctx, store, shotsDir)
 	startStaleRuns(ctx, apiServer)
