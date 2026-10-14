@@ -589,7 +589,8 @@
 		return `<details class="net-card ${isNetError(c) ? "net-card-error" : ""}" data-net-idx="${i}">
 			<summary><span class="nbadge" style="background:${METHOD_COLOR[method] || "#6b7280"}">${esc(method)}</span>${statusBadge(c)}${dur}${size}
 				<span class="net-url">${esc(c.url || "(sin url)")}</span>
-				${isNetError(c) && c.status ? `<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock data-tip="Genera un stub de esta respuesta (Playwright, Cypress o WireMock) para reproducir el error sin depender del backend">${icon("i-bolt")}Mock</button>` : ""}</summary>
+				${isNetError(c) && c.status ? `<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock data-tip="Genera un stub de esta respuesta (Playwright, Cypress o WireMock) para reproducir el error sin depender del backend">${icon("i-bolt")}Mock</button>` : ""}
+				${isNetError(c) && !STATIC ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab data-tip="Reenvía esta llamada con una sesión nueva para ver si el fallo sigue ocurriendo">${icon("i-flask")}Lab</button>` : ""}</summary>
 			<div class="net-detail"></div>
 		</details>`;
 	}
@@ -693,7 +694,8 @@
 		const loc = bodyLocation(c);
 		const compare = isNetError(c) && !STATIC
 			? `<button class="cf-btn cf-btn-sm" data-baseline data-tip="${tr("Busca esta misma llamada en la última ejecución donde el test pasó y muestra qué cambió: status, headers y body.")}">${icon("i-timeline")}${tr("Comparar con la última vez que pasó")}</button>` : "";
-		return `<div class="net-actions">${compare}<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock>${icon("i-bolt")}Generar mock / stub</button><button class="net-curl" data-curl="1">Copiar como cURL</button></div>`
+		const lab = STATIC ? "" : `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab data-tip="${tr("Reenvía esta llamada con una sesión nueva para ver si el fallo sigue ocurriendo")}">${icon("i-flask")}${tr("Abrir en Lab")}</button>`;
+		return `<div class="net-actions">${compare}${lab}<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock>${icon("i-bolt")}Generar mock / stub</button><button class="net-curl" data-curl="1">Copiar como cURL</button></div>`
 			+ correlationBlock(c)
 			+ block("General", general)
 			+ block("Request headers", c.request_headers)
@@ -1385,6 +1387,14 @@
 			`<li><a data-goto="${e.test_id}" data-no-i18n>${esc(e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
 	}
 
+	/** Botón "Abrir en Lab" de un incidente de backend: reenvía su llamada causal (no en el ZIP). */
+	function incidentLab(inc) {
+		const ev = (inc.evidence || []).find((e) => e.kind === "network" && e.ref);
+		if (STATIC || !ev) return "";
+		const tr = window.TraceReportsI18n.t;
+		return `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-conn="${ev.ref}" data-lab-title="${esc(inc.title)}" data-tip="${esc(tr("Reenvía la llamada que causó este incidente para ver si sigue fallando o ya quedó resuelto"))}">${icon("i-flask")}${tr("Abrir en Lab")}</button>`;
+	}
+
 	/** Causa: hipótesis de la IA (nunca confirmada), o la IA dijo que la evidencia no alcanza. */
 	function incidentCause(inc, cls) {
 		const tr = window.TraceReportsI18n.t;
@@ -1415,6 +1425,7 @@
 				${inc.action ? `<div class="inc-action">→ ${esc(inc.action)}</div>` : ""}
 				${compact ? "" : incidentEvidence(inc)}
 				${compact ? "" : `<div class="inc-tests">${inc.test_ids.map((id, i) => `<a data-goto="${id}">${esc(inc.test_names[i])}</a>`).join("")}</div>`}
+				${compact ? "" : incidentLab(inc)}
 			</div></li>`).join("");
 		return `${sum.summary ? `<p class="sum-text">${esc(sum.summary)}</p>` : ""}${summaryCoverage(sum)}${incidents ? `<ul class="incidents">${incidents}</ul>` : ""}`;
 	}
@@ -1934,6 +1945,15 @@
 				return;
 			}
 			if (e.target.closest("[data-mock-first]") && S.test) { openFirstFailedMock(S.test); return; }
+			const lab = e.target.closest("[data-lab]");
+			if (lab) {
+				e.preventDefault(); e.stopPropagation();
+				const c = S.net.list?.[Number(lab.closest("[data-net-idx]")?.dataset.netIdx)];
+				if (c) window.TraceReportsLab?.open(c.id, { subtitle: `${S.test?.name || ""} · ${c.method} ${c.status || c.error_text || ""}` });
+				return;
+			}
+			const labConn = e.target.closest("[data-lab-conn]");
+			if (labConn) { e.preventDefault(); window.TraceReportsLab?.open(Number(labConn.dataset.labConn), { subtitle: labConn.dataset.labTitle || "" }); return; }
 			const lang = e.target.closest("[data-loc-lang]");
 			if (lang) { S.locLang = lang.dataset.locLang; renderTestDetail(); return; }
 			const copyBtn = e.target.closest("[data-loc-copy]");
@@ -2094,7 +2114,7 @@
 				${incidentCause(inc, "inc-cause-p")}
 				${inc.action ? `<p><b>${tr("Qué hacer")}:</b> ${esc(inc.action)}</p>` : ""}
 				<ul class="inc-tests">${inc.test_ids.map((id, i) => `<li><a href="#run=${r.id}&view=tests&test=${id}" data-no-i18n>${esc(inc.test_names[i] || "#" + id)}</a></li>`).join("")}</ul>
-				${canAct() ? `<div class="inc-actions"><button class="cf-btn cf-btn-sm" data-escalate="${inc.test_ids.length === 1 ? inc.test_ids[0] : 0}">${icon("i-megaphone")}${tr("Escalar")}</button></div>` : ""}
+				${canAct() || incidentLab(inc) ? `<div class="inc-actions">${incidentLab(inc)}${canAct() ? `<button class="cf-btn cf-btn-sm" data-escalate="${inc.test_ids.length === 1 ? inc.test_ids[0] : 0}">${icon("i-megaphone")}${tr("Escalar")}</button>` : ""}</div>` : ""}
 			</article>`).join("");
 			body = `<div class="ai-top">
 				<section class="card m-card ai-diag"><div class="m-card-head"><h5>${icon("i-spark")}${tr("Diagnóstico de la ejecución")}</h5></div>${diag}</section>

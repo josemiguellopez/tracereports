@@ -631,4 +631,38 @@
 		[/^(\w+) · incompleta \(tests sin terminar o ejecución interrumpida\)$/, "$1 · incomplete (unfinished tests or interrupted run)"],
 		[/^(.+) \((\d+) intentos\)(.*)$/, "$1 ($2 attempts)$3"],
 	);
+
+	// ── FixLab: Request Lab ──
+	Object.assign(EN.exact, {
+		"Lab: reenviar la llamada": "Lab: resend the call", "Preparando el Lab…": "Preparing the Lab…", "No se pudo preparar el Lab: {e}": "Could not prepare the Lab: {e}",
+		"Abrir en Lab": "Open in Lab", "Lab": "Lab",
+		"Reenvía esta llamada con una sesión nueva para ver si el fallo sigue ocurriendo": "Resends this call with a fresh session to see whether the failure still happens",
+		"Reenvía la llamada que causó este incidente para ver si sigue fallando o ya quedó resuelto": "Resends the call behind this incident to see whether it still fails or is already fixed",
+		"Lo que obtuvo en la ejecución": "What it got in the run", "sin respuesta": "no response",
+		"La respuesta original no trae los headers date ni server: probablemente la fabricó el propio test (mock o route.fulfill).": "The original response has no date nor server headers: the test itself probably made it up (a mock or route.fulfill).",
+		"Cómo se reenvía": "How it is resent", "Abre la página para obtener una sesión nueva": "Opens the page to get a fresh session", "y el token CSRF": "and the CSRF token",
+		"Repite el login grabado": "Repeats the recorded login", "token de acceso (Bearer)": "access token (Bearer)", "cookies de sesión": "session cookies", "Envía la llamada": "Sends the call",
+		"Valores": "Values", "opcional": "optional", "Escribe el valor": "Type the value", "login": "login",
+		"automático: sesión nueva": "automatic: fresh session", "automático: se lee de la página": "automatic: read from the page", "Escribir a mano": "Type it by hand",
+		"Los valores se usan solo para este envío: no se guardan.": "Values are used only for this send: they are never stored.",
+		"Esta llamada no tiene datos enmascarados: se reenvía tal cual.": "This call has no masked data: it is resent as is.",
+		"Entorno": "Environment", "Enviar a": "Send to",
+		"Vacío: el mismo host de la ejecución. Para probar tu arreglo en local, por ejemplo http://localhost:3000.": "Empty: the same host as the run. To try your fix locally, for example http://localhost:3000.",
+		"Servidor compartido: el Lab solo puede llamar a los hosts que usó el test": "Shared server: the Lab may only call the hosts the test used", "y a": "and",
+		"Editar la petición": "Edit the request", "Método": "Method", "Headers": "Headers", "Body": "Body",
+		"Las {{variables}} se completan con los valores de arriba al enviar.": "The {{variables}} are filled with the values above when sending.",
+		"Restaurar la original": "Restore the original", "Enviar": "Send", "Copiar cURL": "Copy cURL", "Enviando…": "Sending…", "Falta completar: {v}": "Still missing: {v}",
+		"Por seguridad, sin login solo se puede enviar desde el equipo del servidor. Copia el cURL y pruébalo desde tu terminal.": "For security, without a login sending is only allowed from the server's own machine. Copy the cURL and try it from your terminal.",
+		"Inicia sesión en la interfaz para enviar desde aquí, o copia el cURL.": "Sign in to the interface to send from here, or copy the cURL.",
+		"El token de ingesta no puede enviar peticiones desde el Lab. Copia el cURL.": "The ingest token cannot send requests from the Lab. Copy the cURL.",
+		"El Lab está desactivado en este servidor (TRACEREPORTS_LAB=off). Copia el cURL.": "The Lab is disabled on this server (TRACEREPORTS_LAB=off). Copy the cURL.",
+		"Página": "Page", "Llamada": "Call", "Sin body": "No body", "En la ejecución": "In the run", "Ahora": "Now", "Define antes:": "Set first:",
+		"Se reproduce": "Reproduced", "Falla igual que en la ejecución: el problema sigue ahí.": "It fails just like in the run: the problem is still there.",
+		"Ya no falla": "No longer fails", "El backend responde bien ahora. Si nadie lo arregló, el fallo fue transitorio o del entorno.": "The backend answers fine now. If nobody fixed it, the failure was transient or environmental.",
+		"Falta sesión": "Session missing", "El backend pidió login (401/403 o redirección al login). Revisa la contraseña o escribe el header a mano.": "The backend asked for a login (401/403 or a redirect to the login). Check the password or type the header by hand.",
+		"Otro error": "Different error", "Responde con un error distinto al de la ejecución.": "It answers with a different error than in the run.",
+		"Sin conexión": "No connection", "No se pudo conectar con el backend desde el servidor de TraceReports.": "Could not connect to the backend from the TraceReports server.",
+		"Responde bien": "Answers fine", "La llamada original tampoco había fallado.": "The original call had not failed either.",
+		"La respuesta original parece simulada por el propio test: el fallo no venía del backend.": "The original response looks simulated by the test itself: the failure did not come from the backend.",
+	});
 })();
