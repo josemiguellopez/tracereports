@@ -167,9 +167,40 @@ func TestCapsuleFromURL(t *testing.T) {
 	if _, err := c.load(server.URL + "/api/v1/network/2/capsule"); err == nil || !strings.Contains(err.Error(), "401") {
 		t.Fatalf("without token: %v", err)
 	}
+	// el token solo va al servidor de TRACEREPORTS_URL: a una URL ajena no se manda
 	c, _ = testCLI(map[string]string{"TRACEREPORTS_TOKEN": "admin-tok"})
+	if _, err := c.load(server.URL + "/api/v1/network/2/capsule"); err == nil || !strings.Contains(err.Error(), "set TRACEREPORTS_URL="+server.URL) {
+		t.Fatalf("token without TRACEREPORTS_URL: %v", err)
+	}
+	c, _ = testCLI(map[string]string{"TRACEREPORTS_TOKEN": "admin-tok", "TRACEREPORTS_URL": "http://elsewhere.example"})
+	if _, err := c.load(server.URL + "/api/v1/network/2/capsule"); err == nil {
+		t.Fatal("the token must not go to another host")
+	}
+	c, _ = testCLI(map[string]string{"TRACEREPORTS_TOKEN": "admin-tok", "TRACEREPORTS_URL": server.URL + "/"})
 	if cap, err := c.load(server.URL + "/api/v1/network/2/capsule"); err != nil || cap.Run.Name != "nightly" {
 		t.Fatalf("with token: %v %+v", err, cap)
+	}
+}
+
+// Before a secret is asked for or used, the CLI says where it goes: a capsule from someone else
+// could point its login to another server.
+func TestSecretDestinationsAreShown(t *testing.T) {
+	backend, _ := cliBackend(t)
+	path := writeCapsuleFile(t, testCapsule(backend.URL, true))
+	c, _ := testCLI(nil)
+	var errOut strings.Builder
+	c.errOut = &errOut
+	_ = c.repro([]string{"-var", "password=" + cliPassword, path})
+	if want := "password → POST " + backend.URL + "/login"; !strings.Contains(errOut.String(), want) {
+		t.Fatalf("stderr lacks %q:\n%s", want, errOut.String())
+	}
+	if strings.Contains(errOut.String(), cliPassword) {
+		t.Fatal("the destination list must not show the value")
+	}
+	errOut.Reset()
+	_ = c.verify([]string{"-var", "password=" + cliPassword, path})
+	if !strings.Contains(errOut.String(), "Secrets will be sent to:") {
+		t.Fatalf("verify too:\n%s", errOut.String())
 	}
 }
 

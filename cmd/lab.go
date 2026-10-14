@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -95,10 +97,13 @@ func (c *labCLI) load(src string) (*lab.Capsule, error) {
 			return nil, rerr
 		}
 		req.Header.Set("Accept", "application/json")
-		if tok := c.getenv("TRACEREPORTS_TOKEN"); tok != "" {
+		// las credenciales van solo al servidor de TRACEREPORTS_URL: una URL de cápsula ajena
+		// (pegada de otro lado) nunca recibe el token de CI ni el login
+		trusted := c.trustedHost(req.URL)
+		if tok := c.getenv("TRACEREPORTS_TOKEN"); tok != "" && trusted {
 			req.Header.Set("Authorization", "Bearer "+tok)
 		}
-		if u, p := c.getenv("TRACEREPORTS_UI_USER"), c.getenv("TRACEREPORTS_UI_PASSWORD"); u != "" && p != "" {
+		if u, p := c.getenv("TRACEREPORTS_UI_USER"), c.getenv("TRACEREPORTS_UI_PASSWORD"); u != "" && p != "" && trusted {
 			req.SetBasicAuth(u, p)
 		}
 		res, rerr := c.client.Do(req)
@@ -108,7 +113,11 @@ func (c *labCLI) load(src string) (*lab.Capsule, error) {
 		defer res.Body.Close()
 		data, err = io.ReadAll(io.LimitReader(res.Body, 32<<20))
 		if err == nil && res.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("GET %s: %s %s", src, res.Status, strings.TrimSpace(string(data)))
+			hint := ""
+			if (res.StatusCode == http.StatusUnauthorized || res.StatusCode == http.StatusForbidden) && !trusted {
+				hint = fmt.Sprintf(" (credentials are only sent to the server of TRACEREPORTS_URL: set TRACEREPORTS_URL=%s://%s to use them here)", req.URL.Scheme, req.URL.Host)
+			}
+			return nil, fmt.Errorf("GET %s: %s %s%s", src, res.Status, strings.TrimSpace(string(data)), hint)
 		}
 	} else {
 		data, err = os.ReadFile(src)
@@ -117,6 +126,67 @@ func (c *labCLI) load(src string) (*lab.Capsule, error) {
 		return nil, err
 	}
 	return lab.ReadCapsule(data)
+}
+
+// trustedHost reports whether u is the server of TRACEREPORTS_URL (same scheme, host and port).
+func (c *labCLI) trustedHost(u *url.URL) bool {
+	t, err := url.Parse(strings.TrimSpace(c.getenv("TRACEREPORTS_URL")))
+	if err != nil || t.Host == "" {
+		return false
+	}
+	return strings.EqualFold(t.Scheme, u.Scheme) && strings.EqualFold(t.Host, u.Host)
+}
+
+// destinations says where each secret will be sent, before it is asked for or used: a capsule
+// from someone else could point its login to another server.
+func (c *labCLI) destinations(cap *lab.Capsule, needs []string, checks bool) {
+	if len(needs) == 0 {
+		return
+	}
+	need := map[string]bool{}
+	for _, n := range needs {
+		need[n] = true
+	}
+	where := map[string][]string{}
+	note := func(q lab.Request) {
+		text := q.URL + "\n" + q.Body
+		for _, v := range q.Headers {
+			text += "\n" + v
+		}
+		for _, n := range needs {
+			if strings.Contains(text, "{{"+n+"}}") {
+				dest := q.Method + " " + q.URL
+				if !slices.Contains(where[n], dest) {
+					where[n] = append(where[n], dest)
+				}
+			}
+		}
+	}
+	for _, call := range cap.Calls {
+		if call.Plan.Login != nil {
+			note(call.Plan.Login.Request)
+		}
+		if !checks {
+			note(call.Plan.Target)
+			continue
+		}
+		for _, ch := range call.Checks {
+			if ch.Request != nil {
+				note(*ch.Request)
+			} else {
+				note(call.Plan.Target)
+			}
+		}
+	}
+	fmt.Fprintln(c.errOut, "Secrets will be sent to:")
+	for _, n := range needs {
+		for _, d := range where[n] {
+			fmt.Fprintf(c.errOut, "  %s → %s\n", n, d)
+		}
+	}
+	if c.base != "" {
+		fmt.Fprintf(c.errOut, "  (the run's host replaced by %s)\n", c.base)
+	}
 }
 
 var envNameRe = regexp.MustCompile(`[^A-Za-z0-9]+`)
@@ -293,7 +363,9 @@ func (c *labCLI) repro(args []string) error {
 	if err != nil {
 		return err
 	}
-	vals, err := c.values(capsuleNeeds(cap, false))
+	needs := capsuleNeeds(cap, false)
+	c.destinations(cap, needs, false)
+	vals, err := c.values(needs)
 	if err != nil {
 		return err
 	}
@@ -355,7 +427,9 @@ func (c *labCLI) verify(args []string) error {
 	if total == 0 {
 		return errors.New("the capsule has no checks: save one from the Lab first (Save as a check)")
 	}
-	vals, err := c.values(capsuleNeeds(cap, true))
+	needs := capsuleNeeds(cap, true)
+	c.destinations(cap, needs, true)
+	vals, err := c.values(needs)
 	if err != nil {
 		return err
 	}
