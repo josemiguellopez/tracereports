@@ -6,11 +6,13 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
+	"github.com/josemiguellopez/tracereports/internal/lab"
 )
 
 const labPassword = "s3cret!"
@@ -292,5 +294,43 @@ func TestLabChecksGoWithTheirRun(t *testing.T) {
 	}
 	if checks, err := srv.Store.LabChecks(1, ""); err != nil || len(checks) != 0 {
 		t.Fatalf("checks after the run was purged: %v %d", err, len(checks))
+	}
+}
+
+func TestLabCapsules(t *testing.T) {
+	srv, testID := newTestServer(t)
+	backend, _, _ := labBackend(t)
+	id := recordLab(t, srv, testID, backend.URL)
+	if rec := call(t, srv, "POST", "/api/v1/ui/lab/checks", fmt.Sprintf(`{"conn_id":%d,"name":"pedidos","expect":{"status":200}}`, id)); rec.Code != 201 {
+		t.Fatalf("save check: %d", rec.Code)
+	}
+
+	rec := call(t, srv, "GET", fmt.Sprintf("/api/v1/network/%d/capsule", id), "")
+	if rec.Code != 200 || !strings.Contains(rec.Header().Get("Content-Disposition"), "tracereports-capsule-call-") {
+		t.Fatalf("call capsule: %d %v", rec.Code, rec.Header())
+	}
+	c, err := lab.ReadCapsule(rec.Body.Bytes())
+	if err != nil {
+		t.Fatalf("read capsule: %v\n%s", err, rec.Body)
+	}
+	if len(c.Calls) != 1 || c.Calls[0].Plan.Login == nil || len(c.Calls[0].Checks) != 1 || c.Calls[0].Checks[0].Expect.Status != 200 {
+		t.Fatalf("capsule = %s", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), labPassword) || strings.Contains(rec.Body.String(), "old-signature") {
+		t.Fatalf("the capsule carries a secret: %s", rec.Body)
+	}
+
+	// la del incidente: su llamada causal y las que tienen checks
+	_ = srv.Store.SaveRunTriage(1, &db.RunTriage{State: "DONE", Incidents: []db.Incident{{Key: "backend:GET /orders 500", Title: "Backend: GET /orders → 500",
+		Kind: "backend", TestIDs: []int64{testID}, TestNames: []string{"Login"}, Evidence: []db.Evidence{{TestID: testID, Kind: "network", Ref: id}}}}})
+	rec = call(t, srv, "GET", "/api/v1/runs/1/lab/capsule?incident="+url.QueryEscape("backend:GET /orders 500"), "")
+	if c, err = lab.ReadCapsule(rec.Body.Bytes()); err != nil || c.Incident != "Backend: GET /orders → 500" || len(c.Calls) != 1 || len(c.Calls[0].Checks) != 1 {
+		t.Fatalf("incident capsule: %v %s", err, rec.Body)
+	}
+	if rec := call(t, srv, "GET", "/api/v1/runs/1/lab/capsule?incident=nope", ""); rec.Code != 404 {
+		t.Fatalf("unknown incident: %d", rec.Code)
+	}
+	if rec := call(t, srv, "GET", "/api/v1/network/999/capsule", ""); rec.Code != 404 {
+		t.Fatalf("unknown call: %d", rec.Code)
 	}
 }

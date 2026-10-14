@@ -71,31 +71,6 @@ func checkRequest(c *db.LabCheck) (*lab.Request, error) {
 	return &r, nil
 }
 
-// needs lists the secrets a check asks for (the ones nobody can get by itself).
-func needs(p *lab.Plan, target *lab.Request) []string {
-	t := p.Target
-	if target != nil {
-		t = *target
-	}
-	text := t.URL + t.Body
-	for _, v := range t.Headers {
-		text += v
-	}
-	if p.Login != nil {
-		text += p.Login.Request.URL + p.Login.Request.Body
-		for _, v := range p.Login.Request.Headers {
-			text += v
-		}
-	}
-	var out []string
-	for _, v := range p.Vars {
-		if v.Kind == lab.KindSecret && !v.Optional && strings.Contains(text, "{{"+v.Name+"}}") {
-			out = append(out, v.Name)
-		}
-	}
-	return out
-}
-
 // labRun returns the saved checks of a run and the last verification of each incident.
 func (s *Server) labRun(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r, "run_id")
@@ -116,7 +91,7 @@ func (s *Server) labRun(w http.ResponseWriter, r *http.Request) {
 		if conns, err := s.Store.ListNetwork(checks[i].TestID); err == nil {
 			if plan, err := lab.Prepare(conns, checks[i].ConnID); err == nil {
 				req, _ := checkRequest(&checks[i])
-				if n := needs(plan, req); n != nil {
+				if n := plan.Needs(req); n != nil {
 					v.Needs = n
 				}
 			}
@@ -292,7 +267,7 @@ func (s *Server) labVerify(w http.ResponseWriter, r *http.Request) {
 			serverError(w, err)
 			return
 		}
-		for _, n := range needs(plan, target) {
+		for _, n := range plan.Needs(target) {
 			if in.Values[n] == "" {
 				missing[n] = true
 			}

@@ -74,15 +74,21 @@ func main() {
 			err = runPRComment(os.Args[2:])
 		case "secrets":
 			err = runSecrets(os.Args[2:], os.Stdout)
+		case "repro":
+			err = runRepro(os.Args[2:])
+		case "verify":
+			err = runVerify(os.Args[2:])
 		case "-h", "-help", "--help", "help":
 			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
 				"       tracereports report ...   build a static HTML report without a server\n" +
 				"       tracereports push ...     upload a recording made without a server\n" +
 				"       tracereports pr-comment   comment the run summary on the pull request\n" +
-				"       tracereports secrets ...  status / migrate of the credentials saved from Settings")
+				"       tracereports secrets ...  status / migrate of the credentials saved from Settings\n" +
+				"       tracereports repro ...    resend the calls of a FixLab capsule with a fresh session\n" +
+				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {

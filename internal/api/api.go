@@ -118,6 +118,7 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/ui/lab/checks/{check_id}", s.labDeleteCheck)
 		r.Post("/ui/lab/verify", s.labVerify)
 		r.Get("/runs/{run_id}/lab", s.labRun)
+		r.Get("/runs/{run_id}/lab/capsule", s.incidentCapsule)
 		r.Get("/stream", s.stream)
 
 		r.Get("/runs", s.listRuns)
@@ -151,6 +152,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/network/{conn_id}/body", s.networkBody)
 		r.Get("/network/{conn_id}/baseline", s.networkBaseline)
 		r.Get("/network/{conn_id}/lab", s.labPlan)
+		r.Get("/network/{conn_id}/capsule", s.connCapsule)
 	})
 
 	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))
