@@ -665,4 +665,23 @@
 		"Responde bien": "Answers fine", "La llamada original tampoco había fallado.": "The original call had not failed either.",
 		"La respuesta original parece simulada por el propio test: el fallo no venía del backend.": "The original response looks simulated by the test itself: the failure did not come from the backend.",
 	});
+
+	// ── FixLab: checks y verificación ──
+	Object.assign(EN.exact, {
+		"Guardar como check": "Save as a check", "Nombre": "Name", "Status esperado": "Expected status",
+		"La respuesta debe contener (uno por línea, opcional)": "The answer must contain (one per line, optional)", "Guardar check": "Save check",
+		"Un check es esta llamada más la respuesta que cuenta como buena. Verificar el incidente corre todos sus checks.": "A check is this call plus the answer that counts as good. Verifying the incident runs all its checks.",
+		"Check guardado: se corre al pulsar Verificar en el incidente.": "Check saved: it runs when you press Verify on the incident.",
+		"status {s}": "status {s}", "status menor a 400": "status below 400", "contiene «{t}»": "contains «{t}»",
+		"status {got} (se esperaba {want})": "status {got} (expected {want})", "no contiene «{t}»": "does not contain «{t}»", "sin respuesta: {e}": "no response: {e}",
+		"Corre los checks guardados de este incidente contra el backend y guarda el resultado con el antes y el después.": "Runs this incident's saved checks against the backend and stores the result with the before and after.",
+		"Borrar check": "Delete check", "el mismo host de la ejecución": "the same host as the run", "Verificar": "Verify", "Verificando…": "Verifying…",
+		"Verificar el arreglo": "Verify the fix", "Resuelto y verificado": "Fixed and verified", "Sigue fallando": "Still failing",
+		"Los {n} checks pasan. Queda registrado en el incidente con el antes y el después.": "All {n} checks pass. It is recorded on the incident with the before and after.",
+		"{b} de {n} checks no pasan.": "{b} of {n} checks fail.",
+		"El check pasa. Queda registrado en el incidente con el antes y el después.": "The check passes. It is recorded on the incident with the before and after.",
+		"Verificar ({n})": "Verify ({n})", "Corre los checks guardados de este incidente y registra si quedó resuelto": "Runs this incident's saved checks and records whether it is fixed",
+		"Verificado: resuelto": "Verified: fixed", "Verificado: sigue fallando": "Verified: still failing",
+		"Todos los checks pasaron el {d}{a}.": "All checks passed on {d}{a}.", "En la última verificación ({d}) algún check no pasó.": "In the last verification ({d}) a check failed.",
+	});
 })();

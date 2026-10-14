@@ -98,3 +98,49 @@ test("Lab: se abre desde el incidente de backend", async ({ page }) => {
 	await expect(page.locator(".cf-drawer .cf-mock-meta")).toContainText("/api/orders?status=open");
 	await expect(page.locator(".cf-drawer .cf-status-pill")).toHaveText("500");
 });
+
+test("Lab: guardar un check y verificar el incidente (sigue fallando → resuelto)", async ({ page, request }) => {
+	await setBroken(request, true);
+	const detail = await openNetwork(page);
+	await detail.locator(".net-card-error [data-lab]").click();
+	const lab = page.locator(".cf-drawer .lab");
+	await lab.locator('[data-lab-var="password"]').fill(PASSWORD);
+	await lab.locator("[data-lab-send]").click();
+	await expect(lab.locator(".lab-verdict")).toHaveAttribute("data-verdict", "reproduced");
+
+	await lab.locator(".lab-save summary").click();
+	await expect(lab.locator("[data-check-status]")).toHaveValue("200");
+	await lab.locator("[data-check-name]").fill("los pedidos cargan");
+	await lab.locator("[data-check-contains]").fill("orders");
+	await lab.locator("[data-check-save]").click();
+	await expect(lab.locator("[data-check-msg]")).toContainText("Check guardado");
+	await page.keyboard.press("Escape");
+
+	await page.goto(`/#run=${runId()}&view=ai`);
+	const card = page.locator(".incident-card", { hasText: "/api/orders" });
+	await card.locator("[data-lab-verify]").click();
+	const drawer = page.locator(".cf-drawer .lab-verify");
+	await expect(page.locator("#cf-drawer-title")).toHaveText("Verificar el arreglo");
+	await expect(drawer.locator("[data-check]")).toContainText("los pedidos cargan");
+	await expect(drawer.locator("[data-check]")).toContainText("status 200 · contiene «orders»");
+
+	await drawer.locator("[data-verify-run]").click();
+	await expect(drawer.locator(".lab-result")).toContainText("Falta completar: password");
+	await drawer.locator('[data-lab-var="password"]').fill(PASSWORD);
+	await drawer.locator("[data-verify-run]").click();
+	await expect(drawer.locator("[data-verified]")).toHaveAttribute("data-verified", "fail");
+	await expect(drawer.locator(".lab-result")).toContainText("status 500 (se esperaba 200)");
+	await expect(card.locator(".lab-verified.bad")).toContainText("Verificado: sigue fallando");
+
+	await setBroken(request, false); // el dev arregla el backend
+	await drawer.locator("[data-verify-run]").click();
+	await expect(drawer.locator("[data-verified]")).toHaveAttribute("data-verified", "ok");
+	await expect(drawer.locator(".lab-result")).toContainText("Resuelto y verificado");
+	expect(await page.locator(".cf-drawer").innerText()).not.toContain(PASSWORD);
+	await page.keyboard.press("Escape");
+	await expect(card.locator(".lab-verified.ok")).toContainText("Verificado: resuelto");
+
+	// el estado queda guardado: también después de recargar
+	await page.reload();
+	await expect(page.locator(".incident-card", { hasText: "/api/orders" }).locator(".lab-verified.ok")).toBeVisible();
+});

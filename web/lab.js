@@ -105,7 +105,7 @@
 			${text ? `<pre class="cf-code lab-body" data-no-i18n>${esc(text.length > 20000 ? text.slice(0, 20000) + "\n…" : text)}</pre>` : `<p class="lab-empty">${tr("Sin body")}</p>`}</div>`;
 	}
 
-	async function open(connId, { subtitle = "" } = {}) {
+	async function open(connId, { subtitle = "", onChange = null } = {}) {
 		const wrap = document.createElement("div");
 		wrap.className = "lab";
 		wrap.innerHTML = `<div class="placeholder">${tr("Preparando el Lab…")}</div>`;
@@ -119,10 +119,10 @@
 			wrap.innerHTML = `<div class="placeholder">${tr("No se pudo preparar el Lab: {e}", { e: esc(err.message) })}</div>`;
 			return;
 		}
-		render(wrap, data);
+		render(wrap, data, onChange);
 	}
 
-	function render(wrap, data) {
+	function render(wrap, data, onChange) {
 		const p = data.plan;
 		const t = p.target;
 		const o = p.original;
@@ -175,6 +175,7 @@
 			<div class="lab-result" aria-live="polite"></div>`;
 
 		let edited = false;
+		let lastSent = null; // lo que se envió la última vez: lo que guarda "Guardar como check"
 		const $ = (sel) => wrap.querySelector(sel);
 		const current = () => ({
 			method: $("[data-lab-method]").value.trim() || "GET", url: $("[data-lab-url]").value.trim(),
@@ -187,6 +188,26 @@
 			e.target.classList.remove("lab-missing");
 		});
 		wrap.addEventListener("click", async (e) => {
+			const save = e.target.closest("[data-check-save]");
+			if (save && lastSent) {
+				const box = save.closest(".lab-save");
+				const msg = box.querySelector("[data-check-msg]");
+				save.disabled = true;
+				try {
+					const status = Number(box.querySelector("[data-check-status]").value) || 0;
+					const contains = box.querySelector("[data-check-contains]").value.split(/\r?\n/).map((x) => x.trim()).filter(Boolean);
+					await post("/api/v1/ui/lab/checks", { conn_id: p.conn_id, name: box.querySelector("[data-check-name]").value.trim(), ...lastSent, expect: { status, contains } });
+					msg.className = "lab-note lab-ok";
+					msg.textContent = tr("Check guardado: se corre al pulsar Verificar en el incidente.");
+					onChange?.();
+				} catch (err) {
+					msg.className = "lab-note lab-warn";
+					msg.textContent = err.message;
+				} finally {
+					save.disabled = false;
+				}
+				return;
+			}
 			const manual = e.target.closest("[data-lab-manual]");
 			if (manual) {
 				const v = p.vars.find((x) => x.name === manual.dataset.labManual);
@@ -232,7 +253,8 @@
 					out.innerHTML = `<p class="lab-note lab-warn">${icon("i-warning")}<span>${r.missing ? tr("Falta completar: {v}", { v: esc(r.missing.join(", ")) }) : esc(r.error || res.status)}</span></p>`;
 					return;
 				}
-				out.innerHTML = result(r, o);
+				out.innerHTML = result(r, o) + saveForm(t, r);
+				lastSent = { request: edited ? current() : null, base_url: $("[data-lab-base]").value.trim() };
 			} catch (err) {
 				out.innerHTML = `<p class="lab-note lab-warn">${esc(err.message)}</p>`;
 			} finally {
@@ -258,5 +280,123 @@
 			</div>`;
 	}
 
-	window.TraceReportsLab = { open, labCurl, parseHeaders, headersText, verdictInfo, envName };
+	async function post(path, body) {
+		const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body) });
+		const data = await res.json().catch(() => ({}));
+		if (!res.ok) {
+			const err = new Error(data.missing ? tr("Falta completar: {v}", { v: data.missing.join(", ") }) : data.error || String(res.status));
+			err.missing = data.missing;
+			throw err;
+		}
+		return data;
+	}
+
+	function pathOf(url) {
+		try { const u = new URL(url); return u.pathname + u.search; } catch { return url; }
+	}
+
+	/** Formulario "Guardar como check", con lo que respondió ahora como punto de partida. */
+	function saveForm(t, r) {
+		const status = r.response.status && r.response.status < 400 ? r.response.status : 200;
+		return `<details class="lab-save"><summary class="cf-btn cf-btn-sm">${icon("i-check")}${tr("Guardar como check")}</summary>
+			<p class="lab-hint">${tr("Un check es esta llamada más la respuesta que cuenta como buena. Verificar el incidente corre todos sus checks.")}</p>
+			<label class="lab-var"><span>${tr("Nombre")}</span><input data-check-name value="${esc(`${t.method} ${pathOf(t.url)}`)}" spellcheck="false"></label>
+			<label class="lab-var"><span>${tr("Status esperado")}</span><input data-check-status type="number" min="100" max="599" value="${status}"></label>
+			<label class="lab-var"><span>${tr("La respuesta debe contener (uno por línea, opcional)")}</span><textarea data-check-contains rows="2" spellcheck="false"></textarea></label>
+			<button class="cf-btn cf-btn-primary cf-btn-sm" data-check-save>${tr("Guardar check")}</button>
+			<p data-check-msg aria-live="polite"></p></details>`;
+	}
+
+	/** Lo que espera un check, en palabras: "status 200 · contiene «orders»". */
+	function expectText(x) {
+		const e = (typeof x === "string" ? JSON.parse(x) : x) || {};
+		const parts = [e.status ? tr("status {s}", { s: e.status }) : tr("status menor a 400")];
+		for (const c of e.contains || []) parts.push(tr("contiene «{t}»", { t: c }));
+		return parts.join(" · ");
+	}
+
+	const failureText = (f) => ({
+		status: tr("status {got} (se esperaba {want})", { got: f.got, want: f.want }),
+		contains: tr("no contiene «{t}»", { t: f.want }),
+		network: tr("sin respuesta: {e}", { e: f.got || "" }),
+	}[f.kind] || f.kind);
+
+	/**
+	 * Verificar un incidente: corre sus checks y deja constancia de si quedó resuelto.
+	 * opts: {runId, incidentKey, title, checks: [{id, name, expect, needs, last_ok}], canSend, onDone}
+	 */
+	function verify(opts) {
+		const wrap = document.createElement("div");
+		wrap.className = "lab lab-verify";
+		let checks = opts.checks.slice();
+		const draw = () => {
+			const needs = [...new Set(checks.flatMap((c) => c.needs || []))];
+			wrap.innerHTML = `<p class="lab-hint">${tr("Corre los checks guardados de este incidente contra el backend y guarda el resultado con el antes y el después.")}</p>
+				<ul class="lab-checks">${checks.map((c) => `<li data-check="${c.id}">
+					<span class="lab-check-state ${c.last_ok == null ? "" : c.last_ok ? "ok" : "bad"}">${c.last_ok == null ? "·" : c.last_ok ? "✓" : "✗"}</span>
+					<div><b data-no-i18n>${esc(c.name)}</b><small>${esc(expectText(c.expect))}</small></div>
+					<button class="cf-icon-btn" data-check-del="${c.id}" aria-label="${esc(tr("Borrar check"))}" data-tip="${esc(tr("Borrar check"))}">${icon("i-close")}</button></li>`).join("")}</ul>
+				${needs.map((n) => `<label class="lab-var"><span><code data-no-i18n>${esc(n)}</code></span><input data-lab-var="${esc(n)}" data-lab-required type="${isSecretName(n) ? "password" : "text"}" autocomplete="off" spellcheck="false" placeholder="${esc(tr("Escribe el valor"))}"></label>`).join("")}
+				<label class="lab-var"><span>${tr("Enviar a")}</span><input data-lab-base type="url" spellcheck="false" placeholder="${esc(tr("el mismo host de la ejecución"))}"></label>
+				<div class="cf-actions"><button class="cf-btn cf-btn-primary" data-verify-run ${opts.canSend && checks.length ? "" : "disabled"}>${icon("i-check")}${tr("Verificar")}</button></div>
+				${opts.canSend ? "" : `<p class="lab-note">${tr(REASONS.remote)}</p>`}
+				<div class="lab-result" aria-live="polite"></div>`;
+		};
+		draw();
+		wrap.addEventListener("input", (e) => e.target.classList.remove("lab-missing"));
+		wrap.addEventListener("click", async (e) => {
+			const del = e.target.closest("[data-check-del]");
+			if (del) {
+				const id = Number(del.dataset.checkDel);
+				const res = await fetch(`/api/v1/ui/lab/checks/${id}`, { method: "DELETE", headers: { "Content-Type": "application/json" }, body: "{}" });
+				if (res.ok || res.status === 404) { checks = checks.filter((c) => c.id !== id); draw(); opts.onDone?.(); }
+				return;
+			}
+			const run = e.target.closest("[data-verify-run]");
+			if (!run || run.disabled) return;
+			const out = wrap.querySelector(".lab-result");
+			const empty = [...wrap.querySelectorAll("[data-lab-required]")].filter((i) => !i.value);
+			if (empty.length) {
+				empty.forEach((i) => i.classList.add("lab-missing"));
+				empty[0].focus();
+				out.innerHTML = `<p class="lab-note lab-warn">${icon("i-warning")}<span>${tr("Falta completar: {v}", { v: esc(empty.map((i) => i.dataset.labVar).join(", ")) })}</span></p>`;
+				return;
+			}
+			run.disabled = true;
+			out.innerHTML = `<div class="placeholder">${tr("Verificando…")}</div>`;
+			try {
+				const values = Object.fromEntries([...wrap.querySelectorAll("[data-lab-var]")].map((i) => [i.dataset.labVar, i.value]));
+				const v = await post("/api/v1/ui/lab/verify", { run_id: opts.runId, incident_key: opts.incidentKey, check_ids: checks.map((c) => c.id), values, base_url: wrap.querySelector("[data-lab-base]").value.trim() });
+				out.innerHTML = verification(v);
+				const byId = Object.fromEntries((typeof v.results === "string" ? JSON.parse(v.results) : v.results || []).map((x) => [x.check_id, x.ok]));
+				checks = checks.map((c) => (c.id in byId ? { ...c, last_ok: byId[c.id] } : c));
+				wrap.querySelectorAll("[data-check]").forEach((li) => {
+					const ok = byId[li.dataset.check];
+					if (ok == null) return;
+					const st = li.querySelector(".lab-check-state");
+					st.className = `lab-check-state ${ok ? "ok" : "bad"}`;
+					st.textContent = ok ? "✓" : "✗";
+				});
+				opts.onDone?.();
+			} catch (err) {
+				out.innerHTML = `<p class="lab-note lab-warn">${icon("i-warning")}<span>${esc(err.message)}</span></p>`;
+			} finally {
+				run.disabled = false;
+			}
+		});
+		CF.Drawer.open({ title: tr("Verificar el arreglo"), subtitle: opts.title || "", body: wrap });
+	}
+
+	/** Resultado de una verificación: resuelto o no, y cada check con su antes y su ahora. */
+	function verification(v) {
+		const results = typeof v.results === "string" ? JSON.parse(v.results) : v.results || [];
+		const bad = results.filter((x) => !x.ok).length;
+		return `<div class="lab-verdict ${v.ok ? "lab-good" : "lab-bad"}" data-verified="${v.ok ? "ok" : "fail"}"><b>${v.ok ? tr("Resuelto y verificado") : tr("Sigue fallando")}</b>
+			<p>${v.ok ? (results.length === 1 ? tr("El check pasa. Queda registrado en el incidente con el antes y el después.") : tr("Los {n} checks pasan. Queda registrado en el incidente con el antes y el después.", { n: results.length })) : tr("{b} de {n} checks no pasan.", { b: bad, n: results.length })}</p></div>
+			<ol class="lab-steps">${results.map((x) => `<li class="${x.ok ? "" : "lab-step-err"}"><span class="lab-role">${x.ok ? "✓" : "✗"}</span>
+				<b data-no-i18n>${esc(x.name)}</b><span class="lab-status">${esc(x.before)} → ${esc(x.status || tr("sin respuesta"))}</span>
+				${(x.failures || []).map((f) => `<small class="lab-step-note">${esc(failureText(f))}</small>`).join("")}</li>`).join("")}</ol>`;
+	}
+
+	window.TraceReportsLab = { open, verify, verification, labCurl, parseHeaders, headersText, verdictInfo, envName, expectText, failureText };
 })();

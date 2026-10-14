@@ -1390,9 +1390,49 @@
 	/** Botón "Abrir en Lab" de un incidente de backend: reenvía su llamada causal (no en el ZIP). */
 	function incidentLab(inc) {
 		const ev = (inc.evidence || []).find((e) => e.kind === "network" && e.ref);
-		if (STATIC || !ev) return "";
+		if (STATIC) return "";
 		const tr = window.TraceReportsI18n.t;
-		return `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-conn="${ev.ref}" data-lab-title="${esc(inc.title)}" data-tip="${esc(tr("Reenvía la llamada que causó este incidente para ver si sigue fallando o ya quedó resuelto"))}">${icon("i-flask")}${tr("Abrir en Lab")}</button>`;
+		const open = ev ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-conn="${ev.ref}" data-lab-title="${esc(inc.title)}" data-tip="${esc(tr("Reenvía la llamada que causó este incidente para ver si sigue fallando o ya quedó resuelto"))}">${icon("i-flask")}${tr("Abrir en Lab")}</button>` : "";
+		const checks = incidentChecks(inc);
+		const verify = checks.length ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-verify="${esc(inc.key)}" data-tip="${esc(tr("Corre los checks guardados de este incidente y registra si quedó resuelto"))}">${icon("i-check")}${tr("Verificar ({n})", { n: checks.length })}</button>` : "";
+		return open + verify;
+	}
+
+	// ---- FixLab: checks guardados y verificaciones de los incidentes ----
+	/** Checks de un incidente: los guardados con su clave o desde uno de sus tests. */
+	function incidentChecks(inc) {
+		return (S.labRun?.checks || []).filter((c) => c.incident_key === inc.key || inc.test_ids.includes(c.test_id));
+	}
+
+	/** Estado de la última verificación del incidente: ✅ resuelto o ❌ sigue fallando. */
+	function incidentVerified(inc) {
+		const v = STATIC ? null : S.labRun?.verifications?.[inc.key];
+		if (!v) return "";
+		const tr = window.TraceReportsI18n.t;
+		const when = fmtDateTime(v.created_at);
+		return v.ok
+			? `<span class="lab-verified ok" tabindex="0" data-tip="${esc(tr("Todos los checks pasaron el {d}{a}.", { d: when, a: v.author ? ` (${v.author})` : "" }))}">${icon("i-pass")}${tr("Verificado: resuelto")}</span>`
+			: `<span class="lab-verified bad" tabindex="0" data-tip="${esc(tr("En la última verificación ({d}) algún check no pasó.", { d: when }))}">${icon("i-fail")}${tr("Verificado: sigue fallando")}</span>`;
+	}
+
+	async function loadLabRun() {
+		const r = S.run;
+		if (STATIC || !r) return;
+		const key = `${r.id}:${S.labRev || 0}`;
+		if (S.labRun?.key === key) return;
+		S.labRun = { ...(S.labRun?.runId === r.id ? S.labRun : { checks: [], verifications: {} }), key, runId: r.id };
+		let data;
+		try { data = await api(`/api/v1/runs/${r.id}/lab`); } catch { return; }
+		if (S.labRun.key !== key) return; // llegó tarde: ya se pidió la de otra ejecución
+		S.labRun = { key, runId: r.id, checks: data.checks || [], verifications: data.verifications || {} };
+		if (S.view === "ai") renderAI();
+		if (S.view === "dashboard") renderRunSummary();
+	}
+
+	/** Algo cambió en el Lab (un check nuevo, una verificación): se vuelve a pedir. */
+	function labChanged() {
+		S.labRev = (S.labRev || 0) + 1;
+		loadLabRun();
 	}
 
 	/** Causa: hipótesis de la IA (nunca confirmada), o la IA dijo que la evidencia no alcanza. */
@@ -1420,7 +1460,7 @@
 		const incidents = sum.incidents.map((inc, n) => `<li class="incident ${inc.kind} ${compact && n >= 8 ? "inc-more" : ""}">
 			<span class="inc-icon">${icon(INCIDENT_ICON[inc.kind] || "i-warning")}</span>
 			<div class="inc-body">
-				<div class="inc-title"><b data-no-i18n>${esc(inc.title)}</b><span class="inc-count">${inc.test_ids.length} test${inc.test_ids.length === 1 ? "" : "s"}</span></div>
+				<div class="inc-title"><b data-no-i18n>${esc(inc.title)}</b><span class="inc-count">${inc.test_ids.length} test${inc.test_ids.length === 1 ? "" : "s"}</span>${compact ? "" : incidentVerified(inc)}</div>
 				${incidentCause(inc, "inc-cause")}
 				${inc.action ? `<div class="inc-action">→ ${esc(inc.action)}</div>` : ""}
 				${compact ? "" : incidentEvidence(inc)}
@@ -1439,6 +1479,7 @@
 			return;
 		}
 		el.hidden = false;
+		loadLabRun();
 		if (sum.state === "PENDING") {
 			setHTML(el, `<div class="sum-head">${icon("i-spark")}<span>Analizando la ejecución…</span></div><div class="shimmer"></div><div class="shimmer short"></div>`);
 			return;
@@ -1949,11 +1990,18 @@
 			if (lab) {
 				e.preventDefault(); e.stopPropagation();
 				const c = S.net.list?.[Number(lab.closest("[data-net-idx]")?.dataset.netIdx)];
-				if (c) window.TraceReportsLab?.open(c.id, { subtitle: `${S.test?.name || ""} · ${c.method} ${c.status || c.error_text || ""}` });
+				if (c) window.TraceReportsLab?.open(c.id, { subtitle: `${S.test?.name || ""} · ${c.method} ${c.status || c.error_text || ""}`, onChange: labChanged });
 				return;
 			}
 			const labConn = e.target.closest("[data-lab-conn]");
-			if (labConn) { e.preventDefault(); window.TraceReportsLab?.open(Number(labConn.dataset.labConn), { subtitle: labConn.dataset.labTitle || "" }); return; }
+			if (labConn) { e.preventDefault(); window.TraceReportsLab?.open(Number(labConn.dataset.labConn), { subtitle: labConn.dataset.labTitle || "", onChange: labChanged }); return; }
+			const labVerify = e.target.closest("[data-lab-verify]");
+			if (labVerify) {
+				e.preventDefault();
+				const inc = (S.run.summary?.incidents || []).find((i) => i.key === labVerify.dataset.labVerify);
+				if (inc) window.TraceReportsLab?.verify({ runId: S.run.id, incidentKey: inc.key, title: inc.title, checks: incidentChecks(inc), canSend: !!S.config.ui_actions, onDone: labChanged });
+				return;
+			}
 			const lang = e.target.closest("[data-loc-lang]");
 			if (lang) { S.locLang = lang.dataset.locLang; renderTestDetail(); return; }
 			const copyBtn = e.target.closest("[data-loc-copy]");
@@ -2081,6 +2129,7 @@
 		const failed = r.tests.filter((t) => t.status === "FAIL");
 		const sum = r.summary;
 		loadRecurrence();
+		loadLabRun();
 		const pendingTests = failed.filter((t) => !t.triage || t.triage.state === "ERROR" || t.triage.state === "SKIPPED").length;
 		const counts = {};
 		failed.forEach((t) => { const c = t.triage?.state === "DONE" ? t.triage.category : ""; counts[c] = (counts[c] || 0) + 1; });
@@ -2109,7 +2158,7 @@
 			const incidents = (sum?.incidents || []).map((inc) => `<article class="card incident-card">
 				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error") }[inc.kind] || inc.kind)}</span>
 					<h6 data-no-i18n>${esc(AI_LABEL[inc.title] ? tr(AI_LABEL[inc.title]) : inc.title)}</h6>
-					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}</header>
+					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}${incidentVerified(inc)}</header>
 				${incidentEvidence(inc)}
 				${incidentCause(inc, "inc-cause-p")}
 				${inc.action ? `<p><b>${tr("Qué hacer")}:</b> ${esc(inc.action)}</p>` : ""}

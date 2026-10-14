@@ -88,3 +88,24 @@ test("los botones del Lab en app.js tienen traducción", () => {
 		assert.notEqual(t(s), s, `sin traducción: "${s}"`);
 	}
 });
+
+test("expectText y failureText describen un check en palabras", () => {
+	assert.equal(L.expectText({ status: 200, contains: ["orders", "A-1"] }), "status 200 · contiene «orders» · contiene «A-1»");
+	assert.equal(L.expectText('{"status":0}'), "status menor a 400");
+	assert.equal(L.failureText({ kind: "status", want: "200", got: "500" }), "status 500 (se esperaba 200)");
+	assert.equal(L.failureText({ kind: "contains", want: "orders" }), "no contiene «orders»");
+	assert.equal(L.failureText({ kind: "network", got: "timeout" }), "sin respuesta: timeout");
+	assert.equal(en.TraceReportsLab.expectText({ status: 200, contains: ["x"] }), "status 200 · contains «x»");
+});
+
+test("verification resume el resultado de cada check", () => {
+	const html = L.verification({ ok: false, results: JSON.stringify([
+		{ name: "pedidos", ok: false, before: "500", status: 500, failures: [{ kind: "status", want: "200", got: "500" }] },
+		{ name: "login", ok: true, before: "500", status: 302 },
+	]) });
+	assert.match(html, /data-verified="fail"/);
+	assert.match(html, /Sigue fallando/);
+	assert.match(html, /1 de 2 checks no pasan/);
+	assert.match(html, /status 500 \(se esperaba 200\)/);
+	assert.match(L.verification({ ok: true, results: [{ name: "a", ok: true, before: "500", status: 200 }] }), /Resuelto y verificado[\s\S]*El check pasa\./);
+});
