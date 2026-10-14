@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/josemiguellopez/tracereports/internal/db"
 )
 
 const labPassword = "s3cret!"
@@ -185,5 +187,110 @@ func TestLabUnknownCall(t *testing.T) {
 func TestParseLabHosts(t *testing.T) {
 	if got := strings.Join(ParseLabHosts(" A.example , ,*.Corp.local:8080"), "|"); got != "a.example|*.corp.local:8080" {
 		t.Fatalf("got %q", got)
+	}
+}
+
+func TestLabChecksAndVerify(t *testing.T) {
+	srv, testID := newTestServer(t)
+	backend, broken, _ := labBackend(t)
+	id := recordLab(t, srv, testID, backend.URL)
+
+	// guardar un check: lo escrito a mano en la petición se enmascara, las {{variables}} quedan
+	body := fmt.Sprintf(`{"conn_id":%d,"name":"pedidos responden","expect":{"status":200,"contains":["orders"]},
+		"request":{"method":"GET","url":"%s/orders","headers":{"authorization":"{{authorization}}","x-api-key":"pegada-a-mano"},"body":""}}`, id, backend.URL)
+	rec := call(t, srv, "POST", "/api/v1/ui/lab/checks", body)
+	if rec.Code != 201 {
+		t.Fatalf("save check: %d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "pegada-a-mano") || !strings.Contains(rec.Body.String(), "{{authorization}}") {
+		t.Fatalf("saved request: %s", rec.Body)
+	}
+	if rec := call(t, srv, "POST", "/api/v1/ui/lab/checks", fmt.Sprintf(`{"conn_id":%d,"expect":{"status":42}}`, id)); rec.Code != 400 {
+		t.Fatalf("invalid expectation: %d", rec.Code)
+	}
+
+	var runLab struct {
+		Checks []struct {
+			ID    int64
+			Name  string
+			Needs []string
+		}
+		Verifications map[string]struct{ OK bool }
+	}
+	rec = call(t, srv, "GET", "/api/v1/runs/1/lab", "")
+	if err := json.Unmarshal(rec.Body.Bytes(), &runLab); err != nil || len(runLab.Checks) != 1 {
+		t.Fatalf("run lab: %s", rec.Body)
+	}
+	if strings.Join(runLab.Checks[0].Needs, ",") != "password" || runLab.Checks[0].Name != "pedidos responden" {
+		t.Fatalf("check view: %+v", runLab.Checks[0])
+	}
+	checkID := runLab.Checks[0].ID
+
+	verify := func(values string) *httptest.ResponseRecorder {
+		return call(t, srv, "POST", "/api/v1/ui/lab/verify", fmt.Sprintf(`{"run_id":1,"check_ids":[%d],"values":%s}`, checkID, values))
+	}
+	if rec := verify(`{}`); rec.Code != 400 || !strings.Contains(rec.Body.String(), `"missing":["password"]`) {
+		t.Fatalf("verify without password: %d %s", rec.Code, rec.Body)
+	}
+	rec = verify(`{"password":"` + labPassword + `"}`)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"ok":false`) || !strings.Contains(rec.Body.String(), `"kind":"status"`) {
+		t.Fatalf("verify while broken: %d %s", rec.Code, rec.Body)
+	}
+	broken.Store(false)
+	rec = verify(`{"password":"` + labPassword + `"}`)
+	if rec.Code != 200 || !strings.Contains(rec.Body.String(), `"ok":true`) || strings.Contains(rec.Body.String(), labPassword) {
+		t.Fatalf("verify after the fix: %d %s", rec.Code, rec.Body)
+	}
+	rec = call(t, srv, "GET", "/api/v1/runs/1/lab", "")
+	_ = json.Unmarshal(rec.Body.Bytes(), &runLab)
+	if len(runLab.Verifications) != 1 {
+		t.Fatalf("verifications: %s", rec.Body)
+	}
+	for _, v := range runLab.Verifications {
+		if !v.OK {
+			t.Fatalf("last verification must be ok: %s", rec.Body)
+		}
+	}
+	if !strings.Contains(rec.Body.String(), `"last_ok":true`) {
+		t.Fatalf("check keeps its last result: %s", rec.Body)
+	}
+
+	// otra máquina sin login no guarda, no verifica ni borra
+	for _, c := range []struct{ method, path, body string }{
+		{"POST", "/api/v1/ui/lab/checks", fmt.Sprintf(`{"conn_id":%d,"expect":{}}`, id)},
+		{"POST", "/api/v1/ui/lab/verify", `{"run_id":1,"check_ids":[1]}`},
+		{"DELETE", fmt.Sprintf("/api/v1/ui/lab/checks/%d", checkID), `{}`},
+	} {
+		if rec := call(t, srv, c.method, c.path, c.body, fromAddr("10.0.0.5:4000")); rec.Code != 403 {
+			t.Fatalf("%s %s from another machine: %d", c.method, c.path, rec.Code)
+		}
+	}
+
+	if rec := call(t, srv, "DELETE", fmt.Sprintf("/api/v1/ui/lab/checks/%d", checkID), `{}`); rec.Code != 204 {
+		t.Fatalf("delete: %d %s", rec.Code, rec.Body)
+	}
+	if rec := call(t, srv, "DELETE", fmt.Sprintf("/api/v1/ui/lab/checks/%d", checkID), `{}`); rec.Code != 404 {
+		t.Fatalf("delete twice: %d", rec.Code)
+	}
+	if rec := verify(`{"password":"x"}`); rec.Code != 404 {
+		t.Fatalf("verify a deleted check: %d", rec.Code)
+	}
+}
+
+func TestLabChecksGoWithTheirRun(t *testing.T) {
+	srv, testID := newTestServer(t)
+	backend, _, _ := labBackend(t)
+	id := recordLab(t, srv, testID, backend.URL)
+	if rec := call(t, srv, "POST", "/api/v1/ui/lab/checks", fmt.Sprintf(`{"conn_id":%d,"expect":{}}`, id)); rec.Code != 201 {
+		t.Fatalf("save: %d", rec.Code)
+	}
+	if rec := call(t, srv, "PATCH", "/api/v1/runs/1/finish", `{}`); rec.Code != 200 {
+		t.Fatalf("finish: %d %s", rec.Code, rec.Body)
+	}
+	if n, _, err := srv.Store.PurgeRunsBefore(db.NowMs() + 1); err != nil || n != 1 {
+		t.Fatalf("purge: %d %v", n, err)
+	}
+	if checks, err := srv.Store.LabChecks(1, ""); err != nil || len(checks) != 0 {
+		t.Fatalf("checks after the run was purged: %v %d", err, len(checks))
 	}
 }

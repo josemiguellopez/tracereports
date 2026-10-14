@@ -492,3 +492,30 @@ func TestValuesAreEncodedForTheirPlace(t *testing.T) {
 		t.Fatalf("got\n%s\nwant\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))
 	}
 }
+
+func TestExpect(t *testing.T) {
+	ok := Response{Status: 200, Body: `{"orders":[{"id":"A-1"}]}`}
+	if f := (Expect{Status: 200, Contains: []string{`"A-1"`}}).Eval(ok); len(f) != 0 {
+		t.Fatalf("failures %+v", f)
+	}
+	if f := (Expect{}).Eval(ok); len(f) != 0 {
+		t.Fatalf("status 0 accepts any answer below 400: %+v", f)
+	}
+	f := (Expect{Status: 200, Contains: []string{"A-2"}}).Eval(Response{Status: 500, Body: "x"})
+	if len(f) != 2 || f[0].Kind != "status" || f[0].Want != "200" || f[0].Got != "500" || f[1].Kind != "contains" {
+		t.Fatalf("failures %+v", f)
+	}
+	if f := (Expect{}).Eval(Response{Status: 404}); len(f) != 1 || f[0].Want != "< 400" {
+		t.Fatalf("failures %+v", f)
+	}
+	if f := (Expect{Status: 200}).Eval(Response{Error: "timeout"}); len(f) != 1 || f[0].Kind != "network" {
+		t.Fatalf("failures %+v", f)
+	}
+	e := Expect{Status: 200, Contains: []string{"  ", " a "}}
+	if err := e.Validate(); err != nil || len(e.Contains) != 1 || e.Contains[0] != "a" {
+		t.Fatalf("validate: %v %+v", err, e)
+	}
+	if err := (&Expect{Status: 42}).Validate(); err == nil {
+		t.Fatal("status 42 must be rejected")
+	}
+}
