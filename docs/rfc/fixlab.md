@@ -182,7 +182,7 @@ existente cambia.
 
 | Fase | Qué |
 |---|---|
-| 2 | Guardar la petición como **check** (status esperado + campos), botón **Verificar** y estado ✅ del incidente con el antes/después |
+| 2 ✅ | Guardar la petición como **check** (status esperado + campos), botón **Verificar** y estado ✅ del incidente con el antes/después |
 | 3 | **Cápsula** descargable y subcomandos `tracereports repro | lab | verify` para servidores compartidos y CI |
 | 4 | Exportar a Postman / Bruno / `.http` |
 | 5 | Servidor **MCP** para que Claude Code u otro agente lea el incidente y proponga el arreglo |

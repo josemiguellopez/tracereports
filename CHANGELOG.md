@@ -16,7 +16,10 @@ All notable changes to TraceReports. The format follows
   to another environment (`http://localhost:3000`) and get a verdict against the run: reproduced,
   no longer fails, session missing, different error or no connection. It warns when the original
   response looks made up by the test (no `date` nor `server` headers).
-- API: `GET /api/v1/network/{id}/lab` and `POST /api/v1/ui/lab/send`. Same access rule as the UI
+- **Save as a check** (the call plus the expected status and texts) and **Verify** on the incident:
+  runs its checks and records **Verified: fixed** or **still failing**, with the before and after.
+- API: `GET /api/v1/network/{id}/lab`, `POST /api/v1/ui/lab/send`, `POST|DELETE /api/v1/ui/lab/checks`,
+  `POST /api/v1/ui/lab/verify` and `GET /api/v1/runs/{id}/lab`. Same access rule as the UI
   actions; on a shared server only the hosts the test called and `TRACEREPORTS_LAB_HOSTS`;
   link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it. Typed values are never
   stored and the answer is masked before it is shown. Design: [docs/rfc/fixlab.md](docs/rfc/fixlab.md).

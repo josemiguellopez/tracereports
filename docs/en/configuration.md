@@ -438,8 +438,16 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
   - **Secrets**: the values you type are used for that send only, never stored nor logged, and the
     answer goes through the masking policy before it is shown (a new token stays hidden). *Copy
     cURL* keeps them as `$VARIABLES`.
+  - **Checks and Verify**: after a send, *Save as a check* keeps the call (as edited) and what a good
+    answer is: the expected status and texts the body must contain. The incident then shows
+    **Verify (n)**: it runs its checks (asking again for the secrets, which are never stored) and
+    records the result on the incident, **Verified: fixed** or **Verified: still failing**, with the
+    before and after of each check. Checks are deleted with their run.
   - Not in the exported ZIP (there is no server to send from). API: `GET /api/v1/network/{id}/lab`
-    (the plan) and `POST /api/v1/ui/lab/send`. Design: [docs/rfc/fixlab.md](../rfc/fixlab.md).
+    (the plan), `POST /api/v1/ui/lab/send`, `POST /api/v1/ui/lab/checks`,
+    `DELETE /api/v1/ui/lab/checks/{id}`, `POST /api/v1/ui/lab/verify` and
+    `GET /api/v1/runs/{id}/lab` (checks and last verification of each incident). Design:
+    [docs/rfc/fixlab.md](../rfc/fixlab.md).
 - **Compare with the last time it passed**: on a failed call (**Network** tab), it finds the same
   call (same method, host and path, with ids normalized: `/orders/123` = `/orders/456`) in the most
   recent run where the test passed, in the same project, environment and branch (or, if none, the

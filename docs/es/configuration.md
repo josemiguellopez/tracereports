@@ -441,9 +441,16 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   - **Secretos**: los valores que escribes se usan solo en ese envío, nunca se guardan ni van a los
     logs, y la respuesta pasa por la política de enmascarado antes de mostrarse (un token nuevo no
     queda a la vista). *Copiar cURL* los deja como `$VARIABLES`.
+  - **Checks y Verificar**: después de un envío, *Guardar como check* conserva la llamada (con lo que
+    hayas editado) y qué respuesta cuenta como buena: el status esperado y textos que debe contener.
+    El incidente muestra entonces **Verificar (n)**: corre sus checks (vuelve a pedir los secretos,
+    que nunca se guardan) y deja el resultado en el incidente, **Verificado: resuelto** o
+    **Verificado: sigue fallando**, con el antes y el después de cada check. Los checks se borran con
+    su ejecución.
   - No está en el ZIP exportado (no hay servidor desde donde enviar). API:
-    `GET /api/v1/network/{id}/lab` (el plan) y `POST /api/v1/ui/lab/send`. Diseño:
-    [docs/rfc/fixlab.md](../rfc/fixlab.md).
+    `GET /api/v1/network/{id}/lab` (el plan), `POST /api/v1/ui/lab/send`, `POST /api/v1/ui/lab/checks`,
+    `DELETE /api/v1/ui/lab/checks/{id}`, `POST /api/v1/ui/lab/verify` y `GET /api/v1/runs/{id}/lab`
+    (checks y última verificación de cada incidente). Diseño: [docs/rfc/fixlab.md](../rfc/fixlab.md).
 - **Comparar con la última vez que pasó**: en una llamada con error (pestaña **Red**), busca la
   misma llamada (mismo método, host y ruta, con los ids normalizados: `/orders/123` = `/orders/456`)
   en la ejecución más reciente donde el test pasó, del mismo proyecto, ambiente y rama (o, si no
