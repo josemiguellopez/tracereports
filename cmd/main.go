@@ -78,6 +78,8 @@ func main() {
 			err = runRepro(os.Args[2:])
 		case "verify":
 			err = runVerify(os.Args[2:])
+		case "mcp":
+			err = runMCP(os.Args[2:])
 		case "-h", "-help", "--help", "help":
 			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
 				"       tracereports report ...   build a static HTML report without a server\n" +
@@ -85,10 +87,11 @@ func main() {
 				"       tracereports pr-comment   comment the run summary on the pull request\n" +
 				"       tracereports secrets ...  status / migrate of the credentials saved from Settings\n" +
 				"       tracereports repro ...    resend the calls of a FixLab capsule with a fresh session\n" +
-				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)")
+				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)\n" +
+				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
