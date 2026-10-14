@@ -668,6 +668,10 @@
 
 	// ── FixLab: checks y verificación ──
 	Object.assign(EN.exact, {
+		"Exportar:": "Export:", "Descarga la petición para {t}, con las variables sin valores": "Downloads the request for {t}, with the variables and no values",
+		"Exportado desde el Lab de TraceReports. Completa las variables de la colección antes de enviar.": "Exported from the TraceReports Lab. Fill the collection variables before sending.",
+		"Antes, el login grabado:": "First, the recorded login:", "Guarda {p} de su respuesta en la variable token.": "Save {p} of its answer in the token variable.",
+		"Exportado desde el Lab de TraceReports: completa las variables antes de enviar.": "Exported from the TraceReports Lab: fill the variables before sending.",
 		"En tu terminal:": "In your terminal:", "En tu terminal o en CI:": "In your terminal or CI:", "Descargar cápsula": "Download capsule", "Copiar comando": "Copy command",
 		"Archivo con el contexto, el comando del test y esta llamada (solo datos enmascarados)": "File with the context, the test command and this call (masked data only)",
 		"tracereports repro: muestra cómo correr el test y reenvía la llamada desde tu máquina": "tracereports repro: shows how to run the test and resends the call from your machine",

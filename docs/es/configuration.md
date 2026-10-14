@@ -447,6 +447,11 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
     que nunca se guardan) y deja el resultado en el incidente, **Verificado: resuelto** o
     **Verificado: sigue fallando**, con el antes y el después de cada check. Los checks se borran con
     su ejecución.
+  - **Exportar**: *Postman*, *Bruno* o *.http* descargan la petición (con lo que hayas editado) con
+    sus `{{variables}}` y sin valores. Si hay un login grabado va primero: en Postman un script guarda
+    su token en la variable `token`, en el archivo `.http` (REST Client de VS Code) la llamada lo lee
+    del request con nombre `login`, y en Bruno queda descrito en la documentación de la petición. Las
+    cookies quedan a cargo de la herramienta.
   - **En tu terminal (cápsula)**: *Descargar cápsula* entrega un JSON con el contexto de la
     ejecución, el comando que corre el test en local y el plan de cada llamada con sus checks (solo
     datos enmascarados, como el reporte). *Copiar comando* copia `tracereports repro '<URL de la

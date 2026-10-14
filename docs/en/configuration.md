@@ -443,6 +443,11 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
     **Verify (n)**: it runs its checks (asking again for the secrets, which are never stored) and
     records the result on the incident, **Verified: fixed** or **Verified: still failing**, with the
     before and after of each check. Checks are deleted with their run.
+  - **Export**: *Postman*, *Bruno* or *.http* download the request (as edited) with its
+    `{{variables}}` and no values. With a recorded login it comes first: in Postman a script saves
+    its token in the `token` variable, in the `.http` file (VS Code REST Client) the call reads it
+    from the named `login` request, and in Bruno it is described in the request docs. Cookies are
+    left to the tool.
   - **In your terminal (capsule)**: *Download capsule* gives a JSON file with the run's context, the
     command that runs the test locally and the plan of each call with its checks (masked data only,
     like the report). *Copy command* copies `tracereports repro '<capsule URL>'`: it shows how to run

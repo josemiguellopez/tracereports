@@ -9,6 +9,8 @@ const { load, read } = require("./load.js");
 const files = ["i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js"];
 const L = load(files).TraceReportsLab;
 const en = load(files, { lang: "en" });
+// los objetos del contexto aislado tienen otro prototipo: se comparan como datos planos
+const plain = (v) => JSON.parse(JSON.stringify(v));
 
 test("parseHeaders y headersText van y vuelven", () => {
 	const h = L.parseHeaders("content-type: application/json\nauthorization: {{authorization}}\nsin dos puntos\n x-a : b:c ");
@@ -114,4 +116,44 @@ test("capsuleCommand deja la URL entre comillas para la shell", () => {
 	assert.equal(L.capsuleCommand("verify", "/api/v1/runs/3/lab/capsule?incident=backend%3AGET&x=1", "http://localhost:8080"),
 		"tracereports verify 'http://localhost:8080/api/v1/runs/3/lab/capsule?incident=backend%3AGET&x=1'");
 	assert.equal(L.capsuleCommand("repro", "/a'b", "http://h"), "tracereports repro 'http://h/a'\\''b'");
+});
+
+// Un plan como el que entrega el servidor: login JWT y la llamada que falló.
+const PLAN = {
+	conn_id: 2,
+	target: { method: "GET", url: "https://shop.test/api/orders?status=open", headers: { authorization: "{{authorization}}", cookie: "{{cookie}}", accept: "application/json" }, body: "" },
+	login: { conn_id: 1, token_path: ["data", "accessToken"], request: { method: "POST", url: "https://shop.test/api/login", headers: { "content-type": "application/json" }, body: '{"email":"qa@shop.test","password":"{{password}}"}' } },
+	vars: [{ name: "authorization", kind: "session" }, { name: "password", kind: "secret" }],
+};
+
+test("toPostman: colección válida, login que guarda el token y variables sin valor", () => {
+	const col = JSON.parse(L.toPostman(PLAN, PLAN.target, "demo"));
+	assert.equal(col.info.schema, "https://schema.getpostman.com/json/collection/v2.1.0/collection.json");
+	assert.equal(col.item.length, 2);
+	assert.equal(col.item[0].request.method, "POST");
+	assert.deepEqual(plain(col.item[0].event[0].script.exec), ['pm.collectionVariables.set("token", pm.response.json()["data"]["accessToken"]);']);
+	assert.equal(col.item[0].request.body.options.raw.language, "json");
+	const h = Object.fromEntries(col.item[1].request.header.map((x) => [x.key, x.value]));
+	assert.equal(h.authorization, "Bearer {{token}}");
+	assert.equal(h.cookie, undefined, "las cookies las maneja Postman");
+	assert.deepEqual(plain(col.variable).map((v) => v.key).sort(), ["password", "token"]);
+	assert.ok(col.variable.every((v) => v.value === ""));
+});
+
+test("toHttp: el login con nombre y la llamada que usa su token (REST Client)", () => {
+	const http = L.toHttp(PLAN, PLAN.target);
+	assert.match(http, /^# .*\n@password =\n\n# @name login\nPOST https:\/\/shop\.test\/api\/login\ncontent-type: application\/json\n\n\{"email":"qa@shop\.test","password":"\{\{password\}\}"\}\n\n###\n\nGET https:\/\/shop\.test\/api\/orders\?status=open\n/);
+	assert.match(http, /authorization: Bearer \{\{login\.response\.body\.\$\.data\.accessToken\}\}/);
+	assert.doesNotMatch(http, /cookie:/);
+});
+
+test("toBruno: la llamada en formato .bru y el login documentado", () => {
+	const bru = L.toBruno(PLAN, PLAN.target);
+	assert.match(bru, /^meta \{\n  name: GET \/api\/orders\?status=open\n  type: http\n  seq: 1\n\}/);
+	assert.match(bru, /get \{\n  url: https:\/\/shop\.test\/api\/orders\?status=open\n  body: none\n  auth: none\n\}/);
+	assert.match(bru, /headers \{\n  authorization: Bearer \{\{token\}\}\n  accept: application\/json\n\}/);
+	assert.match(bru, /docs \{\n  Antes, el login grabado:\n  POST https:\/\/shop\.test\/api\/login/);
+	const noLogin = L.toBruno({ ...PLAN, login: null }, { method: "POST", url: "https://x/y", headers: { "content-type": "application/json" }, body: '{"a":"{{b}}"}' });
+	assert.match(noLogin, /body:json \{\n  \{"a":"\{\{b\}\}"\}\n\}/);
+	assert.doesNotMatch(noLogin, /docs \{/);
 });

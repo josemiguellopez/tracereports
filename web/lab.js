@@ -175,6 +175,7 @@
 			<div class="cf-actions">
 				<button class="cf-btn cf-btn-primary" data-lab-send ${data.can_send ? "" : "disabled"}>${icon("i-play")}${tr("Enviar")}</button>
 				<button class="cf-btn" data-lab-curl>${icon("i-copy")}${tr("Copiar cURL")}</button>
+				<span class="lab-export"><span>${tr("Exportar:")}</span>${Object.entries(EXPORTS).map(([id, x]) => `<button class="cf-btn cf-btn-sm" data-lab-export="${id}" data-tip="${esc(tr("Descarga la petición para {t}, con las variables sin valores", { t: x.label }))}">${esc(x.label)}</button>`).join("")}</span>
 			</div>
 			<div class="lab-capsule"><span>${tr("En tu terminal:")}</span>
 				<a class="cf-btn cf-btn-sm" href="/api/v1/network/${p.conn_id}/capsule" download data-tip="${esc(tr("Archivo con el contexto, el comando del test y esta llamada (solo datos enmascarados)"))}">${icon("i-download")}${tr("Descargar cápsula")}</a>
@@ -232,6 +233,15 @@
 			}
 			if (e.target.closest("[data-lab-cmd]")) {
 				CF.copyText(capsuleCommand("repro", `/api/v1/network/${p.conn_id}/capsule`, location.origin), e.target.closest("button"));
+				return;
+			}
+			const exp = e.target.closest("[data-lab-export]");
+			if (exp) {
+				const x = EXPORTS[exp.dataset.labExport];
+				const req = current();
+				const base = $("[data-lab-base]").value.trim();
+				if (base && origin) req.url = req.url.replace(origin, base.replace(/\/+$/, ""));
+				CF.download(`${slug(`${req.method}-${pathOf(req.url)}`)}.${x.ext}`, x.fn(p, req, `TraceReports Lab · ${req.method} ${pathOf(req.url)}`), x.type);
 				return;
 			}
 			if (e.target.closest("[data-lab-curl]")) {
@@ -418,5 +428,101 @@
 				${(x.failures || []).map((f) => `<small class="lab-step-note">${esc(failureText(f))}</small>`).join("")}</li>`).join("")}</ol>`;
 	}
 
-	window.TraceReportsLab = { open, verify, verification, labCurl, capsuleCommand, parseHeaders, headersText, verdictInfo, envName, expectText, failureText };
+	// ─── exportar a Postman, Bruno y .http (fase 4) ───────────────────────────
+	// Las tres usan {{variable}} como el Lab: las variables viajan tal cual, sin valores.
+	const SKIP_EXPORT = /^(host|content-length|connection|accept-encoding|cookie)$/i;
+	const exportHeaders = (h) => Object.entries(h || {}).filter(([k]) => !k.startsWith(":") && !SKIP_EXPORT.test(k));
+	const varsOf = (...texts) => [...new Set(texts.flatMap((t) => [...String(t).matchAll(VAR_RE)].map((m) => m[1])))];
+	const isJSONBody = (req) => /json/i.test(req.headers?.["content-type"] || "") || (() => { try { JSON.parse(String(req.body).replace(/\{\{|\}\}/g, "")); return true; } catch { return false; } })();
+	const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "request";
+	// lo que de verdad se exporta (sin los headers que se omiten): de ahí salen las variables
+	const reqText = (r) => [r.url, r.body, ...exportHeaders(r.headers).map(([, v]) => v)].join("\n");
+
+	/** La petición de ahora y, si hay, el login que la precede (con el token de su respuesta). */
+	function exportParts(plan, target) {
+		const parts = [];
+		const login = plan.login;
+		if (login) parts.push({ name: "login", req: login.request, tokenPath: login.token_path || null });
+		// el header de sesión ya no es una variable que escribir: sale del login
+		const t = { ...target, headers: { ...target.headers } };
+		if (login?.token_path && /^\{\{authorization\}\}$/.test(String(t.headers.authorization || "").trim())) t.headers.authorization = "Bearer {{token}}";
+		parts.push({ name: `${t.method} ${pathOf(t.url)}`, req: t });
+		return parts;
+	}
+
+	/** Colección de Postman (v2.1): el login guarda el token en la variable de la colección. */
+	function toPostman(plan, target, title = "TraceReports Lab") {
+		const parts = exportParts(plan, target);
+		const items = parts.map((p) => {
+			const item = {
+				name: p.name,
+				request: {
+					method: p.req.method,
+					header: exportHeaders(p.req.headers).map(([key, value]) => ({ key, value })),
+					url: { raw: p.req.url },
+				},
+			};
+			if (p.req.body) item.request.body = { mode: "raw", raw: p.req.body, options: { raw: { language: isJSONBody(p.req) ? "json" : "text" } } };
+			if (p.tokenPath) {
+				const path = p.tokenPath.map((k) => `[${JSON.stringify(k)}]`).join("");
+				item.event = [{ listen: "test", script: { type: "text/javascript", exec: [`pm.collectionVariables.set("token", pm.response.json()${path});`] } }];
+			}
+			return item;
+		});
+		const names = varsOf(...parts.map((p) => reqText(p.req))).filter((n) => n !== "token");
+		return JSON.stringify({
+			info: { name: title, description: tr("Exportado desde el Lab de TraceReports. Completa las variables de la colección antes de enviar."), schema: "https://schema.getpostman.com/json/collection/v2.1.0/collection.json" },
+			item: items,
+			variable: [...names, ...(parts[0].tokenPath ? ["token"] : [])].map((key) => ({ key, value: "" })),
+		}, null, 2);
+	}
+
+	/** Archivo .bru de Bruno con la petición (el login, si hay, como script previo documentado). */
+	function toBruno(plan, target) {
+		const parts = exportParts(plan, target);
+		const t = parts[parts.length - 1];
+		const method = t.req.method.toLowerCase();
+		const hdrs = exportHeaders(t.req.headers);
+		const json = t.req.body && isJSONBody(t.req);
+		const indent = (s) => String(s).split("\n").map((l) => `  ${l}`).join("\n");
+		const out = [`meta {\n  name: ${t.name}\n  type: http\n  seq: 1\n}`,
+			`${method} {\n  url: ${t.req.url}\n  body: ${t.req.body ? (json ? "json" : "text") : "none"}\n  auth: none\n}`];
+		if (hdrs.length) out.push(`headers {\n${hdrs.map(([k, v]) => `  ${k}: ${v}`).join("\n")}\n}`);
+		if (t.req.body) out.push(`body:${json ? "json" : "text"} {\n${indent(t.req.body)}\n}`);
+		const login = parts.length > 1 ? parts[0] : null;
+		if (login) {
+			const lines = [tr("Antes, el login grabado:"), `${login.req.method} ${login.req.url}`, login.req.body || ""];
+			if (login.tokenPath) lines.push(tr("Guarda {p} de su respuesta en la variable token.", { p: login.tokenPath.join(".") }));
+			out.push(`docs {\n${indent(lines.filter(Boolean).join("\n"))}\n}`);
+		}
+		return out.join("\n\n") + "\n";
+	}
+
+	/** Archivo .http (REST Client de VS Code): el login con nombre y la llamada que usa su token. */
+	function toHttp(plan, target) {
+		const parts = exportParts(plan, target);
+		const names = varsOf(...parts.map((p) => reqText(p.req))).filter((n) => n !== "token");
+		const blocks = [];
+		const head = [`# ${tr("Exportado desde el Lab de TraceReports: completa las variables antes de enviar.")}`, ...names.map((n) => `@${n} =`)];
+		for (const p of parts) {
+			const lines = [];
+			if (p.tokenPath) lines.push("# @name login");
+			lines.push(`${p.req.method} ${p.req.url}`);
+			for (const [k, v] of exportHeaders(p.req.headers)) lines.push(`${k}: ${v}`);
+			if (p.req.body) lines.push("", p.req.body);
+			blocks.push(lines.join("\n"));
+		}
+		let text = head.join("\n") + "\n\n" + blocks.join("\n\n###\n\n") + "\n";
+		const login = parts[0].tokenPath;
+		if (login) text = text.replace(/\{\{token\}\}/g, `{{login.response.body.$.${login.join(".")}}}`);
+		return text;
+	}
+
+	const EXPORTS = {
+		postman: { label: "Postman", ext: "postman_collection.json", type: "application/json", fn: toPostman },
+		bruno: { label: "Bruno", ext: "bru", type: "text/plain", fn: toBruno },
+		http: { label: ".http", ext: "http", type: "text/plain", fn: toHttp },
+	};
+
+	window.TraceReportsLab = { open, verify, verification, labCurl, capsuleCommand, toPostman, toBruno, toHttp, parseHeaders, headersText, verdictInfo, envName, expectText, failureText };
 })();

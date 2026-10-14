@@ -22,6 +22,8 @@ All notable changes to TraceReports. The format follows
   commands: `tracereports repro <capsule|URL>` resends the calls from your machine and
   `tracereports verify <capsule|URL>` runs the checks, exit code 1 if one fails (CI). The report
   copies both commands. Values with `-var`, `TRACEREPORTS_LAB_<NAME>` or a hidden prompt.
+- **Export** a Lab request to Postman (collection with the login script), Bruno (`.bru`) or `.http`
+  (VS Code REST Client), keeping the `{{variables}}` and no values.
 - API: `GET /api/v1/network/{id}/lab`, `GET /api/v1/network/{id}/capsule`,
   `GET /api/v1/runs/{id}/lab/capsule`, `POST /api/v1/ui/lab/send`, `POST|DELETE /api/v1/ui/lab/checks`,
   `POST /api/v1/ui/lab/verify` and `GET /api/v1/runs/{id}/lab`. Same access rule as the UI

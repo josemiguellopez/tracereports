@@ -192,3 +192,32 @@ test("Lab: la cápsula y el comando copiado reproducen el fallo en la terminal",
 	expect(v.code, v.out).toBe(0);
 	expect(v.out).toContain("Fixed and verified");
 });
+
+test("Lab: exportar a Postman y .http descarga archivos válidos sin valores", async ({ page }) => {
+	const detail = await openNetwork(page);
+	await detail.locator(".net-card-error [data-lab]").click();
+	const lab = page.locator(".cf-drawer .lab");
+	await lab.locator('[data-lab-var="password"]').fill(PASSWORD);
+
+	const read = async (id) => {
+		const [dl] = await Promise.all([page.waitForEvent("download"), lab.locator(`[data-lab-export="${id}"]`).click()]);
+		const fs = require("node:fs");
+		return { name: dl.suggestedFilename(), text: fs.readFileSync(await dl.path(), "utf8") };
+	};
+	const pm = await read("postman");
+	expect(pm.name).toBe("get-api-orders-status-open.postman_collection.json");
+	const col = JSON.parse(pm.text);
+	expect(col.item.map((i) => i.request.method)).toEqual(["POST", "GET"]);
+	expect(col.item[0].event[0].script.exec[0]).toContain('pm.collectionVariables.set("token"');
+	expect(pm.text).not.toContain(PASSWORD);
+
+	const http = await read("http");
+	expect(http.name).toBe("get-api-orders-status-open.http");
+	expect(http.text).toContain("# @name login");
+	expect(http.text).toContain("authorization: Bearer {{login.response.body.$.accessToken}}");
+	expect(http.text).not.toContain(PASSWORD);
+
+	const bru = await read("bruno");
+	expect(bru.name).toBe("get-api-orders-status-open.bru");
+	expect(bru.text).toMatch(/^meta \{/);
+});
