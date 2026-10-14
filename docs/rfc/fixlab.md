@@ -185,5 +185,5 @@ existente cambia.
 | 2 ✅ | Guardar la petición como **check** (status esperado + campos), botón **Verificar** y estado ✅ del incidente con el antes/después |
 | 3 ✅ | **Cápsula** descargable y subcomandos `tracereports repro` y `verify` para servidores compartidos y CI (`lab` quedó dentro de `repro`: `-base` apunta a otro entorno) |
 | 4 ✅ | Exportar a Postman / Bruno / `.http` |
-| 5 | Servidor **MCP** para que Claude Code u otro agente lea el incidente y proponga el arreglo |
+| 5 ✅ | Servidor **MCP** para que Claude Code u otro agente lea el incidente y proponga el arreglo |
 | 6 | Capturar el HTML de la página que origina un login (CSRF sin pedirlo en vivo) |

@@ -22,6 +22,9 @@ All notable changes to TraceReports. The format follows
   commands: `tracereports repro <capsule|URL>` resends the calls from your machine and
   `tracereports verify <capsule|URL>` runs the checks, exit code 1 if one fails (CI). The report
   copies both commands. Values with `-var`, `TRACEREPORTS_LAB_<NAME>` or a hidden prompt.
+- `tracereports mcp`: MCP server for Claude Code and other agents (`list_runs`, `get_incidents`,
+  `get_test`, `reproduce`, `verify_fix`). Read-only on TraceReports; secrets stay in the MCP
+  server's environment and never reach the agent.
 - **Export** a Lab request to Postman (collection with the login script), Bruno (`.bru`) or `.http`
   (VS Code REST Client), keeping the `{{variables}}` and no values.
 - API: `GET /api/v1/network/{id}/lab`, `GET /api/v1/network/{id}/capsule`,

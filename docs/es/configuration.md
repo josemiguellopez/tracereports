@@ -463,6 +463,16 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
     http://localhost:3000` apunta a otro entorno; los flags van antes o después de la cápsula. Para
     leerla de un servidor con credenciales: `TRACEREPORTS_TOKEN` o `TRACEREPORTS_UI_USER`/`_PASSWORD`.
     API: `GET /api/v1/network/{id}/capsule` y `GET /api/v1/runs/{id}/lab/capsule?incident=<clave>`.
+  - **Para agentes de IA (MCP)**: `tracereports mcp` es un servidor MCP (stdio) para Claude Code o
+    cualquier cliente MCP. Herramientas: `list_runs`, `get_incidents` (incidentes con su evidencia,
+    causa probable, checks y verificación), `get_test` (error, pasos, llamadas fallidas, consola,
+    comando para correrlo), `reproduce` (reenvía una llamada) y `verify_fix` (corre los checks de un
+    incidente, para confirmar un arreglo). Solo lee de TraceReports; reproducir y verificar corren
+    desde tu máquina, y los secretos salen de `TRACEREPORTS_LAB_<NOMBRE>` en el entorno del servidor
+    MCP, así que el agente nunca los ve. Nunca cambia código ni hace merge: eso queda en el agente y
+    en tu revisión. Claude Code:
+    `claude mcp add tracereports -e TRACEREPORTS_URL=http://localhost:8080 -e TRACEREPORTS_LAB_PASSWORD=… -- tracereports mcp`
+    (agrega `TRACEREPORTS_TOKEN` o `TRACEREPORTS_UI_USER`/`_PASSWORD` si el servidor los pide).
   - No está en el ZIP exportado (no hay servidor desde donde enviar). API:
     `GET /api/v1/network/{id}/lab` (el plan), `POST /api/v1/ui/lab/send`, `POST /api/v1/ui/lab/checks`,
     `DELETE /api/v1/ui/lab/checks/{id}`, `POST /api/v1/ui/lab/verify` y `GET /api/v1/runs/{id}/lab`
