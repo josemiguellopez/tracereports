@@ -461,7 +461,10 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
     que sirve como paso de CI. Valores: `-var password=…`, `TRACEREPORTS_LAB_<NOMBRE>`
     (`TRACEREPORTS_LAB_PASSWORD`) o, en una terminal, escritos sin mostrarse; `-base
     http://localhost:3000` apunta a otro entorno; los flags van antes o después de la cápsula. Para
-    leerla de un servidor con credenciales: `TRACEREPORTS_TOKEN` o `TRACEREPORTS_UI_USER`/`_PASSWORD`.
+    leerla de un servidor con credenciales: `TRACEREPORTS_TOKEN` o `TRACEREPORTS_UI_USER`/`_PASSWORD`,
+    que solo se envían al servidor de `TRACEREPORTS_URL` (una URL de cápsula de otro lado nunca los
+    recibe). Antes de usar un secreto, el comando muestra a dónde se enviará
+    (`password → POST https://…/login`): revísalo cuando la cápsula no sea tuya.
     API: `GET /api/v1/network/{id}/capsule` y `GET /api/v1/runs/{id}/lab/capsule?incident=<clave>`.
   - **Para agentes de IA (MCP)**: `tracereports mcp` es un servidor MCP (stdio) para Claude Code o
     cualquier cliente MCP. Herramientas: `list_runs`, `get_incidents` (incidentes con su evidencia,

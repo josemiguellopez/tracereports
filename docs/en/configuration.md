@@ -457,7 +457,9 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
     `TRACEREPORTS_LAB_<NAME>` (`TRACEREPORTS_LAB_PASSWORD`) or, in a terminal, typed without being
     shown; `-base http://localhost:3000` points to another environment; flags go before or after
     the capsule. To read it from a server with credentials: `TRACEREPORTS_TOKEN` or
-    `TRACEREPORTS_UI_USER`/`_PASSWORD`. API: `GET /api/v1/network/{id}/capsule` and
+    `TRACEREPORTS_UI_USER`/`_PASSWORD`, which are only sent to the server of `TRACEREPORTS_URL` (a
+    capsule URL from elsewhere never gets them). Before using a secret, the command prints where it
+    will be sent (`password → POST https://…/login`): check it when the capsule is not yours. API: `GET /api/v1/network/{id}/capsule` and
     `GET /api/v1/runs/{id}/lab/capsule?incident=<key>`.
   - **For AI agents (MCP)**: `tracereports mcp` is an MCP server (stdio) for Claude Code or any
     MCP client. Tools: `list_runs`, `get_incidents` (incidents with their evidence, probable cause,

@@ -1,6 +1,6 @@
 # RFC: FixLab
 
-Estado: borrador · Rama: `feature/fixlab` · Fecha: 2026-10-14
+Estado: implementadas las fases 1 a 5 (la 6 se descartó) · Rama: `feature/fixlab` · Fecha: 2026-10-14
 
 ## 1. Problema
 
@@ -166,6 +166,12 @@ El Lab hace que el servidor envíe peticiones HTTP: es una capacidad de SSRF y s
   la UI (un token nuevo no queda visible).
 - **CSRF del propio TraceReports**: JSON + mismo origen (`jsonSameOrigin`), como el resto de acciones.
 - Reporte exportado (ZIP): no hay servidor; el Lab no aparece.
+- **CLI** (`repro`, `verify`): las credenciales de TraceReports (`TRACEREPORTS_TOKEN`, login de la UI)
+  solo se envían al host de `TRACEREPORTS_URL`; una URL de cápsula ajena no las recibe. Una cápsula
+  compartida podría apuntar su login a otro servidor para quedarse con la contraseña: antes de pedir
+  o usar un secreto, la CLI muestra a qué URL irá cada uno.
+- **MCP**: solo lectura sobre TraceReports; reproducir y verificar corren en la máquina local con los
+  secretos de `TRACEREPORTS_LAB_<NOMBRE>` del proceso MCP: el agente nunca los ve ni los escribe.
 
 ## 7. Compatibilidad
 
@@ -186,4 +192,6 @@ existente cambia.
 | 3 ✅ | **Cápsula** descargable y subcomandos `tracereports repro` y `verify` para servidores compartidos y CI (`lab` quedó dentro de `repro`: `-base` apunta a otro entorno) |
 | 4 ✅ | Exportar a Postman / Bruno / `.http` |
 | 5 ✅ | Servidor **MCP** para que Claude Code u otro agente lea el incidente y proponga el arreglo |
-| 6 | Capturar el HTML de la página que origina un login (CSRF sin pedirlo en vivo) |
+| 6 ✗ | Descartada (ver abajo). Capturar el HTML de la página que origina un login (CSRF sin pedirlo en vivo) |
+
+**Por qué se descartó la fase 6.** La idea era guardar el HTML de la página donde empieza un login para no pedirla en vivo. Pero un token anti-CSRF pertenece a la sesión en que se grabó: guardado ya está vencido, y el Lab necesita uno nuevo de todas formas (por eso lee la página en vivo, con lo que funcionó en 12 de 12 llamadas reales de OrangeHRM). Guardar el HTML agregaría peso a la evidencia sin mejorar la reproducción.
