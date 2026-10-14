@@ -145,7 +145,7 @@ test("red: comparar con la última vez que el test pasó", async ({ page }) => {
 	await card.locator("summary").click();
 	await card.locator("[data-baseline]").click();
 	const drawer = page.locator(".baseline-diff");
-	await expect(drawer).toContainText("Comparado con la ejecución #1");
+	await expect(drawer).toContainText(`Comparado con la ejecución #${seed().prev}`);
 	await expect(drawer.locator("tr.diff-changed").first()).toContainText("500");
 	await expect(drawer).toContainText("db pool exhausted");
 	await expect(drawer.locator("code", { hasText: "x-api-version" })).toBeVisible(); // header que ya no viene
@@ -186,7 +186,7 @@ test("escalar para Desarrollo: detalle técnico con cURL, stack, consola y cómo
 	await expect(dev).toContainText("Commit");
 	await expect(dev).toContainText("git checkout bbb222 && pytest 'test_login_admin'");
 	await expect(dev).toContainText("reading 'dashboard'");
-	await expect(dev).toContainText("La última vez que el test pasó (ejecución #1) respondió HTTP 200");
+	await expect(dev).toContainText(`La última vez que el test pasó (ejecución #${seed().prev}) respondió HTTP 200`);
 	const call = dev.locator(".esc-call").first();
 	await expect(call).toContainText("curl -X POST 'https://api.example.com/auth/login?lang=es'");
 	await expect(call).toContainText('-H "Authorization: $AUTHORIZATION"');
