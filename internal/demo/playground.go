@@ -40,6 +40,7 @@ var scenarioES = map[string][2]string{
 	"go-ok":                  {"Go (go test) · la API pasa", "Un test de API en Go con el cliente de Go: la llamada que hizo aparece en la pestaña Red."},
 	"go-nok-backend":         {"Go (go test) · la API responde 500", "El test de API que crea un pedido falla con 500: incidente de backend y el Lab, desde Go."},
 	"junit-import":           {"Importación de JUnit XML (Maven Surefire)", "Sin cliente: un reporte XML de Surefire importado con POST /api/v1/import/junit (tests que pasan, fallan y se omiten)."},
+	"allure-import":          {"Importación de Allure (pytest + allure-pytest)", "Sin cliente de TraceReports: la carpeta allure-results de una suite de pytest + Playwright que solo usa Allure, importada con POST /api/v1/import/allure. Pasos, capturas y cada fallo diagnosticado, sin revisar el reporte de Allure test por test."},
 	"pytest-suite":           {"pytest + Playwright · la suite completa", "Los tres tests de Python en una ejecución, como una noche real: uno pasa, el pago falla por el backend y otro por un selector que cambió."},
 	"playwright-suite":       {"Playwright Test (JS) · la suite completa", "Los tres tests de JavaScript en una ejecución: uno pasa, otro falla por el backend y otro pasa al reintentar."},
 	"selenium-suite":         {"Selenium + JUnit 5 (Java) · la suite completa", "Los dos tests de Java en una ejecución: iniciar sesión pasa y agregar al carrito falla por un selector que cambió."},

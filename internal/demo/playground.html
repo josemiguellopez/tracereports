@@ -334,7 +334,7 @@ footer.foot { border-top: 1px solid var(--border); margin-top: 56px; padding-top
 	const icon = (id, cls = "i") => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
 
 	const CLIENTS = { "rest": ["REST API", "API", "#b49cff"], "pytest": ["pytest + Playwright", "Py", "#4cc3e6"], "playwright-js": ["Playwright Test (JS)", "JS", "#c9fa6b"],
-		"selenium-java": ["Selenium + JUnit 5", "Java", "#ff9f5a"], "go": ["Go · go test", "Go", "#5ad8c8"], "junit-xml": ["JUnit XML", "XML", "#a9b09d"] };
+		"selenium-java": ["Selenium + JUnit 5", "Java", "#ff9f5a"], "go": ["Go · go test", "Go", "#5ad8c8"], "junit-xml": ["JUnit XML", "XML", "#a9b09d"], "allure": ["Allure · allure-pytest", "AL", "#c9a0ff"] };
 	const KINDS = { ok: "OK", nok: "NOK", flaky: "Flaky", suite: "Suite" };
 	const S = { scenarios: [], client: "", kind: "", results: {}, running: new Set(), tab: {}, fresh: new Set() };
 	const $ = (s) => document.querySelector(s);

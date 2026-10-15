@@ -105,7 +105,7 @@ func TestSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum.Runs != 2*historyNights+7 || sum.Showcase == 0 || sum.APIRun == 0 || sum.Failed < 7 {
+	if sum.Runs != 2*historyNights+8 || sum.Showcase == 0 || sum.APIRun == 0 || sum.Failed < 7 {
 		t.Fatalf("summary = %+v", sum)
 	}
 	runs, err := store.ListRuns(100)

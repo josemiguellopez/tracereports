@@ -41,6 +41,7 @@ Requirements, one per client:
 | Playwright Test (JS) | `js/` | Node 18+ and `npm install` in that folder (the browser: `npx playwright install chromium`) |
 | Selenium + JUnit 5 | `java/` | Java 17 and Chrome (Selenium Manager brings the driver) |
 | Go | `go/` | Go |
+| Allure (pytest + allure-pytest) | `allure/` | the Python of pytest + Playwright, plus `allure-pytest` |
 | REST and JUnit XML | — | nothing: the recorder builds the API calls |
 
 A new scenario: add it to `Scenarios` with its expectations, write its test in the matching client,

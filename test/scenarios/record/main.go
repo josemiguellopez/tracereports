@@ -1,7 +1,8 @@
 // Command record graba los escenarios de internal/demo con los clientes REALES de TraceReports:
 // levanta la tienda de la demo, ejecuta cada test (pytest, Playwright JS, Selenium Java, go test)
 // con TRACEREPORTS_OFFLINE=always y guarda la grabación en internal/demo/scenarios/<id>. Los
-// escenarios REST y JUnit no usan un cliente: se arman con las mismas llamadas de la API.
+// escenarios REST y JUnit no usan un cliente: se arman con las mismas llamadas de la API; el de
+// Allure corre una suite de pytest con allure-pytest y guarda su carpeta allure-results.
 //
 //	go run ./test/scenarios/record                     # todos
 //	go run ./test/scenarios/record -only pytest-ok,go-ok
@@ -124,6 +125,8 @@ func (r recorder) record(sc demo.Scenario, dir string) error {
 		return restScenario(sc, dir)
 	case demo.ClientJUnit:
 		return os.WriteFile(filepath.Join(dir, "junit.xml"), []byte(junitXML), 0o644)
+	case demo.ClientAllure:
+		return r.allure(sc, dir)
 	// sc.Test elige los tests; vacío graba la suite completa
 	case demo.ClientPytest:
 		args := []string{"-m", "pytest", "test_shop.py", "--tracereports", "-p", "no:cacheprovider", "-q"}
@@ -167,6 +170,48 @@ func (r recorder) record(sc demo.Scenario, dir string) error {
 	files, _ := filepath.Glob(filepath.Join(dir, "events-*.jsonl"))
 	if len(files) == 0 {
 		return fmt.Errorf("nothing was recorded; output:\n%s", log.String())
+	}
+	return nil
+}
+
+// allure runs the suite of a team that only uses Allure (test/scenarios/allure) and keeps its
+// allure-results folder, without the labels of the machine that recorded it (host, thread).
+func (r recorder) allure(sc demo.Scenario, dir string) error {
+	results := filepath.Join(dir, "allure-results")
+	cmd := exec.Command(r.python, "-m", "pytest", "test_shop_allure.py", "-p", "no:cacheprovider", "-q", "--alluredir", results)
+	cmd.Dir = filepath.Join(r.root, "test", "scenarios", "allure")
+	cmd.Env = r.env(sc, dir)
+	var log bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &log, &log
+	_ = cmd.Run() // falla a propósito: dos tests NOK
+	files, _ := filepath.Glob(filepath.Join(results, "*-result.json"))
+	if len(files) == 0 {
+		return fmt.Errorf("no allure results; output:\n%s", log.String())
+	}
+	for _, f := range files {
+		data, err := os.ReadFile(f)
+		if err != nil {
+			return err
+		}
+		var res map[string]any
+		if err := json.Unmarshal(data, &res); err != nil {
+			return err
+		}
+		labels, _ := res["labels"].([]any)
+		for _, l := range labels {
+			if m, ok := l.(map[string]any); ok {
+				switch m["name"] {
+				case "host":
+					m["value"] = "ci-runner"
+				case "thread":
+					m["value"] = "MainThread"
+				}
+			}
+		}
+		out, _ := json.Marshal(res)
+		if err := os.WriteFile(f, out, 0o644); err != nil {
+			return err
+		}
 	}
 	return nil
 }

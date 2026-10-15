@@ -162,8 +162,8 @@ func demoGuide(w io.Writer, base, shopURL string, sum *demo.Summary, dir string,
   ▸ Playground:  %s   (run each client's scenarios, break or fix the shop backend)
 
   A team tests the shop with pytest + Playwright, Playwright Test (JS), Selenium + JUnit 5 (Java),
-  go test, the REST API and a Maven JUnit XML import. Every run is a real recording of those
-  clients. Tonight the orders backend broke. Suggested tour:
+  go test, the REST API, a Maven JUnit XML import and the allure-results of a suite that only
+  uses Allure. Every run is a real recording of those clients. Tonight the orders backend broke. Suggested tour:
 
    1. The latest run opens by itself: 2 of 3 tests failed. Open "test_checkout_pays_the_order":
       steps, the browser's screenshot, network (password masked), console and the command to run it.

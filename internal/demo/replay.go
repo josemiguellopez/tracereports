@@ -1,6 +1,7 @@
 package demo
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -40,8 +41,11 @@ type Sent struct {
 // PlayLogged is Play, telling log each request it sends.
 func PlayLogged(ctx context.Context, base, shopURL string, sc Scenario, now time.Time, log func(Sent)) (int64, error) {
 	base = strings.TrimRight(base, "/")
-	if sc.Client == ClientJUnit {
+	switch sc.Client {
+	case ClientJUnit:
 		return playJUnit(ctx, base, sc, now, log)
+	case ClientAllure:
+		return playAllure(ctx, base, shopURL, sc, now, log)
 	}
 	dir, err := os.MkdirTemp("", "tracereports-scenario-")
 	if err != nil {
@@ -204,6 +208,103 @@ func shift(v any, delta int64, window [2]int64) any {
 	return v
 }
 
+// playAllure imports the recorded allure-results folder as a ZIP, as `tracereports push` does: the
+// shop's origin and the times of now.
+func playAllure(ctx context.Context, base, shopURL string, sc Scenario, now time.Time, log func(Sent)) (int64, error) {
+	src := path.Join("scenarios", sc.ID, "allure-results")
+	entries, err := fs.ReadDir(scenarioFiles, src)
+	if err != nil || len(entries) == 0 {
+		return 0, fmt.Errorf("scenario %s: not recorded yet", sc.ID)
+	}
+	files := map[string][]byte{}
+	var last int64 // el stop más tardío: queda 2 s antes de now
+	for _, e := range entries {
+		data, err := scenarioFiles.ReadFile(path.Join(src, e.Name()))
+		if err != nil {
+			return 0, err
+		}
+		if strings.HasSuffix(e.Name(), ".json") {
+			data = bytes.ReplaceAll(data, []byte(ShopPlaceholder), []byte(strings.TrimRight(shopURL, "/")))
+			var v any
+			if json.Unmarshal(data, &v) == nil {
+				last = max(last, latestStop(v))
+			}
+		}
+		files[e.Name()] = data
+	}
+	shift := now.Add(-2*time.Second).UnixMilli() - last
+	var buf bytes.Buffer
+	zw := zip.NewWriter(&buf)
+	for name, data := range files {
+		if strings.HasSuffix(name, ".json") && last > 0 {
+			var v any
+			if json.Unmarshal(data, &v) == nil {
+				shiftTimes(v, shift)
+				data, _ = json.Marshal(v)
+			}
+		}
+		w, err := zw.Create(name)
+		if err != nil {
+			return 0, err
+		}
+		if _, err := w.Write(data); err != nil {
+			return 0, err
+		}
+	}
+	if err := zw.Close(); err != nil {
+		return 0, err
+	}
+	q := url.Values{"name": {sc.Run}, "project": {"demo-shop"}, "environment": {"staging"}, "branch": {"main"}}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/api/v1/import/allure?"+q.Encode(), &buf)
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/zip")
+	id, err := importResult(ctxDoer{ctx, http.DefaultClient, log}.Do(req))
+	if err != nil {
+		return 0, fmt.Errorf("import %s: %w", sc.ID, err)
+	}
+	return id, nil
+}
+
+// latestStop is the largest "stop" (Unix ms) of an Allure result or container.
+func latestStop(v any) int64 {
+	var out int64
+	switch x := v.(type) {
+	case map[string]any:
+		for k, val := range x {
+			if n, ok := val.(float64); ok && k == "stop" {
+				out = max(out, int64(n))
+			} else {
+				out = max(out, latestStop(val))
+			}
+		}
+	case []any:
+		for _, val := range x {
+			out = max(out, latestStop(val))
+		}
+	}
+	return out
+}
+
+// shiftTimes moves every "start" and "stop" of an Allure result or container by ms.
+func shiftTimes(v any, ms int64) {
+	switch x := v.(type) {
+	case map[string]any:
+		for k, val := range x {
+			if n, ok := val.(float64); ok && (k == "start" || k == "stop") {
+				x[k] = int64(n) + ms
+			} else {
+				shiftTimes(val, ms)
+			}
+		}
+	case []any:
+		for _, val := range x {
+			shiftTimes(val, ms)
+		}
+	}
+}
+
 func playJUnit(ctx context.Context, base string, sc Scenario, now time.Time, log func(Sent)) (int64, error) {
 	data, err := scenarioFiles.ReadFile(path.Join("scenarios", sc.ID, "junit.xml"))
 	if err != nil {
@@ -216,7 +317,15 @@ func playJUnit(ctx context.Context, base string, sc Scenario, now time.Time, log
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/xml")
-	res, err := ctxDoer{ctx, http.DefaultClient, log}.Do(req)
+	id, err := importResult(ctxDoer{ctx, http.DefaultClient, log}.Do(req))
+	if err != nil {
+		return 0, fmt.Errorf("import %s: %w", sc.ID, err)
+	}
+	return id, nil
+}
+
+// importResult reads the answer of an import: the run it created.
+func importResult(res *http.Response, err error) (int64, error) {
 	if err != nil {
 		return 0, err
 	}
@@ -226,7 +335,7 @@ func playJUnit(ctx context.Context, base string, sc Scenario, now time.Time, log
 		RunID int64 `json:"run_id"`
 	}
 	if res.StatusCode != http.StatusCreated || json.Unmarshal(body, &out) != nil || out.RunID == 0 {
-		return 0, fmt.Errorf("import %s: %s %s", sc.ID, res.Status, strings.TrimSpace(string(body)))
+		return 0, fmt.Errorf("%s %s", res.Status, strings.TrimSpace(string(body)))
 	}
 	return out.RunID, nil
 }

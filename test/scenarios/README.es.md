@@ -40,6 +40,7 @@ Requisitos, uno por cliente:
 | Playwright Test (JS) | `js/` | Node 18+ y `npm install` en esa carpeta (el navegador: `npx playwright install chromium`) |
 | Selenium + JUnit 5 | `java/` | Java 17 y Chrome (Selenium Manager trae el driver) |
 | Go | `go/` | Go |
+| Allure (pytest + allure-pytest) | `allure/` | el Python de pytest + Playwright, más `allure-pytest` |
 | REST y JUnit XML | — | nada: el grabador arma las llamadas de la API |
 
 Un escenario nuevo: agrégalo a `Scenarios` con sus expectativas, escribe su test en el cliente que

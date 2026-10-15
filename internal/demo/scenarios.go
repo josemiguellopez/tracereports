@@ -20,6 +20,7 @@ const (
 	ClientSelenium   = "selenium-java"
 	ClientGo         = "go"
 	ClientJUnit      = "junit-xml"
+	ClientAllure     = "allure"
 )
 
 // Scenario is one recorded situation and what TraceReports must do with it.
@@ -131,6 +132,12 @@ var Scenarios = []Scenario{
 		What:   "No client at all: a Surefire XML report imported with POST /api/v1/import/junit (passed, failed and skipped tests).",
 		Run:    "Inventory · Maven (JUnit XML)",
 		Expect: Expect{RunStatus: "FAIL", Tests: map[string]string{"reservesStock": "PASS", "rejectsNegativeQuantity": "FAIL", "syncsWithWarehouse": "SKIP"}}},
+	{ID: "allure-import", Client: ClientAllure, Kind: "nok", Title: "Allure import (pytest + allure-pytest)",
+		What: "No TraceReports client: the allure-results folder of a pytest + Playwright suite that only uses Allure, imported with POST /api/v1/import/allure. Steps, screenshots and each failure diagnosed, without reading the Allure report test by test.",
+		Run:  "Shop · Allure (allure-pytest)",
+		Expect: Expect{RunStatus: "FAIL", Tests: map[string]string{"test_sign_in_shows_the_catalog[chromium]": "PASS", "test_checkout_pays_the_order[chromium]": "FAIL",
+			"test_add_to_cart_with_the_old_selector[chromium]": "FAIL"}, Focus: "test_checkout_pays_the_order[chromium]", Screenshot: true,
+			Command: "pytest 'test_shop_allure.py::test_"}},
 
 	// Suites completas: una ejecución con todos los tests de un cliente, como una noche real.
 	{ID: "pytest-suite", Client: ClientPytest, Kind: "suite", Title: "pytest + Playwright · the whole suite",

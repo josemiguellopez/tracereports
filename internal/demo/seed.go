@@ -25,7 +25,7 @@ const historyNights = 12
 // Seed loads the demo into the TraceReports server at base: only scenarios recorded with the real
 // clients, played at their dates. Twelve earlier nights (green, with a backend failure and a
 // flaky test on some of them) and tonight, when the orders backend broke: the whole suite of
-// each client plus the REST and JUnit XML runs. The captured calls point to the shop at shopURL,
+// each client plus the REST, JUnit XML and Allure runs. The captured calls point to the shop at shopURL,
 // so the Lab can resend them.
 func Seed(ctx context.Context, base, shopURL string, now time.Time) (*Summary, error) {
 	base = strings.TrimRight(base, "/")
@@ -59,7 +59,7 @@ func Seed(ctx context.Context, base, shopURL string, now time.Time) (*Summary, e
 	tonight := []struct {
 		id  string
 		min int
-	}{{"rest-ok", 0}, {"rest-nok-backend", 5}, {"junit-import", 8}, {"go-suite", 14}, {"selenium-suite", 20}, {"playwright-suite", 28}, {"pytest-suite", 40}}
+	}{{"rest-ok", 0}, {"rest-nok-backend", 5}, {"junit-import", 8}, {"allure-import", 11}, {"go-suite", 14}, {"selenium-suite", 20}, {"playwright-suite", 28}, {"pytest-suite", 40}}
 	for _, r := range tonight {
 		id, err := play(r.id, at(0, r.min))
 		if err != nil {
