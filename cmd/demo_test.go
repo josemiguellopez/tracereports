@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -138,5 +139,76 @@ func TestSelftest(t *testing.T) {
 	}
 	if err := selftest(context.Background(), selftestOptions{only: "nope", out: &out}); err == nil || !strings.Contains(err.Error(), "unknown scenario") {
 		t.Fatalf("unknown scenario: %v", err)
+	}
+}
+
+// A protected server: selftest -url sends TRACEREPORTS_TOKEN, and without it the scenarios fail.
+func TestSelftestProtectedServer(t *testing.T) {
+	restoreEnv(t)
+	port, err := freePort(0, 8300)
+	if err != nil {
+		t.Fatal(err)
+	}
+	demoEnv(t.TempDir(), port, false)
+	os.Setenv("TRACEREPORTS_TOKEN", "s3cret-token")
+	ctx, stop := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- runServer(ctx) }()
+	t.Cleanup(func() { stop(); <-errCh })
+	base := fmt.Sprintf("http://127.0.0.1:%d", port)
+	if err := waitProtected(base, 60*time.Second); err != nil {
+		t.Fatal(err)
+	}
+	var out strings.Builder
+	only := "pytest-nok-backend,junit-import"
+	if err := selftest(context.Background(), selftestOptions{url: base, only: only, token: "s3cret-token", out: &out}); err != nil {
+		t.Fatalf("with the token: %v\n%s", err, out.String())
+	}
+	out.Reset()
+	if err := selftest(context.Background(), selftestOptions{url: base, only: only, out: &out}); err == nil {
+		t.Fatalf("without the token it should fail:\n%s", out.String())
+	}
+}
+
+// waitProtected waits until a server with a token answers (401 without it).
+func waitProtected(base string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if res, err := http.Get(base + "/api/v1/runs"); err == nil {
+			res.Body.Close()
+			return nil
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	return fmt.Errorf("the server did not start in time")
+}
+
+// A demo stopped by force is cleaned up on the next start; one kept with -keep is not.
+func TestCleanOldDemosKeepsKept(t *testing.T) {
+	restoreEnv(t)
+	tmp := t.TempDir()
+	for _, k := range []string{"TMPDIR", "TMP", "TEMP"} {
+		os.Setenv(k, tmp)
+	}
+	old := time.Now().Add(-13 * time.Hour)
+	dirs := map[string]bool{"tracereports-demo-killed": false, "tracereports-demo-kept": true, "tracereports-demo-recent": false}
+	for name, kept := range dirs {
+		d := filepath.Join(tmp, name)
+		if err := os.Mkdir(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if kept {
+			os.WriteFile(filepath.Join(d, demoKept), nil, 0o644)
+		}
+		if name != "tracereports-demo-recent" {
+			os.Chtimes(d, old, old)
+		}
+	}
+	cleanOldDemos()
+	for name, want := range map[string]bool{"tracereports-demo-killed": false, "tracereports-demo-kept": true, "tracereports-demo-recent": true} {
+		_, err := os.Stat(filepath.Join(tmp, name))
+		if got := err == nil; got != want {
+			t.Errorf("%s exists = %v, want %v", name, got, want)
+		}
 	}
 }

@@ -178,11 +178,17 @@ type demoOptions struct {
 	ready          func(base, shop string, sum *demo.Summary) // tests: avisa cuando está lista
 }
 
+// demoKept marks the data of a demo started with -keep: cleanOldDemos leaves it alone.
+const demoKept = "KEPT"
+
 // cleanOldDemos removes the data of demos stopped without Ctrl+C (closed terminal, killed
-// process). One still running keeps its database open and is left alone.
+// process). One still running keeps its database open and is left alone, and so is one kept.
 func cleanOldDemos() {
 	old, _ := filepath.Glob(filepath.Join(os.TempDir(), "tracereports-demo-*"))
 	for _, d := range old {
+		if _, err := os.Stat(filepath.Join(d, demoKept)); err == nil {
+			continue
+		}
 		if fi, err := os.Stat(d); err == nil && fi.IsDir() && time.Since(fi.ModTime()) > 12*time.Hour {
 			_ = os.RemoveAll(d)
 		}
@@ -195,7 +201,9 @@ func demoMain(ctx context.Context, o demoOptions) error {
 	if err != nil {
 		return err
 	}
-	if !o.keep {
+	if o.keep {
+		_ = os.WriteFile(filepath.Join(dir, demoKept), []byte("tracereports demo -keep: delete this folder to discard the data\n"), 0o644)
+	} else {
 		defer os.RemoveAll(dir)
 	}
 	port, err := freePort(o.port, 8080)

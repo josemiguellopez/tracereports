@@ -33,6 +33,7 @@ func (v verifier) get(path string, out any) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	authorize(v.ctx, req)
 	res, err := v.client.Do(req)
 	if err != nil {
 		return 0, err
@@ -252,6 +253,7 @@ func (v verifier) lab(conns []db.NetConn) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	authorize(v.ctx, req)
 	res, err := v.client.Do(req)
 	if err != nil {
 		return "", err

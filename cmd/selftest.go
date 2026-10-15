@@ -25,7 +25,7 @@ var errSelftest = errors.New("selftest failed")
 
 func runSelftest(args []string) error {
 	fs := flag.NewFlagSet("selftest", flag.ContinueOnError)
-	target := fs.String("url", "", "TraceReports to test (default: a temporary one on this machine)")
+	target := fs.String("url", "", "TraceReports to test (default: a temporary one on this machine; TRACEREPORTS_TOKEN if it is protected)")
 	only := fs.String("only", "", "scenario ids separated by commas (default: all)")
 	list := fs.Bool("list", false, "list the scenarios and exit")
 	fs.Usage = func() {
@@ -43,12 +43,16 @@ func runSelftest(args []string) error {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	return selftest(ctx, selftestOptions{url: *target, only: *only, out: os.Stdout})
+	o := selftestOptions{url: *target, only: *only, out: os.Stdout}
+	if o.url != "" {
+		o.token = os.Getenv("TRACEREPORTS_TOKEN") // un servidor protegido
+	}
+	return selftest(ctx, o)
 }
 
 type selftestOptions struct {
-	url, only string
-	out       io.Writer
+	url, only, token string
+	out              io.Writer
 }
 
 func selftest(ctx context.Context, o selftestOptions) error {
@@ -85,6 +89,7 @@ func selftest(ctx context.Context, o selftestOptions) error {
 			return fmt.Errorf("start a temporary TraceReports: %w", err)
 		}
 	}
+	ctx = demo.WithToken(ctx, o.token)
 	shop := demo.NewShop()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

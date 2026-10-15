@@ -65,6 +65,23 @@ func PlayLogged(ctx context.Context, base, shopURL string, sc Scenario, now time
 	return res.Runs[0], nil
 }
 
+type tokenKey struct{}
+
+// WithToken makes the plays and checks run with ctx send token (the TRACEREPORTS_TOKEN of a
+// protected server) to TraceReports. The shop never gets it.
+func WithToken(ctx context.Context, token string) context.Context {
+	if token == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, tokenKey{}, token)
+}
+
+func authorize(ctx context.Context, r *http.Request) {
+	if tok, _ := ctx.Value(tokenKey{}).(string); tok != "" {
+		r.Header.Set("Authorization", "Bearer "+tok)
+	}
+}
+
 // ctxDoer cancels the replay with ctx and tells log each request.
 type ctxDoer struct {
 	ctx context.Context
@@ -73,6 +90,7 @@ type ctxDoer struct {
 }
 
 func (d ctxDoer) Do(r *http.Request) (*http.Response, error) {
+	authorize(d.ctx, r)
 	start := time.Now()
 	res, err := d.c.Do(r.WithContext(d.ctx))
 	if d.log != nil {
