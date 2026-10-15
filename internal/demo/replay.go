@@ -25,9 +25,23 @@ import (
 // the times move to now; each play is a new run (a fresh recording id), so a scenario can be
 // played again and again.
 func Play(ctx context.Context, base, shopURL string, sc Scenario, now time.Time) (int64, error) {
+	return PlayLogged(ctx, base, shopURL, sc, now, nil)
+}
+
+// Sent is one request a play made to TraceReports (what the client sent).
+type Sent struct {
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Status int    `json:"status"`
+	Ms     int64  `json:"ms"`
+	Error  string `json:"error,omitempty"`
+}
+
+// PlayLogged is Play, telling log each request it sends.
+func PlayLogged(ctx context.Context, base, shopURL string, sc Scenario, now time.Time, log func(Sent)) (int64, error) {
 	base = strings.TrimRight(base, "/")
 	if sc.Client == ClientJUnit {
-		return playJUnit(ctx, base, sc, now)
+		return playJUnit(ctx, base, sc, now, log)
 	}
 	dir, err := os.MkdirTemp("", "tracereports-scenario-")
 	if err != nil {
@@ -41,7 +55,7 @@ func Play(ctx context.Context, base, shopURL string, sc Scenario, now time.Time)
 	if err != nil {
 		return 0, err
 	}
-	res, err := rec.Replay(offline.Target{Doer: ctxDoer{ctx, &http.Client{Timeout: 30 * time.Second}}, BaseURL: base})
+	res, err := rec.Replay(offline.Target{Doer: ctxDoer{ctx, &http.Client{Timeout: 30 * time.Second}, log}, BaseURL: base})
 	if err != nil {
 		return 0, err
 	}
@@ -51,13 +65,27 @@ func Play(ctx context.Context, base, shopURL string, sc Scenario, now time.Time)
 	return res.Runs[0], nil
 }
 
-// ctxDoer cancels the replay with ctx.
+// ctxDoer cancels the replay with ctx and tells log each request.
 type ctxDoer struct {
 	ctx context.Context
 	c   *http.Client
+	log func(Sent)
 }
 
-func (d ctxDoer) Do(r *http.Request) (*http.Response, error) { return d.c.Do(r.WithContext(d.ctx)) }
+func (d ctxDoer) Do(r *http.Request) (*http.Response, error) {
+	start := time.Now()
+	res, err := d.c.Do(r.WithContext(d.ctx))
+	if d.log != nil {
+		s := Sent{Method: r.Method, Path: r.URL.RequestURI(), Ms: time.Since(start).Milliseconds()}
+		if err != nil {
+			s.Error = err.Error()
+		} else {
+			s.Status = res.StatusCode
+		}
+		d.log(s)
+	}
+	return res, err
+}
 
 // prepare copies a recording to dir: the shop's origin, the times and the recording id of now.
 func prepare(id, dir, shopURL string, now time.Time) error {
@@ -158,7 +186,7 @@ func shift(v any, delta int64, window [2]int64) any {
 	return v
 }
 
-func playJUnit(ctx context.Context, base string, sc Scenario, now time.Time) (int64, error) {
+func playJUnit(ctx context.Context, base string, sc Scenario, now time.Time, log func(Sent)) (int64, error) {
 	data, err := scenarioFiles.ReadFile(path.Join("scenarios", sc.ID, "junit.xml"))
 	if err != nil {
 		return 0, fmt.Errorf("scenario %s: not recorded yet", sc.ID)
@@ -170,7 +198,7 @@ func playJUnit(ctx context.Context, base string, sc Scenario, now time.Time) (in
 		return 0, err
 	}
 	req.Header.Set("Content-Type", "application/xml")
-	res, err := http.DefaultClient.Do(req)
+	res, err := ctxDoer{ctx, http.DefaultClient, log}.Do(req)
 	if err != nil {
 		return 0, err
 	}

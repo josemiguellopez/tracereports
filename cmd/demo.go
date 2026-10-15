@@ -121,8 +121,8 @@ func demoGuide(w io.Writer, base, shopURL string, sum *demo.Summary, dir string,
 	fmt.Fprintf(w, `
   TraceReports demo · sample data ready (%d runs, %d tests, %d failed)
 
-  ▸ Report:     %s
-  ▸ Demo shop:  %s   (the backend the tests ran against)
+  ▸ Report:      %s
+  ▸ Playground:  %s   (run each client's scenarios, break or fix the shop backend)
 
   A team tests the shop from Python (Playwright and an API suite with requests), JavaScript
   (Playwright), Java (Selenium + JUnit 5), Go and a Maven JUnit XML import. Tonight the orders
@@ -132,7 +132,7 @@ func demoGuide(w io.Writer, base, shopURL string, sum *demo.Summary, dir string,
       steps, screenshots, network (password and token masked), console and the command to run it.
    2. "test_add_to_cart" failed because a selector changed: TraceReports suggests the new one.
    3. Network tab → the POST /api/orders 500 → Lab → password %q → Send: "Reproduced".
-   4. In the demo shop press "Fix the backend", send again: "No longer fails".
+   4. In the playground switch the orders backend to working, send again: "No longer fails".
       Save as a check, then on the incident (AI view) press Verify: "Verified: fixed".
    5. Search, Metrics and Release: %d nights of history, flaky tests and failures already fixed.
    6. In a terminal: tracereports repro / verify with the command the Lab copies, or
@@ -212,7 +212,11 @@ func demoMain(ctx context.Context, o demoOptions) error {
 	if err != nil {
 		return fmt.Errorf("demo shop: %w (choose another one with -shop-port)", err)
 	}
-	shopSrv := &http.Server{Handler: demo.NewShop(), ReadHeaderTimeout: 10 * time.Second}
+	base := fmt.Sprintf("http://localhost:%d", port)
+	shopURL := fmt.Sprintf("http://localhost:%d", shopPort)
+	// la tienda y, en su página principal, el playground de escenarios
+	pg := &demo.Playground{Shop: demo.NewShop(), Base: fmt.Sprintf("http://127.0.0.1:%d", port), Public: base, ShopURL: shopURL}
+	shopSrv := &http.Server{Handler: pg, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = shopSrv.Serve(shopLn) }()
 	defer shopSrv.Close()
 
@@ -220,8 +224,6 @@ func demoMain(ctx context.Context, o demoOptions) error {
 	defer stop()
 	errCh := make(chan error, 1)
 	go func() { errCh <- runServer(srvCtx) }()
-	base := fmt.Sprintf("http://localhost:%d", port)
-	shopURL := fmt.Sprintf("http://localhost:%d", shopPort)
 	if err := waitReady(fmt.Sprintf("http://127.0.0.1:%d", port), errCh, 60*time.Second); err != nil {
 		return fmt.Errorf("start the report on port %d: %w (choose another one with -port)", port, err)
 	}

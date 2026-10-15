@@ -85,8 +85,20 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 	page, _ := io.ReadAll(res.Body)
 	res.Body.Close()
-	if !strings.Contains(string(page), "Demo Shop") {
-		t.Fatalf("shop page: %s", page)
+	if !strings.Contains(string(page), "TraceReports Playground") {
+		t.Fatalf("playground page: %s", page)
+	}
+	res, err = http.Get(urls[1] + "/__scenarios")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var cat struct {
+		Scenarios []struct{ ID, TitleES string } `json:"scenarios"`
+	}
+	_ = json.NewDecoder(res.Body).Decode(&cat)
+	res.Body.Close()
+	if len(cat.Scenarios) != 13 {
+		t.Fatalf("playground scenarios: %d", len(cat.Scenarios))
 	}
 	for _, want := range []string{"sample data ready", "Lab", `password "demo"`, "Ctrl+C"} {
 		if !strings.Contains(out.String(), want) {
