@@ -9,11 +9,13 @@ All notable changes to TraceReports. The format follows
 ### Added
 
 **Try it in a minute**
-- `tracereports demo`: the server with sample data (Python, JavaScript, Java and Go suites, a REST API suite and a
-  JUnit XML import, 12 nights of history) and a demo shop whose backend you can break and fix to try the Lab.
-  Temporary, only on this machine and isolated from your configuration.
+- `tracereports demo`: the server with runs recorded with the real clients (pytest + Playwright, Playwright Test,
+  Selenium + JUnit 5, `go test`, REST and a JUnit XML import; 12 nights of history plus tonight's suites) and a demo
+  shop whose page is a **playground**: break or fix its backend to try the Lab, and send any scenario or all of them,
+  with the requests sent, the checks and a link to the run. Temporary, only on this machine and isolated from your
+  configuration.
 - `TRACEREPORTS_BIND` chooses the address to listen on (`127.0.0.1` = only this machine).
-- `tracereports selftest`: plays 13 scenarios recorded with the real clients (pytest + Playwright, Playwright Test,
+- `tracereports selftest`: plays the scenarios recorded with the real clients (pytest + Playwright, Playwright Test,
   Selenium + JUnit 5, `go test`, REST, JUnit XML) against a temporary server or `-url`, and checks what TraceReports
   shows (statuses, incidents, masking, screenshots, suggested selectors, flaky tests, local commands, the Lab).
   Exit code 1 on a failed expectation. The same check runs in CI (`go test ./internal/demo`).
@@ -45,6 +47,12 @@ All notable changes to TraceReports. The format follows
   actions; on a shared server only the hosts the test called and `TRACEREPORTS_LAB_HOSTS`;
   link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it. Typed values are never
   stored and the answer is masked before it is shown. Design: [docs/rfc/fixlab.md](docs/rfc/fixlab.md).
+
+### Fixed
+
+- A failure whose element never showed up because the backend failed right before (no answer, 5xx, 408, 429) is no
+  longer diagnosed as a broken selector: no misleading suggestions, neither on the screen nor in the AI prompt.
+- The broken selector is the one Playwright was waiting for, not an earlier getter the traceback quotes.
 
 ## [0.2.0] - 2026-10-09
 

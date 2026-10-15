@@ -49,11 +49,16 @@ server after changing files in `web/`.
 tracereports demo        # from the repository: go run ./cmd demo
 ```
 
-It starts TraceReports with a temporary database and opens it in the browser: a team that tests a shop from
-Python (Playwright and an API suite), JavaScript (Playwright), Java (Selenium + JUnit 5), Go and a Maven JUnit
-XML import, with 12 nights of history, failures grouped into incidents, a broken selector, a flaky test, network
-and screenshots. It also starts a **demo shop** (its page has a button to break or fix the backend) so you can
-try the Lab end to end: resend the failed `POST /api/orders` (password `demo`), fix the shop, verify.
+It starts TraceReports with a temporary database and opens it in the browser: a team that tests a shop with
+pytest + Playwright, Playwright Test (JS), Selenium + JUnit 5 (Java), `go test`, the REST API and a Maven JUnit XML
+import. Every run is a **real recording** of those clients ([test/scenarios](../../test/scenarios/README.md)): 12
+nights of history and tonight, when the orders backend broke, with failures grouped into incidents, a changed
+selector, a flaky test, the browser's network, console and screenshots.
+
+It also starts the **demo shop**, whose page is the **playground**: switches to break or fix its backend, and every
+scenario of every client to send one by one (it shows the requests it sent, what it checked and a link to the run)
+or all of them with their checks, like `tracereports selftest`. With it you can try the Lab end to end: resend the
+failed `POST /api/orders` (password `demo`), fix the backend, verify.
 
 - Only on this machine (`127.0.0.1`) and isolated from your configuration: no tokens, Teams/Slack, tickets nor
   `.env`. The AI is off unless you pass `-ai` (it uses the provider of your environment and spends tokens).
@@ -67,7 +72,7 @@ tracereports selftest                          # a temporary server on this mach
 tracereports selftest -url https://tracereports.acme.com   # a deployed one (it leaves the scenario runs there)
 ```
 
-It plays 13 scenarios **recorded with the real clients** (pytest + Playwright, Playwright Test, Selenium + JUnit 5,
+It plays the scenarios **recorded with the real clients** (pytest + Playwright, Playwright Test, Selenium + JUnit 5,
 `go test`, the REST API and a JUnit XML import), passing and failing, against the demo shop, and checks what
 TraceReports shows: the statuses, the incident, the network, that the password arrives masked, the screenshots, the
 suggested selector, the flaky test, the command to run each test and that the Lab reproduces the backend failure.

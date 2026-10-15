@@ -49,12 +49,16 @@ cambias archivos de `web/` tienes que reiniciar el servidor.
 tracereports demo        # desde el repositorio: go run ./cmd demo
 ```
 
-Levanta TraceReports con una base temporal y lo abre en el navegador: un equipo que prueba una tienda desde
-Python (Playwright y una suite de API), JavaScript (Playwright), Java (Selenium + JUnit 5), Go y una importación
-de JUnit XML de Maven, con 12 noches de historia, fallos agrupados en incidentes, un selector roto, un test
-inestable, red y capturas. También levanta una **tienda de prueba** (su página tiene un botón para romper o
-arreglar el backend) para probar el Lab de punta a punta: reenviar el `POST /api/orders` que falló (contraseña
-`demo`), arreglar la tienda, verificar.
+Levanta TraceReports con una base temporal y lo abre en el navegador: un equipo que prueba una tienda con
+pytest + Playwright, Playwright Test (JS), Selenium + JUnit 5 (Java), `go test`, la API REST y una importación de JUnit
+XML de Maven. Cada ejecución es una **grabación real** de esos clientes ([test/scenarios](../../test/scenarios/README.md)):
+12 noches de historia y esta noche, cuando se cayó el backend de pedidos, con fallos agrupados en incidentes, un
+selector que cambió, un test inestable, y la red, la consola y las capturas del navegador.
+
+También levanta la **tienda de prueba**, cuya página es el **playground**: interruptores para romper o arreglar su
+backend, y cada escenario de cada cliente para enviarlo uno a uno (muestra las peticiones que envió, lo que comprobó
+y el link a la ejecución) o todos con sus comprobaciones, como `tracereports selftest`. Con él puedes probar el Lab de
+punta a punta: reenviar el `POST /api/orders` que falló (contraseña `demo`), arreglar el backend, verificar.
 
 - Solo en este equipo (`127.0.0.1`) y aislado de tu configuración: sin tokens, Teams/Slack, tickets ni `.env`.
   La IA está apagada salvo con `-ai` (usa el proveedor de tu entorno y gasta tokens).
@@ -68,7 +72,7 @@ tracereports selftest                          # un servidor temporal en este eq
 tracereports selftest -url https://tracereports.acme.com   # uno desplegado (deja ahí las ejecuciones de los escenarios)
 ```
 
-Reproduce 13 escenarios **grabados con los clientes reales** (pytest + Playwright, Playwright Test, Selenium +
+Reproduce los escenarios **grabados con los clientes reales** (pytest + Playwright, Playwright Test, Selenium +
 JUnit 5, `go test`, la API REST y una importación de JUnit XML), que pasan y que fallan, contra la tienda de la
 demo, y comprueba lo que muestra TraceReports: los estados, el incidente, la red, que la contraseña llegue
 enmascarada, las capturas, el selector sugerido, el test inestable, el comando para correr cada test y que el

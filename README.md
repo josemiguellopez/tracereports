@@ -41,9 +41,10 @@ pytest --tracereports                      # that's it, no code changes
 
 👉 **[Try the live demo](https://tracereports.netlify.app/demo/)**: a real report you can click around, no install needed.
 
-👉 **Or run it on your machine in a minute**: `tracereports demo` starts the server with sample data from Python,
-JavaScript, Java and Go suites, plus a demo shop whose backend you can break and fix to try the **Lab**
-(resend a failed call, verify the fix). Nothing else to install; the data is temporary and stays on your PC.
+👉 **Or run it on your machine in a minute**: `tracereports demo` starts the server with real runs recorded with the
+pytest + Playwright, Playwright Test, Selenium + JUnit 5 and Go clients, plus a demo shop whose backend you can break
+and fix to try the **Lab** (resend a failed call, verify the fix) and a **playground** that sends each client's
+scenarios and checks what TraceReports shows. Nothing else to install; the data is temporary and stays on your PC.
 
 Not using pytest? TraceReports works the same with **Playwright Test**, **Selenium**, **JUnit 5**, **Go** or any
 language over the **REST API**: [pick your language](#2-run-an-example-in-your-language).
