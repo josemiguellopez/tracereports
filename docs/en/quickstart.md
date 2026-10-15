@@ -33,7 +33,7 @@ go build -o tracereports ./cmd        # Windows: go build -o tracereports.exe ./
 This builds the `tracereports` binary once (about a minute). On Windows run it as
 `.\tracereports.exe` instead of `./tracereports`.
 
-> `tracereports demo` ships in the releases after 0.2.0. With a downloaded binary, skip the build.
+> `tracereports demo` ships with the binaries since 0.3.0. With a downloaded binary, skip the build.
 
 ## 2. Optional: AI diagnosis
 
