@@ -26,6 +26,7 @@ const (
 var Bugs = []struct{ Key, Title, Effect string }{
 	{"orders", "Orders: connection pool exhausted", "POST /api/orders answers 500"},
 	{"slow", "Products: slow database", "GET /api/products takes 3 s"},
+	{"flaky", "Recommendations: flaky cache", "GET /api/recommendations fails every other call (503)"},
 }
 
 // Shop is the demo backend.
@@ -34,11 +35,20 @@ type Shop struct {
 	bugs   map[string]bool
 	tokens map[string]bool
 	orders int
+	recos  int // llamadas a /api/recommendations (el bug "flaky" falla las impares)
 }
 
 // NewShop returns the shop with the orders bug on.
 func NewShop() *Shop {
 	return &Shop{bugs: map[string]bool{"orders": true}, tokens: map[string]bool{}, orders: 1000}
+}
+
+// Reset puts the shop back as it starts: the orders bug on, the rest off, counters at zero.
+func (s *Shop) Reset() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.bugs = map[string]bool{"orders": true}
+	s.recos = 0
 }
 
 // SetBug switches a bug on or off.
@@ -77,9 +87,15 @@ func (s *Shop) authorized(r *http.Request) bool {
 // ServeHTTP serves the shop API and its control page.
 func (s *Shop) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Server", "demo-shop")
+	if s.store(w, r) {
+		return
+	}
 	switch {
 	case r.URL.Path == "/" && r.Method == http.MethodGet:
 		s.page(w)
+	case r.URL.Path == "/__reset" && r.Method == http.MethodPost:
+		s.Reset()
+		writeJSON(w, http.StatusOK, map[string]bool{"reset": true})
 	case r.URL.Path == "/__bug" && r.Method == http.MethodPost:
 		_ = r.ParseForm()
 		key := r.PostForm.Get("key")
@@ -126,6 +142,16 @@ func (s *Shop) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id := s.orders
 		s.mu.Unlock()
 		writeJSON(w, http.StatusCreated, map[string]any{"id": fmt.Sprintf("ORD-%d", id), "status": "confirmed"})
+	case r.URL.Path == "/api/recommendations":
+		s.mu.Lock()
+		s.recos++
+		fail := s.bugs["flaky"] && s.recos%2 == 1
+		s.mu.Unlock()
+		if fail {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "recommendations cache warming up"})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"items": []string{"Insulated bottle", "Trail socks", "Running cap"}})
 	case r.URL.Path == "/api/health":
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	default:
