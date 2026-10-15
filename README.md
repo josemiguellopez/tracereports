@@ -45,6 +45,7 @@ pytest --tracereports                      # that's it, no code changes
 pytest + Playwright, Playwright Test, Selenium + JUnit 5 and Go clients, plus a demo shop whose backend you can break
 and fix to try the **Lab** (resend a failed call, verify the fix) and a **playground** that sends each client's
 scenarios and checks what TraceReports shows. Nothing else to install; the data is temporary and stays on your PC.
+See the [demo guide](docs/en/demo.md).
 
 Not using pytest? TraceReports works the same with **Playwright Test**, **Selenium**, **JUnit 5**, **Go** or any
 language over the **REST API**: [pick your language](#2-run-an-example-in-your-language).
@@ -150,6 +151,14 @@ The AI cause is always shown as a hypothesis, next to the evidence it relies on.
     </td>
   </tr>
 </table>
+
+### 🧪 FixLab: does it still fail?
+
+**Open in Lab** on a failed call or a backend incident resends the real request with a fresh session (it repeats
+the recorded login; you only type the password) and tells you whether the failure is **reproduced** or **no longer
+fails**. Save it as a check and **Verify** the incident once the backend is fixed; export it to Postman, Bruno or
+`.http`; run it from your terminal or CI with `tracereports repro` / `verify`, or let Claude Code do it with
+`tracereports mcp`. See the [FixLab guide](docs/en/fixlab.md).
 
 And also:
 
@@ -378,6 +387,8 @@ its screenshot, network calls and diagnosis.
 
 - [Full feature tour](README.en.md)
 - [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md)
+- [Demo, playground and selftest](docs/en/demo.md): try it in a minute and check a deployment
+- [FixLab](docs/en/fixlab.md): reproduce a failure and verify the fix, from the report, the terminal, CI or an AI agent
 - [Python](docs/en/python.md) · [JavaScript](docs/en/javascript.md) · [Java](docs/en/java.md) · [Go](docs/en/go.md) · [REST API](docs/en/api.md)
 - [Continuous integration](docs/en/ci.md) · [Without a server: record, report and upload later](docs/en/offline.md)
 - [Local report on your PC](docs/en/local-report.md): the same report on the server and on your PC, step by step

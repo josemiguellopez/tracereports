@@ -41,7 +41,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
-| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [Reenviar en el Lab](#para-quien-corrige-reproducir-y-comparar) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [FixLab](fixlab.md#seguridad) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. Cuenta un diagnóstico por **resultado** de cada test: reenviar el mismo resultado, un reinicio o un error del proveedor no gastan otro, y un *Re-analizar* manual no cuenta. `0` = sin límite |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
@@ -423,63 +423,14 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   `go test ./<paquete>/... -run '^TestX$'`. Sale de la identidad del test, así que necesita que el
   cliente la reporte (todos lo hacen).
 - **Reenviar en el Lab (FixLab)**: *Abrir en Lab* en una llamada con error (pestaña **Red**) o en un
-  incidente de backend reenvía la llamada para ver si el fallo **sigue ocurriendo**. La evidencia se
-  enmascaró al guardarla, así que el Lab rearma lo que necesita: una sesión nueva repitiendo el
-  login grabado (cookies, o el token de su respuesta JSON como `Bearer`) y los tokens anti-CSRF
-  leídos en vivo de la página donde empieza el flujo; tú solo escribes lo que nadie puede adivinar
-  (la contraseña, una API key). Puedes editar la petición como en Postman y apuntarla a otro entorno
-  (`http://localhost:3000` para probar tu arreglo). El veredicto compara con la ejecución: **se
-  reproduce**, **ya no falla**, **falta sesión** (401/403 o redirección al login), **otro error** o
-  **sin conexión**; si la respuesta original no trae `date` ni `server` avisa que probablemente la
-  fabricó el propio test (un mock o `route.fulfill`).
-  - **Quién y a dónde**: la regla de las acciones de la UI (token de admin, login de la UI o, sin
-    login, solo el mismo equipo del servidor; nunca el token de ingesta). Desde el equipo del
-    servidor puede llamar a cualquier host, como tu terminal; en un servidor compartido solo a los
-    hosts que usó el test y a `TRACEREPORTS_LAB_HOSTS`. Las direcciones link-local (metadatos de la
-    nube, `169.254.169.254`) se bloquean siempre y las redirecciones se muestran, no se siguen.
-    `TRACEREPORTS_LAB=off` lo desactiva.
-  - **Secretos**: los valores que escribes se usan solo en ese envío, nunca se guardan ni van a los
-    logs, y la respuesta pasa por la política de enmascarado antes de mostrarse (un token nuevo no
-    queda a la vista). *Copiar cURL* los deja como `$VARIABLES`.
-  - **Checks y Verificar**: después de un envío, *Guardar como check* conserva la llamada (con lo que
-    hayas editado) y qué respuesta cuenta como buena: el status esperado y textos que debe contener.
-    El incidente muestra entonces **Verificar (n)**: corre sus checks (vuelve a pedir los secretos,
-    que nunca se guardan) y deja el resultado en el incidente, **Verificado: resuelto** o
-    **Verificado: sigue fallando**, con el antes y el después de cada check. Los checks se borran con
-    su ejecución.
-  - **Exportar**: *Postman*, *Bruno* o *.http* descargan la petición (con lo que hayas editado) con
-    sus `{{variables}}` y sin valores. Si hay un login grabado va primero: en Postman un script guarda
-    su token en la variable `token`, en el archivo `.http` (REST Client de VS Code) la llamada lo lee
-    del request con nombre `login`, y en Bruno queda descrito en la documentación de la petición. Las
-    cookies quedan a cargo de la herramienta.
-  - **En tu terminal (cápsula)**: *Descargar cápsula* entrega un JSON con el contexto de la
-    ejecución, el comando que corre el test en local y el plan de cada llamada con sus checks (solo
-    datos enmascarados, como el reporte). *Copiar comando* copia `tracereports repro '<URL de la
-    cápsula>'`: muestra cómo correr el test y reenvía cada llamada desde tu máquina, a cualquier host
-    que alcances (VPN, `localhost`). En *Verificar* del incidente el comando es
-    `tracereports verify '<URL>'`: corre los checks y sale con código **1** si alguno no pasa, así
-    que sirve como paso de CI. Valores: `-var password=…`, `TRACEREPORTS_LAB_<NOMBRE>`
-    (`TRACEREPORTS_LAB_PASSWORD`) o, en una terminal, escritos sin mostrarse; `-base
-    http://localhost:3000` apunta a otro entorno; los flags van antes o después de la cápsula. Para
-    leerla de un servidor con credenciales: `TRACEREPORTS_TOKEN` o `TRACEREPORTS_UI_USER`/`_PASSWORD`,
-    que solo se envían al servidor de `TRACEREPORTS_URL` (una URL de cápsula de otro lado nunca los
-    recibe). Antes de usar un secreto, el comando muestra a dónde se enviará
-    (`password → POST https://…/login`): revísalo cuando la cápsula no sea tuya.
-    API: `GET /api/v1/network/{id}/capsule` y `GET /api/v1/runs/{id}/lab/capsule?incident=<clave>`.
-  - **Para agentes de IA (MCP)**: `tracereports mcp` es un servidor MCP (stdio) para Claude Code o
-    cualquier cliente MCP. Herramientas: `list_runs`, `get_incidents` (incidentes con su evidencia,
-    causa probable, checks y verificación), `get_test` (error, pasos, llamadas fallidas, consola,
-    comando para correrlo), `reproduce` (reenvía una llamada) y `verify_fix` (corre los checks de un
-    incidente, para confirmar un arreglo). Solo lee de TraceReports; reproducir y verificar corren
-    desde tu máquina, y los secretos salen de `TRACEREPORTS_LAB_<NOMBRE>` en el entorno del servidor
-    MCP, así que el agente nunca los ve. Nunca cambia código ni hace merge: eso queda en el agente y
-    en tu revisión. Claude Code:
-    `claude mcp add tracereports -e TRACEREPORTS_URL=http://localhost:8080 -e TRACEREPORTS_LAB_PASSWORD=… -- tracereports mcp`
-    (agrega `TRACEREPORTS_TOKEN` o `TRACEREPORTS_UI_USER`/`_PASSWORD` si el servidor los pide).
-  - No está en el ZIP exportado (no hay servidor desde donde enviar). API:
-    `GET /api/v1/network/{id}/lab` (el plan), `POST /api/v1/ui/lab/send`, `POST /api/v1/ui/lab/checks`,
-    `DELETE /api/v1/ui/lab/checks/{id}`, `POST /api/v1/ui/lab/verify` y `GET /api/v1/runs/{id}/lab`
-    (checks y última verificación de cada incidente). Diseño: [docs/rfc/fixlab.md](../rfc/fixlab.md).
+  incidente de backend reenvía la llamada con una sesión nueva (repite el login grabado y lee los
+  tokens anti-CSRF en vivo; tú solo escribes la contraseña) para ver si el fallo **sigue
+  ocurriendo**: **se reproduce**, **ya no falla**, **falta sesión**, **otro error** o **sin
+  conexión**. Guárdala como **check** y pulsa **Verificar** en el incidente cuando esté arreglado;
+  expórtala a Postman, Bruno o `.http`; llévala a tu terminal o a CI con `tracereports repro` /
+  `verify`, o a Claude Code con `tracereports mcp`. En un servidor compartido solo llama a los hosts
+  que llamó el test y a `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off` lo desactiva. Guía
+  completa: [FixLab](fixlab.md).
 - **Comparar con la última vez que pasó**: en una llamada con error (pestaña **Red**), busca la
   misma llamada (mismo método, host y ruta, con los ids normalizados: `/orders/123` = `/orders/456`)
   en la ejecución más reciente donde el test pasó, del mismo proyecto, ambiente y rama (o, si no

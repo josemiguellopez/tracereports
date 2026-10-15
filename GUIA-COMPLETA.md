@@ -25,6 +25,7 @@ hoy está repartido entre el reporte HTML, los logs del backend y la cabeza del 
 | **Diagnóstico de la ejecución** | Agrupa los fallos por evidencia compartida (la misma llamada de backend fallida justo antes del fallo, o la misma firma de error) y resume en lenguaje claro qué pasó y qué hacer primero. Ningún fallo queda fuera del resumen. |
 | **AI Failure Triage por test** | Categoría, resumen y sugerencia para cada test fallido. Con Gemini (capa gratuita), Claude, OpenAI, cualquier API compatible u **Ollama local**. |
 | **Locators rotos** | Si un selector dejó de funcionar, propone reemplazos robustos (`get_by_role`, `data-testid`…) a partir del DOM al fallar, listos para copiar y marcados sobre la captura. |
+| **FixLab** | *Abrir en Lab* reenvía una llamada fallida con una sesión nueva y dice si el fallo se reproduce o ya no ocurre. Checks, *Verificar* en el incidente, exportar a Postman/Bruno/.http, `tracereports repro` / `verify` para la terminal y CI, y un servidor MCP para agentes de IA. Ver [FixLab](docs/es/fixlab.md). |
 | **Replay** | Reproduce el test paso a paso con sus capturas: play/pausa, 1x/2x y teclado. |
 | **Pestaña Red** | Llamadas HTTP que hizo el navegador en cada test: OK / error, filtros, JSON resaltado, vista previa HTML, cURL. Las respuestas negativas esperadas (un 401 verificado a propósito) se marcan y no cuentan como error. |
 | **Timeline** | Pasos, capturas y llamadas de red en una sola línea de tiempo, con cascada de duraciones. |
@@ -74,7 +75,8 @@ docker compose up -d          # con Docker
 go run ./cmd                  # con Go 1.26+
 ```
 
-Abre <http://localhost:8080>.
+Abre <http://localhost:8080>. ¿Solo quieres mirar? `tracereports demo` (`go run ./cmd demo`) lo levanta con datos de
+ejemplo grabados con todos los clientes y una tienda de prueba para probar FixLab: ver la [guía de la demo](docs/es/demo.md).
 
 **2. Reporta tus tests.** Con pytest no cambias código:
 
@@ -128,6 +130,8 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 - [Instalación](docs/es/installation.md): binario, Docker, primer uso.
 - [Docker](docs/es/docker.md): uso diario, datos, backup y despliegue en un servidor con HTTPS.
 - [Configuración](docs/es/configuration.md): variables de entorno, seguridad, IA, idioma, Teams/Slack.
+- [Demo, playground y selftest](docs/es/demo.md): datos de ejemplo, la tienda de prueba y comprobar un despliegue.
+- [FixLab](docs/es/fixlab.md): reproducir un fallo, guardar checks, verificar el arreglo; cápsula, CLI y MCP.
 - [Cliente Python y plugin de pytest](docs/es/python.md)
 - [Cliente JavaScript/TypeScript: Playwright Test y Selenium](docs/es/javascript.md)
 - [Cliente Java: JUnit 5, Selenium y Playwright](docs/es/java.md)
@@ -141,7 +145,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 ## Estructura
 
 ```
-cmd/                 servidor y CLI (report, push, pr-comment, secrets)
+cmd/                 servidor y CLI (report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest)
 internal/api         API REST, autenticación, ajustes, exportación ZIP
 internal/db          SQLite: ejecuciones, tests, pasos, red, historial, métricas, ajustes, uso de la IA
 internal/ai          diagnóstico y escalamiento con IA (Gemini, Claude, OpenAI, compatibles, Ollama)
@@ -155,6 +159,9 @@ internal/correlate   ids de traza y de request, links a los logs del backend
 internal/release     decisión de salida (vista Release)
 internal/owners      dueños de los tests (reglas al estilo CODEOWNERS)
 internal/repro       comando para repetir un test en local
+internal/lab         FixLab: plan, reenvío con sesión nueva, checks y cápsulas
+internal/mcp         servidor MCP (stdio) para agentes de IA
+internal/demo        tienda de prueba, playground y los escenarios grabados con los clientes reales
 internal/secret      cifrado de las credenciales guardadas desde Ajustes
 internal/locator     recomendación de selectores cuando se rompe un locator
 internal/live        eventos en vivo (Server-Sent Events)
@@ -165,6 +172,8 @@ client/js            cliente JavaScript/TypeScript + reporter de Playwright Test
 client/java          cliente Java + extensión de JUnit 5
 client/go            cliente Go
 examples/            ejemplos ejecutables
+test/e2e             pruebas end-to-end de la interfaz (Playwright)
+test/scenarios       los tests que graban los escenarios, uno por cliente
 docs/es, docs/en     documentación en español e inglés
 ```
 

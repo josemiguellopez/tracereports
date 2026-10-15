@@ -49,36 +49,22 @@ cambias archivos de `web/` tienes que reiniciar el servidor.
 tracereports demo        # desde el repositorio: go run ./cmd demo
 ```
 
-Levanta TraceReports con una base temporal y lo abre en el navegador: un equipo que prueba una tienda con
-pytest + Playwright, Playwright Test (JS), Selenium + JUnit 5 (Java), `go test`, la API REST y una importación de JUnit
-XML de Maven. Cada ejecución es una **grabación real** de esos clientes ([test/scenarios](../../test/scenarios/README.md)):
-12 noches de historia y esta noche, cuando se cayó el backend de pedidos, con fallos agrupados en incidentes, un
-selector que cambió, un test inestable, y la red, la consola y las capturas del navegador.
-
-También levanta la **tienda de prueba**, cuya página es el **playground**: interruptores para romper o arreglar su
-backend, y cada escenario de cada cliente para enviarlo uno a uno (muestra las peticiones que envió, lo que comprobó
-y el link a la ejecución) o todos con sus comprobaciones, como `tracereports selftest`. Con él puedes probar el Lab de
-punta a punta: reenviar el `POST /api/orders` que falló (contraseña `demo`), arreglar el backend, verificar.
-
-- Solo en este equipo (`127.0.0.1`) y aislado de tu configuración: sin tokens, Teams/Slack, tickets ni `.env`.
-  La IA está apagada salvo con `-ai` (usa el proveedor de tu entorno y gasta tokens).
-- Los datos se borran al detenerlo con Ctrl+C; `-keep` los conserva. `-port` y `-shop-port` eligen los puertos
-  (por defecto los primeros libres desde 8080 y 8180); `-no-open` no abre el navegador.
+Levanta TraceReports con ejecuciones reales grabadas con todos los clientes (pytest + Playwright, Playwright Test,
+Selenium + JUnit 5, `go test`, REST y una importación de JUnit XML) y una tienda de prueba cuyo backend puedes romper
+y arreglar para probar [FixLab](fixlab.md). Su página es un **playground** que envía los escenarios de cada cliente y
+comprueba lo que muestra TraceReports. Solo en este equipo, aislada de tu configuración y se borra al detenerla.
+Guía: [Demo, playground y selftest](demo.md).
 
 ## Comprobar que funciona: `tracereports selftest`
 
 ```bash
-tracereports selftest                          # un servidor temporal en este equipo
-tracereports selftest -url https://tracereports.acme.com   # uno desplegado (deja ahí las ejecuciones de los escenarios)
+tracereports selftest                                       # un servidor temporal en este equipo
+tracereports selftest -url https://tracereports.acme.com    # uno desplegado (TRACEREPORTS_TOKEN si está protegido)
 ```
 
-Reproduce los escenarios **grabados con los clientes reales** (pytest + Playwright, Playwright Test, Selenium +
-JUnit 5, `go test`, la API REST y una importación de JUnit XML), que pasan y que fallan, contra la tienda de la
-demo, y comprueba lo que muestra TraceReports: los estados, el incidente, la red, que la contraseña llegue
-enmascarada, las capturas, el selector sugerido, el test inestable, el comando para correr cada test y que el
-Lab reproduzca el fallo del backend. Sale con código 1 si una expectativa no se cumple, así que sirve después de
-una actualización o como paso de CI. `-list` muestra los escenarios y `-only` corre algunos. Cómo se graban:
-[test/scenarios](../../test/scenarios/README.md).
+Reproduce los escenarios grabados con los clientes reales y comprueba lo que muestra TraceReports; sale con código 1
+si una expectativa no se cumple, así que sirve después de actualizar o como paso de CI. Ver
+[selftest](demo.md#tracereports-selftest).
 
 ## Primer uso
 

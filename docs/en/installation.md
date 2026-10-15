@@ -49,35 +49,21 @@ server after changing files in `web/`.
 tracereports demo        # from the repository: go run ./cmd demo
 ```
 
-It starts TraceReports with a temporary database and opens it in the browser: a team that tests a shop with
-pytest + Playwright, Playwright Test (JS), Selenium + JUnit 5 (Java), `go test`, the REST API and a Maven JUnit XML
-import. Every run is a **real recording** of those clients ([test/scenarios](../../test/scenarios/README.md)): 12
-nights of history and tonight, when the orders backend broke, with failures grouped into incidents, a changed
-selector, a flaky test, the browser's network, console and screenshots.
-
-It also starts the **demo shop**, whose page is the **playground**: switches to break or fix its backend, and every
-scenario of every client to send one by one (it shows the requests it sent, what it checked and a link to the run)
-or all of them with their checks, like `tracereports selftest`. With it you can try the Lab end to end: resend the
-failed `POST /api/orders` (password `demo`), fix the backend, verify.
-
-- Only on this machine (`127.0.0.1`) and isolated from your configuration: no tokens, Teams/Slack, tickets nor
-  `.env`. The AI is off unless you pass `-ai` (it uses the provider of your environment and spends tokens).
-- The data is deleted when you stop it with Ctrl+C; `-keep` keeps it. `-port` and `-shop-port` choose the ports
-  (by default the first free ones from 8080 and 8180); `-no-open` does not open the browser.
+It starts TraceReports with real runs recorded with every client (pytest + Playwright, Playwright Test, Selenium +
+JUnit 5, `go test`, REST and a JUnit XML import) and a demo shop whose backend you can break and fix to try
+[FixLab](fixlab.md). Its page is a **playground** that sends each client's scenarios and checks what TraceReports
+shows. Only on this machine, isolated from your configuration, and deleted when you stop it. Guide:
+[Demo, playground and selftest](demo.md).
 
 ## Check that it works: `tracereports selftest`
 
 ```bash
-tracereports selftest                          # a temporary server on this machine
-tracereports selftest -url https://tracereports.acme.com   # a deployed one (it leaves the scenario runs there)
+tracereports selftest                                       # a temporary server on this machine
+tracereports selftest -url https://tracereports.acme.com    # a deployed one (TRACEREPORTS_TOKEN if protected)
 ```
 
-It plays the scenarios **recorded with the real clients** (pytest + Playwright, Playwright Test, Selenium + JUnit 5,
-`go test`, the REST API and a JUnit XML import), passing and failing, against the demo shop, and checks what
-TraceReports shows: the statuses, the incident, the network, that the password arrives masked, the screenshots, the
-suggested selector, the flaky test, the command to run each test and that the Lab reproduces the backend failure.
-It exits with code 1 when an expectation fails, so it works after an upgrade or as a CI step. `-list` shows the
-scenarios and `-only` runs some of them. How they are recorded: [test/scenarios](../../test/scenarios/README.md).
+It plays the scenarios recorded with the real clients and checks what TraceReports shows; exit code 1 when an
+expectation fails, so it works after an upgrade or as a CI step. See [selftest](demo.md#tracereports-selftest).
 
 ## First run
 

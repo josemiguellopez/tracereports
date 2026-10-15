@@ -1,1 +1,1 @@
-Grabaciones de los escenarios: go run ./test/scenarios/record (ver test/scenarios/README.md).
+Recordings of the scenarios: go run ./test/scenarios/record (see test/scenarios/README.md).

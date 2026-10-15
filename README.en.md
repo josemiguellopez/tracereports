@@ -25,6 +25,7 @@ is scattered across the HTML report, the backend logs and the QA engineer's head
 | **Run diagnosis** | Groups failures by shared evidence (the same failed backend call right before the failure, or the same error signature) and explains in plain language what happened and what to do first. No failure is left out of the summary. |
 | **Per-test AI Failure Triage** | Category, summary and suggestion for every failed test. With Gemini (free tier), Claude, OpenAI, any compatible API or a **local Ollama**. |
 | **Broken locators** | When a selector stops working, suggests robust replacements (`get_by_role`, `data-testid`…) from the DOM at the moment of failure, ready to copy and highlighted on the screenshot. |
+| **FixLab** | *Open in Lab* resends a failed call with a fresh session and tells whether the failure is reproduced or no longer happens. Checks, *Verify* on the incident, export to Postman/Bruno/.http, `tracereports repro` / `verify` for the terminal and CI, and an MCP server for AI agents. See [FixLab](docs/en/fixlab.md). |
 | **Replay** | Plays the test back step by step with its screenshots: play/pause, 1x/2x and keyboard. |
 | **Network tab** | The HTTP calls the browser made in each test: OK / error, filters, highlighted JSON, HTML preview, cURL. Expected negative responses (a 401 checked on purpose) are marked and not counted as errors. |
 | **Timeline** | Steps, screenshots and network calls on a single timeline, with a duration waterfall. |
@@ -74,7 +75,8 @@ docker compose up -d          # with Docker
 go run ./cmd                  # with Go 1.26+
 ```
 
-Open <http://localhost:8080>.
+Open <http://localhost:8080>. Just looking? `tracereports demo` (`go run ./cmd demo`) starts it with sample data
+recorded with every client and a demo shop to try FixLab: see the [demo guide](docs/en/demo.md).
 
 **2. Report your tests.** With pytest there are no code changes:
 
@@ -130,6 +132,8 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [Installation](docs/en/installation.md): binary, Docker, first run.
 - [Docker](docs/en/docker.md): day to day, data, backup and deploying on a server with HTTPS.
 - [Configuration](docs/en/configuration.md): environment variables, security, AI, language, Teams/Slack.
+- [Demo, playground and selftest](docs/en/demo.md): sample data, the demo shop and checking a deployment.
+- [FixLab](docs/en/fixlab.md): reproduce a failure, save checks, verify the fix; capsule, CLI and MCP.
 - [Python client and pytest plugin](docs/en/python.md)
 - [JavaScript/TypeScript client: Playwright Test and Selenium](docs/en/javascript.md)
 - [Java client: JUnit 5, Selenium and Playwright](docs/en/java.md)
@@ -143,7 +147,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 ## Structure
 
 ```
-cmd/                 server and CLI (report, push, pr-comment, secrets)
+cmd/                 server and CLI (report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest)
 internal/api         REST API, authentication, settings, ZIP export
 internal/db          SQLite: runs, tests, steps, network, history, metrics, settings, AI usage
 internal/ai          AI diagnosis and escalation (Gemini, Claude, OpenAI, compatible APIs, Ollama)
@@ -157,6 +161,9 @@ internal/correlate   trace and request ids, links to the backend logs
 internal/release     release decision (Release view)
 internal/owners      test owners (CODEOWNERS-style rules)
 internal/repro       command to rerun a test locally
+internal/lab         FixLab: plan, resend with a fresh session, checks and capsules
+internal/mcp         MCP server (stdio) for AI agents
+internal/demo        demo shop, playground and the scenarios recorded with the real clients
 internal/secret      encryption of the credentials saved from Settings
 internal/locator     selector suggestions when a locator breaks
 internal/live        live events (Server-Sent Events)
@@ -167,6 +174,8 @@ client/js            JavaScript/TypeScript client + Playwright Test reporter
 client/java          Java client + JUnit 5 extension
 client/go            Go client
 examples/            runnable examples
+test/e2e             end-to-end tests of the interface (Playwright)
+test/scenarios       the tests that record the scenarios, one per client
 docs/en, docs/es     documentation in English and Spanish
 ```
 

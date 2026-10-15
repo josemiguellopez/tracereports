@@ -1,5 +1,7 @@
 # Escenarios grabados con los clientes reales
 
+🌐 [English](README.md) · **Español**
+
 Cada escenario es una **grabación real** de un cliente de TraceReports (lo que de verdad envía pytest,
 Playwright JS, Selenium Java o Go) corriendo contra la tienda de la demo (`internal/demo`), más lo que
 TraceReports debe hacer con ella: estados, incidente, red, enmascarado de la contraseña, capturas,

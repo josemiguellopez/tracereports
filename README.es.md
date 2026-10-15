@@ -46,7 +46,7 @@ pytest --tracereports                      # listo, sin cambiar tu código
 clientes de pytest + Playwright, Playwright Test, Selenium + JUnit 5 y Go, más una tienda de prueba cuyo backend puedes
 romper y arreglar para probar el **Lab** (reenviar una llamada que falló, verificar el arreglo) y un **playground** que
 envía los escenarios de cada cliente y comprueba lo que muestra TraceReports. Nada más que instalar; los datos son
-temporales y no salen de tu PC.
+temporales y no salen de tu PC. Ver la [guía de la demo](docs/es/demo.md).
 
 ¿No usas pytest? TraceReports funciona igual con **Playwright Test**, **Selenium**, **JUnit 5**, **Go** o
 cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en-tu-lenguaje).
@@ -153,6 +153,14 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
     </td>
   </tr>
 </table>
+
+### 🧪 FixLab: ¿sigue fallando?
+
+**Abrir en Lab** en una llamada fallida o en un incidente de backend reenvía la petición real con una sesión nueva
+(repite el login grabado; tú solo escribes la contraseña) y te dice si el fallo **se reproduce** o **ya no falla**.
+Guárdala como check y **Verifica** el incidente cuando el backend esté arreglado; expórtala a Postman, Bruno o
+`.http`; ejecútala desde tu terminal o CI con `tracereports repro` / `verify`, o deja que Claude Code lo haga con
+`tracereports mcp`. Ver la [guía de FixLab](docs/es/fixlab.md).
 
 Y además:
 
@@ -385,6 +393,8 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 
 - [Guía completa](GUIA-COMPLETA.md)
 - [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Configuración](docs/es/configuration.md)
+- [Demo, playground y selftest](docs/es/demo.md): pruébalo en un minuto y comprueba un despliegue
+- [FixLab](docs/es/fixlab.md): reproduce un fallo y verifica el arreglo, desde el reporte, la terminal, CI o un agente de IA
 - [Python](docs/es/python.md) · [JavaScript](docs/es/javascript.md) · [Java](docs/es/java.md) · [Go](docs/es/go.md) · [API REST](docs/es/api.md)
 - [Integración continua](docs/es/ci.md) · [Sin servidor: grabar, reportar y subir después](docs/es/offline.md)
 - [Reporte local en tu PC](docs/es/local-report.md): el mismo reporte en el servidor y en tu PC, paso a paso

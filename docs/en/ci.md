@@ -145,3 +145,12 @@ services:
 and use `TRACEREPORTS_URL=http://localhost:8080` with `--tracereports-zip`. If the tests reach it through
 the service alias (`http://tracereports:8080`, typical in GitLab) and the server has neither token nor
 login, add `TRACEREPORTS_ALLOWED_HOSTS=tracereports` to the service.
+
+## Verify a fix and check the server
+
+- **`tracereports verify <capsule URL>`** runs the checks saved on an incident (FixLab) and exits with
+  code 1 if one does not pass: a step after the deploy that confirms the backend fix. See
+  [FixLab · In your terminal and in CI](fixlab.md#in-your-terminal-and-in-ci-the-capsule).
+- **`tracereports selftest -url <server>`** plays the scenarios recorded with every client against your
+  server and checks what it shows: a step after upgrading TraceReports. See
+  [selftest](demo.md#tracereports-selftest).

@@ -18,7 +18,8 @@ All notable changes to TraceReports. The format follows
 - `tracereports selftest`: plays the scenarios recorded with the real clients (pytest + Playwright, Playwright Test,
   Selenium + JUnit 5, `go test`, REST, JUnit XML) against a temporary server or `-url`, and checks what TraceReports
   shows (statuses, incidents, masking, screenshots, suggested selectors, flaky tests, local commands, the Lab).
-  Exit code 1 on a failed expectation. The same check runs in CI (`go test ./internal/demo`).
+  Exit code 1 on a failed expectation. The same check runs in CI (`go test ./internal/demo`). With `-url` it sends
+  `TRACEREPORTS_TOKEN` to a protected server.
 - The Lab finds the session token in a fresh login answer when the recorded one has no body (a page that
   navigates right after signing in).
 
@@ -48,11 +49,16 @@ All notable changes to TraceReports. The format follows
   link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it. Typed values are never
   stored and the answer is masked before it is shown. Design: [docs/rfc/fixlab.md](docs/rfc/fixlab.md).
 
+**Docs**
+- Guides for [FixLab](docs/en/fixlab.md) and for the [demo, playground and selftest](docs/en/demo.md), in English
+  and Spanish, linked from the READMEs, installation, configuration, API and CI.
+
 ### Fixed
 
 - A failure whose element never showed up because the backend failed right before (no answer, 5xx, 408, 429) is no
   longer diagnosed as a broken selector: no misleading suggestions, neither on the screen nor in the AI prompt.
 - The broken selector is the one Playwright was waiting for, not an earlier getter the traceback quotes.
+- `tracereports demo -keep`: the kept data is no longer deleted by the cleanup of old demos 12 hours later.
 
 ## [0.2.0] - 2026-10-09
 

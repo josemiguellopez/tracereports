@@ -41,7 +41,7 @@ steps to apply it.
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
 | `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
-| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [Resend it in the Lab](#for-whoever-fixes-it-reproduce-and-compare) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [FixLab](fixlab.md#security) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Status page (Statuspage format, `…/api/v2/summary.json`) that Settings → AI usage shows instead of the provider's: a mirror, a proxy or the page of an OpenAI-compatible provider |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. It counts one diagnosis per test **result**: resending the same result, a restart or a provider error do not spend another one, and a manual *Re-analyze* does not count. `0` = no limit |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
@@ -421,61 +421,14 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
   `go test ./<package>/... -run '^TestX$'`. It comes from the test identity, so the client must
   report it (all of them do).
 - **Resend it in the Lab (FixLab)**: *Open in Lab* on a failed call (**Network** tab) or on a
-  backend incident resends the call to see whether the failure **still happens**. The evidence was
-  masked when stored, so the Lab rebuilds what it needs: a fresh session by repeating the recorded
-  login (cookies, or the token of its JSON response as `Bearer`) and anti-CSRF tokens read live
-  from the page the flow starts from; you only type what nobody can guess (the password, an API
-  key). You can edit the request like in Postman and point it to another environment
-  (`http://localhost:3000` to try your fix). The verdict compares with the run: **reproduced**,
-  **no longer fails**, **session missing** (401/403 or a redirect to the login), **different error**
-  or **no connection**; when the original response lacks `date` and `server` it warns that the test
-  probably made it up (a mock or `route.fulfill`).
-  - **Who and where**: the rule of the UI actions (admin token, UI login, or without login only the
-    server's own machine; never the ingest token). From the server's own machine it may call any
-    host, like your terminal; on a shared server only the hosts the test called and
-    `TRACEREPORTS_LAB_HOSTS`. Link-local addresses (cloud metadata, `169.254.169.254`) are always
-    blocked and redirects are shown, not followed. `TRACEREPORTS_LAB=off` disables it.
-  - **Secrets**: the values you type are used for that send only, never stored nor logged, and the
-    answer goes through the masking policy before it is shown (a new token stays hidden). *Copy
-    cURL* keeps them as `$VARIABLES`.
-  - **Checks and Verify**: after a send, *Save as a check* keeps the call (as edited) and what a good
-    answer is: the expected status and texts the body must contain. The incident then shows
-    **Verify (n)**: it runs its checks (asking again for the secrets, which are never stored) and
-    records the result on the incident, **Verified: fixed** or **Verified: still failing**, with the
-    before and after of each check. Checks are deleted with their run.
-  - **Export**: *Postman*, *Bruno* or *.http* download the request (as edited) with its
-    `{{variables}}` and no values. With a recorded login it comes first: in Postman a script saves
-    its token in the `token` variable, in the `.http` file (VS Code REST Client) the call reads it
-    from the named `login` request, and in Bruno it is described in the request docs. Cookies are
-    left to the tool.
-  - **In your terminal (capsule)**: *Download capsule* gives a JSON file with the run's context, the
-    command that runs the test locally and the plan of each call with its checks (masked data only,
-    like the report). *Copy command* copies `tracereports repro '<capsule URL>'`: it shows how to run
-    the test and resends each call from your machine, with any host it can reach (VPN, `localhost`).
-    In the incident's *Verify*, the command is `tracereports verify '<URL>'`: it runs the checks and
-    exits with code **1** if one fails, so it works as a CI step. Values: `-var password=…`,
-    `TRACEREPORTS_LAB_<NAME>` (`TRACEREPORTS_LAB_PASSWORD`) or, in a terminal, typed without being
-    shown; `-base http://localhost:3000` points to another environment; flags go before or after
-    the capsule. To read it from a server with credentials: `TRACEREPORTS_TOKEN` or
-    `TRACEREPORTS_UI_USER`/`_PASSWORD`, which are only sent to the server of `TRACEREPORTS_URL` (a
-    capsule URL from elsewhere never gets them). Before using a secret, the command prints where it
-    will be sent (`password → POST https://…/login`): check it when the capsule is not yours. API: `GET /api/v1/network/{id}/capsule` and
-    `GET /api/v1/runs/{id}/lab/capsule?incident=<key>`.
-  - **For AI agents (MCP)**: `tracereports mcp` is an MCP server (stdio) for Claude Code or any
-    MCP client. Tools: `list_runs`, `get_incidents` (incidents with their evidence, probable cause,
-    checks and verification), `get_test` (error, steps, failed calls, console, command to run it),
-    `reproduce` (resends a call) and `verify_fix` (runs an incident's checks, to confirm a fix). It
-    only reads from TraceReports; reproducing and verifying run from your machine, and the secrets
-    come from `TRACEREPORTS_LAB_<NAME>` in the MCP server's environment, so the agent never sees
-    them. It never changes code nor merges anything: that stays with the agent and your review.
-    Claude Code:
-    `claude mcp add tracereports -e TRACEREPORTS_URL=http://localhost:8080 -e TRACEREPORTS_LAB_PASSWORD=… -- tracereports mcp`
-    (add `TRACEREPORTS_TOKEN` or `TRACEREPORTS_UI_USER`/`_PASSWORD` if the server asks for them).
-  - Not in the exported ZIP (there is no server to send from). API: `GET /api/v1/network/{id}/lab`
-    (the plan), `POST /api/v1/ui/lab/send`, `POST /api/v1/ui/lab/checks`,
-    `DELETE /api/v1/ui/lab/checks/{id}`, `POST /api/v1/ui/lab/verify` and
-    `GET /api/v1/runs/{id}/lab` (checks and last verification of each incident). Design:
-    [docs/rfc/fixlab.md](../rfc/fixlab.md).
+  backend incident resends the call with a fresh session (it repeats the recorded login and reads
+  anti-CSRF tokens live; you only type the password) to see whether the failure **still happens**:
+  **reproduced**, **no longer fails**, **session missing**, **different error** or **no
+  connection**. Save it as a **check** and press **Verify** on the incident once it is fixed;
+  export it to Postman, Bruno or `.http`; take it to your terminal or CI with
+  `tracereports repro` / `verify`, or to Claude Code with `tracereports mcp`. On a shared server it
+  only calls the hosts the test called and `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off`
+  disables it. Full guide: [FixLab](fixlab.md).
 - **Compare with the last time it passed**: on a failed call (**Network** tab), it finds the same
   call (same method, host and path, with ids normalized: `/orders/123` = `/orders/456`) in the most
   recent run where the test passed, in the same project, environment and branch (or, if none, the
