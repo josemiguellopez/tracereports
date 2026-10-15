@@ -204,7 +204,8 @@ Y además:
   además guardan la evidencia en una carpeta, con su reporte HTML, aunque el servidor se caiga a mitad.
   Mira la [guía del reporte local](docs/es/local-report.md).
 - **JUnit XML y Allure.** Importa los resultados de cualquier framework, o conviértelos en un
-  reporte sin servidor.
+  reporte sin servidor. ¿Ya usas Allure? `tracereports push allure-results` y cada fallo recibe el
+  diagnóstico con IA: ver la [guía de Allure](docs/es/allure.md).
 - **IA que se puede medir.** Ajustes muestra las llamadas, los tokens, los tiempos de respuesta y el
   estado del proveedor; Escalar dice cuánto tardó la respuesta de la IA y por qué reintentó.
 
@@ -394,6 +395,7 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 - [Guía completa](GUIA-COMPLETA.md)
 - [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Configuración](docs/es/configuration.md)
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md) · [Demo, playground y selftest](docs/es/demo.md): pruébalo en un minuto y comprueba un despliegue
+- [Allure](docs/es/allure.md): tus resultados de Allure, diagnosticados con IA
 - [FixLab](docs/es/fixlab.md): reproduce un fallo y verifica el arreglo, desde el reporte, la terminal, CI o un agente de IA
 - [Python](docs/es/python.md) · [JavaScript](docs/es/javascript.md) · [Java](docs/es/java.md) · [Go](docs/es/go.md) · [API REST](docs/es/api.md)
 - [Integración continua](docs/es/ci.md) · [Sin servidor: grabar, reportar y subir después](docs/es/offline.md)

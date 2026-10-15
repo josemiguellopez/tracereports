@@ -51,7 +51,7 @@ is scattered across the HTML report, the backend logs and the QA engineer's head
 | **Release** | The *Release* view answers "can we ship?": **Ready to ship**, **Can ship, with risks** or **Do not ship yet**, with the criteria and the state of each area. Configurable with `TRACEREPORTS_RELEASE_GATE`. |
 | **Pull request comment** | `tracereports pr-comment` posts the run summary on the GitHub PR or GitLab MR (failures, what changed, flaky, incidents, report link) and updates the same comment on every push. |
 | **Without a server** | If the server is down or rejects the token, the clients record the evidence in a folder. `tracereports report <folder>` builds the HTML report (no server, no internet) and `tracereports push <folder>` uploads it later. With `TRACEREPORTS_OFFLINE=both` they also keep that local copy while sending to the server: the HTML report is built at the end, and the raw recording is kept only if something did not arrive. |
-| **JUnit XML and Allure** | Imports the results of any framework (`POST /api/v1/import/junit`, `/import/allure`), or turns them into a report without a server with `tracereports report`. |
+| **JUnit XML and Allure** | Imports the results of any framework (`POST /api/v1/import/junit`, `/import/allure`), or turns them into a report without a server with `tracereports report`. `tracereports push allure-results` sends Allure results to the server, where every failure gets the AI diagnosis. See [Allure](docs/en/allure.md). |
 | **Share** | Exports the run as a ZIP that opens without a server or internet (charts and fonts included), ideal to attach to an email. |
 | **Sensitive data** | The server masks tokens, passwords, cookies and credentials (written as `key=value`, JSON, headers, Bearer/JWT or inside URLs) in the evidence and in names and test identities before storing anything, whatever client sent them; what is stored never reaches the AI, the ZIP or Teams/Slack. Not covered: free text without a key and what is visible in screenshots. Optional retention in days. |
 | **Reliable delivery** | The Python client sends the evidence in the background with retries and idempotency (no duplicates, even when a spool is resent days later), merges pytest-xdist into one report and tells you if something did not arrive. |
@@ -134,6 +134,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [Configuration](docs/en/configuration.md): environment variables, security, AI, language, Teams/Slack.
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md): start the report and the demo shop step by step.
 - [Demo, playground and selftest](docs/en/demo.md): sample data, the demo shop and checking a deployment.
+- [Allure](docs/en/allure.md): send your allure-results and get every failure diagnosed with AI.
 - [FixLab](docs/en/fixlab.md): reproduce a failure, save checks, verify the fix; capsule, CLI and MCP.
 - [Python client and pytest plugin](docs/en/python.md)
 - [JavaScript/TypeScript client: Playwright Test and Selenium](docs/en/javascript.md)

@@ -50,7 +50,7 @@ tracereports demo        # from the repository: go run ./cmd demo
 ```
 
 It starts TraceReports with real runs recorded with every client (pytest + Playwright, Playwright Test, Selenium +
-JUnit 5, `go test`, REST and a JUnit XML import) and a demo shop whose backend you can break and fix to try
+JUnit 5, `go test`, REST, a JUnit XML import and an Allure import) and a demo shop whose backend you can break and fix to try
 [FixLab](fixlab.md). Its page is a **playground** that sends each client's scenarios and checks what TraceReports
 shows. Only on this machine, isolated from your configuration, and deleted when you stop it. Step by step:
 [quickstart](quickstart.md); details: [Demo, playground and selftest](demo.md).

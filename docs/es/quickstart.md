@@ -62,9 +62,9 @@ Muestra:
 ```text
 Loading the sample data…
 
-  TraceReports demo · sample data ready (31 runs, 61 tests, 9 failed)
+  TraceReports demo · sample data ready (32 runs, 64 tests, 11 failed)
 
-  ▸ Report:      http://localhost:8080/#run=31&view=tests
+  ▸ Report:      http://localhost:8080/#run=32&view=tests
   ▸ Playground:  http://localhost:8180   (run each client's scenarios, break or fix the shop backend)
   …
   AI diagnosis: on (gemini, …), with the key of your environment or .env: it spends tokens. -ai=false turns it off.
@@ -86,7 +86,7 @@ servicios.
       **Pedidos** a funcionar. De vuelta en el Lab, **Enviar** otra vez: **Ya no falla**.
 - [ ] **Verifica.** **Guardar como check** y, en el incidente, **Verificar**: **Verificado: resuelto**.
 - [ ] **Los clientes.** En el playground, **Ejecutar todos y verificar** envía lo que grabó cada
-      cliente (pytest, Playwright, Selenium, Go, REST, JUnit XML) y comprueba lo que muestra el
+      cliente (pytest, Playwright, Selenium, Go, REST, JUnit XML, Allure) y comprueba lo que muestra el
       reporte.
 
 El usuario de la tienda es `qa@demo.shop` con la contraseña `demo`, también para abrirla en el

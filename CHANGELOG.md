@@ -25,6 +25,15 @@ All notable changes to TraceReports. The format follows
 - The Lab finds the session token in a fresh login answer when the recorded one has no body (a page that
   navigates right after signing in).
 
+**Allure**
+- `tracereports push` also takes an `allure-results` folder (or its ZIP) and JUnit XML: it imports them into
+  the server, where every failure gets the AI diagnosis (`-name`, `-project`, `-branch`, `-environment`, and the
+  token of `-token` / `TRACEREPORTS_TOKEN`). Before, only `curl` with a ZIP.
+- The demo, the playground and `selftest` include an Allure scenario: the allure-results of a pytest +
+  Playwright suite that only uses Allure, recorded against the demo shop.
+- [Allure guide](docs/en/allure.md), tested with the results of allure-pytest, allure-playwright and
+  allure-junit5 from [allure-examples](https://github.com/allure-examples).
+
 **FixLab: Request Lab**
 - **Open in Lab** on a failed call (Network tab) or a backend incident resends the call to see
   whether the failure still happens. The Lab rebuilds a fresh session from the recording (repeats
@@ -61,6 +70,13 @@ All notable changes to TraceReports. The format follows
 - A failure whose element never showed up because the backend failed right before (no answer, 5xx, 408, 429) is no
   longer diagnosed as a broken selector: no misleading suggestions, neither on the screen nor in the AI prompt.
 - The broken selector is the one Playwright was waiting for, not an earlier getter the traceback quotes.
+- Without network evidence (Allure or JUnit imports), a failure the AI attributes to the backend or the
+  infrastructure no longer shows a "broken selector" card with nothing to suggest.
+- Allure import: a label or parameter with a number, boolean or null value (`allure.id(123)`, parametrized
+  tests) no longer rejects the whole import.
+- The command to run a test locally for Allure imports: pytest gets a node id (`pkg/module.py::test`, not the
+  Allure `pkg.module#test`), and allure-playwright (`file:line`) and allure-junit5 (`package.Class.method`) get
+  one too.
 - `tracereports demo -keep`: the kept data is no longer deleted by the cleanup of old demos 12 hours later.
 - Without AI, a failed test no longer asks only for `GEMINI_API_KEY`: it points to Settings → AI or `AI_PROVIDER`
   (in the demo, to the `.env`), and the message is translated in English.

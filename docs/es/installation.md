@@ -50,7 +50,7 @@ tracereports demo        # desde el repositorio: go run ./cmd demo
 ```
 
 Levanta TraceReports con ejecuciones reales grabadas con todos los clientes (pytest + Playwright, Playwright Test,
-Selenium + JUnit 5, `go test`, REST y una importación de JUnit XML) y una tienda de prueba cuyo backend puedes romper
+Selenium + JUnit 5, `go test`, REST, una importación de JUnit XML y una de Allure) y una tienda de prueba cuyo backend puedes romper
 y arreglar para probar [FixLab](fixlab.md). Su página es un **playground** que envía los escenarios de cada cliente y
 comprueba lo que muestra TraceReports. Solo en este equipo, aislada de tu configuración y se borra al detenerla.
 Paso a paso: [inicio rápido](quickstart.md);

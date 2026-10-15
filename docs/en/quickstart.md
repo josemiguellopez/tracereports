@@ -61,9 +61,9 @@ It prints:
 ```text
 Loading the sample data…
 
-  TraceReports demo · sample data ready (31 runs, 61 tests, 9 failed)
+  TraceReports demo · sample data ready (32 runs, 64 tests, 11 failed)
 
-  ▸ Report:      http://localhost:8080/#run=31&view=tests
+  ▸ Report:      http://localhost:8080/#run=32&view=tests
   ▸ Playground:  http://localhost:8180   (run each client's scenarios, break or fix the shop backend)
   …
   AI diagnosis: on (gemini, …), with the key of your environment or .env: it spends tokens. -ai=false turns it off.
@@ -84,7 +84,7 @@ and opens the report in your browser. Keep the terminal open: closing it stops b
       working. Back in the Lab, **Send** again: **No longer fails**.
 - [ ] **Verify.** **Save as a check**, then on the incident press **Verify**: **Verified: fixed**.
 - [ ] **The clients.** In the playground, **Run all and verify** sends what each client recorded
-      (pytest, Playwright, Selenium, Go, REST, JUnit XML) and checks what the report shows.
+      (pytest, Playwright, Selenium, Go, REST, JUnit XML, Allure) and checks what the report shows.
 
 The shop's user is `qa@demo.shop` with the password `demo`, also to open it in the browser.
 

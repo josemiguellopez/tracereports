@@ -6,8 +6,8 @@
 
 Tres formas de ver TraceReports funcionando sin conectarlo antes a tu proyecto. Las tres usan los
 mismos **escenarios**: ejecuciones grabadas con los clientes reales (pytest + Playwright,
-Playwright Test, Selenium + JUnit 5, `go test`, la API REST y una importación de JUnit XML) contra
-una pequeña tienda de prueba.
+Playwright Test, Selenium + JUnit 5, `go test`, la API REST, una importación de JUnit XML y una de
+Allure) contra una pequeña tienda de prueba.
 
 | | Qué es | Para quién |
 | --- | --- | --- |
@@ -25,9 +25,9 @@ go run ./cmd demo          # desde un clon del repositorio
 Muestra dos direcciones y abre el reporte en el navegador:
 
 ```text
-  TraceReports demo · sample data ready (31 runs, 61 tests, 9 failed)
+  TraceReports demo · sample data ready (32 runs, 64 tests, 11 failed)
 
-  ▸ Report:      http://localhost:8080/#run=31&view=tests
+  ▸ Report:      http://localhost:8080/#run=32&view=tests
   ▸ Playground:  http://localhost:8180
 ```
 
@@ -108,6 +108,7 @@ La página principal de la tienda de prueba (<http://localhost:8180>). El resto 
 | `selenium-ok` / `selenium-nok-selector` | Selenium + JUnit 5 (Java) | iniciar sesión / cambió un selector |
 | `go-ok` / `go-nok-backend` | Go (`go test`) | la API pasa / la API responde 500 |
 | `junit-import` | JUnit XML (Maven Surefire) | tests que pasan, fallan y se omiten, sin cliente |
+| `allure-import` | Allure (pytest + allure-pytest) | los allure-results de una suite que solo usa Allure: pasos, capturas y cada fallo diagnosticado. Ver [Allure](allure.md) |
 | `pytest-suite`, `playwright-suite`, `selenium-suite`, `go-suite` | cada cliente | la suite completa en una ejecución |
 
 ## `tracereports selftest`

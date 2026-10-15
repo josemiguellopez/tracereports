@@ -51,7 +51,7 @@ hoy está repartido entre el reporte HTML, los logs del backend y la cabeza del 
 | **Release** | La vista *Release* responde "¿podemos salir?": **Listo para salir**, **Se puede salir, con riesgos** o **No salir todavía**, con los criterios y el estado de cada área. Se configura con `TRACEREPORTS_RELEASE_GATE`. |
 | **Comentario en el pull request** | `tracereports pr-comment` publica el resumen de la ejecución en el PR de GitHub o el MR de GitLab (fallos, qué cambió, flaky, incidentes, link al reporte) y actualiza el mismo comentario en cada push. |
 | **Sin servidor** | Si el servidor está caído o rechaza el token, los clientes graban la evidencia en una carpeta. `tracereports report <carpeta>` arma el reporte HTML (sin servidor ni internet) y `tracereports push <carpeta>` lo sube después. Con `TRACEREPORTS_OFFLINE=both` además guardan esa copia local mientras envían al servidor: al terminar se arma el reporte HTML, y la grabación cruda se conserva solo si algo no llegó. |
-| **JUnit XML y Allure** | Importa los resultados de cualquier framework (`POST /api/v1/import/junit`, `/import/allure`), o los convierte en un reporte sin servidor con `tracereports report`. |
+| **JUnit XML y Allure** | Importa los resultados de cualquier framework (`POST /api/v1/import/junit`, `/import/allure`), o los convierte en un reporte sin servidor con `tracereports report`. `tracereports push allure-results` envía los resultados de Allure al servidor, donde cada fallo recibe el diagnóstico con IA. Ver [Allure](docs/es/allure.md). |
 | **Compartir** | Exporta la ejecución a un ZIP que se abre sin servidor ni internet (gráficos y fuentes incluidos), ideal para adjuntar a un correo. |
 | **Datos sensibles** | El servidor enmascara tokens, contraseñas, cookies y credenciales (escritos como `clave=valor`, JSON, headers, Bearer/JWT o dentro de URLs) en la evidencia y en nombres e identidades de tests antes de guardar nada, venga del cliente que venga; lo guardado ya no llega a la IA, al ZIP ni a Teams/Slack. No cubre texto libre sin clave ni lo que se ve en las capturas. Retención opcional por días. |
 | **Entrega confiable** | El cliente Python envía la evidencia en segundo plano con reintentos e idempotencia (sin duplicados, aunque un spool se reenvíe días después), consolida pytest-xdist en un solo reporte y avisa si algo no llegó. |
@@ -132,6 +132,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 - [Configuración](docs/es/configuration.md): variables de entorno, seguridad, IA, idioma, Teams/Slack.
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md): levanta el reporte y la tienda de prueba paso a paso.
 - [Demo, playground y selftest](docs/es/demo.md): datos de ejemplo, la tienda de prueba y comprobar un despliegue.
+- [Allure](docs/es/allure.md): envía tus allure-results y recibe cada fallo diagnosticado con IA.
 - [FixLab](docs/es/fixlab.md): reproducir un fallo, guardar checks, verificar el arreglo; cápsula, CLI y MCP.
 - [Cliente Python y plugin de pytest](docs/es/python.md)
 - [Cliente JavaScript/TypeScript: Playwright Test y Selenium](docs/es/javascript.md)

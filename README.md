@@ -198,7 +198,8 @@ And also:
   keep the evidence in a folder, with its HTML report, even if the server goes down halfway. See the
   [local report guide](docs/en/local-report.md).
 - **JUnit XML and Allure.** Import the results of any framework, or turn them into a report without
-  a server.
+  a server. Already using Allure? `tracereports push allure-results` and every failure gets the AI
+  diagnosis: see the [Allure guide](docs/en/allure.md).
 - **AI you can measure.** Settings shows the calls, tokens, response times and the provider's
   status; Escalate tells how long the AI answer took and why it retried.
 
@@ -388,6 +389,7 @@ its screenshot, network calls and diagnosis.
 - [Full feature tour](README.en.md)
 - [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md)
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md) · [Demo, playground and selftest](docs/en/demo.md): try it in a minute and check a deployment
+- [Allure](docs/en/allure.md): your Allure results, diagnosed with AI
 - [FixLab](docs/en/fixlab.md): reproduce a failure and verify the fix, from the report, the terminal, CI or an AI agent
 - [Python](docs/en/python.md) · [JavaScript](docs/en/javascript.md) · [Java](docs/en/java.md) · [Go](docs/en/go.md) · [REST API](docs/en/api.md)
 - [Continuous integration](docs/en/ci.md) · [Without a server: record, report and upload later](docs/en/offline.md)
