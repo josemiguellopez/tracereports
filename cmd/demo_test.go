@@ -106,3 +106,18 @@ func TestDemoEndToEnd(t *testing.T) {
 		t.Fatalf("the sample data must be deleted: %s (%v)", dir, err)
 	}
 }
+
+// selftest plays every scenario against a temporary server and passes.
+func TestSelftest(t *testing.T) {
+	restoreEnv(t)
+	var out strings.Builder
+	if err := selftest(context.Background(), selftestOptions{out: &out}); err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	if !strings.Contains(out.String(), "All 13 scenarios pass") {
+		t.Fatalf("output:\n%s", out.String())
+	}
+	if err := selftest(context.Background(), selftestOptions{only: "nope", out: &out}); err == nil || !strings.Contains(err.Error(), "unknown scenario") {
+		t.Fatalf("unknown scenario: %v", err)
+	}
+}
