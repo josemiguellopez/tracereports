@@ -62,7 +62,7 @@ func demoEnv(dir string, port int, keepAI bool) {
 	}
 	os.Setenv("PORT", strconv.Itoa(port))
 	os.Setenv("DATA_DIR", dir)
-	os.Setenv("TRACEREPORTS_BIND", "127.0.0.1")                      // solo este equipo: sin aviso del firewall
+	os.Setenv("TRACEREPORTS_BIND", "127.0.0.1")                        // solo este equipo: sin aviso del firewall
 	os.Setenv("TRACEREPORTS_ENV_FILE", filepath.Join(dir, "none.env")) // el .env del proyecto no aplica
 }
 

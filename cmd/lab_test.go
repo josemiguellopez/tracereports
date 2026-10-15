@@ -56,7 +56,7 @@ func testCapsule(base string, withCheck bool) *lab.Capsule {
 		Target: lab.Request{Method: "GET", URL: base + "/orders", Headers: map[string]string{"authorization": "{{authorization}}"}},
 		Login: &lab.Login{ConnID: 1, TokenPath: []string{"accessToken"}, Request: lab.Request{Method: "POST", URL: base + "/login",
 			Headers: map[string]string{"content-type": "application/json"}, Body: `{"password":"{{password}}"}`}},
-		Vars: []lab.Var{{Name: "authorization", Kind: lab.KindSession}, {Name: "password", Kind: lab.KindSecret}},
+		Vars:     []lab.Var{{Name: "authorization", Kind: lab.KindSession}, {Name: "password", Kind: lab.KindSecret}},
 		Original: lab.Original{Status: 500}}
 	call := lab.CapsuleCall{Plan: plan, Test: lab.CapsuleTest{ID: 7, Name: "ver pedidos", Key: "tests/orders.spec.js > ver pedidos",
 		Commands: repro.Commands("playwright", "tests/orders.spec.js > ver pedidos", "")}}

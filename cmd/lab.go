@@ -55,8 +55,8 @@ type labCLI struct {
 
 func newLabCLI(out io.Writer) *labCLI {
 	return &labCLI{vars: varList{}, in: os.Stdin, out: out, errOut: os.Stderr, client: &http.Client{Timeout: 30 * time.Second},
-		getenv: os.Getenv,
-		isTerm: func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
+		getenv:  os.Getenv,
+		isTerm:  func() bool { return term.IsTerminal(int(os.Stdin.Fd())) },
 		readPwd: func() ([]byte, error) { return term.ReadPassword(int(os.Stdin.Fd())) }}
 }
 
