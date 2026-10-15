@@ -223,7 +223,7 @@ func TestDemoAIFromDotEnv(t *testing.T) {
 	os.WriteFile(f, []byte("AI_PROVIDER=gemini\nAI_API_KEY=from-file\nAI_MODEL=m\nTRACEREPORTS_TOKEN=tok\nTEAMS_WEBHOOK_URL=https://teams\n"), 0o600)
 	os.Setenv("TRACEREPORTS_ENV_FILE", f)
 	os.Setenv("AI_MODEL", "from-env") // el entorno manda sobre el .env
-	demoAIFromDotEnv()
+	aiFromDotEnv()
 	if os.Getenv("AI_PROVIDER") != "gemini" || os.Getenv("AI_API_KEY") != "from-file" || os.Getenv("AI_MODEL") != "from-env" {
 		t.Fatalf("AI from the .env: provider=%q key=%q model=%q", os.Getenv("AI_PROVIDER"), os.Getenv("AI_API_KEY"), os.Getenv("AI_MODEL"))
 	}

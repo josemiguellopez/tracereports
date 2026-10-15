@@ -65,7 +65,7 @@ func runReport(args []string) error {
 	project := fl.String("project", "", "project for JUnit XML and Allure inputs")
 	branch := fl.String("branch", "", "branch for JUnit XML and Allure inputs")
 	environment := fl.String("environment", "", "environment for JUnit XML and Allure inputs")
-	useAI := fl.Bool("ai", false, "diagnose failures with the AI configured in the environment (AI_PROVIDER, AI_API_KEY...)")
+	useAI := fl.Bool("ai", false, "diagnose failures with the AI of the environment or the .env (AI_PROVIDER, AI_API_KEY...)")
 	inputs, err := parseInterspersed(fl, args)
 	if err != nil {
 		return err
@@ -76,6 +76,9 @@ func runReport(args []string) error {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 
+	if *useAI {
+		aiFromDotEnv() // la clave del .env, como el servidor (solo las variables de la IA)
+	}
 	ls, err := newLocalServer(*useAI)
 	if err != nil {
 		return err

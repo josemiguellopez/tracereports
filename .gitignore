@@ -22,3 +22,8 @@ tracereports-offline/
 # resultados de Allure de los ejemplos
 allure-results/
 allure-report/
+
+# lo que deja seguir la documentación desde la raíz: pip install ./client/python y la copia local del plugin
+/client/python/build/
+/output/
+/tracereports-report/

@@ -72,9 +72,9 @@ func demoEnv(dir string, port int, keepAI bool) {
 	os.Setenv("TRACEREPORTS_DEMO", "1")                                // la UI explica cómo activar la IA
 }
 
-// demoAIFromDotEnv takes the AI provider from the .env (TRACEREPORTS_ENV_FILE or ./.env), and
+// aiFromDotEnv takes the AI provider from the .env (TRACEREPORTS_ENV_FILE or ./.env), and
 // nothing else of it. Variables already in the environment win.
-func demoAIFromDotEnv() {
+func aiFromDotEnv() {
 	ai := map[string]bool{}
 	for _, k := range demoAIVars {
 		ai[k] = true
@@ -251,7 +251,7 @@ func demoMain(ctx context.Context, o demoOptions) error {
 		return err
 	}
 	if o.ai {
-		demoAIFromDotEnv() // antes de demoEnv, que aparta el .env
+		aiFromDotEnv() // antes de demoEnv, que aparta el .env
 	}
 	demoEnv(dir, port, o.ai)
 	// los avisos de un servidor de producción (sin token, sin login) no aplican a la demo

@@ -29,7 +29,7 @@ func runSelftest(args []string) error {
 	only := fs.String("only", "", "scenario ids separated by commas (default: all)")
 	list := fs.Bool("list", false, "list the scenarios and exit")
 	fs.Usage = func() {
-		fmt.Fprintln(fs.Output(), "Usage: tracereports selftest [flags]\nPlays the scenarios recorded with the real clients (pytest, Playwright JS, Selenium Java, Go, REST, JUnit)\nand checks what TraceReports shows. Exit code 1 if an expectation fails.")
+		fmt.Fprintln(fs.Output(), "Usage: tracereports selftest [flags]\nPlays the scenarios recorded with the real clients (pytest, Playwright JS, Selenium Java, Go, REST, JUnit, Allure)\nand checks what TraceReports shows. Exit code 1 if an expectation fails.")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

@@ -84,20 +84,25 @@ func main() {
 			err = runDemo(os.Args[2:])
 		case "selftest":
 			err = runSelftest(os.Args[2:])
+		case "version", "-version", "--version":
+			fmt.Println("tracereports " + buildVersion())
+			return
 		case "-h", "-help", "--help", "help":
 			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
-				"       tracereports report ...   build a static HTML report without a server\n" +
-				"       tracereports push ...     upload a recording made without a server\n" +
+				"       tracereports report ...   build a static HTML report without a server (recording, JUnit XML, Allure)\n" +
+				"       tracereports push ...     upload a recording, allure-results or JUnit XML to a server\n" +
 				"       tracereports pr-comment   comment the run summary on the pull request\n" +
 				"       tracereports secrets ...  status / migrate of the credentials saved from Settings\n" +
 				"       tracereports repro ...    resend the calls of a FixLab capsule with a fresh session\n" +
 				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)\n" +
 				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code\n" +
 				"       tracereports demo         try it in a minute: sample data and a demo shop, only on this machine\n" +
-				"       tracereports selftest     play the scenarios recorded with the real clients and check the results")
+				"       tracereports selftest     play the scenarios recorded with the real clients and check the results\n" +
+				"       tracereports version      print the version\n" +
+				"Each command explains its flags with -h. Guide: docs/en/cli.md")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest, version; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {

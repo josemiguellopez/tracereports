@@ -436,7 +436,14 @@ func scrub(body string, vals map[string]string) string {
 	return body
 }
 
+// version is set by the release build (-ldflags "-X main.version=v0.3.0").
+var version string
+
+// buildVersion is the release version, the module version of `go install`, or "dev".
 func buildVersion() string {
+	if version != "" {
+		return version
+	}
 	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
 		return bi.Main.Version
 	}
