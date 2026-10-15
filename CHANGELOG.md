@@ -13,6 +13,12 @@ All notable changes to TraceReports. The format follows
   JUnit XML import, 12 nights of history) and a demo shop whose backend you can break and fix to try the Lab.
   Temporary, only on this machine and isolated from your configuration.
 - `TRACEREPORTS_BIND` chooses the address to listen on (`127.0.0.1` = only this machine).
+- `tracereports selftest`: plays 13 scenarios recorded with the real clients (pytest + Playwright, Playwright Test,
+  Selenium + JUnit 5, `go test`, REST, JUnit XML) against a temporary server or `-url`, and checks what TraceReports
+  shows (statuses, incidents, masking, screenshots, suggested selectors, flaky tests, local commands, the Lab).
+  Exit code 1 on a failed expectation. The same check runs in CI (`go test ./internal/demo`).
+- The Lab finds the session token in a fresh login answer when the recorded one has no body (a page that
+  navigates right after signing in).
 
 **FixLab: Request Lab**
 - **Open in Lab** on a failed call (Network tab) or a backend incident resends the call to see

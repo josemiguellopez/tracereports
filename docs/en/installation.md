@@ -60,6 +60,20 @@ try the Lab end to end: resend the failed `POST /api/orders` (password `demo`), 
 - The data is deleted when you stop it with Ctrl+C; `-keep` keeps it. `-port` and `-shop-port` choose the ports
   (by default the first free ones from 8080 and 8180); `-no-open` does not open the browser.
 
+## Check that it works: `tracereports selftest`
+
+```bash
+tracereports selftest                          # a temporary server on this machine
+tracereports selftest -url https://tracereports.acme.com   # a deployed one (it leaves the scenario runs there)
+```
+
+It plays 13 scenarios **recorded with the real clients** (pytest + Playwright, Playwright Test, Selenium + JUnit 5,
+`go test`, the REST API and a JUnit XML import), passing and failing, against the demo shop, and checks what
+TraceReports shows: the statuses, the incident, the network, that the password arrives masked, the screenshots, the
+suggested selector, the flaky test, the command to run each test and that the Lab reproduces the backend failure.
+It exits with code 1 when an expectation fails, so it works after an upgrade or as a CI step. `-list` shows the
+scenarios and `-only` runs some of them. How they are recorded: [test/scenarios](../../test/scenarios/README.md).
+
 ## First run
 
 1. Open <http://localhost:8080>. With no runs you will see an empty screen.

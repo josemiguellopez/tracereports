@@ -61,6 +61,21 @@ arreglar el backend) para probar el Lab de punta a punta: reenviar el `POST /api
 - Los datos se borran al detenerlo con Ctrl+C; `-keep` los conserva. `-port` y `-shop-port` eligen los puertos
   (por defecto los primeros libres desde 8080 y 8180); `-no-open` no abre el navegador.
 
+## Comprobar que funciona: `tracereports selftest`
+
+```bash
+tracereports selftest                          # un servidor temporal en este equipo
+tracereports selftest -url https://tracereports.acme.com   # uno desplegado (deja ahí las ejecuciones de los escenarios)
+```
+
+Reproduce 13 escenarios **grabados con los clientes reales** (pytest + Playwright, Playwright Test, Selenium +
+JUnit 5, `go test`, la API REST y una importación de JUnit XML), que pasan y que fallan, contra la tienda de la
+demo, y comprueba lo que muestra TraceReports: los estados, el incidente, la red, que la contraseña llegue
+enmascarada, las capturas, el selector sugerido, el test inestable, el comando para correr cada test y que el
+Lab reproduzca el fallo del backend. Sale con código 1 si una expectativa no se cumple, así que sirve después de
+una actualización o como paso de CI. `-list` muestra los escenarios y `-only` corre algunos. Cómo se graban:
+[test/scenarios](../../test/scenarios/README.md).
+
 ## Primer uso
 
 1. Abre <http://localhost:8080>. Sin ejecuciones verás una pantalla vacía.
