@@ -212,3 +212,26 @@ func TestCleanOldDemosKeepsKept(t *testing.T) {
 		}
 	}
 }
+
+// The demo takes the AI provider from the .env and nothing else of it.
+func TestDemoAIFromDotEnv(t *testing.T) {
+	restoreEnv(t)
+	for _, k := range []string{"AI_PROVIDER", "AI_API_KEY", "AI_MODEL", "TRACEREPORTS_TOKEN", "TEAMS_WEBHOOK_URL"} {
+		os.Unsetenv(k)
+	}
+	f := filepath.Join(t.TempDir(), "demo.env")
+	os.WriteFile(f, []byte("AI_PROVIDER=gemini\nAI_API_KEY=from-file\nAI_MODEL=m\nTRACEREPORTS_TOKEN=tok\nTEAMS_WEBHOOK_URL=https://teams\n"), 0o600)
+	os.Setenv("TRACEREPORTS_ENV_FILE", f)
+	os.Setenv("AI_MODEL", "from-env") // el entorno manda sobre el .env
+	demoAIFromDotEnv()
+	if os.Getenv("AI_PROVIDER") != "gemini" || os.Getenv("AI_API_KEY") != "from-file" || os.Getenv("AI_MODEL") != "from-env" {
+		t.Fatalf("AI from the .env: provider=%q key=%q model=%q", os.Getenv("AI_PROVIDER"), os.Getenv("AI_API_KEY"), os.Getenv("AI_MODEL"))
+	}
+	if os.Getenv("TRACEREPORTS_TOKEN") != "" || os.Getenv("TEAMS_WEBHOOK_URL") != "" {
+		t.Fatal("only the AI variables come from the .env")
+	}
+	demoEnv(t.TempDir(), 8124, true)
+	if os.Getenv("AI_API_KEY") != "from-file" || os.Getenv("TRACEREPORTS_DEMO") != "1" {
+		t.Fatalf("demoEnv keeps the AI and marks the demo: key=%q demo=%q", os.Getenv("AI_API_KEY"), os.Getenv("TRACEREPORTS_DEMO"))
+	}
+}

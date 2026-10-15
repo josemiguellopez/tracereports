@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -24,10 +25,12 @@ import (
 
 // `tracereports demo`: el servidor de siempre con datos de ejemplo, en un minuto y sin instalar
 // nada más. Una base temporal, solo en este equipo, aislada de la configuración de quien lo corre
-// (sin tokens, ni notificaciones, ni tickets, ni IA salvo -ai), y una tienda de prueba cuyo backend
+// (sin tokens, ni notificaciones, ni tickets; de tu configuración solo toma la IA, salvo -ai=false),
+// y una tienda de prueba cuyo backend
 // se puede romper y arreglar para probar FixLab de punta a punta.
 
-// demoKeep are the variables kept with -ai: the AI provider (it spends tokens, so it is opt-in).
+// demoAIVars are the variables of the AI provider: the only configuration the demo takes from the
+// environment or the .env, unless -ai=false.
 var demoAIVars = []string{"AI_PROVIDER", "AI_MODEL", "AI_API_KEY", "AI_BASE_URL", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_BASE_URL",
 	"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_HOST", "TRACEREPORTS_AI_MAX_PER_RUN", "TRACEREPORTS_AI_STATUS_URL"}
 
@@ -66,6 +69,38 @@ func demoEnv(dir string, port int, keepAI bool) {
 	os.Setenv("DATA_DIR", dir)
 	os.Setenv("TRACEREPORTS_BIND", "127.0.0.1")                        // solo este equipo: sin aviso del firewall
 	os.Setenv("TRACEREPORTS_ENV_FILE", filepath.Join(dir, "none.env")) // el .env del proyecto no aplica
+	os.Setenv("TRACEREPORTS_DEMO", "1")                                // la UI explica cómo activar la IA
+}
+
+// demoAIFromDotEnv takes the AI provider from the .env (TRACEREPORTS_ENV_FILE or ./.env), and
+// nothing else of it. Variables already in the environment win.
+func demoAIFromDotEnv() {
+	ai := map[string]bool{}
+	for _, k := range demoAIVars {
+		ai[k] = true
+	}
+	_, _ = applyDotEnv(envFileName(), func(k string) bool { return ai[strings.ToUpper(k)] })
+}
+
+// demoAIStatus says in the guide whether the demo diagnoses with AI.
+func demoAIStatus(base string, asked bool) string {
+	var cfg struct {
+		Enabled  bool   `json:"ai_enabled"`
+		Provider string `json:"ai_provider"`
+		Model    string `json:"ai_model"`
+	}
+	if res, err := http.Get(base + "/api/v1/config"); err == nil {
+		_ = json.NewDecoder(res.Body).Decode(&cfg)
+		res.Body.Close()
+	}
+	switch {
+	case cfg.Enabled:
+		return fmt.Sprintf("AI diagnosis: on (%s, %s), with the key of your environment or .env: it spends tokens. -ai=false turns it off.", cfg.Provider, cfg.Model)
+	case asked:
+		return "AI diagnosis: off, no API key found. Add AI_PROVIDER and AI_API_KEY (or GEMINI_API_KEY) to your environment or .env."
+	default:
+		return "AI diagnosis: off (-ai=false)."
+	}
 }
 
 // freePort returns want, or the first free port of this machine from start.
@@ -119,7 +154,7 @@ func waitReady(base string, errCh <-chan error, timeout time.Duration) error {
 	return errors.New("the server did not start in time")
 }
 
-func demoGuide(w io.Writer, base, shopURL string, sum *demo.Summary, dir string, keep bool) {
+func demoGuide(w io.Writer, base, shopURL string, sum *demo.Summary, dir string, keep bool, aiStatus string) {
 	fmt.Fprintf(w, `
   TraceReports demo · sample data ready (%d runs, %d tests, %d failed)
 
@@ -143,6 +178,7 @@ func demoGuide(w io.Writer, base, shopURL string, sum *demo.Summary, dir string,
       tracereports mcp for Claude Code (TRACEREPORTS_URL=%s).
 
 `, sum.Runs, sum.Tests, sum.Failed, base+fmt.Sprintf("/#run=%d&view=tests", sum.Showcase), shopURL, demo.ShopPassword, sum.Nights, base)
+	fmt.Fprintf(w, "  %s\n", aiStatus)
 	if keep {
 		fmt.Fprintf(w, "  Data kept in %s (DATA_DIR=%s to open it again).\n", dir, dir)
 	} else {
@@ -158,7 +194,7 @@ func runDemo(args []string) error {
 	shopPort := fs.Int("shop-port", 0, "port of the demo shop (default: the first free one from 8180)")
 	keep := fs.Bool("keep", false, "keep the sample data when the demo stops")
 	noOpen := fs.Bool("no-open", false, "do not open the browser")
-	withAI := fs.Bool("ai", false, "use the AI provider of your environment (AI_PROVIDER, ANTHROPIC_API_KEY...): it spends tokens")
+	withAI := fs.Bool("ai", true, "diagnose with the AI provider of your environment or .env when there is one (AI_PROVIDER, GEMINI_API_KEY...): it spends tokens; -ai=false turns it off")
 	fs.Usage = func() {
 		fmt.Fprintln(fs.Output(), "Usage: tracereports demo [flags]\nStarts TraceReports with sample data (temporary, only on this machine) and a demo shop to try FixLab.")
 		fs.PrintDefaults()
@@ -214,6 +250,9 @@ func demoMain(ctx context.Context, o demoOptions) error {
 	if err != nil {
 		return err
 	}
+	if o.ai {
+		demoAIFromDotEnv() // antes de demoEnv, que aparta el .env
+	}
 	demoEnv(dir, port, o.ai)
 	// los avisos de un servidor de producción (sin token, sin login) no aplican a la demo
 	prev := slog.Default()
@@ -250,7 +289,7 @@ func demoMain(ctx context.Context, o demoOptions) error {
 		<-errCh
 		return fmt.Errorf("load the sample data: %w", err)
 	}
-	demoGuide(o.out, base, shopURL, sum, dir, o.keep)
+	demoGuide(o.out, base, shopURL, sum, dir, o.keep, demoAIStatus(fmt.Sprintf("http://127.0.0.1:%d", port), o.ai))
 	if o.open {
 		openBrowser(base + fmt.Sprintf("/#run=%d&view=tests", sum.Showcase))
 	}

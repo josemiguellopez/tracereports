@@ -238,6 +238,8 @@ func runServer(parent context.Context) error {
 		ReleaseGate: &gate,
 		// FixLab: reenviar llamadas capturadas desde el reporte (TRACEREPORTS_LAB=off lo apaga)
 		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS"))},
+		// tracereports demo (TRACEREPORTS_DEMO lo pone la demo)
+		Demo: env.Bool("DEMO"),
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())

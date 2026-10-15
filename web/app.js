@@ -449,7 +449,9 @@
 		const tr = t.triage;
 		if (!tr) {
 			return S.config.ai_enabled || STATIC ? "" : `<div class="card ai-card muted"><div class="ai-head">${title}</div>
-				<p style="margin-top:8px">Diagnóstico con IA desactivado. Define <code>GEMINI_API_KEY</code> en el servidor para clasificar fallos automáticamente.</p>${loc}</div>`;
+				<p style="margin-top:8px">${esc(window.TraceReportsI18n.t(S.config.demo
+					? "Diagnóstico con IA desactivado en la demo. Para activarlo, agrega AI_PROVIDER y AI_API_KEY (o GEMINI_API_KEY) a tu entorno o a tu .env y vuelve a iniciar tracereports demo (sin -ai=false)."
+					: "Diagnóstico con IA desactivado. Actívalo en Ajustes → IA o con AI_PROVIDER y su API key en el servidor."))}</p>${loc}</div>`;
 		}
 		if (tr.state === "PENDING" && STATIC) {
 			return `<div class="card ai-card muted"><div class="ai-head">${title}</div>

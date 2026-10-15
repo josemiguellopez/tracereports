@@ -288,6 +288,28 @@ test("inglés: la navegación se traduce", async ({ page }) => {
 	await expect(page.locator('[data-view="settings"]').first()).toContainText("Settings");
 });
 
+test("sin IA, el fallo dice cómo activarla (Ajustes o AI_PROVIDER; en la demo, el .env), en los dos idiomas", async ({ page }) => {
+	// otro spec puede haber configurado la IA desde Ajustes: aquí el servidor responde que no hay
+	let demo = false;
+	await page.route("**/api/v1/config", async (route) => {
+		const res = await route.fetch();
+		await route.fulfill({ response: res, json: { ...(await res.json()), ai_enabled: false, demo } });
+	});
+	const card = page.locator("#test-detail .ai-card.muted");
+	const check = async (text) => {
+		await openRun(page);
+		await openTest(page, "test_login_admin");
+		await expect(card).toContainText(text);
+	};
+	await check("Actívalo en Ajustes → IA o con AI_PROVIDER");
+	demo = true;
+	await check("Diagnóstico con IA desactivado en la demo. Para activarlo, agrega AI_PROVIDER y AI_API_KEY");
+	await page.addInitScript(() => { try { localStorage.setItem("tracereports-lang", "en"); } catch {} });
+	await check("AI diagnosis is off in the demo. To turn it on, add AI_PROVIDER and AI_API_KEY");
+	demo = false;
+	await check("Turn it on in Settings → AI or with AI_PROVIDER");
+});
+
 test("exportar ZIP responde un archivo zip", async ({ page, request }) => {
 	await openRun(page);
 	const href = await page.locator("#export-btn").getAttribute("href");

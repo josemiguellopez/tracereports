@@ -46,6 +46,8 @@ var (
 
 // Server bundles the dependencies of the HTTP handlers.
 type Server struct {
+	// Demo is set by `tracereports demo`: the UI explains how to turn the AI on there.
+	Demo           bool
 	Store          *db.Store
 	AI             *ai.Analyzer
 	Notify         *notify.Notifier
@@ -182,7 +184,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(), "trackers": trackers,
 		"ai_provider": s.AI.Provider(), "language": saved[setLanguage],
 		// acciones desde la UI (re-analizar, escalar, enviar) y canales disponibles
-		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL})
+		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL, "demo": s.Demo})
 }
 
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
