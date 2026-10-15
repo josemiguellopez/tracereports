@@ -1,0 +1,13 @@
+{
+  "name": "tracereports-scenarios-js",
+  "private": true,
+  "type": "module",
+  "description": "Escenarios de TraceReports grabados con Playwright Test",
+  "scripts": {
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.64.0",
+    "tracereports": "file:../../../client/js"
+  }
+}

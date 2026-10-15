@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.demoshop.InventoryServiceTest" tests="4" failures="1" errors="0" skipped="1" time="1.84" timestamp="__TIMESTAMP__">
+  <testcase classname="com.demoshop.InventoryServiceTest" name="reservesStock" time="0.21"/>
+  <testcase classname="com.demoshop.InventoryServiceTest" name="releasesStockOnCancel" time="0.18"/>
+  <testcase classname="com.demoshop.InventoryServiceTest" name="rejectsNegativeQuantity" time="0.05">
+    <failure message="expected: &lt;400&gt; but was: &lt;500&gt;" type="org.opentest4j.AssertionFailedError">org.opentest4j.AssertionFailedError: expected: &lt;400&gt; but was: &lt;500&gt;
+	at com.demoshop.InventoryServiceTest.rejectsNegativeQuantity(InventoryServiceTest.java:44)</failure>
+  </testcase>
+  <testcase classname="com.demoshop.InventoryServiceTest" name="syncsWithWarehouse" time="0">
+    <skipped message="warehouse sandbox not available"/>
+  </testcase>
+</testsuite>
