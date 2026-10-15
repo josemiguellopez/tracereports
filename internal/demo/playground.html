@@ -3,201 +3,355 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="color-scheme" content="dark">
 <title>TraceReports Playground</title>
+<link rel="stylesheet" href="/__fonts/fonts.css">
 <style>
 :root {
-	--bg: #f6f7f9; --surface: #fff; --surface-2: #f1f3f6; --border: #e3e6eb; --text: #1b2230; --muted: #626b7a; --heading: #0f1522;
-	--primary: #2f6fed; --primary-ink: #fff; --primary-soft: rgba(47, 111, 237, .1);
-	--ok: #198754; --ok-soft: rgba(25, 135, 84, .11); --bad: #d63b3b; --bad-soft: rgba(214, 59, 59, .1); --warn: #b7791f; --warn-soft: rgba(183, 121, 31, .12);
-	--shadow: 0 1px 2px rgba(16, 24, 40, .05), 0 1px 3px rgba(16, 24, 40, .06); --radius: 12px;
-	--mono: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace;
-}
-@media (prefers-color-scheme: dark) {
-	:root {
-		--bg: #0e1116; --surface: #161b22; --surface-2: #1c222b; --border: #2a313c; --text: #d6dbe3; --muted: #8b95a5; --heading: #f2f4f7;
-		--primary: #5b8ff9; --primary-soft: rgba(91, 143, 249, .14); --ok: #3fb97a; --ok-soft: rgba(63, 185, 122, .14); --bad: #f06a6a; --bad-soft: rgba(240, 106, 106, .13);
-		--warn: #e0a84a; --warn-soft: rgba(224, 168, 74, .14); --shadow: none;
-	}
+	/* la marca de TraceReports: lima pixel sobre negro verdoso (como tracereports.netlify.app) */
+	--bg: #0b0d0a; --bg-2: #11130f; --surface: #151912; --surface-2: #1c2118; --surface-3: #232a1e;
+	--border: #2a3226; --border-strong: #3b4630;
+	--text: #eeeee2; --muted: #a9b09d; --dim: #7d8573;
+	--lime: #c9fa6b; --lime-dk: #6c9736; --lime-glow: rgba(201, 250, 107, .14); --on-lime: #0b0d0a;
+	--coral: #ff6b62; --coral-soft: rgba(255, 107, 98, .12); --amber: #e7c35a; --amber-soft: rgba(231, 195, 90, .13);
+	--cyan: #4cc3e6; --violet: #b49cff;
+	--sans: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+	--mono: "JetBrains Mono", ui-monospace, "Cascadia Code", Consolas, monospace;
+	--pixel: "Press Start 2P", var(--mono);
+	--radius: 14px; --radius-sm: 9px;
+	--ease: cubic-bezier(.22, 1, .36, 1); --fast: 160ms; --base: 260ms;
 }
 * { box-sizing: border-box; }
-body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
-a { color: var(--primary); }
-button { font: inherit; }
-:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; border-radius: 6px; }
-.top { position: sticky; top: 0; z-index: 5; background: color-mix(in srgb, var(--surface) 92%, transparent); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); }
-.top-in { max-width: 1240px; margin: auto; padding: 12px 24px; display: flex; align-items: center; gap: 16px; }
-.brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--heading); }
-.brand-mark { width: 28px; height: 28px; border-radius: 7px; background: #c9fa6b; color: #18200d; display: grid; place-items: center; font-weight: 900; }
-.brand small { font-weight: 500; color: var(--muted); }
+html { -webkit-text-size-adjust: 100%; }
+body {
+	margin: 0; background: var(--bg); color: var(--text); font: 400 15.5px/1.6 var(--sans); -webkit-font-smoothing: antialiased;
+	background-image: radial-gradient(900px 480px at 85% -10%, rgba(201, 250, 107, .07), transparent 60%),
+		radial-gradient(700px 420px at -10% 10%, rgba(76, 195, 230, .05), transparent 60%);
+	background-attachment: fixed;
+}
+::selection { background: var(--lime); color: var(--on-lime); }
+a { color: inherit; }
+button { font: inherit; color: inherit; }
+svg.i { width: 18px; height: 18px; flex: none; }
+:focus-visible { outline: 2px solid var(--lime); outline-offset: 3px; border-radius: 6px; }
+.skip { position: absolute; left: 16px; top: -60px; z-index: 50; padding: 10px 16px; background: var(--lime); color: var(--on-lime); font-weight: 700; border-radius: var(--radius-sm); }
+.skip:focus { top: 12px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.mono { font-family: var(--mono); }
+
+/* ── barra superior ── */
+.top { position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--border); background: rgba(11, 13, 10, .78); backdrop-filter: blur(12px) saturate(140%); }
+.top-in { max-width: 1280px; margin: auto; padding: 12px 28px; display: flex; align-items: center; gap: 14px; }
+.logo { display: flex; align-items: center; gap: 12px; text-decoration: none; }
+.logo-mark { width: 34px; height: 34px; border-radius: 8px; background: var(--lime); color: var(--on-lime); display: grid; place-items: center; font: 11px/1 var(--pixel); box-shadow: 0 0 0 1px rgba(0,0,0,.2), 0 6px 24px -8px var(--lime); }
+.logo-word { font: 700 15px/1 var(--mono); letter-spacing: .01em; }
+.logo-word b { color: var(--lime); }
+.chip-pg { font: 600 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .08em; color: var(--lime); border: 1px solid var(--border-strong); background: var(--lime-glow); padding: 5px 9px; border-radius: 99px; }
 .spacer { flex: 1; }
-.btn { display: inline-flex; align-items: center; gap: 8px; padding: 9px 16px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-weight: 600; cursor: pointer; text-decoration: none; transition: border-color .15s, background .15s, transform .05s; }
-.btn:hover { border-color: var(--primary); }
-.btn:active { transform: translateY(1px); }
-.btn:disabled { opacity: .55; cursor: progress; }
-.btn-primary { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); }
-.btn-primary:hover { filter: brightness(1.06); }
-.btn-sm { padding: 6px 12px; font-size: 13.5px; }
-.wrap { max-width: 1240px; margin: auto; padding: 28px 24px 64px; }
-.hero { display: flex; flex-wrap: wrap; gap: 20px 32px; align-items: flex-end; justify-content: space-between; margin-bottom: 22px; }
-.hero h1 { margin: 0 0 6px; font-size: 28px; line-height: 1.2; color: var(--heading); letter-spacing: -.01em; }
-.hero p { margin: 0; color: var(--muted); max-width: 720px; }
-.runall { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; min-width: 260px; }
-.progress { width: 100%; height: 6px; border-radius: 99px; background: var(--surface-2); overflow: hidden; }
-.progress > span { display: block; height: 100%; width: 0; background: var(--primary); transition: width .25s; }
-.summary { margin: 0 0 22px; padding: 14px 18px; border-radius: var(--radius); border: 1px solid; display: flex; gap: 12px; align-items: center; font-weight: 600; }
-.summary.ok { background: var(--ok-soft); border-color: color-mix(in srgb, var(--ok) 35%, transparent); color: var(--ok); }
-.summary.bad { background: var(--bad-soft); border-color: color-mix(in srgb, var(--bad) 35%, transparent); color: var(--bad); }
-.summary small { display: block; font-weight: 500; color: var(--text); }
-.layout { display: grid; grid-template-columns: 260px 1fr; gap: 24px; align-items: start; }
-.side { position: sticky; top: 76px; display: grid; gap: 16px; }
-.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px; }
-.panel h2 { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-.filters { display: grid; gap: 2px; }
-.filter { display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 7px 10px; border: 0; border-radius: 8px; background: none; color: var(--text); cursor: pointer; text-align: left; }
-.filter:hover { background: var(--surface-2); }
-.filter[aria-pressed="true"] { background: var(--primary-soft); color: var(--primary); font-weight: 600; }
-.count { font-size: 12px; color: var(--muted); background: var(--surface-2); border-radius: 99px; padding: 1px 8px; }
-.kinds { display: flex; flex-wrap: wrap; gap: 6px; }
-.chip { border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 99px; padding: 4px 11px; font-size: 13px; cursor: pointer; }
-.chip[aria-pressed="true"] { border-color: var(--primary); color: var(--primary); background: var(--primary-soft); font-weight: 600; }
-.bug { display: flex; gap: 10px; align-items: flex-start; padding: 8px 0; border-top: 1px solid var(--border); }
-.bug:first-of-type { border-top: 0; }
-.bug b { display: block; font-size: 13.5px; }
-.bug small { color: var(--muted); font-size: 12.5px; }
-.switch { position: relative; flex: none; width: 38px; height: 22px; border-radius: 99px; border: 0; background: var(--ok); cursor: pointer; margin-top: 2px; }
-.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: #fff; transition: transform .15s; }
-.switch[aria-checked="true"] { background: var(--bad); }
-.switch[aria-checked="true"]::after { transform: translateX(16px); }
-.cred { font-size: 13px; color: var(--muted); margin: 10px 0 0; }
-code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); padding: 1px 6px; border-radius: 5px; }
-.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 16px; align-items: start; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px; display: flex; flex-direction: column; gap: 10px; transition: border-color .2s; }
-.card.ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
-.card.bad { border-color: color-mix(in srgb, var(--bad) 45%, var(--border)); }
-.card-head { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
-.client { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; font-weight: 600; color: var(--muted); }
-.dot { width: 8px; height: 8px; border-radius: 50%; }
-.kind { margin-left: auto; font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 2px 9px; border-radius: 99px; }
-.kind-ok { color: var(--ok); background: var(--ok-soft); }
-.kind-nok { color: var(--bad); background: var(--bad-soft); }
-.kind-flaky { color: var(--warn); background: var(--warn-soft); }
-.kind-suite { color: var(--primary); background: var(--primary-soft); }
-.card h3 { margin: 0; font-size: 16px; color: var(--heading); }
-.card p { margin: 0; color: var(--muted); font-size: 14px; flex: 1; }
-.card-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-.status { font-size: 13.5px; font-weight: 600; }
-.status.ok { color: var(--ok); }
-.status.bad { color: var(--bad); }
-.status.run { color: var(--muted); }
-.spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--primary); border-radius: 50%; display: inline-block; animation: spin .7s linear infinite; vertical-align: -2px; }
-@keyframes spin { to { transform: rotate(360deg); } }
-.result { border-top: 1px solid var(--border); padding-top: 10px; }
-.tabs { display: flex; gap: 4px; margin-bottom: 8px; }
-.tab { border: 0; background: none; color: var(--muted); padding: 5px 10px; border-radius: 7px; cursor: pointer; font-size: 13px; font-weight: 600; }
-.tab[aria-selected="true"] { background: var(--surface-2); color: var(--heading); }
-.checks, .sent { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
-.checks li { display: flex; gap: 8px; }
-.checks .mk { font-weight: 800; width: 14px; flex: none; }
-.checks .mk.ok { color: var(--ok); }
-.checks .mk.bad { color: var(--bad); }
-.checks small { display: block; color: var(--bad); font-size: 12.5px; }
-.sent li { display: grid; grid-template-columns: 54px 1fr auto auto; gap: 8px; font-family: var(--mono); font-size: 12px; align-items: baseline; }
-.sent .m { font-weight: 700; color: var(--primary); }
-.sent .p { overflow-wrap: anywhere; color: var(--text); }
-.sent .s { font-weight: 700; }
-.sent .s.ok { color: var(--ok); }
-.sent .s.bad { color: var(--bad); }
-.sent .t { color: var(--muted); }
-.empty { color: var(--muted); padding: 40px; text-align: center; }
-.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+.live { display: inline-flex; align-items: center; gap: 8px; font: 500 12.5px/1 var(--mono); color: var(--muted); }
+.dot-live { width: 8px; height: 8px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 0 0 var(--lime-glow); animation: pulse 2.4s var(--ease) infinite; }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(201, 250, 107, .5); } 70% { box-shadow: 0 0 0 9px rgba(201, 250, 107, 0); } 100% { box-shadow: 0 0 0 0 rgba(201, 250, 107, 0); } }
+
+/* ── botones ── */
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 9px; min-height: 42px; padding: 0 18px; border-radius: 10px; border: 1px solid var(--border-strong);
+	background: var(--surface); color: var(--text); font-weight: 600; font-size: 14.5px; cursor: pointer; text-decoration: none; white-space: nowrap;
+	transition: border-color var(--fast), background var(--fast), transform var(--fast), box-shadow var(--base); }
+.btn:hover { border-color: var(--lime-dk); background: var(--surface-2); }
+.btn:active { transform: scale(.97); }
+.btn:disabled { opacity: .6; cursor: progress; transform: none; }
+.btn-lime { background: var(--lime); border-color: var(--lime); color: var(--on-lime); box-shadow: 0 10px 30px -12px rgba(201, 250, 107, .65); }
+.btn-lime:hover { background: #d6ff86; border-color: #d6ff86; box-shadow: 0 14px 36px -12px rgba(201, 250, 107, .8); }
+.btn-sm { min-height: 36px; padding: 0 13px; font-size: 13.5px; border-radius: 9px; }
+.btn-ghost { background: transparent; }
+.link { display: inline-flex; align-items: center; gap: 6px; color: var(--lime); font-weight: 600; font-size: 13.5px; text-decoration: none; }
+.link:hover { text-decoration: underline; text-underline-offset: 3px; }
+.link svg.i { width: 15px; height: 15px; }
+
+/* ── héroe ── */
+.wrap { max-width: 1280px; margin: auto; padding: 0 28px 80px; }
+.hero { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr); gap: 48px; align-items: center; padding: 56px 0 40px; }
+.kicker { display: inline-flex; align-items: center; gap: 10px; font: 600 12px/1 var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--lime); margin-bottom: 18px; }
+.kicker::before { content: ""; width: 22px; height: 2px; background: var(--lime); }
+h1 { font: 700 clamp(2.1rem, 4.4vw, 3.4rem)/1.07 var(--sans); letter-spacing: -.025em; margin: 0 0 18px; }
+h1 em { font-style: normal; color: var(--lime); }
+.lead { font-size: 1.08rem; color: var(--muted); margin: 0 0 28px; max-width: 590px; }
+.actions { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 34px; }
+.stats { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; max-width: 590px; }
+.stat { border: 1px solid var(--border); background: var(--surface); border-radius: 12px; padding: 12px 14px; }
+.stat b { display: block; font: 700 24px/1.1 var(--mono); color: var(--text); }
+.stat span { font-size: 12.5px; color: var(--dim); }
+
+/* terminal */
+.term { border: 1px solid var(--border-strong); background: #0a0c09; border-radius: var(--radius); overflow: hidden; box-shadow: 0 30px 80px -40px rgba(0, 0, 0, .9), 0 0 0 1px rgba(201, 250, 107, .04); }
+.term-bar { display: flex; align-items: center; gap: 8px; padding: 11px 14px; border-bottom: 1px solid var(--border); background: var(--bg-2); }
+.term-bar i { width: 11px; height: 11px; border-radius: 50%; background: #3a4234; }
+.term-bar i:nth-child(1) { background: #ff5f56; } .term-bar i:nth-child(2) { background: #e7c35a; } .term-bar i:nth-child(3) { background: #6c9736; }
+.term-bar span { margin-left: 8px; font: 500 12px/1 var(--mono); color: var(--dim); }
+.term-body { height: 300px; overflow: auto; padding: 16px 18px; font: 13px/1.75 var(--mono); color: var(--muted); }
+.term-body .ln { display: block; white-space: pre-wrap; word-break: break-word; }
+.ln .p { color: var(--lime); } .ln .ok { color: var(--lime); } .ln .bad { color: var(--coral); } .ln .w { color: var(--text); } .ln .d { color: var(--dim); }
+.caret { display: inline-block; width: 8px; height: 15px; background: var(--lime); vertical-align: -2px; animation: blink 1.1s steps(1) infinite; }
+@keyframes blink { 50% { opacity: 0; } }
+
+/* cómo funciona */
+.how { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin: 8px 0 34px; counter-reset: step; }
+.step { position: relative; border: 1px solid var(--border); background: linear-gradient(180deg, var(--surface), var(--bg-2)); border-radius: var(--radius); padding: 18px 18px 16px; }
+.step-ic { width: 36px; height: 36px; border-radius: 10px; display: grid; place-items: center; background: var(--lime-glow); color: var(--lime); border: 1px solid var(--border-strong); margin-bottom: 12px; }
+.step h2 { margin: 0 0 4px; font-size: 15px; }
+.step h2::before { counter-increment: step; content: counter(step) ". "; color: var(--lime); font-family: var(--mono); }
+.step p { margin: 0; color: var(--muted); font-size: 13.5px; }
+
+/* resumen */
+.summary { display: flex; align-items: center; gap: 14px; padding: 16px 20px; border-radius: var(--radius); border: 1px solid; margin-bottom: 26px; font-weight: 600; }
+.summary.ok { background: var(--lime-glow); border-color: var(--lime-dk); color: var(--lime); }
+.summary.bad { background: var(--coral-soft); border-color: rgba(255, 107, 98, .45); color: var(--coral); }
+.summary svg.i { width: 26px; height: 26px; }
+.summary small { display: block; font-weight: 500; color: var(--muted); font-size: 13px; }
+.progress { position: relative; height: 4px; border-radius: 99px; background: var(--surface-2); overflow: hidden; margin: 0 0 26px; }
+.progress > span { position: absolute; inset: 0; transform-origin: left; transform: scaleX(0); background: linear-gradient(90deg, var(--lime-dk), var(--lime)); }
+
+/* ── layout ── */
+.layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 26px; align-items: start; }
+.side { position: sticky; top: 82px; display: grid; gap: 14px; }
+.panel { border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 16px; }
+.panel h2 { margin: 0 0 12px; font: 600 11.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .1em; color: var(--dim); }
+.filters { display: grid; gap: 3px; }
+.filter { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 38px; padding: 0 10px; border: 1px solid transparent; border-radius: 9px; background: none; cursor: pointer; text-align: left; color: var(--muted); transition: background var(--fast), color var(--fast); }
+.filter:hover { background: var(--surface-2); color: var(--text); }
+.filter[aria-pressed="true"] { background: var(--surface-3); border-color: var(--border-strong); color: var(--text); }
+.filter .name { flex: 1; }
+.count { font: 600 11.5px/1 var(--mono); color: var(--dim); background: var(--bg-2); border-radius: 99px; padding: 4px 8px; }
+.filter[aria-pressed="true"] .count { color: var(--lime); }
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { min-height: 32px; border: 1px solid var(--border); background: transparent; border-radius: 99px; padding: 0 13px; font-size: 13px; cursor: pointer; color: var(--muted); transition: all var(--fast); }
+.chip:hover { border-color: var(--border-strong); color: var(--text); }
+.chip[aria-pressed="true"] { border-color: var(--lime-dk); background: var(--lime-glow); color: var(--lime); font-weight: 600; }
+.bug { display: flex; gap: 12px; align-items: flex-start; padding: 11px 0; border-top: 1px solid var(--border); }
+.bug:first-child { border-top: 0; padding-top: 2px; }
+.bug b { display: block; font-size: 13.5px; font-weight: 600; }
+.bug small { display: block; color: var(--dim); font-size: 12.5px; line-height: 1.45; margin-top: 2px; }
+.state { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; font: 600 11.5px/1 var(--mono); text-transform: uppercase; letter-spacing: .06em; }
+.state::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+.state.on { color: var(--coral); } .state.off { color: var(--lime); }
+.switch { position: relative; flex: none; width: 44px; height: 26px; border-radius: 99px; border: 1px solid var(--border-strong); background: var(--surface-3); cursor: pointer; margin-top: 1px; transition: background var(--base), border-color var(--base); }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--lime); transition: transform var(--base) var(--ease), background var(--base); }
+.switch[aria-checked="true"] { background: rgba(255, 107, 98, .18); border-color: rgba(255, 107, 98, .5); }
+.switch[aria-checked="true"]::after { transform: translateX(18px); background: var(--coral); }
+.cred { margin: 12px 0 0; font-size: 12.5px; color: var(--dim); }
+code { font: 500 .92em var(--mono); color: var(--text); background: var(--bg-2); border: 1px solid var(--border); padding: 1px 6px; border-radius: 6px; }
+
+/* ── tarjetas ── */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 16px; align-items: start; }
+.card { position: relative; border: 1px solid var(--border); background: var(--surface); border-radius: var(--radius); padding: 18px; display: flex; flex-direction: column; gap: 12px;
+	transition: border-color var(--base), box-shadow var(--base), transform var(--base) var(--ease); }
+.card:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: 0 18px 40px -26px rgba(0, 0, 0, .9); }
+.card.ok { border-color: rgba(201, 250, 107, .42); }
+.card.bad { border-color: rgba(255, 107, 98, .5); }
+.card.running::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+	background: conic-gradient(from var(--a, 0deg), transparent 0 70%, var(--lime) 85%, transparent);
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; animation: spinb 1.4s linear infinite; }
+@property --a { syntax: "<angle>"; inherits: false; initial-value: 0deg; }
+@keyframes spinb { to { --a: 360deg; } }
+.card-head { display: flex; align-items: center; gap: 11px; }
+.badge { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font: 700 12px/1 var(--mono); color: var(--c); background: color-mix(in srgb, var(--c) 13%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent); flex: none; }
+.client { font-size: 12.5px; color: var(--dim); font-weight: 500; line-height: 1.3; }
+.kind { margin-left: auto; font: 700 10.5px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; padding: 6px 9px; border-radius: 99px; border: 1px solid; }
+.kind-ok { color: var(--lime); border-color: rgba(201, 250, 107, .35); background: var(--lime-glow); }
+.kind-nok { color: var(--coral); border-color: rgba(255, 107, 98, .4); background: var(--coral-soft); }
+.kind-flaky { color: var(--amber); border-color: rgba(231, 195, 90, .4); background: var(--amber-soft); }
+.kind-suite { color: var(--cyan); border-color: rgba(76, 195, 230, .4); background: rgba(76, 195, 230, .1); }
+.card h3 { margin: 0; font-size: 16px; line-height: 1.35; letter-spacing: -.005em; }
+.card p { margin: 0; color: var(--muted); font-size: 13.8px; }
+.card-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; padding-top: 2px; }
+.status { display: inline-flex; align-items: center; gap: 7px; font: 600 12.5px/1.2 var(--mono); }
+.status.ok { color: var(--lime); } .status.bad { color: var(--coral); } .status.run { color: var(--muted); }
+.status svg.i { width: 15px; height: 15px; }
+.spin { animation: rot .8s linear infinite; }
+@keyframes rot { to { transform: rotate(360deg); } }
+.result { border-top: 1px solid var(--border); padding-top: 12px; }
+.tabs { display: flex; gap: 4px; margin-bottom: 10px; padding: 3px; background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; width: fit-content; }
+.tab { border: 0; background: none; color: var(--dim); min-height: 30px; padding: 0 12px; border-radius: 8px; cursor: pointer; font-size: 12.5px; font-weight: 600; }
+.tab[aria-selected="true"] { background: var(--surface-3); color: var(--text); }
+.checks, .sent { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.checks li { display: flex; gap: 9px; font-size: 13.4px; line-height: 1.4; }
+.checks li svg.i { width: 16px; height: 16px; margin-top: 1px; }
+.checks .ok svg { color: var(--lime); } .checks .bad svg { color: var(--coral); }
+.checks small { display: block; color: var(--coral); font-size: 12px; margin-top: 2px; font-family: var(--mono); }
+.sent { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 10px; background: #0a0c09; padding: 8px 10px; gap: 2px; }
+.sent li { display: grid; grid-template-columns: 50px minmax(0, 1fr) auto auto; gap: 10px; font: 12px/1.7 var(--mono); align-items: baseline; }
+.sent .m { color: var(--cyan); font-weight: 700; }
+.sent .p { overflow-wrap: anywhere; color: var(--muted); }
+.sent .s { font-weight: 700; } .sent .s.ok { color: var(--lime); } .sent .s.bad { color: var(--coral); }
+.sent .t { color: var(--dim); }
+.empty { color: var(--dim); padding: 48px 0; text-align: center; grid-column: 1 / -1; }
+
+footer.foot { border-top: 1px solid var(--border); margin-top: 56px; padding-top: 22px; color: var(--dim); font-size: 13px; display: flex; flex-wrap: wrap; gap: 8px 18px; }
+
+@media (max-width: 1080px) { .hero { grid-template-columns: 1fr; gap: 28px; padding-top: 36px; } .term-body { height: 220px; } }
 @media (max-width: 860px) {
-	.layout { grid-template-columns: 1fr; } .side { position: static; } .runall { align-items: stretch; width: 100%; }
-	.filters { display: flex; flex-wrap: wrap; gap: 6px; }
-	.filter { width: auto; gap: 6px; border: 1px solid var(--border); border-radius: 99px; padding: 4px 11px; font-size: 13px; }
+	.top-in, .wrap { padding-left: 16px; padding-right: 16px; }
+	.live, .top .btn-ghost, .chip-pg { display: none; }
+	#open-tr span { display: none; }
+	#open-tr { padding: 0 11px; }
+	.actions .btn { flex: 1 1 auto; }
+	.layout { grid-template-columns: 1fr; } .side { position: static; }
+	.how { grid-template-columns: 1fr; }
+	.stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.filters { display: flex; flex-wrap: wrap; gap: 7px; }
+	.filter { width: auto; min-height: 34px; border: 1px solid var(--border); border-radius: 99px; padding: 0 12px; font-size: 13px; }
 	.grid { grid-template-columns: 1fr; }
 }
-@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+@media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+	<symbol id="i-play" viewBox="0 0 24 24"><path fill="currentColor" d="M8 5.1v13.8a1 1 0 0 0 1.5.86l11-6.9a1 1 0 0 0 0-1.72l-11-6.9A1 1 0 0 0 8 5.1Z"/></symbol>
+	<symbol id="i-check" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" d="m5 12.5 4.5 4.5L19 7.5"/></symbol>
+	<symbol id="i-x" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/></symbol>
+	<symbol id="i-check-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m7.5 12.5 3 3 6-6.5"/></symbol>
+	<symbol id="i-alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" fill="none" stroke="currentColor" stroke-width="2"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" d="M12 7.5v6M12 16.5v.5"/></symbol>
+	<symbol id="i-ext" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M14 5h5v5M19 5l-8 8M18 14v4a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h4"/></symbol>
+	<symbol id="i-loader" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" d="M12 3a9 9 0 1 0 9 9"/></symbol>
+	<symbol id="i-rec" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="12" r="4" fill="currentColor"/></symbol>
+	<symbol id="i-send" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 12 20 4l-4 16-4-6.5L4 12Z"/><path fill="none" stroke="currentColor" stroke-width="2" d="m12 13.5 3.5-5"/></symbol>
+	<symbol id="i-shield" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M12 3 5 6v5.5c0 4.5 3 8 7 9.5 4-1.5 7-5 7-9.5V6l-7-3Z"/><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="m9 12 2.2 2.2L15.5 10"/></symbol>
+	<symbol id="i-store" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 9h16l-1-4H5L4 9Zm0 0v10h16V9M9 19v-5h6v5"/></symbol>
+</svg>
+<a class="skip" href="#scenarios" data-i18n="Skip to the scenarios">Skip to the scenarios</a>
+
 <header class="top"><div class="top-in">
-	<div class="brand"><span class="brand-mark" aria-hidden="true">T</span><span>TraceReports <small data-i18n="Playground">Playground</small></span></div>
+	<a class="logo" href="/" aria-label="TraceReports Playground"><span class="logo-mark" aria-hidden="true">T.</span><span class="logo-word">trace<b>reports</b></span></a>
+	<span class="chip-pg">Playground</span>
 	<span class="spacer"></span>
-	<a class="btn btn-sm" id="open-tr" target="_blank" rel="noopener"><span data-i18n="Open TraceReports">Open TraceReports</span> ↗</a>
+	<span class="live"><span class="dot-live" aria-hidden="true"></span><span data-i18n="Local demo">Local demo</span></span>
+	<a class="btn btn-sm btn-ghost" href="/login" target="_blank" rel="noopener"><svg class="i"><use href="#i-store"/></svg><span data-i18n="Shop">Shop</span></a>
+	<a class="btn btn-sm" id="open-tr" target="_blank" rel="noopener" aria-label="Open TraceReports"><span data-i18n="Open TraceReports">Open TraceReports</span><svg class="i" aria-hidden="true"><use href="#i-ext"/></svg></a>
 </div></header>
 
 <main class="wrap">
 	<section class="hero">
-		<div>
-			<h1 data-i18n="Simulate what each client sends">Simulate what each client sends</h1>
-			<p data-i18n="hero">Every scenario is a real recording of a TraceReports client (pytest, Playwright, Selenium, Go, REST) running against this demo shop. Run one to see the requests that reach TraceReports and what it shows; run them all to check that nothing is broken.</p>
+		<div data-reveal>
+			<div class="kicker" data-i18n="Real recordings · local demo">Real recordings · local demo</div>
+			<h1 data-i18n-html="h1">Simulate what <em>each client</em> sends</h1>
+			<p class="lead" data-i18n="lead">Every scenario is a real recording of a TraceReports client running against this demo shop. Send one to see the requests that reach TraceReports and what it shows — or send them all to check that nothing is broken.</p>
+			<div class="actions">
+				<button class="btn btn-lime" id="run-all"><svg class="i"><use href="#i-play"/></svg><span data-i18n="Run all and verify">Run all and verify</span></button>
+				<a class="btn" href="#how"><span data-i18n="How it works">How it works</span></a>
+			</div>
+			<div class="stats">
+				<div class="stat"><b data-count="scenarios">0</b><span data-i18n="scenarios">scenarios</span></div>
+				<div class="stat"><b data-count="clients">0</b><span data-i18n="clients">clients</span></div>
+				<div class="stat"><b data-count="languages">0</b><span data-i18n="languages">languages</span></div>
+				<div class="stat"><b>0</b><span data-i18n="external services">external services</span></div>
+			</div>
 		</div>
-		<div class="runall">
-			<button class="btn btn-primary" id="run-all"><span aria-hidden="true">▶</span> <span data-i18n="Run all and verify">Run all and verify</span></button>
-			<div class="progress" hidden id="progress" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span></span></div>
+		<div class="term" data-reveal aria-label="Activity" role="log" aria-live="off">
+			<div class="term-bar"><i></i><i></i><i></i><span>tracereports · playground</span></div>
+			<div class="term-body" id="term"></div>
 		</div>
 	</section>
+
+	<section class="how" id="how">
+		<article class="step" data-reveal><div class="step-ic"><svg class="i"><use href="#i-rec"/></svg></div><h2 data-i18n="Recorded for real">Recorded for real</h2><p data-i18n="how1">pytest, Playwright, Selenium and Go ran against this shop; what they sent was saved, nothing hand-written.</p></article>
+		<article class="step" data-reveal><div class="step-ic"><svg class="i"><use href="#i-send"/></svg></div><h2 data-i18n="Sent to TraceReports">Sent to TraceReports</h2><p data-i18n="how2">The same REST calls each client makes, with the times moved to now and the shop's current address.</p></article>
+		<article class="step" data-reveal><div class="step-ic"><svg class="i"><use href="#i-shield"/></svg></div><h2 data-i18n="Checked automatically">Checked automatically</h2><p data-i18n="how3">Statuses, incident, masked password, screenshots, suggested selector, flaky tests and that the Lab reproduces it.</p></article>
+	</section>
+
+	<div class="progress" id="progress" hidden><span></span></div>
 	<div id="summary" hidden></div>
 
 	<div class="layout">
 		<aside class="side">
-			<section class="panel" aria-labelledby="h-client">
-				<h2 id="h-client" data-i18n="Client">Client</h2>
-				<div class="filters" id="clients"></div>
-			</section>
-			<section class="panel" aria-labelledby="h-kind">
-				<h2 id="h-kind" data-i18n="Kind">Kind</h2>
-				<div class="kinds" id="kinds"></div>
-			</section>
+			<section class="panel" aria-labelledby="h-client"><h2 id="h-client" data-i18n="Client">Client</h2><div class="filters" id="clients"></div></section>
+			<section class="panel" aria-labelledby="h-kind"><h2 id="h-kind" data-i18n="Kind">Kind</h2><div class="chips" id="kinds"></div></section>
 			<section class="panel" aria-labelledby="h-shop">
 				<h2 id="h-shop" data-i18n="Shop backend">Shop backend</h2>
 				<div id="bugs"></div>
-				<p class="cred"><span data-i18n="Shop login">Shop login</span>: <code id="cred-user"></code> / <code id="cred-pass"></code></p>
-				<p class="cred"><a href="/login" target="_blank" rel="noopener" data-i18n="Open the shop">Open the shop</a> ↗</p>
+				<p class="cred"><span data-i18n="Shop login">Shop login</span>: <code id="cred-user"></code> · <code id="cred-pass"></code></p>
 			</section>
 		</aside>
-		<section>
-			<div class="grid" id="cards" aria-live="polite"></div>
+		<section aria-labelledby="h-scenarios">
+			<h2 id="h-scenarios" class="sr" data-i18n="Scenarios">Scenarios</h2>
+			<div class="grid" id="scenarios"></div>
 		</section>
 	</div>
-	<p class="sr" aria-live="assertive" id="announce"></p>
+	<footer class="foot"><span>TraceReports Playground</span><span data-i18n="foot">The same check runs in your terminal: tracereports selftest</span></footer>
+	<p class="sr" aria-live="polite" id="announce"></p>
 </main>
 
+<script src="/__static/motion-14.0.0.js"></script>
 <script>
 (() => {
 	"use strict";
 	const ES = /^es\b/i.test(navigator.language || "");
 	if (ES) document.documentElement.lang = "es";
+	const M = window.Motion;
+	const REDUCE = matchMedia("(prefers-reduced-motion: reduce)").matches;
+	const animate = (el, kf, opts) => (M && !REDUCE && el ? M.animate(el, kf, opts) : null);
+	const stagger = (s) => (M ? M.stagger(s) : 0);
+
+	// ── textos (español neutro) ──
 	const T = {
-		"Playground": "Playground", "Open TraceReports": "Abrir TraceReports", "Simulate what each client sends": "Simula lo que envía cada cliente",
-		"hero": "Cada escenario es una grabación real de un cliente de TraceReports (pytest, Playwright, Selenium, Go, REST) contra esta tienda de prueba. Ejecuta uno para ver las peticiones que llegan a TraceReports y lo que muestra; ejecútalos todos para comprobar que nada se rompió.",
-		"Run all and verify": "Ejecutar todos y verificar", "Client": "Cliente", "Kind": "Tipo", "Shop backend": "Backend de la tienda", "Shop login": "Login de la tienda",
-		"Open the shop": "Abrir la tienda", "All": "Todos", "Run": "Ejecutar", "Run again": "Ejecutar de nuevo", "Running…": "Ejecutando…",
-		"View in TraceReports": "Ver en TraceReports", "Checks": "Comprobaciones", "Requests sent": "Peticiones enviadas", "OK": "OK", "NOK": "NOK", "Flaky": "Inestable",
-		"broken": "roto", "working": "funciona", "Reset": "Restablecer", "No scenarios for this filter.": "No hay escenarios para este filtro.",
-		"all pass": "Todo funciona: {n} de {n} escenarios pasan ({c} comprobaciones).", "some fail": "{f} de {n} escenarios no cumplen lo esperado.",
-		"checked": "{ok}/{all} comprobaciones", "could not send": "No se pudo enviar", "Break it": "Romperlo", "Fix it": "Arreglarlo",
+		"Skip to the scenarios": "Saltar a los escenarios", "Local demo": "Demo local", "Shop": "Tienda", "Open TraceReports": "Abrir TraceReports",
+		"Real recordings · local demo": "Grabaciones reales · demo local", "h1": "Simula lo que envía <em>cada cliente</em>",
+		"lead": "Cada escenario es una grabación real de un cliente de TraceReports contra esta tienda de prueba. Envía uno para ver las peticiones que llegan a TraceReports y lo que muestra, o envíalos todos para comprobar que nada se rompió.",
+		"Run all and verify": "Ejecutar todos y verificar", "How it works": "Cómo funciona", "scenarios": "escenarios", "clients": "clientes", "languages": "lenguajes",
+		"external services": "servicios externos", "Recorded for real": "Grabado de verdad",
+		"how1": "pytest, Playwright, Selenium y Go corrieron contra esta tienda; se guardó lo que enviaron, nada escrito a mano.",
+		"Sent to TraceReports": "Enviado a TraceReports", "how2": "Las mismas llamadas REST que hace cada cliente, con las fechas movidas a ahora y la dirección actual de la tienda.",
+		"Checked automatically": "Comprobado automáticamente", "how3": "Estados, incidente, contraseña enmascarada, capturas, selector sugerido, tests inestables y que el Lab lo reproduzca.",
+		"Client": "Cliente", "Kind": "Tipo", "Shop backend": "Backend de la tienda", "Shop login": "Login de la tienda", "Scenarios": "Escenarios",
+		"foot": "La misma comprobación corre en tu terminal: tracereports selftest", "All": "Todos", "Run": "Ejecutar", "Run again": "Ejecutar de nuevo",
+		"Running…": "Ejecutando…", "View in TraceReports": "Ver en TraceReports", "Checks": "Comprobaciones", "Requests sent": "Peticiones enviadas",
+		"Flaky": "Inestable", "Suite": "Suite", "broken": "roto", "working": "funciona", "No scenarios for this filter.": "No hay escenarios para este filtro.",
+		"all pass": "Todo funciona: {n} de {n} escenarios pasan", "all pass sub": "{c} comprobaciones contra el TraceReports de esta demo, en {s} s.",
+		"some fail": "{f} de {n} escenarios no hacen lo esperado", "some fail sub": "Abre las tarjetas en rojo para ver qué comprobación falló.",
+		"checked": "{ok}/{all} comprobaciones", "could not send": "No se pudo enviar", "Fix it": "Arreglarlo", "Break it": "Romperlo",
 		"done": "Escenario {t}: {r}", "passed": "pasó", "failed": "falló",
+		"t-ready": "{r} ejecuciones cargadas · {s} escenarios listos", "t-hint": "Elige un escenario o ejecuta todos",
+		"t-run": "enviar", "t-all": "verificar todo",
 	};
-	// textos con clave (no son la frase en inglés): su versión en inglés
-	const EN = { "hero": document.querySelector('[data-i18n="hero"]').textContent, "all pass": "Everything works: {n} of {n} scenarios pass ({c} checks).",
-		"some fail": "{f} of {n} scenarios do not do what they should.", "checked": "{ok}/{all} checks", "could not send": "Could not send it",
-		"done": "Scenario {t}: {r}" };
+	const EN = { "h1": document.querySelector("[data-i18n-html=h1]").innerHTML, "lead": document.querySelector("[data-i18n=lead]").textContent,
+		"how1": document.querySelector("[data-i18n=how1]").textContent, "how2": document.querySelector("[data-i18n=how2]").textContent,
+		"how3": document.querySelector("[data-i18n=how3]").textContent, "foot": document.querySelector("[data-i18n=foot]").textContent,
+		"all pass": "Everything works: {n} of {n} scenarios pass", "all pass sub": "{c} checks against this demo's TraceReports, in {s} s.",
+		"some fail": "{f} of {n} scenarios do not do what they should", "some fail sub": "Open the red cards to see which check failed.",
+		"checked": "{ok}/{all} checks", "could not send": "Could not send it", "done": "Scenario {t}: {r}",
+		"t-ready": "{r} runs loaded · {s} scenarios ready", "t-hint": "Pick a scenario or run them all", "t-run": "send", "t-all": "verify all" };
 	const t = (s, v = {}) => ((ES ? T[s] : EN[s]) ?? s).replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
+	if (ES) {
+		document.querySelectorAll("[data-i18n]").forEach((el) => { el.textContent = t(el.dataset.i18n); });
+		document.querySelectorAll("[data-i18n-html]").forEach((el) => { el.innerHTML = t(el.dataset.i18nHtml); });
+	}
 	const CHECK_ES = [[/^run status /, "estado de la ejecución "], [/^test "(.+)" (\w+)$/, "test \"$1\": $2"], [/^incident /, "incidente "], [/^network captured$/, "red capturada"],
 		[/^password masked$/, "contraseña enmascarada"], [/^screenshot$/, "captura"], [/^new selector suggested$/, "selector nuevo sugerido"],
+		[/^no selector suggested \(the backend failed\)$/, "sin sugerencia de selector (falló el backend)"],
 		[/^passed after retry \(flaky\)$/, "pasó al reintentar (inestable)"], [/^command to run it locally$/, "comando para correrlo en local"],
 		[/^Lab reproduces the failure$/, "el Lab reproduce el fallo"], [/^run created$/, "ejecución creada"]];
 	const checkName = (n) => { if (!ES) return n; for (const [re, rep] of CHECK_ES) if (re.test(n)) return n.replace(re, rep); return n; };
 	const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-	document.querySelectorAll("[data-i18n]").forEach((el) => { if (ES) el.textContent = t(el.dataset.i18n); });
+	const icon = (id, cls = "i") => `<svg class="${cls}" aria-hidden="true"><use href="#${id}"/></svg>`;
 
-	const CLIENTS = [["rest", "REST API", "#7c3aed"], ["pytest", "pytest + Playwright", "#2f6fed"], ["playwright-js", "Playwright Test (JS)", "#16a34a"],
-		["selenium-java", "Selenium + JUnit 5", "#ea580c"], ["go", "Go", "#0891b2"], ["junit-xml", "JUnit XML", "#64748b"]];
-	const clientOf = (id) => CLIENTS.find((c) => c[0] === id) || [id, id, "#888"];
-	const S = { scenarios: [], client: "", kind: "", results: {}, running: new Set(), tab: {} };
+	const CLIENTS = { "rest": ["REST API", "API", "#b49cff"], "pytest": ["pytest + Playwright", "Py", "#4cc3e6"], "playwright-js": ["Playwright Test (JS)", "JS", "#c9fa6b"],
+		"selenium-java": ["Selenium + JUnit 5", "Java", "#ff9f5a"], "go": ["Go · go test", "Go", "#5ad8c8"], "junit-xml": ["JUnit XML", "XML", "#a9b09d"] };
+	const KINDS = { ok: "OK", nok: "NOK", flaky: "Flaky", suite: "Suite" };
+	const S = { scenarios: [], client: "", kind: "", results: {}, running: new Set(), tab: {}, fresh: new Set() };
 	const $ = (s) => document.querySelector(s);
 	const say = (s) => { $("#announce").textContent = s; };
+
+	// ── terminal ──
+	const term = $("#term");
+	function line(html) {
+		term.querySelector(".caret")?.remove();
+		const el = document.createElement("span");
+		el.className = "ln";
+		el.innerHTML = html + '<span class="caret" aria-hidden="true"></span>';
+		term.appendChild(el);
+		while (term.children.length > 60) term.firstElementChild.remove();
+		term.scrollTop = term.scrollHeight;
+		animate(el, { opacity: [0, 1], x: [-6, 0] }, { duration: 0.25, ease: [0.22, 1, 0.36, 1] });
+	}
 
 	async function post(path, body) {
 		const res = await fetch(path, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
@@ -207,92 +361,130 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); 
 	function drawFilters() {
 		const counts = {};
 		S.scenarios.forEach((s) => { counts[s.client] = (counts[s.client] || 0) + 1; });
-		$("#clients").innerHTML = [["", t("All"), ""], ...CLIENTS].filter(([id]) => !id || counts[id]).map(([id, label]) =>
-			`<button class="filter" data-client="${id}" aria-pressed="${S.client === id}"><span>${esc(label)}</span><span class="count">${id ? counts[id] : S.scenarios.length}</span></button>`).join("");
-		$("#kinds").innerHTML = [["", t("All")], ["ok", t("OK")], ["nok", t("NOK")], ["flaky", t("Flaky")], ["suite", t("Suite")]].map(([k, label]) =>
+		const items = [["", t("All"), S.scenarios.length], ...Object.keys(CLIENTS).filter((c) => counts[c]).map((c) => [c, CLIENTS[c][0], counts[c]])];
+		$("#clients").innerHTML = items.map(([id, label, n]) =>
+			`<button class="filter" data-client="${id}" aria-pressed="${S.client === id}"><span class="name">${esc(label)}</span><span class="count">${n}</span></button>`).join("");
+		$("#kinds").innerHTML = [["", t("All")], ...Object.entries(KINDS).map(([k, l]) => [k, t(l)])].map(([k, label]) =>
 			`<button class="chip" data-kind="${k}" aria-pressed="${S.kind === k}">${esc(label)}</button>`).join("");
 	}
 
-	function card(s) {
-		const [, label, color] = clientOf(s.client);
+	const visible = () => S.scenarios.filter((s) => (!S.client || s.client === S.client) && (!S.kind || s.kind === S.kind));
+
+	function cardHTML(s) {
+		const [label, mono, color] = CLIENTS[s.client] || [s.client, "?", "#888"];
 		const r = S.results[s.id];
 		const running = S.running.has(s.id);
 		const okCount = r ? r.checks.filter((c) => c.ok).length : 0;
-		const status = running ? `<span class="status run"><span class="spinner" aria-hidden="true"></span> ${t("Running…")}</span>`
-			: !r ? "" : r.error ? `<span class="status bad">✗ ${t("could not send")}</span>`
-			: `<span class="status ${r.ok ? "ok" : "bad"}">${r.ok ? "✓" : "✗"} ${t("checked", { ok: okCount, all: r.checks.length })} · ${r.ms < 1000 ? `${r.ms} ms` : `${(r.ms / 1000).toFixed(1)} s`}</span>`;
+		const time = r ? (r.ms < 1000 ? `${r.ms} ms` : `${(r.ms / 1000).toFixed(1)} s`) : "";
+		const status = running ? `<span class="status run">${icon("i-loader", "i spin")}${t("Running…")}</span>`
+			: !r ? "" : r.error ? `<span class="status bad">${icon("i-alert")}${t("could not send")}</span>`
+			: `<span class="status ${r.ok ? "ok" : "bad"}">${icon(r.ok ? "i-check-circle" : "i-alert")}${t("checked", { ok: okCount, all: r.checks.length })} · ${time}</span>`;
 		const tab = S.tab[s.id] || "checks";
 		const result = !r || running ? "" : `<div class="result">
 			${r.error ? `<p class="status bad">${esc(r.error)}</p>` : `
 			<div class="tabs" role="tablist">
-				<button class="tab" role="tab" data-tab="checks" data-id="${s.id}" aria-selected="${tab === "checks"}">${t("Checks")} (${okCount}/${r.checks.length})</button>
-				<button class="tab" role="tab" data-tab="sent" data-id="${s.id}" aria-selected="${tab === "sent"}">${t("Requests sent")} (${r.sent.length})</button>
+				<button class="tab" role="tab" data-tab="checks" data-id="${s.id}" aria-selected="${tab === "checks"}">${t("Checks")} · ${okCount}/${r.checks.length}</button>
+				<button class="tab" role="tab" data-tab="sent" data-id="${s.id}" aria-selected="${tab === "sent"}">${t("Requests sent")} · ${r.sent.length}</button>
 			</div>
 			${tab === "checks"
-				? `<ul class="checks">${r.checks.map((c) => `<li><span class="mk ${c.ok ? "ok" : "bad"}">${c.ok ? "✓" : "✗"}</span><span>${esc(checkName(c.name))}${c.ok ? "" : `<small>${esc(c.detail)}</small>`}</span></li>`).join("")}</ul>`
+				? `<ul class="checks">${r.checks.map((c) => `<li class="${c.ok ? "ok" : "bad"}">${icon(c.ok ? "i-check" : "i-x")}<span>${esc(checkName(c.name))}${c.ok ? "" : `<small>${esc(c.detail)}</small>`}</span></li>`).join("")}</ul>`
 				: `<ul class="sent">${r.sent.map((x) => `<li><span class="m">${esc(x.method)}</span><span class="p">${esc(x.path)}</span><span class="s ${x.status && x.status < 300 ? "ok" : "bad"}">${esc(x.status || x.error)}</span><span class="t">${x.ms} ms</span></li>`).join("")}</ul>`}`}
 		</div>`;
-		return `<article class="card ${r && !running ? (r.ok ? "ok" : "bad") : ""}" data-card="${s.id}">
-			<div class="card-head"><span class="client"><span class="dot" style="background:${color}"></span>${esc(label)}</span>
-				<span class="kind kind-${s.kind}">${esc(t({ ok: "OK", nok: "NOK", flaky: "Flaky", suite: "Suite" }[s.kind] || s.kind))}</span></div>
+		return `<div class="card-head"><span class="badge" style="--c:${color}" aria-hidden="true">${esc(mono)}</span><span class="client">${esc(label)}</span>
+				<span class="kind kind-${s.kind}">${esc(t(KINDS[s.kind] || s.kind))}</span></div>
 			<h3>${esc(ES ? s.title_es || s.title : s.title)}</h3>
 			<p>${esc(ES ? s.what_es || s.what : s.what)}</p>
 			<div class="card-foot">
-				<button class="btn btn-sm ${r ? "" : "btn-primary"}" data-run="${s.id}" ${running ? "disabled" : ""}>▶ ${t(r ? "Run again" : "Run")}</button>
-				${r?.report ? `<a href="${esc(r.report)}" target="_blank" rel="noopener">${t("View in TraceReports")} ↗</a>` : ""}
+				<button class="btn btn-sm ${r ? "" : "btn-lime"}" data-run="${s.id}" ${running ? "disabled" : ""}>${icon("i-play")}${t(r ? "Run again" : "Run")}</button>
+				${r?.report ? `<a class="link" href="${esc(r.report)}" target="_blank" rel="noopener">${t("View in TraceReports")}${icon("i-ext")}</a>` : ""}
 				${status}
 			</div>
-			${result}
-		</article>`;
+			${result}`;
 	}
 
-	function drawCards() {
-		const list = S.scenarios.filter((s) => (!S.client || s.client === S.client) && (!S.kind || s.kind === S.kind));
-		$("#cards").innerHTML = list.length ? list.map(card).join("") : `<p class="empty">${t("No scenarios for this filter.")}</p>`;
+	function drawCards(animateIn) {
+		const list = visible();
+		const grid = $("#scenarios");
+		if (!list.length) { grid.innerHTML = `<p class="empty">${t("No scenarios for this filter.")}</p>`; return; }
+		grid.innerHTML = list.map((s) => `<article class="card" data-card="${s.id}"></article>`).join("");
+		list.forEach((s) => updateCard(s.id, false));
+		if (animateIn) animate(grid.querySelectorAll(".card"), { opacity: [0, 1], y: [14, 0] }, { duration: 0.42, delay: stagger(0.035), ease: [0.22, 1, 0.36, 1] });
+	}
+
+	// solo la tarjeta que cambió: no se pierde el foco ni se repiten las animaciones de las demás
+	function updateCard(id, reveal) {
+		const el = document.querySelector(`[data-card="${id}"]`);
+		if (!el) return;
+		const s = S.scenarios.find((x) => x.id === id);
+		const r = S.results[id];
+		const focusedRun = document.activeElement?.dataset?.run === id;
+		const focusedTab = document.activeElement?.dataset?.tab;
+		el.className = `card ${S.running.has(id) ? "running" : r ? (r.ok ? "ok" : "bad") : ""}`;
+		el.innerHTML = cardHTML(s);
+		if (focusedRun) el.querySelector("[data-run]")?.focus();
+		if (focusedTab) el.querySelector(`[data-tab="${focusedTab}"]`)?.focus();
+		if (reveal) {
+			const res = el.querySelector(".result");
+			animate(res, { opacity: [0, 1], y: [8, 0] }, { duration: 0.35, ease: [0.22, 1, 0.36, 1] });
+			animate(el.querySelectorAll(".checks li, .sent li"), { opacity: [0, 1], x: [-6, 0] }, { duration: 0.28, delay: stagger(0.03, { startDelay: 0.08 }) });
+			animate(el, { scale: [0.985, 1] }, { type: "spring", stiffness: 380, damping: 22 });
+		}
 	}
 
 	function drawBugs(state) {
-		$("#bugs").innerHTML = state.bugs.map((b) => `<div class="bug">
-			<button class="switch" role="switch" aria-checked="${b.on}" data-bug="${b.key}" aria-label="${esc(ES ? b.title_es : b.title)}:${esc(b.on ? t("broken") : t("working"))}" title="${esc(b.on ? t("Fix it") : t("Break it"))}"></button>
-			<div><b>${esc(ES ? b.title_es : b.title)}</b><small>${esc(ES ? b.effect_es : b.effect)} · <strong style="color:var(--${b.on ? "bad" : "ok"})">${esc(b.on ? t("broken") : t("working"))}</strong></small></div></div>`).join("");
+		$("#bugs").innerHTML = state.bugs.map((b) => {
+			const title = ES ? b.title_es : b.title, effect = ES ? b.effect_es : b.effect;
+			return `<div class="bug">
+				<button class="switch" role="switch" aria-checked="${b.on}" data-bug="${b.key}" aria-label="${esc(title)}" title="${esc(b.on ? t("Fix it") : t("Break it"))}"></button>
+				<div><b>${esc(title)}</b><small>${esc(effect)}</small><span class="state ${b.on ? "on" : "off"}">${esc(b.on ? t("broken") : t("working"))}</span></div></div>`;
+		}).join("");
 	}
 
-	async function run(id) {
+	async function run(id, quiet) {
+		const s = S.scenarios.find((x) => x.id === id);
 		S.running.add(id);
-		drawCards();
+		updateCard(id);
+		if (!quiet) line(`<span class="p">$</span> <span class="w">${t("t-run")}</span> ${esc(id)}`);
 		let r;
 		try { r = await post("/__play", { id }); } catch (err) { r = { ok: false, error: String(err), checks: [], sent: [] }; }
 		S.running.delete(id);
 		S.results[id] = r;
-		drawCards();
-		const s = S.scenarios.find((x) => x.id === id);
+		updateCard(id, true);
+		const ok = r.checks.filter((c) => c.ok).length;
+		line(r.error ? `  <span class="bad">✗</span> ${esc(id)} <span class="d">${esc(r.error)}</span>`
+			: `  <span class="${r.ok ? "ok" : "bad"}">${r.ok ? "✓" : "✗"}</span> <span class="w">${esc(id)}</span> <span class="d">${ok}/${r.checks.length} · ${r.sent.length} req · ${r.ms} ms · run #${r.run_id}</span>`);
 		say(t("done", { t: ES ? s.title_es : s.title, r: t(r.ok ? "passed" : "failed") }));
 		return r;
 	}
 
 	async function runAll() {
-		const btn = $("#run-all"), bar = $("#progress");
+		const btn = $("#run-all"), bar = $("#progress"), fill = bar.firstElementChild;
 		btn.disabled = true;
 		bar.hidden = false;
+		fill.style.transform = "scaleX(0)";
 		$("#summary").hidden = true;
+		line(`<span class="p">$</span> <span class="w">tracereports selftest</span> <span class="d">· ${t("t-all")}</span>`);
+		const list = S.scenarios;
 		let done = 0, failed = 0, checks = 0;
-		for (const s of S.scenarios) {
-			const r = await run(s.id);
+		const start = performance.now();
+		for (const s of list) {
+			const r = await run(s.id, true);
 			done++;
 			if (!r.ok) failed++;
 			checks += r.checks.length;
-			const pct = Math.round((done / S.scenarios.length) * 100);
-			bar.firstElementChild.style.width = pct + "%";
-			bar.setAttribute("aria-valuenow", pct);
+			const p = done / list.length;
+			if (!animate(fill, { scaleX: p }, { type: "spring", stiffness: 140, damping: 24 })) fill.style.transform = `scaleX(${p})`;
 		}
-		const n = S.scenarios.length;
+		const n = list.length, secs = ((performance.now() - start) / 1000).toFixed(1);
 		const sum = $("#summary");
 		sum.className = `summary ${failed ? "bad" : "ok"}`;
-		sum.innerHTML = `<span style="font-size:20px">${failed ? "✗" : "✓"}</span><span>${esc(failed ? t("some fail", { f: failed, n }) : t("all pass", { n, c: checks }))}</span>`;
+		sum.innerHTML = `${icon(failed ? "i-alert" : "i-check-circle")}<div>${esc(failed ? t("some fail", { f: failed, n }) : t("all pass", { n }))}<small>${esc(failed ? t("some fail sub") : t("all pass sub", { c: checks, s: secs }))}</small></div>`;
 		sum.hidden = false;
+		animate(sum, { opacity: [0, 1], y: [10, 0], scale: [0.98, 1] }, { type: "spring", stiffness: 260, damping: 22 });
+		line(failed ? `<span class="bad">✗ ${failed}/${n}</span>` : `<span class="ok">✓ ${n}/${n} · ${checks} checks · ${secs} s</span>`);
 		say(sum.textContent);
 		btn.disabled = false;
-		setTimeout(() => { bar.hidden = true; bar.firstElementChild.style.width = "0"; }, 1200);
+		setTimeout(() => { bar.hidden = true; }, 1600);
 	}
 
 	document.addEventListener("click", async (e) => {
@@ -300,9 +492,15 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); 
 		if (!el) return;
 		if (el.id === "run-all") return runAll();
 		if (el.dataset.run) return run(el.dataset.run);
-		if (el.dataset.client !== undefined) { S.client = el.dataset.client; drawFilters(); drawCards(); return; }
-		if (el.dataset.kind !== undefined) { S.kind = el.dataset.kind; drawFilters(); drawCards(); return; }
-		if (el.dataset.tab) { S.tab[el.dataset.id] = el.dataset.tab; drawCards(); return; }
+		if (el.dataset.client !== undefined) { S.client = el.dataset.client; drawFilters(); drawCards(true); return; }
+		if (el.dataset.kind !== undefined) { S.kind = el.dataset.kind; drawFilters(); drawCards(true); return; }
+		if (el.dataset.tab) {
+			S.tab[el.dataset.id] = el.dataset.tab;
+			updateCard(el.dataset.id);
+			const card = document.querySelector(`[data-card="${el.dataset.id}"]`);
+			animate(card.querySelectorAll(".checks li, .sent li"), { opacity: [0, 1] }, { duration: 0.2, delay: stagger(0.015) });
+			return;
+		}
 		if (el.dataset.bug) {
 			const on = el.getAttribute("aria-checked") !== "true";
 			drawBugs(await post("/__state", { bug: el.dataset.bug, on }));
@@ -310,15 +508,29 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); 
 		}
 	});
 
+	function countUp(el, to) {
+		if (!M || REDUCE) { el.textContent = to; return; }
+		M.animate(0, to, { duration: 1.1, ease: [0.22, 1, 0.36, 1], onUpdate: (v) => { el.textContent = Math.round(v); } });
+	}
+
 	(async () => {
+		animate(document.querySelectorAll("[data-reveal]"), { opacity: [0, 1], y: [16, 0] }, { duration: 0.55, delay: stagger(0.08), ease: [0.22, 1, 0.36, 1] });
 		const data = await (await fetch("/__scenarios")).json();
 		S.scenarios = data.scenarios;
 		$("#open-tr").href = data.tracereports || "#";
+		$("#open-tr").setAttribute("aria-label", t("Open TraceReports"));
 		$("#cred-user").textContent = data.user;
 		$("#cred-pass").textContent = data.password;
+		const clients = new Set(S.scenarios.map((s) => s.client));
+		countUp(document.querySelector('[data-count="scenarios"]'), S.scenarios.length);
+		countUp(document.querySelector('[data-count="clients"]'), clients.size);
+		countUp(document.querySelector('[data-count="languages"]'), 4);
 		drawFilters();
-		drawCards();
+		drawCards(true);
 		drawBugs(await (await fetch("/__state")).json());
+		line(`<span class="p">$</span> <span class="w">tracereports demo</span>`);
+		line(`<span class="d">›</span> ${esc(t("t-ready", { r: data.runs || "—", s: S.scenarios.length }))}`);
+		line(`<span class="d">›</span> ${esc(t("t-hint"))}`);
 	})();
 })();
 </script>

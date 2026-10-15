@@ -2,8 +2,9 @@ package demo
 
 import (
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
+	"io/fs"
 	"mime"
 	"net/http"
 	"strings"
@@ -17,6 +18,12 @@ import (
 
 //go:embed playground.html
 var playgroundHTML []byte
+
+// static are the playground's own assets: Motion (motion.dev, MIT) for the animations, embedded so
+// the demo works without internet.
+//
+//go:embed static
+var static embed.FS
 
 // scenarioES are the Spanish title and description of each scenario.
 var scenarioES = map[string][2]string{
@@ -49,7 +56,10 @@ type Playground struct {
 	Base, Public string
 	// ShopURL is this shop's address, the one the recorded calls point to.
 	ShopURL string
-	mu      sync.Mutex // un escenario a la vez: cada uno pone el estado de la tienda que necesita
+	// Fonts are TraceReports' local fonts (web/vendor/fonts: Inter, JetBrains Mono, Press Start 2P);
+	// nil falls back to the system fonts.
+	Fonts fs.FS
+	mu    sync.Mutex // un escenario a la vez: cada uno pone el estado de la tienda que necesita
 }
 
 type scenarioView struct {
@@ -74,6 +84,16 @@ func (p *Playground) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		_, _ = w.Write(playgroundHTML)
+	case strings.HasPrefix(r.URL.Path, "/__static/") && r.Method == http.MethodGet:
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable") // nombres con versión
+		http.StripPrefix("/__", http.FileServer(http.FS(static))).ServeHTTP(w, r)
+	case strings.HasPrefix(r.URL.Path, "/__fonts/") && r.Method == http.MethodGet:
+		if p.Fonts == nil {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Cache-Control", "public, max-age=86400")
+		http.StripPrefix("/__fonts/", http.FileServer(http.FS(p.Fonts))).ServeHTTP(w, r)
 	case r.URL.Path == "/__scenarios" && r.Method == http.MethodGet:
 		out := make([]scenarioView, 0, len(Scenarios))
 		for _, sc := range Scenarios {
@@ -83,7 +103,7 @@ func (p *Playground) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			es := scenarioES[sc.ID]
 			out = append(out, scenarioView{Scenario: sc, TitleES: es[0], WhatES: es[1]})
 		}
-		writeJSON(w, http.StatusOK, map[string]any{"scenarios": out, "tracereports": p.Public, "user": ShopUser, "password": ShopPassword})
+		writeJSON(w, http.StatusOK, map[string]any{"scenarios": out, "tracereports": p.Public, "user": ShopUser, "password": ShopPassword, "runs": p.runs(r.Context())})
 	case r.URL.Path == "/__state" && r.Method == http.MethodGet:
 		writeJSON(w, http.StatusOK, p.state())
 	case r.URL.Path == "/__state" && r.Method == http.MethodPost:
@@ -122,6 +142,24 @@ func (p *Playground) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		p.Shop.ServeHTTP(w, r)
 	}
+}
+
+// runs counts the runs TraceReports has (for the playground's terminal; 0 if it does not answer).
+func (p *Playground) runs(ctx context.Context) int {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, strings.TrimRight(p.Base, "/")+"/api/v1/runs?limit=500", nil)
+	if err != nil {
+		return 0
+	}
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return 0
+	}
+	defer res.Body.Close()
+	var runs []json.RawMessage
+	_ = json.NewDecoder(res.Body).Decode(&runs)
+	return len(runs)
 }
 
 // jsonBody only accepts JSON writes: a page on another site cannot send them without a CORS

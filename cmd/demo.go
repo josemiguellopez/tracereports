@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"net"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/josemiguellopez/tracereports"
 	"github.com/josemiguellopez/tracereports/internal/demo"
 )
 
@@ -218,6 +220,10 @@ func demoMain(ctx context.Context, o demoOptions) error {
 	shopURL := fmt.Sprintf("http://localhost:%d", shopPort)
 	// la tienda y, en su página principal, el playground de escenarios
 	pg := &demo.Playground{Shop: demo.NewShop(), Base: fmt.Sprintf("http://127.0.0.1:%d", port), Public: base, ShopURL: shopURL}
+	// las mismas fuentes locales del reporte (Inter, JetBrains Mono, Press Start 2P): sin internet
+	if fonts, err := fs.Sub(tracereports.WebFS, "web/vendor/fonts"); err == nil {
+		pg.Fonts = fonts
+	}
 	shopSrv := &http.Server{Handler: pg, ReadHeaderTimeout: 10 * time.Second}
 	go func() { _ = shopSrv.Serve(shopLn) }()
 	defer shopSrv.Close()

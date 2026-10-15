@@ -13,7 +13,7 @@ All notable changes to TraceReports. The format follows
   Selenium + JUnit 5, `go test`, REST and a JUnit XML import; 12 nights of history plus tonight's suites) and a demo
   shop whose page is a **playground**: break or fix its backend to try the Lab, and send any scenario or all of them,
   with the requests sent, the checks and a link to the run. Temporary, only on this machine and isolated from your
-  configuration.
+  configuration. The playground is animated with [Motion](https://motion.dev) (MIT, bundled: works offline).
 - `TRACEREPORTS_BIND` chooses the address to listen on (`127.0.0.1` = only this machine).
 - `tracereports selftest`: plays the scenarios recorded with the real clients (pytest + Playwright, Playwright Test,
   Selenium + JUnit 5, `go test`, REST, JUnit XML) against a temporary server or `-url`, and checks what TraceReports
