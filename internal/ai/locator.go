@@ -26,6 +26,15 @@ func LocatorCandidates(store *db.Store, t *db.Test) ([]locator.Suggestion, strin
 	if failed == "" && !locator.LooksLikeLocatorFailure(text) {
 		return nil, "", nil
 	}
+	// el elemento no apareció porque el backend falló justo antes (sin respuesta, 5xx, 408, 429):
+	// no es un selector roto, y sugerir otro sería engañoso. Es la misma regla del incidente
+	conns, err := store.NetworkTimeline(t.ID)
+	if err != nil {
+		return nil, "", err
+	}
+	if c := causalConn(conns, failureTime(t)); c != nil && strongNetError(*c) {
+		return nil, "", nil
+	}
 	raw, err := store.GetDOM(t.ID)
 	if err != nil || raw == "" {
 		return nil, failed, err

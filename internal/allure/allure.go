@@ -170,19 +170,42 @@ type jsonStep struct {
 }
 
 type jsonResult struct {
-	UUID          string                         `json:"uuid"`
-	HistoryID     string                         `json:"historyId"`
-	FullName      string                         `json:"fullName"`
-	Name          string                         `json:"name"`
-	Status        string                         `json:"status"`
-	StatusDetails jsonDetails                    `json:"statusDetails"`
-	Description   string                         `json:"description"`
-	Start         int64                          `json:"start"`
-	Stop          int64                          `json:"stop"`
-	Labels        []struct{ Name, Value string } `json:"labels"`
-	Parameters    []struct{ Name, Value string } `json:"parameters"`
-	Steps         []jsonStep                     `json:"steps"`
-	Attachments   []jsonAttachment               `json:"attachments"`
+	UUID          string           `json:"uuid"`
+	HistoryID     string           `json:"historyId"`
+	FullName      string           `json:"fullName"`
+	Name          string           `json:"name"`
+	Status        string           `json:"status"`
+	StatusDetails jsonDetails      `json:"statusDetails"`
+	Description   string           `json:"description"`
+	Start         int64            `json:"start"`
+	Stop          int64            `json:"stop"`
+	Labels        []jsonPair       `json:"labels"`
+	Parameters    []jsonPair       `json:"parameters"`
+	Steps         []jsonStep       `json:"steps"`
+	Attachments   []jsonAttachment `json:"attachments"`
+}
+
+// jsonPair is a label or a parameter. Allure writes any JSON value there (allure.id(123),
+// parameters of a parametrized test): numbers, booleans and null are read as their text.
+type jsonPair struct {
+	Name  string   `json:"name"`
+	Value anyValue `json:"value"`
+}
+
+type anyValue string
+
+func (v *anyValue) UnmarshalJSON(b []byte) error {
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*v = anyValue(s)
+		return nil
+	}
+	if string(b) == "null" {
+		*v = ""
+		return nil
+	}
+	*v = anyValue(b) // un número, un booleano, o un objeto/array tal como vino
+	return nil
 }
 
 // Report is an allure-results folder: its tests and the build that produced them.
@@ -310,7 +333,7 @@ func readResult(fsys fs.FS, name string, b *Budget) (Result, error) {
 	var parent, suite, sub string
 	seen := map[string]bool{}
 	for _, l := range j.Labels {
-		v := strings.TrimSpace(l.Value)
+		v := strings.TrimSpace(string(l.Value))
 		switch l.Name {
 		case "parentSuite":
 			parent = v
@@ -338,7 +361,7 @@ func readResult(fsys fs.FS, name string, b *Budget) (Result, error) {
 	r.Suite = strings.Join(parts, " / ")
 	var params []string
 	for _, p := range j.Parameters {
-		params = append(params, p.Name+"="+p.Value)
+		params = append(params, p.Name+"="+string(p.Value))
 	}
 	r.Params = strings.Join(params, ", ")
 	return r, nil

@@ -1,0 +1,2 @@
+# grabaciones de los escenarios: byte a byte iguales en cualquier sistema (no convertir finales de línea)
+internal/demo/scenarios/** -text

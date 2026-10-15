@@ -25,6 +25,7 @@ is scattered across the HTML report, the backend logs and the QA engineer's head
 | **Run diagnosis** | Groups failures by shared evidence (the same failed backend call right before the failure, or the same error signature) and explains in plain language what happened and what to do first. No failure is left out of the summary. |
 | **Per-test AI Failure Triage** | Category, summary and suggestion for every failed test. With Gemini (free tier), Claude, OpenAI, any compatible API or a **local Ollama**. |
 | **Broken locators** | When a selector stops working, suggests robust replacements (`get_by_role`, `data-testid`…) from the DOM at the moment of failure, ready to copy and highlighted on the screenshot. |
+| **FixLab** | *Open in Lab* resends a failed call with a fresh session and tells whether the failure is reproduced or no longer happens. Checks, *Verify* on the incident, export to Postman/Bruno/.http, `tracereports repro` / `verify` for the terminal and CI, and an MCP server for AI agents. See [FixLab](docs/en/fixlab.md). |
 | **Replay** | Plays the test back step by step with its screenshots: play/pause, 1x/2x and keyboard. |
 | **Network tab** | The HTTP calls the browser made in each test: OK / error, filters, highlighted JSON, HTML preview, cURL. Expected negative responses (a 401 checked on purpose) are marked and not counted as errors. |
 | **Timeline** | Steps, screenshots and network calls on a single timeline, with a duration waterfall. |
@@ -50,7 +51,7 @@ is scattered across the HTML report, the backend logs and the QA engineer's head
 | **Release** | The *Release* view answers "can we ship?": **Ready to ship**, **Can ship, with risks** or **Do not ship yet**, with the criteria and the state of each area. Configurable with `TRACEREPORTS_RELEASE_GATE`. |
 | **Pull request comment** | `tracereports pr-comment` posts the run summary on the GitHub PR or GitLab MR (failures, what changed, flaky, incidents, report link) and updates the same comment on every push. |
 | **Without a server** | If the server is down or rejects the token, the clients record the evidence in a folder. `tracereports report <folder>` builds the HTML report (no server, no internet) and `tracereports push <folder>` uploads it later. With `TRACEREPORTS_OFFLINE=both` they also keep that local copy while sending to the server: the HTML report is built at the end, and the raw recording is kept only if something did not arrive. |
-| **JUnit XML and Allure** | Imports the results of any framework (`POST /api/v1/import/junit`, `/import/allure`), or turns them into a report without a server with `tracereports report`. |
+| **JUnit XML and Allure** | Imports the results of any framework (`POST /api/v1/import/junit`, `/import/allure`), or turns them into a report without a server with `tracereports report`. `tracereports push allure-results` sends Allure results to the server, where every failure gets the AI diagnosis. See [Allure](docs/en/allure.md). |
 | **Share** | Exports the run as a ZIP that opens without a server or internet (charts and fonts included), ideal to attach to an email. |
 | **Sensitive data** | The server masks tokens, passwords, cookies and credentials (written as `key=value`, JSON, headers, Bearer/JWT or inside URLs) in the evidence and in names and test identities before storing anything, whatever client sent them; what is stored never reaches the AI, the ZIP or Teams/Slack. Not covered: free text without a key and what is visible in screenshots. Optional retention in days. |
 | **Reliable delivery** | The Python client sends the evidence in the background with retries and idempotency (no duplicates, even when a spool is resent days later), merges pytest-xdist into one report and tells you if something did not arrive. |
@@ -74,7 +75,8 @@ docker compose up -d          # with Docker
 go run ./cmd                  # with Go 1.26+
 ```
 
-Open <http://localhost:8080>.
+Open <http://localhost:8080>. Just looking? `tracereports demo` (`go run ./cmd demo`) starts it with sample data
+recorded with every client and a demo shop to try FixLab: see the [quickstart](docs/en/quickstart.md).
 
 **2. Report your tests.** With pytest there are no code changes:
 
@@ -116,6 +118,7 @@ They all use the public [OrangeHRM](https://opensource-demo.orangehrmlive.com) d
 | Example | For | How to run it |
 |---|---|---|
 | [`examples/pytest-playwright`](examples/pytest-playwright) | pytest: the minimum, just the plugin | `pytest examples/pytest-playwright --tracereports` |
+| [`examples/python-selenium-allure`](examples/python-selenium-allure) | pytest + Selenium + Allure: send allure-results, or add the plugin | `python -m pytest examples/python-selenium-allure --alluredir=allure-results` then `tracereports push allure-results` |
 | [`examples/playwright-js`](examples/playwright-js) | Playwright Test (JS): reporter + fixtures | `cd examples/playwright-js && npm install && npm test` |
 | [`examples/selenium-js`](examples/selenium-js) | Selenium WebDriver with node:test | `cd examples/selenium-js && npm install && npm test` |
 | [`examples/selenium-java`](examples/selenium-java) | Selenium with JUnit 5 | `cd examples/selenium-java && ./gradlew test` |
@@ -130,6 +133,11 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [Installation](docs/en/installation.md): binary, Docker, first run.
 - [Docker](docs/en/docker.md): day to day, data, backup and deploying on a server with HTTPS.
 - [Configuration](docs/en/configuration.md): environment variables, security, AI, language, Teams/Slack.
+- [Command line](docs/en/cli.md): every `tracereports` command (server, demo, report, push, pr-comment, repro, verify, mcp, selftest, secrets, version).
+- [Quickstart: the demo in 5 minutes](docs/en/quickstart.md): start the report and the demo shop step by step.
+- [Demo, playground and selftest](docs/en/demo.md): sample data, the demo shop and checking a deployment.
+- [Allure](docs/en/allure.md): send your allure-results and get every failure diagnosed with AI.
+- [FixLab](docs/en/fixlab.md): reproduce a failure, save checks, verify the fix; capsule, CLI and MCP.
 - [Python client and pytest plugin](docs/en/python.md)
 - [JavaScript/TypeScript client: Playwright Test and Selenium](docs/en/javascript.md)
 - [Java client: JUnit 5, Selenium and Playwright](docs/en/java.md)
@@ -143,7 +151,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 ## Structure
 
 ```
-cmd/                 server and CLI (report, push, pr-comment, secrets)
+cmd/                 server and CLI (report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest)
 internal/api         REST API, authentication, settings, ZIP export
 internal/db          SQLite: runs, tests, steps, network, history, metrics, settings, AI usage
 internal/ai          AI diagnosis and escalation (Gemini, Claude, OpenAI, compatible APIs, Ollama)
@@ -157,6 +165,9 @@ internal/correlate   trace and request ids, links to the backend logs
 internal/release     release decision (Release view)
 internal/owners      test owners (CODEOWNERS-style rules)
 internal/repro       command to rerun a test locally
+internal/lab         FixLab: plan, resend with a fresh session, checks and capsules
+internal/mcp         MCP server (stdio) for AI agents
+internal/demo        demo shop, playground and the scenarios recorded with the real clients
 internal/secret      encryption of the credentials saved from Settings
 internal/locator     selector suggestions when a locator breaks
 internal/live        live events (Server-Sent Events)
@@ -167,6 +178,8 @@ client/js            JavaScript/TypeScript client + Playwright Test reporter
 client/java          Java client + JUnit 5 extension
 client/go            Go client
 examples/            runnable examples
+test/e2e             end-to-end tests of the interface (Playwright)
+test/scenarios       the tests that record the scenarios, one per client
 docs/en, docs/es     documentation in English and Spanish
 ```
 

@@ -43,6 +43,30 @@ Para otro sistema operativo: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o 
 Durante el desarrollo puedes usar `go run ./cmd`. La UI se compila dentro del binario, así que si
 cambias archivos de `web/` tienes que reiniciar el servidor.
 
+## Pruébalo con datos de ejemplo
+
+```bash
+tracereports demo        # desde el repositorio: go run ./cmd demo
+```
+
+Levanta TraceReports con ejecuciones reales grabadas con todos los clientes (pytest + Playwright, Playwright Test,
+Selenium + JUnit 5, `go test`, REST, una importación de JUnit XML y una de Allure) y una tienda de prueba cuyo backend puedes romper
+y arreglar para probar [FixLab](fixlab.md). Su página es un **playground** que envía los escenarios de cada cliente y
+comprueba lo que muestra TraceReports. Solo en este equipo, aislada de tu configuración y se borra al detenerla.
+Paso a paso: [inicio rápido](quickstart.md);
+detalles: [Demo, playground y selftest](demo.md).
+
+## Comprobar que funciona: `tracereports selftest`
+
+```bash
+tracereports selftest                                       # un servidor temporal en este equipo
+tracereports selftest -url https://tracereports.acme.com    # uno desplegado (TRACEREPORTS_TOKEN si está protegido)
+```
+
+Reproduce los escenarios grabados con los clientes reales y comprueba lo que muestra TraceReports; sale con código 1
+si una expectativa no se cumple, así que sirve después de actualizar o como paso de CI. Ver
+[selftest](demo.md#tracereports-selftest).
+
 ## Primer uso
 
 1. Abre <http://localhost:8080>. Sin ejecuciones verás una pantalla vacía.
@@ -97,4 +121,5 @@ detén el servidor y copia la carpeta `data` completa (incluidos `-wal` y `-shm`
 ## Siguiente paso
 
 - [Configuración](configuration.md): seguridad, IA y notificaciones.
+- [Línea de comandos](cli.md): cada comando de `tracereports` y sus flags.
 - [Python](python.md) · [Go](go.md) · [API REST](api.md)

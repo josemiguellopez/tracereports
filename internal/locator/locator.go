@@ -81,13 +81,16 @@ var selectorPatterns = []*regexp.Regexp{
 	regexp.MustCompile(`(?i)(?:selector|locator|xpath)\s*[:=]\s*['"]((?:[^'"\\]|\\.)+)['"]`),
 }
 
-var gettersPattern = regexp.MustCompile(`(get_by_\w+|getBy\w+)\(([^)]*)\)`)
+// waitingGetter is the getter Playwright was waiting for when it failed ("waiting for
+// get_by_role(...)"). Only the one right after "waiting for": a traceback also quotes earlier lines
+// of the test (an earlier click that worked), and those are not the selector that failed.
+var waitingGetter = regexp.MustCompile(`waiting for ((?:get_by_\w+|getBy\w+)\([^)]*\))`)
 
 // ExtractSelector finds the selector that failed in an error message / stack trace.
 func ExtractSelector(texts ...string) string {
 	for _, text := range texts {
-		if m := gettersPattern.FindString(text); m != "" && strings.Contains(text, "waiting for") {
-			return m
+		if m := waitingGetter.FindStringSubmatch(text); m != nil {
+			return m[1]
 		}
 		for _, re := range selectorPatterns {
 			if m := re.FindStringSubmatch(text); len(m) > 1 && m[1] != "" {

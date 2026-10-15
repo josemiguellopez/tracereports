@@ -81,3 +81,29 @@ func TestPushFailsWhenTheAutoCloseFailsAndCanBeRepeated(t *testing.T) {
 		t.Fatalf("the step is not duplicated: %d", len(tt.Logs))
 	}
 }
+
+// push also takes an allure-results folder: it imports it into the server, with its token.
+func TestPushAllureResults(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "")
+	dir := t.TempDir()
+	store, err := db.Open(filepath.Join(dir, "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	srv := &api.Server{Store: store, AI: ai.New(store), ScreenshotsDir: dir, Web: fstest.MapFS{"index.html": {}}, Auth: api.Auth{Token: "tok"}}
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+	results := filepath.Join("..", "internal", "allure", "testdata", "allure-results")
+
+	if err := runPush([]string{"-url", ts.URL, "-token", "nope", results}); err == nil {
+		t.Fatal("a wrong token must fail")
+	}
+	if err := runPush([]string{"-url", ts.URL, "-token", "tok", results, "-name", "Nightly Allure", "-project", "shop"}); err != nil {
+		t.Fatal(err)
+	}
+	runs, err := store.ListRuns(10)
+	if err != nil || len(runs) != 1 || runs[0].Name != "Nightly Allure" || runs[0].Project != "shop" {
+		t.Fatalf("runs = %+v, %v", runs, err)
+	}
+}

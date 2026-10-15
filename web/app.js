@@ -449,7 +449,9 @@
 		const tr = t.triage;
 		if (!tr) {
 			return S.config.ai_enabled || STATIC ? "" : `<div class="card ai-card muted"><div class="ai-head">${title}</div>
-				<p style="margin-top:8px">Diagnóstico con IA desactivado. Define <code>GEMINI_API_KEY</code> en el servidor para clasificar fallos automáticamente.</p>${loc}</div>`;
+				<p style="margin-top:8px">${esc(window.TraceReportsI18n.t(S.config.demo
+					? "Diagnóstico con IA desactivado en la demo. Para activarlo, agrega AI_PROVIDER y AI_API_KEY (o GEMINI_API_KEY) a tu entorno o a tu .env y vuelve a iniciar tracereports demo (sin -ai=false)."
+					: "Diagnóstico con IA desactivado. Actívalo en Ajustes → IA o con AI_PROVIDER y su API key en el servidor."))}</p>${loc}</div>`;
 		}
 		if (tr.state === "PENDING" && STATIC) {
 			return `<div class="card ai-card muted"><div class="ai-head">${title}</div>
@@ -589,7 +591,8 @@
 		return `<details class="net-card ${isNetError(c) ? "net-card-error" : ""}" data-net-idx="${i}">
 			<summary><span class="nbadge" style="background:${METHOD_COLOR[method] || "#6b7280"}">${esc(method)}</span>${statusBadge(c)}${dur}${size}
 				<span class="net-url">${esc(c.url || "(sin url)")}</span>
-				${isNetError(c) && c.status ? `<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock data-tip="Genera un stub de esta respuesta (Playwright, Cypress o WireMock) para reproducir el error sin depender del backend">${icon("i-bolt")}Mock</button>` : ""}</summary>
+				${isNetError(c) && c.status ? `<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock data-tip="Genera un stub de esta respuesta (Playwright, Cypress o WireMock) para reproducir el error sin depender del backend">${icon("i-bolt")}Mock</button>` : ""}
+				${isNetError(c) && !STATIC ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab data-tip="Reenvía esta llamada con una sesión nueva para ver si el fallo sigue ocurriendo">${icon("i-flask")}Lab</button>` : ""}</summary>
 			<div class="net-detail"></div>
 		</details>`;
 	}
@@ -693,7 +696,8 @@
 		const loc = bodyLocation(c);
 		const compare = isNetError(c) && !STATIC
 			? `<button class="cf-btn cf-btn-sm" data-baseline data-tip="${tr("Busca esta misma llamada en la última ejecución donde el test pasó y muestra qué cambió: status, headers y body.")}">${icon("i-timeline")}${tr("Comparar con la última vez que pasó")}</button>` : "";
-		return `<div class="net-actions">${compare}<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock>${icon("i-bolt")}Generar mock / stub</button><button class="net-curl" data-curl="1">Copiar como cURL</button></div>`
+		const lab = STATIC ? "" : `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab data-tip="${tr("Reenvía esta llamada con una sesión nueva para ver si el fallo sigue ocurriendo")}">${icon("i-flask")}${tr("Abrir en Lab")}</button>`;
+		return `<div class="net-actions">${compare}${lab}<button class="cf-btn cf-btn-sm cf-btn-mock" data-mock>${icon("i-bolt")}Generar mock / stub</button><button class="net-curl" data-curl="1">Copiar como cURL</button></div>`
 			+ correlationBlock(c)
 			+ block("General", general)
 			+ block("Request headers", c.request_headers)
@@ -1059,6 +1063,10 @@
 		const rep = S.loc[locKey(t)];
 		if (!rep) return "";
 		const sugg = orderedSuggestions(rep);
+		// sin red (un import de Allure o JUnit) el backend caído parece un selector roto: si la IA ya
+		// dijo backend o infraestructura y no hay reemplazos, la tarjeta solo despistaría
+		const cat = t.triage && t.triage.state === "DONE" ? t.triage.category : "";
+		if (!sugg.length && (cat === "BACKEND_TIMEOUT" || cat === "INFRA_ERROR")) return "";
 		const snippet = (s) => (S.locLang === "js" ? s.js : s.python);
 		const items = sugg.map((s) => `<li class="loc-item ${s.pick ? "ai-pick" : ""}" data-loc-i="${s.i}">
 				<code class="loc-code">${esc(snippet(s))}</code>
@@ -1385,6 +1393,54 @@
 			`<li><a data-goto="${e.test_id}" data-no-i18n>${esc(e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
 	}
 
+	/** Botón "Abrir en Lab" de un incidente de backend: reenvía su llamada causal (no en el ZIP). */
+	function incidentLab(inc) {
+		const ev = (inc.evidence || []).find((e) => e.kind === "network" && e.ref);
+		if (STATIC) return "";
+		const tr = window.TraceReportsI18n.t;
+		const open = ev ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-conn="${ev.ref}" data-lab-title="${esc(inc.title)}" data-tip="${esc(tr("Reenvía la llamada que causó este incidente para ver si sigue fallando o ya quedó resuelto"))}">${icon("i-flask")}${tr("Abrir en Lab")}</button>` : "";
+		const checks = incidentChecks(inc);
+		const verify = checks.length ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-verify="${esc(inc.key)}" data-tip="${esc(tr("Corre los checks guardados de este incidente y registra si quedó resuelto"))}">${icon("i-check")}${tr("Verificar ({n})", { n: checks.length })}</button>` : "";
+		return open + verify;
+	}
+
+	// ---- FixLab: checks guardados y verificaciones de los incidentes ----
+	/** Checks de un incidente: los guardados con su clave o desde uno de sus tests. */
+	function incidentChecks(inc) {
+		return (S.labRun?.checks || []).filter((c) => c.incident_key === inc.key || inc.test_ids.includes(c.test_id));
+	}
+
+	/** Estado de la última verificación del incidente: ✅ resuelto o ❌ sigue fallando. */
+	function incidentVerified(inc) {
+		const v = STATIC ? null : S.labRun?.verifications?.[inc.key];
+		if (!v) return "";
+		const tr = window.TraceReportsI18n.t;
+		const when = fmtDateTime(v.created_at);
+		return v.ok
+			? `<span class="lab-verified ok" tabindex="0" data-tip="${esc(tr("Todos los checks pasaron el {d}{a}.", { d: when, a: v.author ? ` (${v.author})` : "" }))}">${icon("i-pass")}${tr("Verificado: resuelto")}</span>`
+			: `<span class="lab-verified bad" tabindex="0" data-tip="${esc(tr("En la última verificación ({d}) algún check no pasó.", { d: when }))}">${icon("i-fail")}${tr("Verificado: sigue fallando")}</span>`;
+	}
+
+	async function loadLabRun() {
+		const r = S.run;
+		if (STATIC || !r) return;
+		const key = `${r.id}:${S.labRev || 0}`;
+		if (S.labRun?.key === key) return;
+		S.labRun = { ...(S.labRun?.runId === r.id ? S.labRun : { checks: [], verifications: {} }), key, runId: r.id };
+		let data;
+		try { data = await api(`/api/v1/runs/${r.id}/lab`); } catch { return; }
+		if (S.labRun.key !== key) return; // llegó tarde: ya se pidió la de otra ejecución
+		S.labRun = { key, runId: r.id, checks: data.checks || [], verifications: data.verifications || {} };
+		if (S.view === "ai") renderAI();
+		if (S.view === "dashboard") renderRunSummary();
+	}
+
+	/** Algo cambió en el Lab (un check nuevo, una verificación): se vuelve a pedir. */
+	function labChanged() {
+		S.labRev = (S.labRev || 0) + 1;
+		loadLabRun();
+	}
+
 	/** Causa: hipótesis de la IA (nunca confirmada), o la IA dijo que la evidencia no alcanza. */
 	function incidentCause(inc, cls) {
 		const tr = window.TraceReportsI18n.t;
@@ -1410,11 +1466,12 @@
 		const incidents = sum.incidents.map((inc, n) => `<li class="incident ${inc.kind} ${compact && n >= 8 ? "inc-more" : ""}">
 			<span class="inc-icon">${icon(INCIDENT_ICON[inc.kind] || "i-warning")}</span>
 			<div class="inc-body">
-				<div class="inc-title"><b data-no-i18n>${esc(inc.title)}</b><span class="inc-count">${inc.test_ids.length} test${inc.test_ids.length === 1 ? "" : "s"}</span></div>
+				<div class="inc-title"><b data-no-i18n>${esc(inc.title)}</b><span class="inc-count">${inc.test_ids.length} test${inc.test_ids.length === 1 ? "" : "s"}</span>${compact ? "" : incidentVerified(inc)}</div>
 				${incidentCause(inc, "inc-cause")}
 				${inc.action ? `<div class="inc-action">→ ${esc(inc.action)}</div>` : ""}
 				${compact ? "" : incidentEvidence(inc)}
 				${compact ? "" : `<div class="inc-tests">${inc.test_ids.map((id, i) => `<a data-goto="${id}">${esc(inc.test_names[i])}</a>`).join("")}</div>`}
+				${compact ? "" : incidentLab(inc)}
 			</div></li>`).join("");
 		return `${sum.summary ? `<p class="sum-text">${esc(sum.summary)}</p>` : ""}${summaryCoverage(sum)}${incidents ? `<ul class="incidents">${incidents}</ul>` : ""}`;
 	}
@@ -1428,6 +1485,7 @@
 			return;
 		}
 		el.hidden = false;
+		loadLabRun();
 		if (sum.state === "PENDING") {
 			setHTML(el, `<div class="sum-head">${icon("i-spark")}<span>Analizando la ejecución…</span></div><div class="shimmer"></div><div class="shimmer short"></div>`);
 			return;
@@ -1934,6 +1992,22 @@
 				return;
 			}
 			if (e.target.closest("[data-mock-first]") && S.test) { openFirstFailedMock(S.test); return; }
+			const lab = e.target.closest("[data-lab]");
+			if (lab) {
+				e.preventDefault(); e.stopPropagation();
+				const c = S.net.list?.[Number(lab.closest("[data-net-idx]")?.dataset.netIdx)];
+				if (c) window.TraceReportsLab?.open(c.id, { subtitle: `${S.test?.name || ""} · ${c.method} ${c.status || c.error_text || ""}`, onChange: labChanged });
+				return;
+			}
+			const labConn = e.target.closest("[data-lab-conn]");
+			if (labConn) { e.preventDefault(); window.TraceReportsLab?.open(Number(labConn.dataset.labConn), { subtitle: labConn.dataset.labTitle || "", onChange: labChanged }); return; }
+			const labVerify = e.target.closest("[data-lab-verify]");
+			if (labVerify) {
+				e.preventDefault();
+				const inc = (S.run.summary?.incidents || []).find((i) => i.key === labVerify.dataset.labVerify);
+				if (inc) window.TraceReportsLab?.verify({ runId: S.run.id, incidentKey: inc.key, title: inc.title, checks: incidentChecks(inc), canSend: !!S.config.ui_actions, onDone: labChanged });
+				return;
+			}
 			const lang = e.target.closest("[data-loc-lang]");
 			if (lang) { S.locLang = lang.dataset.locLang; renderTestDetail(); return; }
 			const copyBtn = e.target.closest("[data-loc-copy]");
@@ -2061,6 +2135,7 @@
 		const failed = r.tests.filter((t) => t.status === "FAIL");
 		const sum = r.summary;
 		loadRecurrence();
+		loadLabRun();
 		const pendingTests = failed.filter((t) => !t.triage || t.triage.state === "ERROR" || t.triage.state === "SKIPPED").length;
 		const counts = {};
 		failed.forEach((t) => { const c = t.triage?.state === "DONE" ? t.triage.category : ""; counts[c] = (counts[c] || 0) + 1; });
@@ -2089,12 +2164,12 @@
 			const incidents = (sum?.incidents || []).map((inc) => `<article class="card incident-card">
 				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error") }[inc.kind] || inc.kind)}</span>
 					<h6 data-no-i18n>${esc(AI_LABEL[inc.title] ? tr(AI_LABEL[inc.title]) : inc.title)}</h6>
-					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}</header>
+					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}${incidentVerified(inc)}</header>
 				${incidentEvidence(inc)}
 				${incidentCause(inc, "inc-cause-p")}
 				${inc.action ? `<p><b>${tr("Qué hacer")}:</b> ${esc(inc.action)}</p>` : ""}
 				<ul class="inc-tests">${inc.test_ids.map((id, i) => `<li><a href="#run=${r.id}&view=tests&test=${id}" data-no-i18n>${esc(inc.test_names[i] || "#" + id)}</a></li>`).join("")}</ul>
-				${canAct() ? `<div class="inc-actions"><button class="cf-btn cf-btn-sm" data-escalate="${inc.test_ids.length === 1 ? inc.test_ids[0] : 0}">${icon("i-megaphone")}${tr("Escalar")}</button></div>` : ""}
+				${canAct() || incidentLab(inc) ? `<div class="inc-actions">${incidentLab(inc)}${canAct() ? `<button class="cf-btn cf-btn-sm" data-escalate="${inc.test_ids.length === 1 ? inc.test_ids[0] : 0}">${icon("i-megaphone")}${tr("Escalar")}</button>` : ""}</div>` : ""}
 			</article>`).join("");
 			body = `<div class="ai-top">
 				<section class="card m-card ai-diag"><div class="m-card-head"><h5>${icon("i-spark")}${tr("Diagnóstico de la ejecución")}</h5></div>${diag}</section>

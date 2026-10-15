@@ -193,7 +193,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 
 	add("README.txt", []byte(exportReadme), zip.Deflate)
 	add("index.html", index, zip.Deflate)
-	for _, asset := range []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "app.js"} {
+	for _, asset := range []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "app.js"} {
 		content, err := fs.ReadFile(s.Web, asset)
 		if err != nil {
 			slog.Error("export: read asset", "asset", asset, "err", err)

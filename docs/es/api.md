@@ -247,3 +247,7 @@ Lecturas relacionadas: `GET /runs/{run_id}/recurrence` (en cuántas ejecuciones 
 misma suite apareció cada incidente) y `GET /runs/{run_id}/escalation?test=&audience=&lang=` (el
 resumen guardado si la evidencia no cambió desde que se escribió, o `204`). `GET /metrics` acepta también `env`, `tag`, `from` y `to`
 (`AAAA-MM-DD`), y `GET /tests/{test_id}/history` acepta `limit` (hasta 60).
+
+FixLab (el Lab, los checks, Verificar y las cápsulas: `/network/{id}/lab`, `/ui/lab/send`,
+`/ui/lab/checks`, `/ui/lab/verify`, `/runs/{run_id}/lab`, `/network/{id}/capsule`,
+`/runs/{run_id}/lab/capsule`): ver [FixLab · API](fixlab.md#api).

@@ -75,8 +75,11 @@ func TestMetricsAndSettings(t *testing.T) {
 	if e, _ := s.Metrics(MetricsQuery{Days: 30, Env: "otro"}); e.Current.Runs != 0 || len(e.Envs) != 1 {
 		t.Fatalf("env filter: %+v envs=%v", e.Current, e.Envs)
 	}
+	// hasta el final de hoy: "ahora + 1 h" cruzaba la medianoche entre las 23:00 y las 24:00 y el
+	// rango tenía 8 días de calendario
 	now := time.Now()
-	c, _ := s.Metrics(MetricsQuery{From: now.AddDate(0, 0, -6).UnixMilli(), To: now.Add(time.Hour).UnixMilli()})
+	endOfToday := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	c, _ := s.Metrics(MetricsQuery{From: now.AddDate(0, 0, -6).UnixMilli(), To: endOfToday.UnixMilli()})
 	if !c.Custom || c.Days != 7 || len(c.Daily) != 7 || c.Current.Runs != 5 {
 		t.Fatalf("custom range: custom=%v days=%d daily=%d runs=%d", c.Custom, c.Days, len(c.Daily), c.Current.Runs)
 	}

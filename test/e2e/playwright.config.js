@@ -42,6 +42,35 @@ if (!process.env.E2E_FAKE_GITHUB) {
 	}).listen(Number(FAKE_PORT), "127.0.0.1").unref();
 }
 
+// Backend falso para el Lab de FixLab (lab.spec.js): POST /api/login da un token y GET /api/orders
+// lo exige; responde 500 mientras está "roto". /__broken/on y /__broken/off cambian el estado.
+const LAB_PORT = process.env.E2E_LAB_PORT || "8197";
+if (!process.env.E2E_FAKE_LAB) {
+	process.env.E2E_FAKE_LAB = `http://127.0.0.1:${LAB_PORT}`;
+	const { LAB } = require("./seed.js");
+	let broken = true;
+	require("node:http").createServer((req, res) => {
+		let body = "";
+		req.on("data", (c) => { body += c; });
+		req.on("end", () => {
+			res.setHeader("Content-Type", "application/json");
+			res.setHeader("Server", "lab-e2e");
+			if (req.url === "/__broken/on" || req.url === "/__broken/off") { broken = req.url.endsWith("on"); return res.end(JSON.stringify({ broken })); }
+			if (req.url === "/api/login") {
+				if (!body.includes(LAB.password)) { res.statusCode = 401; return res.end('{"error":"bad credentials"}'); }
+				return res.end(JSON.stringify({ accessToken: LAB.token }));
+			}
+			if (req.url.startsWith("/api/orders")) {
+				if (req.headers.authorization !== `Bearer ${LAB.token}`) { res.statusCode = 401; return res.end('{"error":"token expired"}'); }
+				if (broken) { res.statusCode = 500; return res.end('{"error":"orders db: connection pool exhausted"}'); }
+				return res.end('{"orders":[{"id":"A-1"}]}');
+			}
+			res.statusCode = 404;
+			res.end("{}");
+		});
+	}).listen(Number(LAB_PORT), "127.0.0.1").unref();
+}
+
 module.exports = defineConfig({
 	testDir: ".",
 	timeout: 30_000,
@@ -71,6 +100,8 @@ module.exports = defineConfig({
 		stderr: "pipe",
 		env: {
 			PORT,
+			// solo este equipo: sin el aviso del firewall de Windows por cada binario nuevo
+			TRACEREPORTS_BIND: "127.0.0.1",
 			DATA_DIR: process.env.E2E_DATA_DIR,
 			// nada del .env local (login, token, IA): el archivo indicado no existe
 			TRACEREPORTS_ENV_FILE: path.join(process.env.E2E_DATA_DIR, "no.env"),

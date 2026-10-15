@@ -30,6 +30,10 @@ func runSecrets(args []string, out io.Writer) error {
 		return errors.New("missing command: status or migrate")
 	}
 	cmd := args[0]
+	if cmd == "-h" || cmd == "-help" || cmd == "--help" || cmd == "help" {
+		fmt.Fprint(out, secretsUsage)
+		return nil
+	}
 	fl := flag.NewFlagSet("secrets "+cmd, flag.ContinueOnError)
 	fl.Usage = func() { fmt.Fprint(fl.Output(), secretsUsage); fl.PrintDefaults() }
 	if _, err := loadDotEnv(envFileName()); err != nil {

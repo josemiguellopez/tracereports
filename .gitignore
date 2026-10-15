@@ -11,3 +11,19 @@ __pycache__/
 /test/e2e/test-results/
 /test/e2e/playwright-report/
 tracereports-offline/
+# proyectos que graban los escenarios (test/scenarios)
+/test/scenarios/js/node_modules/
+/test/scenarios/js/test-results/
+/test/scenarios/java/.gradle/
+/test/scenarios/java/build/
+/test/scenarios/*/output/
+/test/scenarios/python/.pytest_cache/
+
+# resultados de Allure de los ejemplos
+allure-results/
+allure-report/
+
+# lo que deja seguir la documentación desde la raíz: pip install ./client/python y la copia local del plugin
+/client/python/build/
+/output/
+/tracereports-report/

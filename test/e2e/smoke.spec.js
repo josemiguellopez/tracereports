@@ -145,7 +145,7 @@ test("red: comparar con la última vez que el test pasó", async ({ page }) => {
 	await card.locator("summary").click();
 	await card.locator("[data-baseline]").click();
 	const drawer = page.locator(".baseline-diff");
-	await expect(drawer).toContainText("Comparado con la ejecución #1");
+	await expect(drawer).toContainText(`Comparado con la ejecución #${seed().prev}`);
 	await expect(drawer.locator("tr.diff-changed").first()).toContainText("500");
 	await expect(drawer).toContainText("db pool exhausted");
 	await expect(drawer.locator("code", { hasText: "x-api-version" })).toBeVisible(); // header que ya no viene
@@ -186,7 +186,7 @@ test("escalar para Desarrollo: detalle técnico con cURL, stack, consola y cómo
 	await expect(dev).toContainText("Commit");
 	await expect(dev).toContainText("git checkout bbb222 && pytest 'test_login_admin'");
 	await expect(dev).toContainText("reading 'dashboard'");
-	await expect(dev).toContainText("La última vez que el test pasó (ejecución #1) respondió HTTP 200");
+	await expect(dev).toContainText(`La última vez que el test pasó (ejecución #${seed().prev}) respondió HTTP 200`);
 	const call = dev.locator(".esc-call").first();
 	await expect(call).toContainText("curl -X POST 'https://api.example.com/auth/login?lang=es'");
 	await expect(call).toContainText('-H "Authorization: $AUTHORIZATION"');
@@ -286,6 +286,50 @@ test("inglés: la navegación se traduce", async ({ page }) => {
 	await openRun(page);
 	await expect(page.locator('[data-view="categories"]').first()).toContainText("Categories");
 	await expect(page.locator('[data-view="settings"]').first()).toContainText("Settings");
+});
+
+test("sin IA, el fallo dice cómo activarla (Ajustes o AI_PROVIDER; en la demo, el .env), en los dos idiomas", async ({ page }) => {
+	// otro spec puede haber configurado la IA desde Ajustes: aquí el servidor responde que no hay
+	let demo = false;
+	await page.route("**/api/v1/config", async (route) => {
+		const res = await route.fetch();
+		await route.fulfill({ response: res, json: { ...(await res.json()), ai_enabled: false, demo } });
+	});
+	const card = page.locator("#test-detail .ai-card.muted");
+	const check = async (text) => {
+		await openRun(page);
+		await openTest(page, "test_login_admin");
+		await expect(card).toContainText(text);
+	};
+	await check("Actívalo en Ajustes → IA o con AI_PROVIDER");
+	demo = true;
+	await check("Diagnóstico con IA desactivado en la demo. Para activarlo, agrega AI_PROVIDER y AI_API_KEY");
+	await page.addInitScript(() => { try { localStorage.setItem("tracereports-lang", "en"); } catch {} });
+	await check("AI diagnosis is off in the demo. To turn it on, add AI_PROVIDER and AI_API_KEY");
+	demo = false;
+	await check("Turn it on in Settings → AI or with AI_PROVIDER");
+});
+
+test("sin reemplazos, un fallo que la IA atribuye al backend no muestra 'Selector roto'", async ({ page }) => {
+	// un import de Allure: sin red, el elemento que nunca apareció parece un selector roto
+	let category = "LOGIC_BUG";
+	await page.route(/\/api\/v1\/tests\/\d+\/locator$/, (route) =>
+		route.fulfill({ json: { failed_selector: ".order-confirmed", suggestions: [] } }));
+	await page.route(/\/api\/v1\/tests\/\d+$/, async (route) => {
+		const res = await route.fetch();
+		const t = await res.json();
+		await route.fulfill({ response: res, json: { ...t, triage: { ...(t.triage || {}), state: "DONE", category, summary: "x", suggestion: "y" } } });
+	});
+	const open = async () => {
+		await openRun(page);
+		await openTest(page, "test_login_admin");
+		await expect(page.locator("#test-detail .ai-card")).toBeVisible();
+	};
+	await open();
+	await expect(page.locator("#locator-card")).toContainText(".order-confirmed");
+	category = "BACKEND_TIMEOUT";
+	await open();
+	await expect(page.locator("#locator-card")).toHaveCount(0);
 });
 
 test("exportar ZIP responde un archivo zip", async ({ page, request }) => {

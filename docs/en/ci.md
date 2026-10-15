@@ -83,9 +83,9 @@ With several files (Maven, Gradle), one `-F file=@…` per report. You get histo
 comparison, error grouping, AI diagnosis and the Teams/Slack notice; screenshots, network and DOM
 come from the clients. Details in the [API](api.md#importing-a-junit-xml-report).
 
-Already using Allure? Upload the zipped `allure-results` folder to `/api/v1/import/allure` and keep
-steps and screenshots (see the [API](api.md#importing-allure-results)); or, without a server,
-`tracereports report allure-results -o report`.
+Already using Allure? `tracereports push allure-results` sends the folder to the server, with its
+steps and screenshots, and every failure gets the AI diagnosis; or, without a server,
+`tracereports report allure-results -o report --ai`. See the [Allure guide](allure.md).
 
 ## Pull request comment
 
@@ -145,3 +145,12 @@ services:
 and use `TRACEREPORTS_URL=http://localhost:8080` with `--tracereports-zip`. If the tests reach it through
 the service alias (`http://tracereports:8080`, typical in GitLab) and the server has neither token nor
 login, add `TRACEREPORTS_ALLOWED_HOSTS=tracereports` to the service.
+
+## Verify a fix and check the server
+
+- **`tracereports verify <capsule URL>`** runs the checks saved on an incident (FixLab) and exits with
+  code 1 if one does not pass: a step after the deploy that confirms the backend fix. See
+  [FixLab · In your terminal and in CI](fixlab.md#in-your-terminal-and-in-ci-the-capsule).
+- **`tracereports selftest -url <server>`** plays the scenarios recorded with every client against your
+  server and checks what it shows: a step after upgrading TraceReports. See
+  [selftest](demo.md#tracereports-selftest).

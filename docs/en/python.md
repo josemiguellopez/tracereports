@@ -119,6 +119,9 @@ all of them finish. If a worker crashes, its running tests are marked *Interrupt
 
 ## Option 2: client API (unittest, Selenium, scripts…)
 
+> With pytest + Selenium (and Allure), the plugin and a `conftest.py` are enough: see
+> [examples/python-selenium-allure](../../examples/python-selenium-allure).
+
 ```python
 from tracereports import TraceReports
 

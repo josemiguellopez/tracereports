@@ -25,6 +25,7 @@ hoy está repartido entre el reporte HTML, los logs del backend y la cabeza del 
 | **Diagnóstico de la ejecución** | Agrupa los fallos por evidencia compartida (la misma llamada de backend fallida justo antes del fallo, o la misma firma de error) y resume en lenguaje claro qué pasó y qué hacer primero. Ningún fallo queda fuera del resumen. |
 | **AI Failure Triage por test** | Categoría, resumen y sugerencia para cada test fallido. Con Gemini (capa gratuita), Claude, OpenAI, cualquier API compatible u **Ollama local**. |
 | **Locators rotos** | Si un selector dejó de funcionar, propone reemplazos robustos (`get_by_role`, `data-testid`…) a partir del DOM al fallar, listos para copiar y marcados sobre la captura. |
+| **FixLab** | *Abrir en Lab* reenvía una llamada fallida con una sesión nueva y dice si el fallo se reproduce o ya no ocurre. Checks, *Verificar* en el incidente, exportar a Postman/Bruno/.http, `tracereports repro` / `verify` para la terminal y CI, y un servidor MCP para agentes de IA. Ver [FixLab](docs/es/fixlab.md). |
 | **Replay** | Reproduce el test paso a paso con sus capturas: play/pausa, 1x/2x y teclado. |
 | **Pestaña Red** | Llamadas HTTP que hizo el navegador en cada test: OK / error, filtros, JSON resaltado, vista previa HTML, cURL. Las respuestas negativas esperadas (un 401 verificado a propósito) se marcan y no cuentan como error. |
 | **Timeline** | Pasos, capturas y llamadas de red en una sola línea de tiempo, con cascada de duraciones. |
@@ -50,7 +51,7 @@ hoy está repartido entre el reporte HTML, los logs del backend y la cabeza del 
 | **Release** | La vista *Release* responde "¿podemos salir?": **Listo para salir**, **Se puede salir, con riesgos** o **No salir todavía**, con los criterios y el estado de cada área. Se configura con `TRACEREPORTS_RELEASE_GATE`. |
 | **Comentario en el pull request** | `tracereports pr-comment` publica el resumen de la ejecución en el PR de GitHub o el MR de GitLab (fallos, qué cambió, flaky, incidentes, link al reporte) y actualiza el mismo comentario en cada push. |
 | **Sin servidor** | Si el servidor está caído o rechaza el token, los clientes graban la evidencia en una carpeta. `tracereports report <carpeta>` arma el reporte HTML (sin servidor ni internet) y `tracereports push <carpeta>` lo sube después. Con `TRACEREPORTS_OFFLINE=both` además guardan esa copia local mientras envían al servidor: al terminar se arma el reporte HTML, y la grabación cruda se conserva solo si algo no llegó. |
-| **JUnit XML y Allure** | Importa los resultados de cualquier framework (`POST /api/v1/import/junit`, `/import/allure`), o los convierte en un reporte sin servidor con `tracereports report`. |
+| **JUnit XML y Allure** | Importa los resultados de cualquier framework (`POST /api/v1/import/junit`, `/import/allure`), o los convierte en un reporte sin servidor con `tracereports report`. `tracereports push allure-results` envía los resultados de Allure al servidor, donde cada fallo recibe el diagnóstico con IA. Ver [Allure](docs/es/allure.md). |
 | **Compartir** | Exporta la ejecución a un ZIP que se abre sin servidor ni internet (gráficos y fuentes incluidos), ideal para adjuntar a un correo. |
 | **Datos sensibles** | El servidor enmascara tokens, contraseñas, cookies y credenciales (escritos como `clave=valor`, JSON, headers, Bearer/JWT o dentro de URLs) en la evidencia y en nombres e identidades de tests antes de guardar nada, venga del cliente que venga; lo guardado ya no llega a la IA, al ZIP ni a Teams/Slack. No cubre texto libre sin clave ni lo que se ve en las capturas. Retención opcional por días. |
 | **Entrega confiable** | El cliente Python envía la evidencia en segundo plano con reintentos e idempotencia (sin duplicados, aunque un spool se reenvíe días después), consolida pytest-xdist en un solo reporte y avisa si algo no llegó. |
@@ -74,7 +75,8 @@ docker compose up -d          # con Docker
 go run ./cmd                  # con Go 1.26+
 ```
 
-Abre <http://localhost:8080>.
+Abre <http://localhost:8080>. ¿Solo quieres mirar? `tracereports demo` (`go run ./cmd demo`) lo levanta con datos de
+ejemplo grabados con todos los clientes y una tienda de prueba para probar FixLab: ver el [inicio rápido](docs/es/quickstart.md).
 
 **2. Reporta tus tests.** Con pytest no cambias código:
 
@@ -116,6 +118,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 | Ejemplo | Para quién | Cómo correrlo |
 |---|---|---|
 | [`examples/pytest-playwright`](examples/pytest-playwright/README.es.md) | pytest: lo mínimo, solo el plugin | `pytest examples/pytest-playwright --tracereports` |
+| [`examples/python-selenium-allure`](examples/python-selenium-allure/README.es.md) | pytest + Selenium + Allure: enviar allure-results, o sumar el plugin | `python -m pytest examples/python-selenium-allure --alluredir=allure-results` y `tracereports push allure-results` |
 | [`examples/playwright-js`](examples/playwright-js/README.es.md) | Playwright Test (JS): reporter + fixtures | `cd examples/playwright-js && npm install && npm test` |
 | [`examples/selenium-js`](examples/selenium-js/README.es.md) | Selenium WebDriver con node:test | `cd examples/selenium-js && npm install && npm test` |
 | [`examples/selenium-java`](examples/selenium-java/README.es.md) | Selenium con JUnit 5 | `cd examples/selenium-java && ./gradlew test` |
@@ -128,6 +131,11 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 - [Instalación](docs/es/installation.md): binario, Docker, primer uso.
 - [Docker](docs/es/docker.md): uso diario, datos, backup y despliegue en un servidor con HTTPS.
 - [Configuración](docs/es/configuration.md): variables de entorno, seguridad, IA, idioma, Teams/Slack.
+- [Línea de comandos](docs/es/cli.md): cada comando de `tracereports` (servidor, demo, report, push, pr-comment, repro, verify, mcp, selftest, secrets, version).
+- [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md): levanta el reporte y la tienda de prueba paso a paso.
+- [Demo, playground y selftest](docs/es/demo.md): datos de ejemplo, la tienda de prueba y comprobar un despliegue.
+- [Allure](docs/es/allure.md): envía tus allure-results y recibe cada fallo diagnosticado con IA.
+- [FixLab](docs/es/fixlab.md): reproducir un fallo, guardar checks, verificar el arreglo; cápsula, CLI y MCP.
 - [Cliente Python y plugin de pytest](docs/es/python.md)
 - [Cliente JavaScript/TypeScript: Playwright Test y Selenium](docs/es/javascript.md)
 - [Cliente Java: JUnit 5, Selenium y Playwright](docs/es/java.md)
@@ -141,7 +149,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 ## Estructura
 
 ```
-cmd/                 servidor y CLI (report, push, pr-comment, secrets)
+cmd/                 servidor y CLI (report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest)
 internal/api         API REST, autenticación, ajustes, exportación ZIP
 internal/db          SQLite: ejecuciones, tests, pasos, red, historial, métricas, ajustes, uso de la IA
 internal/ai          diagnóstico y escalamiento con IA (Gemini, Claude, OpenAI, compatibles, Ollama)
@@ -155,6 +163,9 @@ internal/correlate   ids de traza y de request, links a los logs del backend
 internal/release     decisión de salida (vista Release)
 internal/owners      dueños de los tests (reglas al estilo CODEOWNERS)
 internal/repro       comando para repetir un test en local
+internal/lab         FixLab: plan, reenvío con sesión nueva, checks y cápsulas
+internal/mcp         servidor MCP (stdio) para agentes de IA
+internal/demo        tienda de prueba, playground y los escenarios grabados con los clientes reales
 internal/secret      cifrado de las credenciales guardadas desde Ajustes
 internal/locator     recomendación de selectores cuando se rompe un locator
 internal/live        eventos en vivo (Server-Sent Events)
@@ -165,6 +176,8 @@ client/js            cliente JavaScript/TypeScript + reporter de Playwright Test
 client/java          cliente Java + extensión de JUnit 5
 client/go            cliente Go
 examples/            ejemplos ejecutables
+test/e2e             pruebas end-to-end de la interfaz (Playwright)
+test/scenarios       los tests que graban los escenarios, uno por cliente
 docs/es, docs/en     documentación en español e inglés
 ```
 

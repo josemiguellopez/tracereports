@@ -46,6 +46,8 @@ var (
 
 // Server bundles the dependencies of the HTTP handlers.
 type Server struct {
+	// Demo is set by `tracereports demo`: the UI explains how to turn the AI on there.
+	Demo           bool
 	Store          *db.Store
 	AI             *ai.Analyzer
 	Notify         *notify.Notifier
@@ -72,6 +74,8 @@ type Server struct {
 	Owners *owners.Rules
 	// ReleaseGate are the "can we ship?" criteria (TRACEREPORTS_RELEASE_GATE); nil = defaults.
 	ReleaseGate *release.Gate
+	// Lab configures FixLab's Request Lab (TRACEREPORTS_LAB, TRACEREPORTS_LAB_HOSTS).
+	Lab LabConfig
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -111,6 +115,12 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/ui/quarantine/{test_id}", s.removeQuarantine)
 		r.Get("/quarantine", s.listQuarantine)
 		r.Post("/ui/tests/{test_id}/verdict", s.setVerdict)
+		r.Post("/ui/lab/send", s.labSend)
+		r.Post("/ui/lab/checks", s.labSaveCheck)
+		r.Delete("/ui/lab/checks/{check_id}", s.labDeleteCheck)
+		r.Post("/ui/lab/verify", s.labVerify)
+		r.Get("/runs/{run_id}/lab", s.labRun)
+		r.Get("/runs/{run_id}/lab/capsule", s.incidentCapsule)
 		r.Get("/stream", s.stream)
 
 		r.Get("/runs", s.listRuns)
@@ -143,6 +153,8 @@ func (s *Server) Router() http.Handler {
 		r.Post("/tests/{test_id}/network", s.addNetwork)
 		r.Get("/network/{conn_id}/body", s.networkBody)
 		r.Get("/network/{conn_id}/baseline", s.networkBaseline)
+		r.Get("/network/{conn_id}/lab", s.labPlan)
+		r.Get("/network/{conn_id}/capsule", s.connCapsule)
 	})
 
 	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))
@@ -172,7 +184,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(), "trackers": trackers,
 		"ai_provider": s.AI.Provider(), "language": saved[setLanguage],
 		// acciones desde la UI (re-analizar, escalar, enviar) y canales disponibles
-		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL})
+		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL, "demo": s.Demo})
 }
 
 func (s *Server) listRuns(w http.ResponseWriter, r *http.Request) {
