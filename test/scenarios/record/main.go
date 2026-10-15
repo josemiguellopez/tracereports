@@ -189,7 +189,8 @@ func normalize(dir, root string) (int, error) {
 		if err != nil {
 			return err
 		}
-		text := rep.Replace(string(data))
+		// LF en cualquier sistema (el cliente de Python escribe CRLF en Windows)
+		text := strings.ReplaceAll(rep.Replace(string(data)), "\r\n", "\n")
 		if ext == ".jsonl" {
 			events += strings.Count(strings.TrimSpace(text), "\n") + 1
 		}
