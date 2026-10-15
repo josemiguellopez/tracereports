@@ -29,6 +29,16 @@ tracereports push allure-results -project orangehrm -name "Selenium + Allure"
 métricas, escalar a Teams/Slack y tickets. Tus pasos de `allure.step`, capturas y adjuntos se
 conservan. Más en la [guía de Allure](../../docs/es/allure.md).
 
+`--alluredir` solo guarda los resultados en bruto (JSON y capturas), no un reporte. Para ver el
+reporte de Allure de siempre (necesita Java y Node, sin instalar nada global):
+
+```bash
+npx -y allure-commandline generate --single-file allure-results -o allure-report --clean
+```
+
+y abre `allure-report/index.html`. Borra `allure-results` antes de cada corrida: Allure no la limpia
+y suma los resultados anteriores.
+
 ## Nivel 2: Allure y TraceReports en la misma corrida
 
 ```bash

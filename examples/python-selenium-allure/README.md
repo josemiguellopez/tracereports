@@ -29,6 +29,16 @@ tracereports push allure-results -project orangehrm -name "Selenium + Allure"
 tests, metrics, escalation to Teams/Slack and tickets. Your `allure.step` steps, screenshots and
 attachments are kept. More in the [Allure guide](../../docs/en/allure.md).
 
+`--alluredir` only writes the raw results (JSON and screenshots), not a report. To see the usual
+Allure report (needs Java and Node, nothing installed globally):
+
+```bash
+npx -y allure-commandline generate --single-file allure-results -o allure-report --clean
+```
+
+and open `allure-report/index.html`. Delete `allure-results` before each run: Allure does not clean
+it and adds up the previous results.
+
 ## Level 2: Allure and TraceReports in the same run
 
 ```bash
