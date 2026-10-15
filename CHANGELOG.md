@@ -14,6 +14,8 @@ All notable changes to TraceReports. The format follows
   shop whose page is a **playground**: break or fix its backend to try the Lab, and send any scenario or all of them,
   with the requests sent, the checks and a link to the run. Temporary, only on this machine and isolated from your
   configuration. The playground is animated with [Motion](https://motion.dev) (MIT, bundled: works offline).
+  It diagnoses with AI when your environment or `.env` has a provider key (only the AI variables are read from
+  the `.env`; `-ai=false` turns it off) and says so in the guide it prints.
 - `TRACEREPORTS_BIND` chooses the address to listen on (`127.0.0.1` = only this machine).
 - `tracereports selftest`: plays the scenarios recorded with the real clients (pytest + Playwright, Playwright Test,
   Selenium + JUnit 5, `go test`, REST, JUnit XML) against a temporary server or `-url`, and checks what TraceReports
@@ -50,7 +52,8 @@ All notable changes to TraceReports. The format follows
   stored and the answer is masked before it is shown. Design: [docs/rfc/fixlab.md](docs/rfc/fixlab.md).
 
 **Docs**
-- Guides for [FixLab](docs/en/fixlab.md) and for the [demo, playground and selftest](docs/en/demo.md), in English
+- A [quickstart](docs/en/quickstart.md) to start the demo's services step by step, and guides for
+  [FixLab](docs/en/fixlab.md) and for the [demo, playground and selftest](docs/en/demo.md), in English
   and Spanish, linked from the READMEs, installation, configuration, API and CI.
 
 ### Fixed
@@ -59,6 +62,8 @@ All notable changes to TraceReports. The format follows
   longer diagnosed as a broken selector: no misleading suggestions, neither on the screen nor in the AI prompt.
 - The broken selector is the one Playwright was waiting for, not an earlier getter the traceback quotes.
 - `tracereports demo -keep`: the kept data is no longer deleted by the cleanup of old demos 12 hours later.
+- Without AI, a failed test no longer asks only for `GEMINI_API_KEY`: it points to Settings → AI or `AI_PROVIDER`
+  (in the demo, to the `.env`), and the message is translated in English.
 
 ## [0.2.0] - 2026-10-09
 

@@ -53,7 +53,8 @@ Levanta TraceReports con ejecuciones reales grabadas con todos los clientes (pyt
 Selenium + JUnit 5, `go test`, REST y una importación de JUnit XML) y una tienda de prueba cuyo backend puedes romper
 y arreglar para probar [FixLab](fixlab.md). Su página es un **playground** que envía los escenarios de cada cliente y
 comprueba lo que muestra TraceReports. Solo en este equipo, aislada de tu configuración y se borra al detenerla.
-Guía: [Demo, playground y selftest](demo.md).
+Paso a paso: [inicio rápido](quickstart.md);
+detalles: [Demo, playground y selftest](demo.md).
 
 ## Comprobar que funciona: `tracereports selftest`
 

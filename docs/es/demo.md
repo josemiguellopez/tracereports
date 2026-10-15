@@ -2,6 +2,8 @@
 
 🌐 [English](../en/demo.md) · **Español**
 
+> **¿Primera vez?** El [inicio rápido](quickstart.md) levanta la demo paso a paso en 5 minutos.
+
 Tres formas de ver TraceReports funcionando sin conectarlo antes a tu proyecto. Las tres usan los
 mismos **escenarios**: ejecuciones grabadas con los clientes reales (pytest + Playwright,
 Playwright Test, Selenium + JUnit 5, `go test`, la API REST y una importación de JUnit XML) contra
@@ -59,14 +61,15 @@ comando para correr cada test y el selector sugerido cuando uno cambió.
 | `-shop-port` | el primer puerto libre desde 8180 | Puerto de la tienda y del playground |
 | `-keep` | no | Conserva los datos al detener la demo (muestra la carpeta; `DATA_DIR=<carpeta> tracereports` la vuelve a abrir) |
 | `-no-open` | no | No abre el navegador |
-| `-ai` | no | Usa el proveedor de IA de tu entorno (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`…). **Gasta tokens** |
+| `-ai=false` | IA activa si hay una clave | Apaga el diagnóstico con IA. Por defecto la demo usa el proveedor de IA de tu entorno o de tu `.env` (`AI_PROVIDER` + `AI_API_KEY`, `GEMINI_API_KEY`…) si encuentra uno, y eso **gasta tokens** |
 
 ### Aislada de tu configuración
 
 - Escucha solo en `127.0.0.1`: nada es accesible desde otros equipos y Windows no muestra el aviso
   del firewall.
-- Ignora todas las variables `TRACEREPORTS_*`, el `.env` del proyecto, los webhooks de Teams/Slack,
-  `PUBLIC_URL` y los trackers. La IA está apagada salvo con `-ai`.
+- Ignora todas las variables `TRACEREPORTS_*`, los webhooks de Teams/Slack, `PUBLIC_URL` y los
+  trackers. De tu entorno y del `.env` de la carpeta donde la ejecutas solo toma el proveedor de IA
+  (la guía que muestra dice si la IA está activa); `-ai=false` la deja apagada.
 - La base de datos vive en una carpeta temporal y se borra con Ctrl+C. Las carpetas de una demo que
   se cerró a la fuerza se limpian al iniciar la siguiente (después de 12 horas).
 

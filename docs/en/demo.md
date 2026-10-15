@@ -2,6 +2,8 @@
 
 🌐 **English** · [Español](../es/demo.md)
 
+> **First time?** The [quickstart](quickstart.md) starts the demo step by step in 5 minutes.
+
 Three ways to see TraceReports working without wiring it into your own project first. They all use
 the same **scenarios**: runs recorded with the real clients (pytest + Playwright, Playwright Test,
 Selenium + JUnit 5, `go test`, the REST API and a JUnit XML import) against a small demo shop.
@@ -58,14 +60,15 @@ suggested selector when one changed.
 | `-shop-port` | first free port from 8180 | Port of the demo shop and the playground |
 | `-keep` | off | Keep the sample data when the demo stops (it prints the folder; `DATA_DIR=<folder> tracereports` opens it again) |
 | `-no-open` | off | Do not open the browser |
-| `-ai` | off | Use the AI provider of your environment (`GEMINI_API_KEY`, `ANTHROPIC_API_KEY`…). It **spends tokens** |
+| `-ai=false` | AI on when there is a key | Turn off the AI diagnosis. By default the demo uses the AI provider of your environment or `.env` (`AI_PROVIDER` + `AI_API_KEY`, `GEMINI_API_KEY`…) when it finds one, and that **spends tokens** |
 
 ### Isolated from your configuration
 
 - It listens on `127.0.0.1` only: nothing is reachable from other machines and Windows does not
   show a firewall prompt.
-- It ignores every `TRACEREPORTS_*` variable, the project's `.env`, Teams/Slack webhooks,
-  `PUBLIC_URL` and trackers. The AI is off unless you pass `-ai`.
+- It ignores every `TRACEREPORTS_*` variable, Teams/Slack webhooks, `PUBLIC_URL` and trackers. Of
+  your environment and the `.env` of the folder where you run it, it only takes the AI provider
+  (the guide it prints says whether the AI is on); `-ai=false` leaves it off.
 - The database lives in a temporary folder and is deleted with Ctrl+C. Folders left by a demo that
   was killed are cleaned up on the next start (after 12 hours).
 

@@ -76,7 +76,7 @@ go run ./cmd                  # with Go 1.26+
 ```
 
 Open <http://localhost:8080>. Just looking? `tracereports demo` (`go run ./cmd demo`) starts it with sample data
-recorded with every client and a demo shop to try FixLab: see the [demo guide](docs/en/demo.md).
+recorded with every client and a demo shop to try FixLab: see the [quickstart](docs/en/quickstart.md).
 
 **2. Report your tests.** With pytest there are no code changes:
 
@@ -132,6 +132,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [Installation](docs/en/installation.md): binary, Docker, first run.
 - [Docker](docs/en/docker.md): day to day, data, backup and deploying on a server with HTTPS.
 - [Configuration](docs/en/configuration.md): environment variables, security, AI, language, Teams/Slack.
+- [Quickstart: the demo in 5 minutes](docs/en/quickstart.md): start the report and the demo shop step by step.
 - [Demo, playground and selftest](docs/en/demo.md): sample data, the demo shop and checking a deployment.
 - [FixLab](docs/en/fixlab.md): reproduce a failure, save checks, verify the fix; capsule, CLI and MCP.
 - [Python client and pytest plugin](docs/en/python.md)

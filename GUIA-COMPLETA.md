@@ -76,7 +76,7 @@ go run ./cmd                  # con Go 1.26+
 ```
 
 Abre <http://localhost:8080>. ¿Solo quieres mirar? `tracereports demo` (`go run ./cmd demo`) lo levanta con datos de
-ejemplo grabados con todos los clientes y una tienda de prueba para probar FixLab: ver la [guía de la demo](docs/es/demo.md).
+ejemplo grabados con todos los clientes y una tienda de prueba para probar FixLab: ver el [inicio rápido](docs/es/quickstart.md).
 
 **2. Reporta tus tests.** Con pytest no cambias código:
 
@@ -130,6 +130,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 - [Instalación](docs/es/installation.md): binario, Docker, primer uso.
 - [Docker](docs/es/docker.md): uso diario, datos, backup y despliegue en un servidor con HTTPS.
 - [Configuración](docs/es/configuration.md): variables de entorno, seguridad, IA, idioma, Teams/Slack.
+- [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md): levanta el reporte y la tienda de prueba paso a paso.
 - [Demo, playground y selftest](docs/es/demo.md): datos de ejemplo, la tienda de prueba y comprobar un despliegue.
 - [FixLab](docs/es/fixlab.md): reproducir un fallo, guardar checks, verificar el arreglo; cápsula, CLI y MCP.
 - [Cliente Python y plugin de pytest](docs/es/python.md)
