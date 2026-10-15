@@ -401,7 +401,7 @@ its screenshot, network calls and diagnosis.
 ## Documentation
 
 - [Full feature tour](README.en.md)
-- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md)
+- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md) · [Command line](docs/en/cli.md)
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md) · [Demo, playground and selftest](docs/en/demo.md): try it in a minute and check a deployment
 - [Allure](docs/en/allure.md): your Allure results, diagnosed with AI
 - [FixLab](docs/en/fixlab.md): reproduce a failure and verify the fix, from the report, the terminal, CI or an AI agent

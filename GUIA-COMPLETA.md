@@ -131,6 +131,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 - [Instalación](docs/es/installation.md): binario, Docker, primer uso.
 - [Docker](docs/es/docker.md): uso diario, datos, backup y despliegue en un servidor con HTTPS.
 - [Configuración](docs/es/configuration.md): variables de entorno, seguridad, IA, idioma, Teams/Slack.
+- [Línea de comandos](docs/es/cli.md): cada comando de `tracereports` (servidor, demo, report, push, pr-comment, repro, verify, mcp, selftest, secrets, version).
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md): levanta el reporte y la tienda de prueba paso a paso.
 - [Demo, playground y selftest](docs/es/demo.md): datos de ejemplo, la tienda de prueba y comprobar un despliegue.
 - [Allure](docs/es/allure.md): envía tus allure-results y recibe cada fallo diagnosticado con IA.

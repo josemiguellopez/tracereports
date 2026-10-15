@@ -133,6 +133,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [Installation](docs/en/installation.md): binary, Docker, first run.
 - [Docker](docs/en/docker.md): day to day, data, backup and deploying on a server with HTTPS.
 - [Configuration](docs/en/configuration.md): environment variables, security, AI, language, Teams/Slack.
+- [Command line](docs/en/cli.md): every `tracereports` command (server, demo, report, push, pr-comment, repro, verify, mcp, selftest, secrets, version).
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md): start the report and the demo shop step by step.
 - [Demo, playground and selftest](docs/en/demo.md): sample data, the demo shop and checking a deployment.
 - [Allure](docs/en/allure.md): send your allure-results and get every failure diagnosed with AI.

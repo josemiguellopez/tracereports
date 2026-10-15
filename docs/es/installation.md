@@ -121,4 +121,5 @@ detén el servidor y copia la carpeta `data` completa (incluidos `-wal` y `-shm`
 ## Siguiente paso
 
 - [Configuración](configuration.md): seguridad, IA y notificaciones.
+- [Línea de comandos](cli.md): cada comando de `tracereports` y sus flags.
 - [Python](python.md) · [Go](go.md) · [API REST](api.md)

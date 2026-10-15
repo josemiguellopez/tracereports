@@ -118,4 +118,5 @@ or stop the server and copy the whole `data` folder (including `-wal` and `-shm`
 ## Next step
 
 - [Configuration](configuration.md): security, AI and notifications.
+- [Command line](cli.md): every `tracereports` command and its flags.
 - [Python](python.md) · [Go](go.md) · [REST API](api.md)

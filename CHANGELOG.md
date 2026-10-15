@@ -25,6 +25,11 @@ All notable changes to TraceReports. The format follows
 - The Lab finds the session token in a fresh login answer when the recorded one has no body (a page that
   navigates right after signing in).
 
+**Command line**
+- `tracereports version` (also `-version`, `--version`); release builds report their version (also to MCP
+  clients, which got `dev` before).
+- `tracereports report -ai` takes the AI provider from the `.env` too, like the server and the demo.
+
 **Allure**
 - `tracereports push` also takes an `allure-results` folder (or its ZIP) and JUnit XML: it imports them into
   the server, where every failure gets the AI diagnosis (`-name`, `-project`, `-branch`, `-environment`, and the
@@ -63,6 +68,8 @@ All notable changes to TraceReports. The format follows
   stored and the answer is masked before it is shown. Design: [docs/rfc/fixlab.md](docs/rfc/fixlab.md).
 
 **Docs**
+- A [command line reference](docs/en/cli.md): every `tracereports` command, its flags, exit codes and which
+  configuration (environment or `.env`) it reads.
 - A [quickstart](docs/en/quickstart.md) to start the demo's services step by step, and guides for
   [FixLab](docs/en/fixlab.md) and for the [demo, playground and selftest](docs/en/demo.md), in English
   and Spanish, linked from the READMEs, installation, configuration, API and CI.
@@ -79,6 +86,8 @@ All notable changes to TraceReports. The format follows
 - The command to run a test locally for Allure imports: pytest gets a node id (`pkg/module.py::test`, not the
   Allure `pkg.module#test`), and allure-playwright (`file:line`) and allure-junit5 (`package.Class.method`) get
   one too.
+- `tracereports secrets -h` prints its usage instead of an error; `tracereports help` lists `version` and
+  describes `push` and `report` with their Allure and JUnit inputs.
 - `tracereports demo -keep`: the kept data is no longer deleted by the cleanup of old demos 12 hours later.
 - Without AI, a failed test no longer asks only for `GEMINI_API_KEY`: it points to Settings → AI or `AI_PROVIDER`
   (in the demo, to the `.env`), and the message is translated in English.
