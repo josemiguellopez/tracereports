@@ -1063,6 +1063,10 @@
 		const rep = S.loc[locKey(t)];
 		if (!rep) return "";
 		const sugg = orderedSuggestions(rep);
+		// sin red (un import de Allure o JUnit) el backend caído parece un selector roto: si la IA ya
+		// dijo backend o infraestructura y no hay reemplazos, la tarjeta solo despistaría
+		const cat = t.triage && t.triage.state === "DONE" ? t.triage.category : "";
+		if (!sugg.length && (cat === "BACKEND_TIMEOUT" || cat === "INFRA_ERROR")) return "";
 		const snippet = (s) => (S.locLang === "js" ? s.js : s.python);
 		const items = sugg.map((s) => `<li class="loc-item ${s.pick ? "ai-pick" : ""}" data-loc-i="${s.i}">
 				<code class="loc-code">${esc(snippet(s))}</code>

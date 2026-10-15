@@ -310,6 +310,28 @@ test("sin IA, el fallo dice cómo activarla (Ajustes o AI_PROVIDER; en la demo, 
 	await check("Turn it on in Settings → AI or with AI_PROVIDER");
 });
 
+test("sin reemplazos, un fallo que la IA atribuye al backend no muestra 'Selector roto'", async ({ page }) => {
+	// un import de Allure: sin red, el elemento que nunca apareció parece un selector roto
+	let category = "LOGIC_BUG";
+	await page.route(/\/api\/v1\/tests\/\d+\/locator$/, (route) =>
+		route.fulfill({ json: { failed_selector: ".order-confirmed", suggestions: [] } }));
+	await page.route(/\/api\/v1\/tests\/\d+$/, async (route) => {
+		const res = await route.fetch();
+		const t = await res.json();
+		await route.fulfill({ response: res, json: { ...t, triage: { ...(t.triage || {}), state: "DONE", category, summary: "x", suggestion: "y" } } });
+	});
+	const open = async () => {
+		await openRun(page);
+		await openTest(page, "test_login_admin");
+		await expect(page.locator("#test-detail .ai-card")).toBeVisible();
+	};
+	await open();
+	await expect(page.locator("#locator-card")).toContainText(".order-confirmed");
+	category = "BACKEND_TIMEOUT";
+	await open();
+	await expect(page.locator("#locator-card")).toHaveCount(0);
+});
+
 test("exportar ZIP responde un archivo zip", async ({ page, request }) => {
 	await openRun(page);
 	const href = await page.locator("#export-btn").getAttribute("href");
