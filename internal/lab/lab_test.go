@@ -519,3 +519,23 @@ func TestExpect(t *testing.T) {
 		t.Fatal("status 42 must be rejected")
 	}
 }
+
+// A page that navigates as soon as it gets the token leaves the login's body uncaptured: the Lab
+// repeats the login and finds the token in the fresh answer.
+func TestLoginWithoutRecordedBody(t *testing.T) {
+	shop := newJWTShop(t)
+	shop.fail.Store(true)
+	conns := shop.recording()
+	conns[1].ResponseBody = "" // el navegador ya había navegado: sin body
+	p, err := Prepare(conns, 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Login == nil || !p.Login.FindToken || p.Login.TokenPath != nil || varsByName(p)["authorization"].Kind != KindSession {
+		t.Fatalf("plan = %+v login %+v", p.Vars, p.Login)
+	}
+	res, err := Run(context.Background(), p, Options{Values: map[string]string{"password": password}})
+	if err != nil || res.Verdict != VerdictReproduced || res.Steps[0].Note != "token: data.accessToken" {
+		t.Fatalf("verdict %v steps %+v err %v", res, res.Steps, err)
+	}
+}

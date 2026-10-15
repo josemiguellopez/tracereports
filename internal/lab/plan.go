@@ -50,7 +50,13 @@ type Login struct {
 	// TokenPath is where its JSON response carries the token used as "Bearer <token>" (empty: the
 	// session lives in the cookies).
 	TokenPath []string `json:"token_path,omitempty"`
+	// FindToken: the recorded answer has no token (its body was not captured), so the token is
+	// looked for in the answer of the login repeated now.
+	FindToken bool `json:"find_token,omitempty"`
 }
+
+// Bearer reports whether the login gives the Bearer token of the next calls.
+func (l *Login) Bearer() bool { return l != nil && (l.TokenPath != nil || l.FindToken) }
 
 // CSRF is the page read live to get fresh anti-CSRF values before sending.
 type CSRF struct {
@@ -317,6 +323,18 @@ func Prepare(conns []db.NetConn, connID int64) (*Plan, error) {
 				break
 			}
 		}
+		// hace falta Bearer pero ningún login guardó su respuesta (una página que navega apenas
+		// recibe el token deja el body sin capturar): se repite el último login y el token se busca
+		// en la respuesta nueva
+		if p.Login == nil && needsAuth {
+			for i := idx - 1; i >= 0; i-- {
+				if c := &conns[i]; c.Status < 400 && !c.Failed && sendsPassword(c) {
+					tpl.prefix = "login "
+					p.Login = &Login{ConnID: c.ID, Request: tpl.call(c), FindToken: true}
+					break
+				}
+			}
+		}
 	}
 
 	// CSRF: los campos anti-CSRF se leen de la página que origina el login (o la llamada)
@@ -362,7 +380,7 @@ func Prepare(conns []db.NetConn, connID int64) (*Plan, error) {
 			v.Kind = KindSession
 		case name == "cookie":
 			v.Optional = true
-		case name == "authorization" && p.Login != nil && p.Login.TokenPath != nil:
+		case name == "authorization" && p.Login.Bearer():
 			v.Kind = KindSession
 		case csrfKey(name) && p.CSRF != nil:
 			v.Kind = KindCSRF

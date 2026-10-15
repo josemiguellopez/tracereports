@@ -145,7 +145,7 @@
 			flow.push(`<li>${tr("Abre la página para obtener una sesión nueva")}${p.csrf.fields.length ? ` ${tr("y el token CSRF")} (<code data-no-i18n>${esc(p.csrf.fields.join(", "))}</code>)` : ""}: <code data-no-i18n>${esc(p.csrf.page_url)}</code></li>`);
 		}
 		if (p.login) {
-			flow.push(`<li>${tr("Repite el login grabado")} <code data-no-i18n>${esc(p.login.request.method)} ${esc(p.login.request.url)}</code> → ${p.login.token_path ? tr("token de acceso (Bearer)") : tr("cookies de sesión")}</li>`);
+			flow.push(`<li>${tr("Repite el login grabado")} <code data-no-i18n>${esc(p.login.request.method)} ${esc(p.login.request.url)}</code> → ${p.login.token_path || p.login.find_token ? tr("token de acceso (Bearer)") : tr("cookies de sesión")}</li>`);
 		}
 		flow.push(`<li>${tr("Envía la llamada")}</li>`);
 		const hosts = data.any_host ? "" : `<p class="lab-hint">${tr("Servidor compartido: el Lab solo puede llamar a los hosts que usó el test")}${data.lab_hosts?.length ? ` ${tr("y a")} <code data-no-i18n>${esc(data.lab_hosts.join(", "))}</code>` : ""} (TRACEREPORTS_LAB_HOSTS).</p>`;

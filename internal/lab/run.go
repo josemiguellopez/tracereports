@@ -12,6 +12,7 @@ import (
 	"net/http/cookiejar"
 	"net/url"
 	"regexp"
+	"sort"
 	"strings"
 	"syscall"
 	"time"
@@ -258,10 +259,14 @@ func (r *runner) csrf() {
 func (r *runner) login() {
 	l := r.plan.Login
 	resp, step := r.send("login", l.Request)
-	if l.TokenPath != nil && r.vals["authorization"] == "" {
-		if tok := jsonPath(resp.Body, l.TokenPath); tok != "" {
+	if l.Bearer() && r.vals["authorization"] == "" {
+		path := l.TokenPath
+		if path == nil {
+			path = freshTokenPath(resp.Body)
+		}
+		if tok := jsonPath(resp.Body, path); path != nil && tok != "" {
 			r.token = tok
-			step.Note = "token: " + strings.Join(l.TokenPath, ".")
+			step.Note = "token: " + strings.Join(path, ".")
 		} else if step.Error == "" {
 			step.Note = "token not found in the response"
 		}
@@ -381,6 +386,39 @@ func cleanErr(err error) string {
 		return "timeout"
 	}
 	return err.Error()
+}
+
+// freshTokenPath finds a session token in a live JSON answer (the field names tokenPath knows,
+// with any non-empty string value), up to 3 levels deep.
+func freshTokenPath(body string) []string {
+	var v any
+	if json.Unmarshal([]byte(body), &v) != nil {
+		return nil
+	}
+	var walk func(v any, path []string) []string
+	walk = func(v any, path []string) []string {
+		m, ok := v.(map[string]any)
+		if !ok || len(path) > 3 {
+			return nil
+		}
+		keys := make([]string, 0, len(m))
+		for k := range m {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			if s, ok := m[k].(string); ok && s != "" && tokenKey(k) {
+				return append(append([]string{}, path...), k)
+			}
+		}
+		for _, k := range keys {
+			if p := walk(m[k], append(path, k)); p != nil {
+				return p
+			}
+		}
+		return nil
+	}
+	return walk(v, nil)
 }
 
 // jsonPath reads a string at path in a JSON document ("" if absent).
