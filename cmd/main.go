@@ -3,6 +3,7 @@
 // Environment variables:
 //
 //	PORT            HTTP port (default 8080)
+//	TRACEREPORTS_BIND  address to listen on (default: all interfaces; 127.0.0.1 = only this machine)
 //	DATA_DIR        data directory for SQLite + screenshots (default ./data)
 //	AI_PROVIDER     gemini | anthropic | openai | openai_compatible | ollama (optional; inferred
 //	                from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST)
@@ -26,6 +27,8 @@
 //	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit)
 //	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
 //	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
+//	TRACEREPORTS_LAB      off = disable FixLab's Request Lab (resending captured calls from the report)
+//	TRACEREPORTS_LAB_HOSTS  extra hosts a shared server's Lab may call (host, host:port or *.domain)
 package main
 
 import (
@@ -35,10 +38,12 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
@@ -69,15 +74,35 @@ func main() {
 			err = runPRComment(os.Args[2:])
 		case "secrets":
 			err = runSecrets(os.Args[2:], os.Stdout)
+		case "repro":
+			err = runRepro(os.Args[2:])
+		case "verify":
+			err = runVerify(os.Args[2:])
+		case "mcp":
+			err = runMCP(os.Args[2:])
+		case "demo":
+			err = runDemo(os.Args[2:])
+		case "selftest":
+			err = runSelftest(os.Args[2:])
+		case "version", "-version", "--version":
+			fmt.Println("tracereports " + buildVersion())
+			return
 		case "-h", "-help", "--help", "help":
 			fmt.Println("Usage: tracereports              start the server (configuration: environment variables, see the docs)\n" +
-				"       tracereports report ...   build a static HTML report without a server\n" +
-				"       tracereports push ...     upload a recording made without a server\n" +
+				"       tracereports report ...   build a static HTML report without a server (recording, JUnit XML, Allure)\n" +
+				"       tracereports push ...     upload a recording, allure-results or JUnit XML to a server\n" +
 				"       tracereports pr-comment   comment the run summary on the pull request\n" +
-				"       tracereports secrets ...  status / migrate of the credentials saved from Settings")
+				"       tracereports secrets ...  status / migrate of the credentials saved from Settings\n" +
+				"       tracereports repro ...    resend the calls of a FixLab capsule with a fresh session\n" +
+				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)\n" +
+				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code\n" +
+				"       tracereports demo         try it in a minute: sample data and a demo shop, only on this machine\n" +
+				"       tracereports selftest     play the scenarios recorded with the real clients and check the results\n" +
+				"       tracereports version      print the version\n" +
+				"Each command explains its flags with -h. Guide: docs/en/cli.md")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest, version; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
@@ -94,7 +119,10 @@ func main() {
 	}
 }
 
-func run() error {
+func run() error { return runServer(context.Background()) }
+
+// runServer starts the server and serves until parent is cancelled, Ctrl+C or SIGTERM.
+func runServer(parent context.Context) error {
 	// el binario lee el mismo .env que usa Docker Compose (las variables ya definidas mandan)
 	envFile := env.Get("ENV_FILE")
 	if envFile == "" {
@@ -213,6 +241,10 @@ func run() error {
 		Owners: ownerRules,
 		// criterios de "¿podemos salir a producción?" (TRACEREPORTS_RELEASE_GATE)
 		ReleaseGate: &gate,
+		// FixLab: reenviar llamadas capturadas desde el reporte (TRACEREPORTS_LAB=off lo apaga)
+		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS"))},
+		// tracereports demo (TRACEREPORTS_DEMO lo pone la demo)
+		Demo: env.Bool("DEMO"),
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())
@@ -233,12 +265,13 @@ func run() error {
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
 
 	srv := &http.Server{
-		Addr:              ":" + port,
+		// TRACEREPORTS_BIND=127.0.0.1 atiende solo a este equipo (vacío: todas las interfaces)
+		Addr:              net.JoinHostPort(strings.TrimSpace(env.Get("BIND")), port),
 		Handler:           apiServer.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	startRetention(ctx, store, shotsDir)
 	startStaleRuns(ctx, apiServer)
@@ -266,6 +299,15 @@ func run() error {
 	_ = srv.Shutdown(shutdownCtx)
 	analyzer.Wait(shutdownCtx)
 	return nil
+}
+
+// labOff reports whether TRACEREPORTS_LAB turns the Lab off (off, 0, false or no).
+func labOff(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "off", "0", "false", "no":
+		return true
+	}
+	return false
 }
 
 func envOr(key, def string) string {

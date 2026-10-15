@@ -33,12 +33,15 @@ steps to apply it.
 | `TEAMS_WEBHOOK_URL` | — | Sends each run's summary to Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Sends each run's summary to Slack |
 | `PUBLIC_URL` | — | Public URL of the server, for the *View report* button in notifications |
+| `TRACEREPORTS_BIND` | all interfaces | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows) |
 | `NOTIFY_ON` | `always` | `always`, or `failures` to notify only when something failed |
 | `NETWORK_MAX_BODY_KB` | `256` | Maximum stored size of each network *response body*; `0` = store no bodies |
 | `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
+| `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [FixLab](fixlab.md#security) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Status page (Statuspage format, `…/api/v2/summary.json`) that Settings → AI usage shows instead of the provider's: a mirror, a proxy or the page of an OpenAI-compatible provider |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. It counts one diagnosis per test **result**: resending the same result, a restart or a provider error do not spend another one, and a manual *Re-analyze* does not count. `0` = no limit |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
@@ -417,6 +420,15 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
   `npx playwright test <file> -g '<title>' --project=<project>`, Maven/Gradle for JUnit or
   `go test ./<package>/... -run '^TestX$'`. It comes from the test identity, so the client must
   report it (all of them do).
+- **Resend it in the Lab (FixLab)**: *Open in Lab* on a failed call (**Network** tab) or on a
+  backend incident resends the call with a fresh session (it repeats the recorded login and reads
+  anti-CSRF tokens live; you only type the password) to see whether the failure **still happens**:
+  **reproduced**, **no longer fails**, **session missing**, **different error** or **no
+  connection**. Save it as a **check** and press **Verify** on the incident once it is fixed;
+  export it to Postman, Bruno or `.http`; take it to your terminal or CI with
+  `tracereports repro` / `verify`, or to Claude Code with `tracereports mcp`. On a shared server it
+  only calls the hosts the test called and `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off`
+  disables it. Full guide: [FixLab](fixlab.md).
 - **Compare with the last time it passed**: on a failed call (**Network** tab), it finds the same
   call (same method, host and path, with ids normalized: `/orders/123` = `/orders/456`) in the most
   recent run where the test passed, in the same project, environment and branch (or, if none, the

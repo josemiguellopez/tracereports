@@ -42,10 +42,15 @@ needed. Each INPUT is one of:
 Flags:
 `
 
-const pushUsage = `Usage: tracereports push [flags] RECORDING...
+const pushUsage = `Usage: tracereports push [flags] INPUT...
 
-Uploads a recording folder to a TraceReports server (for example after fixing the token). Pushing
-the same recording again does not duplicate anything.
+Uploads to a TraceReports server, where the failures get the AI diagnosis. Each INPUT is one of:
+
+  a recording folder   what a client saved without a server; pushing it again duplicates nothing
+  allure-results       an Allure results folder (or a ZIP of it): steps, screenshots, retries
+  a JUnit XML file     or a folder of *.xml, imported together as one run
+
+An Allure or JUnit import creates a new run each time.
 
 Flags:
 `
@@ -60,7 +65,7 @@ func runReport(args []string) error {
 	project := fl.String("project", "", "project for JUnit XML and Allure inputs")
 	branch := fl.String("branch", "", "branch for JUnit XML and Allure inputs")
 	environment := fl.String("environment", "", "environment for JUnit XML and Allure inputs")
-	useAI := fl.Bool("ai", false, "diagnose failures with the AI configured in the environment (AI_PROVIDER, AI_API_KEY...)")
+	useAI := fl.Bool("ai", false, "diagnose failures with the AI of the environment or the .env (AI_PROVIDER, AI_API_KEY...)")
 	inputs, err := parseInterspersed(fl, args)
 	if err != nil {
 		return err
@@ -71,6 +76,9 @@ func runReport(args []string) error {
 	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
 
+	if *useAI {
+		aiFromDotEnv() // la clave del .env, como el servidor (solo las variables de la IA)
+	}
 	ls, err := newLocalServer(*useAI)
 	if err != nil {
 		return err
@@ -205,7 +213,7 @@ func localOnly(next http.Handler) http.Handler {
 	})
 }
 
-// loadInput replays a recording or imports JUnit XML into the in-process server.
+// loadInput replays a recording, or imports an allure-results folder (or its ZIP) or JUnit XML.
 func loadInput(t offline.Target, in string, importQuery url.Values) ([]int64, error) {
 	info, err := os.Stat(in)
 	if err != nil {
@@ -259,7 +267,7 @@ func loadInput(t offline.Target, in string, importQuery url.Values) ([]int64, er
 		w.Write(data)
 	}
 	mw.Close()
-	req, _ := http.NewRequest(http.MethodPost, "/api/v1/import/junit?"+importQuery.Encode(), &body)
+	req := importRequest(t, "/api/v1/import/junit?"+importQuery.Encode(), &body)
 	req.Header.Set("Content-Type", mw.FormDataContentType())
 	resp, err := t.Doer.Do(req)
 	if err != nil {
@@ -279,9 +287,19 @@ func loadInput(t offline.Target, in string, importQuery url.Values) ([]int64, er
 	return []int64{res.RunID}, nil
 }
 
-// importZip posts a ZIP (an allure-results folder) to an import endpoint of the in-process server.
+// importRequest is a POST to an import endpoint of t: the in-process server (no BaseURL) or a
+// remote one, with its token.
+func importRequest(t offline.Target, pathQuery string, body io.Reader) *http.Request {
+	req, _ := http.NewRequest(http.MethodPost, t.BaseURL+pathQuery, body)
+	if t.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+t.Token)
+	}
+	return req
+}
+
+// importZip posts a ZIP (an allure-results folder) to an import endpoint.
 func importZip(t offline.Target, endpoint string, data []byte, q url.Values) ([]int64, error) {
-	req, _ := http.NewRequest(http.MethodPost, endpoint+"?"+q.Encode(), bytes.NewReader(data))
+	req := importRequest(t, endpoint+"?"+q.Encode(), bytes.NewReader(data))
 	req.Header.Set("Content-Type", "application/zip")
 	resp, err := t.Doer.Do(req)
 	if err != nil {
@@ -408,17 +426,37 @@ func runPush(args []string) error {
 	base := fl.String("url", envOr("TRACEREPORTS_URL", "http://localhost:8080"), "server URL (default $TRACEREPORTS_URL)")
 	token := fl.String("token", os.Getenv("TRACEREPORTS_TOKEN"), "write token (default $TRACEREPORTS_TOKEN)")
 	force := fl.Bool("force", false, "upload a complete local copy as a separate run")
+	name := fl.String("name", "", "run name for Allure and JUnit XML inputs (default: the build or suite name)")
+	project := fl.String("project", "", "project for Allure and JUnit XML inputs")
+	branch := fl.String("branch", "", "branch for Allure and JUnit XML inputs")
+	environment := fl.String("environment", "", "environment for Allure and JUnit XML inputs")
 	dirs, err := parseInterspersed(fl, args)
 	if err != nil {
 		return err
 	}
 	if len(dirs) == 0 {
 		fl.Usage()
-		return errors.New("no recording folder")
+		return errors.New("no input: pass a recording folder, an allure-results folder or a JUnit XML file")
 	}
 	target := offline.Target{Doer: &http.Client{Timeout: 2 * time.Minute}, BaseURL: strings.TrimRight(*base, "/"), Token: *token}
+	importQuery := url.Values{}
+	for k, v := range map[string]string{"name": *name, "project": *project, "branch": *branch, "environment": *environment} {
+		if v != "" {
+			importQuery.Set(k, v)
+		}
+	}
 	failed := false
 	for _, dir := range dirs {
+		if !offline.IsRecording(dir) { // allure-results o JUnit XML: se importa
+			ids, err := loadInput(target, dir, importQuery)
+			if err != nil {
+				return fmt.Errorf("%s: %w", dir, err)
+			}
+			for _, id := range ids {
+				fmt.Printf("Report: %s/#run=%d&view=tests\n", target.BaseURL, id)
+			}
+			continue
+		}
 		rec, err := offline.Open(dir)
 		if err != nil {
 			return err

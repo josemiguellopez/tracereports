@@ -4,6 +4,94 @@ All notable changes to TraceReports. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project uses
 [Semantic Versioning](https://semver.org/) (pre-1.0: minor versions may change behavior).
 
+## [Unreleased]
+
+### Added
+
+**Try it in a minute**
+- `tracereports demo`: the server with runs recorded with the real clients (pytest + Playwright, Playwright Test,
+  Selenium + JUnit 5, `go test`, REST and a JUnit XML import; 12 nights of history plus tonight's suites) and a demo
+  shop whose page is a **playground**: break or fix its backend to try the Lab, and send any scenario or all of them,
+  with the requests sent, the checks and a link to the run. Temporary, only on this machine and isolated from your
+  configuration. The playground is animated with [Motion](https://motion.dev) (MIT, bundled: works offline).
+  It diagnoses with AI when your environment or `.env` has a provider key (only the AI variables are read from
+  the `.env`; `-ai=false` turns it off) and says so in the guide it prints.
+- `TRACEREPORTS_BIND` chooses the address to listen on (`127.0.0.1` = only this machine).
+- `tracereports selftest`: plays the scenarios recorded with the real clients (pytest + Playwright, Playwright Test,
+  Selenium + JUnit 5, `go test`, REST, JUnit XML) against a temporary server or `-url`, and checks what TraceReports
+  shows (statuses, incidents, masking, screenshots, suggested selectors, flaky tests, local commands, the Lab).
+  Exit code 1 on a failed expectation. The same check runs in CI (`go test ./internal/demo`). With `-url` it sends
+  `TRACEREPORTS_TOKEN` to a protected server.
+- The Lab finds the session token in a fresh login answer when the recorded one has no body (a page that
+  navigates right after signing in).
+
+**Command line**
+- `tracereports version` (also `-version`, `--version`); release builds report their version (also to MCP
+  clients, which got `dev` before).
+- `tracereports report -ai` takes the AI provider from the `.env` too, like the server and the demo.
+
+**Allure**
+- `tracereports push` also takes an `allure-results` folder (or its ZIP) and JUnit XML: it imports them into
+  the server, where every failure gets the AI diagnosis (`-name`, `-project`, `-branch`, `-environment`, and the
+  token of `-token` / `TRACEREPORTS_TOKEN`). Before, only `curl` with a ZIP.
+- The demo, the playground and `selftest` include an Allure scenario: the allure-results of a pytest +
+  Playwright suite that only uses Allure, recorded against the demo shop.
+- [`examples/python-selenium-allure`](examples/python-selenium-allure): pytest + Selenium + Allure, sending the
+  allure-results or adding the plugin to the same run (screenshots and steps to both).
+- [Allure guide](docs/en/allure.md), tested with the results of allure-pytest, allure-playwright and
+  allure-junit5 from [allure-examples](https://github.com/allure-examples).
+
+**FixLab: Request Lab**
+- **Open in Lab** on a failed call (Network tab) or a backend incident resends the call to see
+  whether the failure still happens. The Lab rebuilds a fresh session from the recording (repeats
+  the recorded login: cookies, or its JSON token as `Bearer`) and reads anti-CSRF tokens live from
+  the page; you only type the secrets nobody can guess. Edit the request like in Postman, point it
+  to another environment (`http://localhost:3000`) and get a verdict against the run: reproduced,
+  no longer fails, session missing, different error or no connection. It warns when the original
+  response looks made up by the test (no `date` nor `server` headers).
+- **Save as a check** (the call plus the expected status and texts) and **Verify** on the incident:
+  runs its checks and records **Verified: fixed** or **still failing**, with the before and after.
+- **Capsule** (JSON with the context, the test command and each call with its checks) and two new
+  commands: `tracereports repro <capsule|URL>` resends the calls from your machine and
+  `tracereports verify <capsule|URL>` runs the checks, exit code 1 if one fails (CI). The report
+  copies both commands. Values with `-var`, `TRACEREPORTS_LAB_<NAME>` or a hidden prompt.
+- `tracereports mcp`: MCP server for Claude Code and other agents (`list_runs`, `get_incidents`,
+  `get_test`, `reproduce`, `verify_fix`). Read-only on TraceReports; secrets stay in the MCP
+  server's environment and never reach the agent.
+- **Export** a Lab request to Postman (collection with the login script), Bruno (`.bru`) or `.http`
+  (VS Code REST Client), keeping the `{{variables}}` and no values.
+- API: `GET /api/v1/network/{id}/lab`, `GET /api/v1/network/{id}/capsule`,
+  `GET /api/v1/runs/{id}/lab/capsule`, `POST /api/v1/ui/lab/send`, `POST|DELETE /api/v1/ui/lab/checks`,
+  `POST /api/v1/ui/lab/verify` and `GET /api/v1/runs/{id}/lab`. Same access rule as the UI
+  actions; on a shared server only the hosts the test called and `TRACEREPORTS_LAB_HOSTS`;
+  link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it. Typed values are never
+  stored and the answer is masked before it is shown. Design: [docs/rfc/fixlab.md](docs/rfc/fixlab.md).
+
+**Docs**
+- A [command line reference](docs/en/cli.md): every `tracereports` command, its flags, exit codes and which
+  configuration (environment or `.env`) it reads.
+- A [quickstart](docs/en/quickstart.md) to start the demo's services step by step, and guides for
+  [FixLab](docs/en/fixlab.md) and for the [demo, playground and selftest](docs/en/demo.md), in English
+  and Spanish, linked from the READMEs, installation, configuration, API and CI.
+
+### Fixed
+
+- A failure whose element never showed up because the backend failed right before (no answer, 5xx, 408, 429) is no
+  longer diagnosed as a broken selector: no misleading suggestions, neither on the screen nor in the AI prompt.
+- The broken selector is the one Playwright was waiting for, not an earlier getter the traceback quotes.
+- Without network evidence (Allure or JUnit imports), a failure the AI attributes to the backend or the
+  infrastructure no longer shows a "broken selector" card with nothing to suggest.
+- Allure import: a label or parameter with a number, boolean or null value (`allure.id(123)`, parametrized
+  tests) no longer rejects the whole import.
+- The command to run a test locally for Allure imports: pytest gets a node id (`pkg/module.py::test`, not the
+  Allure `pkg.module#test`), and allure-playwright (`file:line`) and allure-junit5 (`package.Class.method`) get
+  one too.
+- `tracereports secrets -h` prints its usage instead of an error; `tracereports help` lists `version` and
+  describes `push` and `report` with their Allure and JUnit inputs.
+- `tracereports demo -keep`: the kept data is no longer deleted by the cleanup of old demos 12 hours later.
+- Without AI, a failed test no longer asks only for `GEMINI_API_KEY`: it points to Settings → AI or `AI_PROVIDER`
+  (in the demo, to the `.env`), and the message is translated in English.
+
 ## [0.2.0] - 2026-10-09
 
 Client versions released with it: **Python 0.3.0** (PyPI), **JavaScript 0.2.0** (npm),

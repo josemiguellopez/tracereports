@@ -159,3 +159,18 @@ func TestAttachmentSourceCannotLeaveTheFolder(t *testing.T) {
 		t.Fatal("attachments larger than the limit must be rejected")
 	}
 }
+
+// allure.id(123) and parametrized tests write numbers, booleans and null as values: the import
+// must not fail (allure-pytest 2.x, allure-examples/pytest-pip).
+func TestNonStringLabelAndParameterValues(t *testing.T) {
+	rep, err := Parse(fstest.MapFS{"a-result.json": {Data: []byte(`{"uuid":"a","name":"test_allure_id","fullName":"t#test_allure_id","status":"passed",
+		"labels":[{"name":"as_id","value":123},{"name":"tag","value":"smoke"},{"name":"x","value":null}],
+		"parameters":[{"name":"n","value":2},{"name":"ok","value":true}]}`)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := rep.Results[0]
+	if r.Params != "n=2, ok=true" || len(r.Tags) != 1 || r.Tags[0] != "smoke" {
+		t.Fatalf("params=%q tags=%v", r.Params, r.Tags)
+	}
+}

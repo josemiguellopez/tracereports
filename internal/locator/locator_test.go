@@ -67,3 +67,22 @@ func TestSuggestSkipsLayoutContainers(t *testing.T) {
 		}
 	}
 }
+
+// A traceback also quotes earlier lines of the test: the selector that failed is the one Playwright
+// was waiting for, not the first getter of the text.
+func TestExtractSelectorIgnoresEarlierGetters(t *testing.T) {
+	trace := `tests/e2e/test_checkout.py:31: in test_checkout_pays_the_order
+    page.get_by_test_id("add-to-cart").click()
+tests/e2e/test_checkout.py:36: in test_checkout_pays_the_order
+    expect(page.locator(".order-confirmed")).to_be_visible(timeout=5000)
+AssertionError: Locator expected to be visible
+Call log:
+  - waiting for locator(".order-confirmed")`
+	if got := ExtractSelector("AssertionError: Locator expected to be visible", trace); got != ".order-confirmed" {
+		t.Fatalf("got %q", got)
+	}
+	getter := "Call log:\n  - waiting for get_by_role(\"button\", name=\"Pay\")\n    page.get_by_test_id(\"add-to-cart\")"
+	if got := ExtractSelector(getter); got != `get_by_role("button", name="Pay")` {
+		t.Fatalf("getter: got %q", got)
+	}
+}

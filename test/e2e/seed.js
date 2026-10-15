@@ -41,7 +41,35 @@ async function addTest(runId, t) {
 
 const RUN = { project: "e2e", environment: "qa", branch: "dev", framework: "pytest" };
 
+// FixLab (lab.spec.js): lo que grabó un test contra el backend falso de playwright.config.js
+const LAB = { password: "E2E-lab-pass!", token: "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJsYWIifQ.fresh-e2e-signature" };
+
+async function seedLab() {
+	const base = process.env.E2E_FAKE_LAB;
+	const { run_id: run } = await api("POST", "/runs", { name: "Lab E2E", project: "lab-e2e", environment: "qa", framework: "playwright" });
+	const hdr = { "content-type": "application/json", date: new Date().toUTCString(), server: "lab-e2e" };
+	const old = "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJsYWIifQ.old-signature";
+	// antes del paso FAIL (addTest lo fecha hace 60 s): así la llamada es la causa del incidente
+	const now = Date.now() - 62_000;
+	await addTest(run, {
+		name: "ver pedidos abiertos", category: "pedidos", status: "FAIL", error: "Error: expect(locator).toHaveCount(2) failed",
+		steps: [["FAIL", "La lista de pedidos no cargó"]],
+		network: [
+			{ method: "POST", url: `${base}/api/login`, status: 200, resource_type: "fetch", started_at: now - 3000, duration_ms: 40,
+				request_headers: { "content-type": "application/json" }, post_data: JSON.stringify({ email: "qa@shop.test", password: LAB.password }),
+				response_headers: hdr, response_body: JSON.stringify({ accessToken: old }) },
+			{ method: "GET", url: `${base}/api/orders?status=open`, status: 500, resource_type: "fetch", started_at: now - 1000, duration_ms: 30,
+				request_headers: { authorization: `Bearer ${old}` }, response_headers: hdr,
+				response_body: JSON.stringify({ error: "orders db: connection pool exhausted" }) },
+		],
+	});
+	await api("PATCH", `/runs/${run}/finish`, {});
+	return run;
+}
+
 module.exports = async () => {
+	// primero: la ejecución más antigua es la que sale primero del selector (últimas 10)
+	const labRun = await seedLab();
 	// ejecución anterior: todo en verde (para comparación, historial y métricas)
 	const { run_id: prev } = await api("POST", "/runs", { ...RUN, name: "E2E anterior", commit: "aaa111" });
 	for (const name of ["test_login_admin", "test_buscar_empleado", "test_reporte_mensual"]) {
@@ -89,6 +117,8 @@ module.exports = async () => {
 	await addTest(run, { name: "test_reporte_mensual", category: "smoke", status: "SKIP", steps: [["SKIP", "Sin datos del mes"]] });
 	await api("PATCH", `/runs/${run}/finish`, {});
 
-	process.env.E2E_SEED = JSON.stringify({ prev, run, failId });
+	process.env.E2E_SEED = JSON.stringify({ prev, run, failId, labRun });
 	fs.writeFileSync(path.join(process.env.E2E_DATA_DIR, "seed.json"), process.env.E2E_SEED);
 };
+
+module.exports.LAB = LAB;

@@ -43,6 +43,28 @@ For another OS: `GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o tracereports 
 During development you can use `go run ./cmd`. The UI is compiled into the binary, so restart the
 server after changing files in `web/`.
 
+## Try it with sample data
+
+```bash
+tracereports demo        # from the repository: go run ./cmd demo
+```
+
+It starts TraceReports with real runs recorded with every client (pytest + Playwright, Playwright Test, Selenium +
+JUnit 5, `go test`, REST, a JUnit XML import and an Allure import) and a demo shop whose backend you can break and fix to try
+[FixLab](fixlab.md). Its page is a **playground** that sends each client's scenarios and checks what TraceReports
+shows. Only on this machine, isolated from your configuration, and deleted when you stop it. Step by step:
+[quickstart](quickstart.md); details: [Demo, playground and selftest](demo.md).
+
+## Check that it works: `tracereports selftest`
+
+```bash
+tracereports selftest                                       # a temporary server on this machine
+tracereports selftest -url https://tracereports.acme.com    # a deployed one (TRACEREPORTS_TOKEN if protected)
+```
+
+It plays the scenarios recorded with the real clients and checks what TraceReports shows; exit code 1 when an
+expectation fails, so it works after an upgrade or as a CI step. See [selftest](demo.md#tracereports-selftest).
+
 ## First run
 
 1. Open <http://localhost:8080>. With no runs you will see an empty screen.
@@ -96,4 +118,5 @@ or stop the server and copy the whole `data` folder (including `-wal` and `-shm`
 ## Next step
 
 - [Configuration](configuration.md): security, AI and notifications.
+- [Command line](cli.md): every `tracereports` command and its flags.
 - [Python](python.md) · [Go](go.md) · [REST API](api.md)

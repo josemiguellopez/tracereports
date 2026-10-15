@@ -83,9 +83,9 @@ Con varios archivos (Maven, Gradle), un `-F file=@…` por reporte. Tienes histo
 comparación, agrupación de errores, diagnóstico con IA y aviso a Teams/Slack; las capturas, la red
 y el DOM los agregan los clientes. Detalle en la [API](api.md#importar-un-reporte-junit-xml).
 
-¿Ya usas Allure? Sube la carpeta `allure-results` comprimida a `/api/v1/import/allure` y conservas
-pasos y capturas (ver la [API](api.md#importar-resultados-de-allure)); o, sin servidor,
-`tracereports report allure-results -o reporte`.
+¿Ya usas Allure? `tracereports push allure-results` envía la carpeta al servidor, con sus pasos y
+capturas, y cada fallo recibe el diagnóstico con IA; o, sin servidor,
+`tracereports report allure-results -o reporte --ai`. Ver la [guía de Allure](allure.md).
 
 ## Comentario en el pull request
 
@@ -145,3 +145,12 @@ services:
 y usar `TRACEREPORTS_URL=http://localhost:8080` con `--tracereports-zip`. Si los tests llegan por el
 alias del servicio (`http://tracereports:8080`, típico en GitLab) y el servidor no tiene token ni login,
 añade `TRACEREPORTS_ALLOWED_HOSTS=tracereports` al servicio.
+
+## Verificar un arreglo y comprobar el servidor
+
+- **`tracereports verify <URL de la cápsula>`** ejecuta los checks guardados en un incidente (FixLab) y
+  sale con código 1 si alguno no pasa: un paso después del despliegue que confirma el arreglo del
+  backend. Ver [FixLab · En tu terminal y en CI](fixlab.md#en-tu-terminal-y-en-ci-la-cápsula).
+- **`tracereports selftest -url <servidor>`** reproduce contra tu servidor los escenarios grabados con
+  todos los clientes y comprueba lo que muestra: un paso después de actualizar TraceReports. Ver
+  [selftest](demo.md#tracereports-selftest).

@@ -33,12 +33,15 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TEAMS_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Slack |
 | `PUBLIC_URL` | — | URL pública del servidor, para el botón *Ver reporte* de las notificaciones |
+| `TRACEREPORTS_BIND` | todas las interfaces | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows) |
 | `NOTIFY_ON` | `always` | `always`, o `failures` para avisar solo si hubo fallos |
 | `NETWORK_MAX_BODY_KB` | `256` | Máximo guardado por cada *response body* de red; `0` = no guardar bodies |
 | `TRACEREPORTS_REDACT` | activo | `off` guarda los secretos tal como llegan (no recomendado) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
+| `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [FixLab](fixlab.md#seguridad) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. Cuenta un diagnóstico por **resultado** de cada test: reenviar el mismo resultado, un reinicio o un error del proveedor no gastan otro, y un *Re-analizar* manual no cuenta. `0` = sin límite |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
@@ -419,6 +422,15 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   `npx playwright test <archivo> -g '<título>' --project=<proyecto>`, Maven/Gradle para JUnit o
   `go test ./<paquete>/... -run '^TestX$'`. Sale de la identidad del test, así que necesita que el
   cliente la reporte (todos lo hacen).
+- **Reenviar en el Lab (FixLab)**: *Abrir en Lab* en una llamada con error (pestaña **Red**) o en un
+  incidente de backend reenvía la llamada con una sesión nueva (repite el login grabado y lee los
+  tokens anti-CSRF en vivo; tú solo escribes la contraseña) para ver si el fallo **sigue
+  ocurriendo**: **se reproduce**, **ya no falla**, **falta sesión**, **otro error** o **sin
+  conexión**. Guárdala como **check** y pulsa **Verificar** en el incidente cuando esté arreglado;
+  expórtala a Postman, Bruno o `.http`; llévala a tu terminal o a CI con `tracereports repro` /
+  `verify`, o a Claude Code con `tracereports mcp`. En un servidor compartido solo llama a los hosts
+  que llamó el test y a `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off` lo desactiva. Guía
+  completa: [FixLab](fixlab.md).
 - **Comparar con la última vez que pasó**: en una llamada con error (pestaña **Red**), busca la
   misma llamada (mismo método, host y ruta, con los ids normalizados: `/orders/123` = `/orders/456`)
   en la ejecución más reciente donde el test pasó, del mismo proyecto, ambiente y rama (o, si no

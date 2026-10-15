@@ -13,6 +13,11 @@ import (
 // "#" comments are ignored; "export " prefixes and surrounding quotes are accepted. A missing file
 // is not an error. Returns how many variables were applied.
 func loadDotEnv(path string) (int, error) {
+	return applyDotEnv(path, nil)
+}
+
+// applyDotEnv is loadDotEnv for only the keys keep accepts (all of them if keep is nil).
+func applyDotEnv(path string, keep func(key string) bool) (int, error) {
 	f, err := os.Open(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, nil
@@ -30,7 +35,7 @@ func loadDotEnv(path string) (int, error) {
 		}
 		key, val, ok := strings.Cut(strings.TrimPrefix(line, "export "), "=")
 		key = strings.TrimSpace(key)
-		if !ok || key == "" || strings.ContainsAny(key, " \t") {
+		if !ok || key == "" || strings.ContainsAny(key, " \t") || keep != nil && !keep(key) {
 			continue
 		}
 		val = strings.TrimSpace(val)

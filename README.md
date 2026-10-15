@@ -41,6 +41,12 @@ pytest --tracereports                      # that's it, no code changes
 
 👉 **[Try the live demo](https://tracereports.netlify.app/demo/)**: a real report you can click around, no install needed.
 
+👉 **Or run it on your machine in a minute**: `tracereports demo` starts the server with real runs recorded with the
+pytest + Playwright, Playwright Test, Selenium + JUnit 5 and Go clients, plus a demo shop whose backend you can break
+and fix to try the **Lab** (resend a failed call, verify the fix) and a **playground** that sends each client's
+scenarios and checks what TraceReports shows. Nothing else to install; the data is temporary and stays on your PC.
+**[Quickstart: the demo in 5 minutes](docs/en/quickstart.md)**.
+
 Not using pytest? TraceReports works the same with **Playwright Test**, **Selenium**, **JUnit 5**, **Go** or any
 language over the **REST API**: [pick your language](#2-run-an-example-in-your-language).
 
@@ -146,6 +152,14 @@ The AI cause is always shown as a hypothesis, next to the evidence it relies on.
   </tr>
 </table>
 
+### 🧪 FixLab: does it still fail?
+
+**Open in Lab** on a failed call or a backend incident resends the real request with a fresh session (it repeats
+the recorded login; you only type the password) and tells you whether the failure is **reproduced** or **no longer
+fails**. Save it as a check and **Verify** the incident once the backend is fixed; export it to Postman, Bruno or
+`.http`; run it from your terminal or CI with `tracereports repro` / `verify`, or let Claude Code do it with
+`tracereports mcp`. See the [FixLab guide](docs/en/fixlab.md).
+
 And also:
 
 - **Flaky vs. broken.** History per test that tells a flaky test from a persistent failure.
@@ -184,7 +198,8 @@ And also:
   keep the evidence in a folder, with its HTML report, even if the server goes down halfway. See the
   [local report guide](docs/en/local-report.md).
 - **JUnit XML and Allure.** Import the results of any framework, or turn them into a report without
-  a server.
+  a server. Already using Allure? `tracereports push allure-results` and every failure gets the AI
+  diagnosis: see the [Allure guide](docs/en/allure.md).
 - **AI you can measure.** Settings shows the calls, tokens, response times and the provider's
   status; Escalate tells how long the AI answer took and why it retried.
 
@@ -264,6 +279,20 @@ python examples/orangehrm/tests/test_orangehrm_errores_backend.py
 </details>
 
 <details>
+<summary><b>🐍 Python · Selenium + Allure</b></summary>
+
+Requires Python 3.9+ and Chrome installed. Keep Allure and send its results, or add the plugin to the
+same run ([example](examples/python-selenium-allure)).
+
+```bash
+python -m pip install -r examples/python-selenium-allure/requirements.txt ./client/python
+python -m pytest examples/python-selenium-allure --alluredir=allure-results
+tracereports push allure-results -project orangehrm      # or add --tracereports to pytest
+```
+
+</details>
+
+<details>
 <summary><b>🟨 JavaScript / TypeScript · Playwright Test</b></summary>
 
 Requires Node.js 18+ and Chrome installed.
@@ -329,7 +358,7 @@ go test -v ./...
 
 | Variable | What it does |
 | --- | --- |
-| `TRACEREPORTS_DEMO_FAIL=1` | Adds a controlled failure to see the AI diagnosis and the locator suggestions (JavaScript and Java examples). |
+| `TRACEREPORTS_DEMO_FAIL=1` | Adds a controlled failure to see the AI diagnosis and the locator suggestions (JavaScript and Java examples; the AI diagnosis in Python + Selenium + Allure). |
 | `HEADLESS=0` | Shows the browser while the tests run (all examples except pytest, which uses `--headed`). |
 | `TRACEREPORTS_URL` | Server address, if it is not `http://localhost:8080`. |
 | `TRACEREPORTS_TOKEN` | Server token, if you protected it. |
@@ -372,7 +401,10 @@ its screenshot, network calls and diagnosis.
 ## Documentation
 
 - [Full feature tour](README.en.md)
-- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md)
+- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md) · [Command line](docs/en/cli.md)
+- [Quickstart: the demo in 5 minutes](docs/en/quickstart.md) · [Demo, playground and selftest](docs/en/demo.md): try it in a minute and check a deployment
+- [Allure](docs/en/allure.md): your Allure results, diagnosed with AI
+- [FixLab](docs/en/fixlab.md): reproduce a failure and verify the fix, from the report, the terminal, CI or an AI agent
 - [Python](docs/en/python.md) · [JavaScript](docs/en/javascript.md) · [Java](docs/en/java.md) · [Go](docs/en/go.md) · [REST API](docs/en/api.md)
 - [Continuous integration](docs/en/ci.md) · [Without a server: record, report and upload later](docs/en/offline.md)
 - [Local report on your PC](docs/en/local-report.md): the same report on the server and on your PC, step by step
