@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/redact"
@@ -169,12 +170,37 @@ type Command struct {
 }
 
 var (
-	pwKey    = regexp.MustCompile(`^(.*?) > (.*?)(?: \[([^\]]+)\])?$`)
-	javaKey  = regexp.MustCompile(`^([\w.$]+)#([\w$]+)`)
-	reSyntax = regexp.MustCompile(`[.*+?^${}()|\[\]\\]`)
+	pwKey   = regexp.MustCompile(`^(.*?) > (.*?)(?: \[([^\]]+)\])?$`)
+	javaKey = regexp.MustCompile(`^([\w.$]+)#([\w$]+)`)
+	// Allure keys: allure-playwright "file:line:col [Project=chromium]", allure-junit5
+	// "package.Class.method" and allure-pytest "pkg.module#test" (see pytestNodeID).
+	allurePWKey   = regexp.MustCompile(`^(\S+?\.[cm]?[jt]sx?):(\d+):\d+(?: \[Project=([^\],]+)\])?$`)
+	allureJavaKey = regexp.MustCompile(`^([\w$]+(?:\.[\w$]+)*\.[A-Z][\w$]*)\.([\w$]+)(?: \[.*\])?$`)
+	reSyntax      = regexp.MustCompile(`[.*+?^${}()|\[\]\\]`)
 )
 
 func reEsc(s string) string { return reSyntax.ReplaceAllString(s, `\$0`) }
+
+// pytestNodeID turns the allure-pytest key "pkg.module.TestClass#test_x [p=1]" into the pytest
+// node id "pkg/module.py::TestClass::test_x" (every parametrization). A pytest node id is returned
+// as is.
+func pytestNodeID(key string) string {
+	mod, fn, ok := strings.Cut(key, "#")
+	if !ok || strings.Contains(key, "::") {
+		return key
+	}
+	fn, _, _ = strings.Cut(fn, " [")
+	parts := strings.Split(mod, ".")
+	i := len(parts)
+	for i > 1 && parts[i-1] != "" && unicode.IsUpper(rune(parts[i-1][0])) {
+		i-- // las clases van al final del nombre: TestCart
+	}
+	id := strings.Join(parts[:i], "/") + ".py"
+	for _, c := range parts[i:] {
+		id += "::" + c
+	}
+	return id + "::" + fn
+}
 
 // Commands runs the test locally according to the framework of the run and the test key
 // (pytest nodeid, Playwright title path, Java Class#method, Go package/TestName). With the
@@ -187,9 +213,15 @@ func Commands(framework, key, commit string) []Command {
 	}
 	switch fw {
 	case "pytest":
-		out = append(out, Command{"pytest", "pytest " + shq(key)})
+		out = append(out, Command{"pytest", "pytest " + shq(pytestNodeID(key))})
 	case "playwright":
-		if m := pwKey.FindStringSubmatch(key); m != nil {
+		if m := allurePWKey.FindStringSubmatch(key); m != nil { // Allure: archivo:línea:columna
+			cmd := "npx playwright test " + shq(m[1]+":"+m[2])
+			if m[3] != "" {
+				cmd += " --project=" + shq(m[3])
+			}
+			out = append(out, Command{"Playwright", cmd})
+		} else if m := pwKey.FindStringSubmatch(key); m != nil {
 			t := strings.Split(m[2], " > ")
 			cmd := fmt.Sprintf("npx playwright test %s -g %s", shq(m[1]), shq("^"+reEsc(t[len(t)-1])+"$"))
 			if m[3] != "" {
@@ -197,7 +229,10 @@ func Commands(framework, key, commit string) []Command {
 			}
 			out = append(out, Command{"Playwright", cmd})
 		}
-	case "junit5", "junit", "maven", "gradle", "testng":
+	case "junit5", "junit", "maven", "gradle", "testng", "junit-platform":
+		if m := allureJavaKey.FindStringSubmatch(key); m != nil && !strings.Contains(key, "#") {
+			key = m[1] + "#" + m[2] // Allure: paquete.Clase.metodo
+		}
 		if m := javaKey.FindStringSubmatch(key); m != nil {
 			cls := m[1][strings.LastIndex(m[1], ".")+1:]
 			out = append(out, Command{"Maven", "mvn test -Dtest=" + shq(cls+"#"+m[2])},
