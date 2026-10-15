@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -65,7 +66,13 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 		tests[run.Tests[i].Name] = &run.Tests[i]
 	}
 	var watched []*db.Test // los tests de las expectativas: ahí se mira la evidencia
-	for name, want := range e.Tests {
+	names := make([]string, 0, len(e.Tests))
+	for name := range e.Tests {
+		names = append(names, name)
+	}
+	sort.Strings(names) // siempre el mismo orden: el mismo test de foco en cada corrida
+	for _, name := range names {
+		want := e.Tests[name]
 		t := tests[name]
 		if t == nil {
 			add(fmt.Sprintf("test %q %s", name, want), false, "not in the run (tests: %s)", testNames(run.Tests))
@@ -76,6 +83,9 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 	}
 
 	failed := func() *db.Test {
+		if e.Focus != "" {
+			return tests[e.Focus]
+		}
 		for _, t := range watched {
 			if t.Status == "FAIL" {
 				return t
@@ -142,6 +152,15 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 			}
 		}
 		add("new selector suggested", found != "", "broken %q, %d suggestions", rep.FailedSelector, len(rep.Suggestions))
+	}
+	if e.NoLocator && failed != nil {
+		var rep struct {
+			FailedSelector string `json:"failed_selector"`
+			Suggestions    []struct{ Selector string }
+		}
+		st, _ := v.get(fmt.Sprintf("/api/v1/tests/%d/locator", failed.ID), &rep)
+		add("no selector suggested (the backend failed)", st == http.StatusNoContent || len(rep.Suggestions) == 0,
+			"answered %d: broken %q, %d suggestions", st, rep.FailedSelector, len(rep.Suggestions))
 	}
 	if e.Flaky {
 		flaky := false

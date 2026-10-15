@@ -124,18 +124,20 @@ func demoGuide(w io.Writer, base, shopURL string, sum *demo.Summary, dir string,
   ▸ Report:      %s
   ▸ Playground:  %s   (run each client's scenarios, break or fix the shop backend)
 
-  A team tests the shop from Python (Playwright and an API suite with requests), JavaScript
-  (Playwright), Java (Selenium + JUnit 5), Go and a Maven JUnit XML import. Tonight the orders
-  backend broke. Suggested tour:
+  A team tests the shop with pytest + Playwright, Playwright Test (JS), Selenium + JUnit 5 (Java),
+  go test, the REST API and a Maven JUnit XML import. Every run is a real recording of those
+  clients. Tonight the orders backend broke. Suggested tour:
 
-   1. The latest run opens by itself: 2 of 4 tests failed. Open "test_checkout_pays_order":
-      steps, screenshots, network (password and token masked), console and the command to run it.
-   2. "test_add_to_cart" failed because a selector changed: TraceReports suggests the new one.
+   1. The latest run opens by itself: 2 of 3 tests failed. Open "test_checkout_pays_the_order":
+      steps, the browser's screenshot, network (password masked), console and the command to run it.
+   2. "test_add_to_cart_with_the_old_selector" failed because a selector changed: TraceReports
+      suggests the new one.
    3. Network tab → the POST /api/orders 500 → Lab → password %q → Send: "Reproduced".
    4. In the playground switch the orders backend to working, send again: "No longer fails".
       Save as a check, then on the incident (AI view) press Verify: "Verified: fixed".
-   5. Search, Metrics and Release: %d nights of history, flaky tests and failures already fixed.
-   6. In a terminal: tracereports repro / verify with the command the Lab copies, or
+   5. Search, Metrics and Release: %d nights of history, a flaky test and failures already fixed.
+   6. The playground runs each client's scenarios one by one, or all of them with their checks.
+   7. In a terminal: tracereports repro / verify with the command the Lab copies, or
       tracereports mcp for Claude Code (TRACEREPORTS_URL=%s).
 
 `, sum.Runs, sum.Tests, sum.Failed, base+fmt.Sprintf("/#run=%d&view=tests", sum.Showcase), shopURL, demo.ShopPassword, sum.Nights, base)

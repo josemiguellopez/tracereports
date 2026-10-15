@@ -33,6 +33,12 @@ var scenarioES = map[string][2]string{
 	"go-ok":                  {"Go (go test) · la API pasa", "Un test de API en Go con el cliente de Go: la llamada que hizo aparece en la pestaña Red."},
 	"go-nok-backend":         {"Go (go test) · la API responde 500", "El test de API que crea un pedido falla con 500: incidente de backend y el Lab, desde Go."},
 	"junit-import":           {"Importación de JUnit XML (Maven Surefire)", "Sin cliente: un reporte XML de Surefire importado con POST /api/v1/import/junit (tests que pasan, fallan y se omiten)."},
+	"pytest-suite":           {"pytest + Playwright · la suite completa", "Los tres tests de Python en una ejecución, como una noche real: uno pasa, el pago falla por el backend y otro por un selector que cambió."},
+	"playwright-suite":       {"Playwright Test (JS) · la suite completa", "Los tres tests de JavaScript en una ejecución: uno pasa, otro falla por el backend y otro pasa al reintentar."},
+	"selenium-suite":         {"Selenium + JUnit 5 (Java) · la suite completa", "Los dos tests de Java en una ejecución: iniciar sesión pasa y agregar al carrito falla por un selector que cambió."},
+	"go-suite":               {"Go (go test) · la suite completa", "Los dos tests de API en Go en una ejecución: el catálogo pasa y crear un pedido falla con 500."},
+	"pytest-night":           {"pytest + Playwright · una noche en verde", "Historia de la demo: la suite con el backend sano."},
+	"playwright-night":       {"Playwright Test (JS) · una noche en verde", "Historia de la demo: la suite con el backend sano."},
 }
 
 // Playground serves the playground page and its API, and the shop for everything else.
@@ -71,6 +77,9 @@ func (p *Playground) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case r.URL.Path == "/__scenarios" && r.Method == http.MethodGet:
 		out := make([]scenarioView, 0, len(Scenarios))
 		for _, sc := range Scenarios {
+			if sc.Hidden {
+				continue // la historia de la demo no se ejecuta suelta
+			}
 			es := scenarioES[sc.ID]
 			out = append(out, scenarioView{Scenario: sc, TitleES: es[0], WhatES: es[1]})
 		}

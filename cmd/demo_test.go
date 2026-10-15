@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -97,7 +98,13 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 	_ = json.NewDecoder(res.Body).Decode(&cat)
 	res.Body.Close()
-	if len(cat.Scenarios) != 13 {
+	visible := 0
+	for _, s := range demo.Scenarios {
+		if !s.Hidden {
+			visible++
+		}
+	}
+	if len(cat.Scenarios) != visible {
 		t.Fatalf("playground scenarios: %d", len(cat.Scenarios))
 	}
 	for _, want := range []string{"sample data ready", "Lab", `password "demo"`, "Ctrl+C"} {
@@ -126,7 +133,7 @@ func TestSelftest(t *testing.T) {
 	if err := selftest(context.Background(), selftestOptions{out: &out}); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
-	if !strings.Contains(out.String(), "All 13 scenarios pass") {
+	if !strings.Contains(out.String(), fmt.Sprintf("All %d scenarios pass", len(demo.Scenarios))) {
 		t.Fatalf("output:\n%s", out.String())
 	}
 	if err := selftest(context.Background(), selftestOptions{only: "nope", out: &out}); err == nil || !strings.Contains(err.Error(), "unknown scenario") {

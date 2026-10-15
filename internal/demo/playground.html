@@ -81,6 +81,7 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); 
 .kind-ok { color: var(--ok); background: var(--ok-soft); }
 .kind-nok { color: var(--bad); background: var(--bad-soft); }
 .kind-flaky { color: var(--warn); background: var(--warn-soft); }
+.kind-suite { color: var(--primary); background: var(--primary-soft); }
 .card h3 { margin: 0; font-size: 16px; color: var(--heading); }
 .card p { margin: 0; color: var(--muted); font-size: 14px; flex: 1; }
 .card-foot { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
@@ -208,7 +209,7 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); 
 		S.scenarios.forEach((s) => { counts[s.client] = (counts[s.client] || 0) + 1; });
 		$("#clients").innerHTML = [["", t("All"), ""], ...CLIENTS].filter(([id]) => !id || counts[id]).map(([id, label]) =>
 			`<button class="filter" data-client="${id}" aria-pressed="${S.client === id}"><span>${esc(label)}</span><span class="count">${id ? counts[id] : S.scenarios.length}</span></button>`).join("");
-		$("#kinds").innerHTML = [["", t("All")], ["ok", t("OK")], ["nok", t("NOK")], ["flaky", t("Flaky")]].map(([k, label]) =>
+		$("#kinds").innerHTML = [["", t("All")], ["ok", t("OK")], ["nok", t("NOK")], ["flaky", t("Flaky")], ["suite", t("Suite")]].map(([k, label]) =>
 			`<button class="chip" data-kind="${k}" aria-pressed="${S.kind === k}">${esc(label)}</button>`).join("");
 	}
 
@@ -233,7 +234,7 @@ code { font-family: var(--mono); font-size: .9em; background: var(--surface-2); 
 		</div>`;
 		return `<article class="card ${r && !running ? (r.ok ? "ok" : "bad") : ""}" data-card="${s.id}">
 			<div class="card-head"><span class="client"><span class="dot" style="background:${color}"></span>${esc(label)}</span>
-				<span class="kind kind-${s.kind}">${esc(t({ ok: "OK", nok: "NOK", flaky: "Flaky" }[s.kind] || s.kind))}</span></div>
+				<span class="kind kind-${s.kind}">${esc(t({ ok: "OK", nok: "NOK", flaky: "Flaky", suite: "Suite" }[s.kind] || s.kind))}</span></div>
 			<h3>${esc(ES ? s.title_es || s.title : s.title)}</h3>
 			<p>${esc(ES ? s.what_es || s.what : s.what)}</p>
 			<div class="card-foot">

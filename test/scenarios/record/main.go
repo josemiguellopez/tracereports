@@ -23,7 +23,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"time"
@@ -125,21 +124,38 @@ func (r recorder) record(sc demo.Scenario, dir string) error {
 		return restScenario(sc, dir)
 	case demo.ClientJUnit:
 		return os.WriteFile(filepath.Join(dir, "junit.xml"), []byte(junitXML), 0o644)
+	// sc.Test elige los tests; vacío graba la suite completa
 	case demo.ClientPytest:
-		cmd = exec.Command(r.python, "-m", "pytest", "test_shop.py", "-k", sc.Test, "--tracereports", "-p", "no:cacheprovider", "-q")
+		args := []string{"-m", "pytest", "test_shop.py", "--tracereports", "-p", "no:cacheprovider", "-q"}
+		if sc.Test != "" {
+			args = append(args, "-k", sc.Test)
+		}
+		cmd = exec.Command(r.python, args...)
 		cmd.Dir = filepath.Join(r.root, "test", "scenarios", "python")
 	case demo.ClientPlaywright:
-		cmd = exec.Command("node", filepath.Join("node_modules", "@playwright", "test", "cli.js"), "test", "-g", regexp.QuoteMeta(sc.Test))
+		args := []string{filepath.Join("node_modules", "@playwright", "test", "cli.js"), "test"}
+		if sc.Test != "" {
+			args = append(args, "-g", sc.Test) // expresión regular sobre el título
+		}
+		cmd = exec.Command("node", args...)
 		cmd.Dir = filepath.Join(r.root, "test", "scenarios", "js")
 	case demo.ClientSelenium:
 		gradlew := "./gradlew"
 		if runtime.GOOS == "windows" {
 			gradlew = "gradlew.bat"
 		}
-		cmd = exec.Command(filepath.Join(r.root, "test", "scenarios", "java", gradlew), "test", "--tests", sc.Test, "-q")
+		args := []string{"test", "-q"}
+		if sc.Test != "" {
+			args = append(args, "--tests", sc.Test)
+		}
+		cmd = exec.Command(filepath.Join(r.root, "test", "scenarios", "java", gradlew), args...)
 		cmd.Dir = filepath.Join(r.root, "test", "scenarios", "java")
 	case demo.ClientGo:
-		cmd = exec.Command("go", "test", "-count=1", "-run", "^"+sc.Test+"$", ".")
+		run := "."
+		if sc.Test != "" {
+			run = "^(" + sc.Test + ")$"
+		}
+		cmd = exec.Command("go", "test", "-count=1", "-run", run, ".")
 		cmd.Dir = filepath.Join(r.root, "test", "scenarios", "go")
 	default:
 		return fmt.Errorf("unknown client %q", sc.Client)

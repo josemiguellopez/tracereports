@@ -65,8 +65,17 @@ func TestShop(t *testing.T) {
 	if st, body := call("POST", "/api/orders", login.AccessToken, `{}`); st != 201 || !strings.Contains(body, "confirmed") {
 		t.Fatalf("orders after the fix: %d %s", st, body)
 	}
-	if len(screen("error")) < 100 || string(screen("login")[1:4]) != "PNG" {
-		t.Fatal("screenshots must be PNG images")
+	// las páginas que recorren los tests de navegador
+	for path, want := range map[string]string{"/login": `id="sign-in"`, "/products": "product-card", "/product/P-1": `data-testid="add-to-cart"`, "/cart": `id="pay"`} {
+		res, err := http.Get(srv.URL + path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := io.ReadAll(res.Body)
+		res.Body.Close()
+		if res.StatusCode != 200 || !strings.Contains(string(b), want) {
+			t.Errorf("%s: %d, lacks %s", path, res.StatusCode, want)
+		}
 	}
 }
 
@@ -96,7 +105,7 @@ func TestSeed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if sum.Runs != 2*historyNights+6 || sum.Showcase == 0 || sum.APIRun == 0 || sum.Failed < 7 {
+	if sum.Runs != 2*historyNights+7 || sum.Showcase == 0 || sum.APIRun == 0 || sum.Failed < 7 {
 		t.Fatalf("summary = %+v", sum)
 	}
 	runs, err := store.ListRuns(100)
@@ -104,14 +113,19 @@ func TestSeed(t *testing.T) {
 		t.Fatalf("runs: %v %d", err, len(runs))
 	}
 	frameworks := map[string]bool{}
+	oldest := now.UnixMilli()
 	for _, r := range runs {
 		frameworks[r.Framework] = true
+		oldest = min(oldest, r.StartedAt)
 		if r.StartedAt > now.UnixMilli() {
 			t.Fatalf("run %q starts in the future", r.Name)
 		}
-		if len(r.Commit) != 40 {
+		if r.Commit != "" && len(r.Commit) != 40 {
 			t.Fatalf("run %q commit %q", r.Name, r.Commit)
 		}
+	}
+	if days := (now.UnixMilli() - oldest) / int64(24*time.Hour/time.Millisecond); days < historyNights-1 {
+		t.Fatalf("the history must span %d nights, it spans %d days", historyNights, days)
 	}
 	for _, fw := range []string{"pytest", "playwright", "junit5", "go"} {
 		if !frameworks[fw] {
@@ -129,7 +143,7 @@ func TestSeed(t *testing.T) {
 	}
 	var checkout *db.Test
 	for i := range detail.Tests {
-		if detail.Tests[i].Name == "test_checkout_pays_order" {
+		if detail.Tests[i].Name == "test_checkout_pays_the_order[chromium]" {
 			checkout = &detail.Tests[i]
 		}
 	}
