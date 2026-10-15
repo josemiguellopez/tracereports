@@ -31,6 +31,8 @@ All notable changes to TraceReports. The format follows
   token of `-token` / `TRACEREPORTS_TOKEN`). Before, only `curl` with a ZIP.
 - The demo, the playground and `selftest` include an Allure scenario: the allure-results of a pytest +
   Playwright suite that only uses Allure, recorded against the demo shop.
+- [`examples/python-selenium-allure`](examples/python-selenium-allure): pytest + Selenium + Allure, sending the
+  allure-results or adding the plugin to the same run (screenshots and steps to both).
 - [Allure guide](docs/en/allure.md), tested with the results of allure-pytest, allure-playwright and
   allure-junit5 from [allure-examples](https://github.com/allure-examples).
 

@@ -119,6 +119,9 @@ ejecución como **incompleta**: nunca aparece como exitosa.
 
 ## Opción 2: API del cliente (unittest, Selenium, scripts…)
 
+> Con pytest + Selenium (y Allure), bastan el plugin y un `conftest.py`: ver
+> [examples/python-selenium-allure](../../examples/python-selenium-allure/README.es.md).
+
 ```python
 from tracereports import TraceReports
 

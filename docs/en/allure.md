@@ -12,7 +12,8 @@ TraceReports does what an Allure report leaves to you:
 - The steps (nested), screenshots, text and JSON attachments, retries and labels you already have.
 - The command to run each failed test locally (pytest, Playwright, Maven/Gradle).
 
-Nothing to change in your tests and no TraceReports client to install.
+Nothing to change in your tests and no TraceReports client to install. A runnable example with
+pytest + Selenium + Allure: [examples/python-selenium-allure](../../examples/python-selenium-allure).
 
 > **See it first:** `tracereports demo` loads the run *Shop · Allure (allure-pytest)*, the
 > allure-results of a pytest + Playwright suite that only uses Allure. See the

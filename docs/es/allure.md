@@ -12,7 +12,8 @@ TraceReports hace lo que un reporte de Allure te deja a ti:
 - Los pasos (anidados), capturas, adjuntos de texto y JSON, reintentos y etiquetas que ya tienes.
 - El comando para correr cada test fallido en local (pytest, Playwright, Maven/Gradle).
 
-Sin cambiar tus tests y sin instalar un cliente de TraceReports.
+Sin cambiar tus tests y sin instalar un cliente de TraceReports. Un ejemplo para ejecutar con
+pytest + Selenium + Allure: [examples/python-selenium-allure](../../examples/python-selenium-allure/README.es.md).
 
 > **Míralo primero:** `tracereports demo` carga la ejecución *Shop · Allure (allure-pytest)*, los
 > allure-results de una suite de pytest + Playwright que solo usa Allure. Ver el

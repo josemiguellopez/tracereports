@@ -285,6 +285,20 @@ python examples/orangehrm/tests/test_orangehrm_errores_backend.py
 </details>
 
 <details>
+<summary><b>🐍 Python · Selenium + Allure</b></summary>
+
+Requiere Python 3.9+ y Chrome instalado. Sigue con Allure y envía sus resultados, o suma el plugin en
+la misma corrida ([ejemplo](examples/python-selenium-allure/README.es.md)).
+
+```bash
+pip install -r examples/python-selenium-allure/requirements.txt ./client/python
+pytest examples/python-selenium-allure --alluredir=allure-results
+tracereports push allure-results -project orangehrm      # o agrega --tracereports a pytest
+```
+
+</details>
+
+<details>
 <summary><b>🟨 JavaScript / TypeScript · Playwright Test</b></summary>
 
 Requiere Node.js 18+ y Chrome instalado.
@@ -350,7 +364,7 @@ go test -v ./...
 
 | Variable | Qué hace |
 | --- | --- |
-| `TRACEREPORTS_DEMO_FAIL=1` | Agrega un fallo controlado para ver el diagnóstico con IA y las sugerencias de locators (ejemplos de JavaScript y Java). |
+| `TRACEREPORTS_DEMO_FAIL=1` | Agrega un fallo controlado para ver el diagnóstico con IA y las sugerencias de locators (ejemplos de JavaScript y Java; el diagnóstico con IA en Python + Selenium + Allure). |
 | `HEADLESS=0` | Muestra el navegador mientras corren los tests (todos los ejemplos menos pytest, que usa `--headed`). |
 | `TRACEREPORTS_URL` | Dirección del servidor, si no es `http://localhost:8080`. |
 | `TRACEREPORTS_TOKEN` | Token del servidor, si lo protegiste. |

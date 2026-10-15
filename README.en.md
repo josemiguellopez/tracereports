@@ -118,6 +118,7 @@ They all use the public [OrangeHRM](https://opensource-demo.orangehrmlive.com) d
 | Example | For | How to run it |
 |---|---|---|
 | [`examples/pytest-playwright`](examples/pytest-playwright) | pytest: the minimum, just the plugin | `pytest examples/pytest-playwright --tracereports` |
+| [`examples/python-selenium-allure`](examples/python-selenium-allure) | pytest + Selenium + Allure: send allure-results, or add the plugin | `pytest examples/python-selenium-allure --alluredir=allure-results` then `tracereports push allure-results` |
 | [`examples/playwright-js`](examples/playwright-js) | Playwright Test (JS): reporter + fixtures | `cd examples/playwright-js && npm install && npm test` |
 | [`examples/selenium-js`](examples/selenium-js) | Selenium WebDriver with node:test | `cd examples/selenium-js && npm install && npm test` |
 | [`examples/selenium-java`](examples/selenium-java) | Selenium with JUnit 5 | `cd examples/selenium-java && ./gradlew test` |
