@@ -18,3 +18,7 @@ tracereports-offline/
 /test/scenarios/java/build/
 /test/scenarios/*/output/
 /test/scenarios/python/.pytest_cache/
+
+# resultados de Allure de los ejemplos
+allure-results/
+allure-report/

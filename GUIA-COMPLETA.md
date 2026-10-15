@@ -118,7 +118,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 | Ejemplo | Para quién | Cómo correrlo |
 |---|---|---|
 | [`examples/pytest-playwright`](examples/pytest-playwright/README.es.md) | pytest: lo mínimo, solo el plugin | `pytest examples/pytest-playwright --tracereports` |
-| [`examples/python-selenium-allure`](examples/python-selenium-allure/README.es.md) | pytest + Selenium + Allure: enviar allure-results, o sumar el plugin | `pytest examples/python-selenium-allure --alluredir=allure-results` y `tracereports push allure-results` |
+| [`examples/python-selenium-allure`](examples/python-selenium-allure/README.es.md) | pytest + Selenium + Allure: enviar allure-results, o sumar el plugin | `python -m pytest examples/python-selenium-allure --alluredir=allure-results` y `tracereports push allure-results` |
 | [`examples/playwright-js`](examples/playwright-js/README.es.md) | Playwright Test (JS): reporter + fixtures | `cd examples/playwright-js && npm install && npm test` |
 | [`examples/selenium-js`](examples/selenium-js/README.es.md) | Selenium WebDriver con node:test | `cd examples/selenium-js && npm install && npm test` |
 | [`examples/selenium-java`](examples/selenium-java/README.es.md) | Selenium con JUnit 5 | `cd examples/selenium-java && ./gradlew test` |

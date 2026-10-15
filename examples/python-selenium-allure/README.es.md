@@ -5,11 +5,14 @@
 Para quien ya automatiza con **Python, Selenium y Allure**: los mismos tests de siempre contra la demo
 pública de OrangeHRM, y dos formas de sumar TraceReports sin dejar Allure.
 
-Requisitos: Python 3.9+, Chrome y un servidor de TraceReports
-([inicio rápido](../../docs/es/quickstart.md): `tracereports demo` sirve). Desde la raíz del repositorio:
+Requisitos: Python 3.9+, Chrome, un servidor de TraceReports
+([inicio rápido](../../docs/es/quickstart.md): `tracereports demo` sirve) y el comando `tracereports`:
+descárgalo de la [última versión](https://github.com/josemiguellopez/tracereports/releases/latest) o
+compílalo con `go build -o tracereports.exe ./cmd` (en Windows ejecútalo como `.\tracereports.exe`).
+Desde la raíz del repositorio:
 
 ```bash
-pip install -r examples/python-selenium-allure/requirements.txt ./client/python
+python -m pip install -r examples/python-selenium-allure/requirements.txt ./client/python
 ```
 
 ## Nivel 1: sigues con Allure y envías sus resultados
@@ -17,7 +20,7 @@ pip install -r examples/python-selenium-allure/requirements.txt ./client/python
 Sin cambiar ni una línea de tus tests:
 
 ```bash
-pytest examples/python-selenium-allure --alluredir=allure-results
+python -m pytest examples/python-selenium-allure --alluredir=allure-results
 tracereports push allure-results -project orangehrm -name "Selenium + Allure"
 ```
 
@@ -29,7 +32,7 @@ conservan. Más en la [guía de Allure](../../docs/es/allure.md).
 ## Nivel 2: Allure y TraceReports en la misma corrida
 
 ```bash
-pytest examples/python-selenium-allure --alluredir=allure-results --tracereports
+python -m pytest examples/python-selenium-allure --alluredir=allure-results --tracereports
 ```
 
 Allure escribe sus resultados como siempre y, además, TraceReports recibe la ejecución **en vivo**.
@@ -46,10 +49,11 @@ Los tests pasan contra la demo. Para ver el diagnóstico, agrega un fallo contro
 el menú ya no tiene):
 
 ```bash
-TRACEREPORTS_DEMO_FAIL=1 pytest examples/python-selenium-allure --alluredir=allure-results
+TRACEREPORTS_DEMO_FAIL=1 python -m pytest examples/python-selenium-allure --alluredir=allure-results
 ```
 
-En PowerShell: `$env:TRACEREPORTS_DEMO_FAIL="1"`. `HEADLESS=0` muestra el navegador.
+En PowerShell: `$env:TRACEREPORTS_DEMO_FAIL="1"`. Se usa `python -m pytest` (y `python -m pip`) porque
+funciona aunque la carpeta `Scripts` de Python no esté en el PATH. `HEADLESS=0` muestra el navegador.
 
 ## Sin servidor
 

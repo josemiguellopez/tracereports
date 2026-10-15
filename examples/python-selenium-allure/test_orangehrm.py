@@ -1,15 +1,15 @@
 """
 pytest + Selenium + Allure contra la demo pública de OrangeHRM, y cómo sumar TraceReports.
 
-    pip install -r examples/python-selenium-allure/requirements.txt ./client/python
+    python -m pip install -r examples/python-selenium-allure/requirements.txt ./client/python
 
     # 1. Lo de siempre: Allure
-    pytest examples/python-selenium-allure --alluredir=allure-results
+    python -m pytest examples/python-selenium-allure --alluredir=allure-results
     # 2. TraceReports diagnostica esos resultados con IA (sin tocar los tests)
     tracereports push allure-results -project orangehrm -name "Selenium + Allure"
 
     # o las dos cosas en la misma corrida: Allure y TraceReports en vivo
-    pytest examples/python-selenium-allure --alluredir=allure-results --tracereports
+    python -m pytest examples/python-selenium-allure --alluredir=allure-results --tracereports
 
 TRACEREPORTS_DEMO_FAIL=1 agrega un fallo controlado (un selector que ya no existe) para ver el
 diagnóstico. HEADLESS=0 muestra el navegador.

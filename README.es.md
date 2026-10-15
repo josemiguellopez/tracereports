@@ -291,8 +291,8 @@ Requiere Python 3.9+ y Chrome instalado. Sigue con Allure y envía sus resultado
 la misma corrida ([ejemplo](examples/python-selenium-allure/README.es.md)).
 
 ```bash
-pip install -r examples/python-selenium-allure/requirements.txt ./client/python
-pytest examples/python-selenium-allure --alluredir=allure-results
+python -m pip install -r examples/python-selenium-allure/requirements.txt ./client/python
+python -m pytest examples/python-selenium-allure --alluredir=allure-results
 tracereports push allure-results -project orangehrm      # o agrega --tracereports a pytest
 ```
 
