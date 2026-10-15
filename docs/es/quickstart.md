@@ -33,8 +33,8 @@ go build -o tracereports ./cmd        # Windows: go build -o tracereports.exe ./
 Esto compila el binario `tracereports` una sola vez (cerca de un minuto). En Windows ejecútalo como
 `.\tracereports.exe` en lugar de `./tracereports`.
 
-> `tracereports demo` viene en las versiones posteriores a la 0.2.0. Con un binario descargado, sáltate
-> la compilación.
+> `tracereports demo` viene en los binarios desde la 0.3.0. Con un binario descargado, sáltate la
+> compilación.
 
 ## 2. Opcional: diagnóstico con IA
 

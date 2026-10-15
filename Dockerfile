@@ -7,7 +7,9 @@ COPY web.go ./
 COPY cmd ./cmd
 COPY internal ./internal
 COPY web ./web
-RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/tracereports ./cmd \
+# la versión del tag (la pone release.yml); vacía: "dev"
+ARG VERSION=
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${VERSION}" -o /out/tracereports ./cmd \
  && mkdir -p /out/data
 
 FROM gcr.io/distroless/static-debian12:nonroot
