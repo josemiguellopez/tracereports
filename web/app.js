@@ -1400,7 +1400,7 @@
 		const tr = window.TraceReportsI18n.t;
 		const open = ev ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-conn="${ev.ref}" data-lab-title="${esc(inc.title)}" data-tip="${esc(tr("Reenvía la llamada que causó este incidente para ver si sigue fallando o ya quedó resuelto"))}">${icon("i-flask")}${tr("Abrir en Lab")}</button>` : "";
 		const checks = incidentChecks(inc);
-		const verify = checks.length ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-verify="${esc(inc.key)}" data-tip="${esc(tr("Corre los checks guardados de este incidente y registra si quedó resuelto"))}">${icon("i-check")}${tr("Verificar ({n})", { n: checks.length })}</button>` : "";
+		const verify = checks.length ? `<button class="cf-btn cf-btn-sm cf-btn-lab" data-lab-verify="${esc(inc.key)}" data-lab-title="${esc(inc.title)}" data-lab-tests="${esc(inc.test_ids.join(","))}" data-tip="${esc(tr("Corre los checks guardados de este incidente y registra si quedó resuelto"))}">${icon("i-check")}${tr("Verificar ({n})", { n: checks.length })}</button>` : "";
 		return open + verify;
 	}
 
@@ -2004,7 +2004,11 @@
 			const labVerify = e.target.closest("[data-lab-verify]");
 			if (labVerify) {
 				e.preventDefault();
-				const inc = (S.run.summary?.incidents || []).find((i) => i.key === labVerify.dataset.labVerify);
+				// si la ejecución se está refrescando en vivo, el incidente puede faltar un instante en el
+				// resumen: el botón trae lo necesario para abrir igual la verificación (nunca un clic mudo)
+				const key = labVerify.dataset.labVerify;
+				const inc = (S.run.summary?.incidents || []).find((i) => i.key === key)
+					|| { key, title: labVerify.dataset.labTitle || "", test_ids: (labVerify.dataset.labTests || "").split(",").filter(Boolean).map(Number) };
 				if (inc) window.TraceReportsLab?.verify({ runId: S.run.id, incidentKey: inc.key, title: inc.title, checks: incidentChecks(inc), canSend: !!S.config.ui_actions, onDone: labChanged });
 				return;
 			}
