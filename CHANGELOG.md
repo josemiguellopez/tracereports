@@ -6,6 +6,11 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-15
+
+Client versions released with it: **Python 0.4.0** (PyPI), **JavaScript 0.3.0** (npm) and **Java 0.3.0**. The Go
+client did not change.
+
 ### Added
 
 **Selenium: network, console and suggested selectors**
@@ -198,7 +203,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/josemiguellopez/tracereports/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/josemiguellopez/tracereports/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/josemiguellopez/tracereports/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/josemiguellopez/tracereports/releases/tag/v0.1.0
