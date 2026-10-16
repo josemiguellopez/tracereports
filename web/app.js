@@ -19,7 +19,7 @@
 		status: "", search: "", stepFilter: "",
 		detailTab: "steps", net: { key: null, list: null }, netFilter: "", netSearch: "", netApiOnly: false,
 		hist: {}, insights: { key: null }, tlAll: false, epAll: false,
-		loc: {}, locLang: "python", replay: { testId: null, index: 0, speed: 1 }, player: null,
+		loc: {}, locLang: "", locTool: "", replay: { testId: null, index: 0, speed: 1 }, player: null,
 		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
@@ -1059,6 +1059,33 @@
 		return list.sort((a, b) => (b.pick ? 1 : 0) - (a.pick ? 1 : 0));
 	}
 
+	const SELENIUM_ERROR = /selenium|webdriver|NoSuchElement|StaleElementReference|\bBy\.(?:id|xpath|css|cssSelector|name|className|linkText|ID|XPATH|CSS_SELECTOR|NAME)\b|\bBy\((?:css selector|xpath|id|name)/i;
+
+	/**
+	 * Herramienta (playwright | selenium) y lenguaje (python | js | java) de los snippets: lo que
+	 * eligió la persona, o lo del test: Selenium si el error es de Selenium, y el lenguaje del framework.
+	 */
+	function locPrefs(t) {
+		const fw = String(S.run?.framework || "").toLowerCase();
+		const tool = S.locTool || (SELENIUM_ERROR.test(`${t?.error_message || ""}\n${t?.error_trace || ""}`) ? "selenium" : "playwright");
+		let lang = S.locLang;
+		if (!lang) {
+			lang = /junit|maven|gradle|testng|java/.test(fw) ? "java" : /playwright|selenium|jest|mocha|node|vitest|js/.test(fw) && fw !== "playwright-python" ? "js" : "python";
+		}
+		if (lang === "java" && tool !== "selenium") lang = "python"; // los snippets de Java son de Selenium
+		return { tool, lang };
+	}
+
+	/** El snippet de una sugerencia en la herramienta y el lenguaje elegidos (Playwright si falta). */
+	function snippetOf(s, t) {
+		const { tool, lang } = locPrefs(t);
+		if (tool === "selenium") {
+			const sel = { python: s.selenium_python, js: s.selenium_js, java: s.selenium_java }[lang];
+			if (sel) return sel;
+		}
+		return lang === "js" ? s.js : s.python;
+	}
+
 	function locatorCard(t) {
 		const rep = S.loc[locKey(t)];
 		if (!rep) return "";
@@ -1067,7 +1094,9 @@
 		// dijo backend o infraestructura y no hay reemplazos, la tarjeta solo despistaría
 		const cat = t.triage && t.triage.state === "DONE" ? t.triage.category : "";
 		if (!sugg.length && (cat === "BACKEND_TIMEOUT" || cat === "INFRA_ERROR")) return "";
-		const snippet = (s) => (S.locLang === "js" ? s.js : s.python);
+		const snippet = (s) => snippetOf(s, t);
+		const { tool, lang } = locPrefs(t);
+		const hasSelenium = sugg.some((s) => s.selenium_python);
 		const items = sugg.map((s) => `<li class="loc-item ${s.pick ? "ai-pick" : ""}" data-loc-i="${s.i}">
 				<code class="loc-code">${esc(snippet(s))}</code>
 				<div class="loc-btns">
@@ -1086,8 +1115,11 @@
 				<dl class="loc-diff"><dt>Fallido</dt><dd><code class="loc-failed">${esc(rep.failed_selector || "(no se pudo extraer del error)")}</code></dd>
 					${rep.page_url ? `<dt>Página</dt><dd class="mono" style="font-size:12px;word-break:break-all">${esc(rep.page_url)}</dd>` : ""}</dl>
 				${sugg.length ? `<div class="loc-toolbar"><span>Sugeridos, del más robusto al menos robusto</span>
+					<div class="loc-switches">
+					${hasSelenium ? `<div class="loc-lang" role="group" aria-label="Herramienta del snippet">
+						<button data-loc-tool="playwright" aria-pressed="${tool === "playwright"}">Playwright</button><button data-loc-tool="selenium" aria-pressed="${tool === "selenium"}">Selenium</button></div>` : ""}
 					<div class="loc-lang" role="group" aria-label="Lenguaje del snippet">
-						<button data-loc-lang="python" aria-pressed="${S.locLang === "python"}">Python</button><button data-loc-lang="js" aria-pressed="${S.locLang === "js"}">JS / TS</button></div></div>
+						<button data-loc-lang="python" aria-pressed="${lang === "python"}">Python</button><button data-loc-lang="js" aria-pressed="${lang === "js"}">JS / TS</button>${tool === "selenium" && hasSelenium ? `<button data-loc-lang="java" aria-pressed="${lang === "java"}">Java</button>` : ""}</div></div></div>
 					<ol class="loc-list">${items}</ol>`
 					: `<p class="loc-empty">No hay snapshot de la página para proponer reemplazos. Los clientes lo envían al fallar (<code>capturar_dom</code> en Python, <code>Test.DOM</code> en Go).</p>`}
 			</div></details>`;
@@ -1102,7 +1134,7 @@
 		const others = rep.suggestions.filter((o, k) => k !== i && o.box).slice(0, 3);
 		CF.Drawer.open({
 			title: "Elemento sugerido en la captura",
-			subtitle: `${s.element} · ${S.locLang === "js" ? s.js : s.python}`,
+			subtitle: `${s.element} · ${snippetOf(s, S.test)}`,
 			body: `<div class="bbox-view"><img src="${esc(rep.screenshot)}" alt="Captura del momento del fallo">
 					${others.map((o) => `<span class="bbox alt" style="${pct(o.box)}"><span class="bbox-tag">alternativa</span></span>`).join("")}
 					<span class="bbox" style="${pct(s.box)}"><span class="bbox-tag">sugerido</span></span></div>
@@ -2014,10 +2046,17 @@
 			}
 			const lang = e.target.closest("[data-loc-lang]");
 			if (lang) { S.locLang = lang.dataset.locLang; renderTestDetail(); return; }
+			const tool = e.target.closest("[data-loc-tool]");
+			if (tool) {
+				S.locTool = tool.dataset.locTool;
+				if (S.locTool !== "selenium" && S.locLang === "java") S.locLang = "python"; // Java solo en Selenium
+				renderTestDetail();
+				return;
+			}
 			const copyBtn = e.target.closest("[data-loc-copy]");
 			if (copyBtn) {
 				const s = currentLocator()?.suggestions[Number(copyBtn.dataset.locCopy)];
-				if (s) CF.copyText(S.locLang === "js" ? s.js : s.python, copyBtn);
+				if (s) CF.copyText(snippetOf(s, S.test), copyBtn);
 				return;
 			}
 			const insp = e.target.closest("[data-loc-inspect]");

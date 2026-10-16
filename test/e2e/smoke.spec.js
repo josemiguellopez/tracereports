@@ -332,6 +332,43 @@ test("sin reemplazos, un fallo que la IA atribuye al backend no muestra 'Selecto
 	await expect(page.locator("#locator-card")).toHaveCount(0);
 });
 
+test("selector sugerido: en Selenium cuando el error es de Selenium, con Python, JS y Java", async ({ page }) => {
+	const sugg = {
+		kind: "testid", selector: '[data-testid="add-to-cart"]', robustness: "alta", reason: "atributo de test", element: "<button> Add to cart",
+		python: 'page.get_by_test_id("add-to-cart")', js: "page.getByTestId('add-to-cart')",
+		selenium_python: `driver.find_element(By.CSS_SELECTOR, '[data-testid="add-to-cart"]')`,
+		selenium_java: 'driver.findElement(By.cssSelector("[data-testid=\\"add-to-cart\\"]"))',
+		selenium_js: `driver.findElement(By.css('[data-testid="add-to-cart"]'))`,
+	};
+	let error = "selenium.common.exceptions.NoSuchElementException: Message: no such element";
+	await page.route(/\/api\/v1\/tests\/\d+\/locator$/, (route) => route.fulfill({ json: { failed_selector: "#add-to-cart-btn", suggestions: [sugg] } }));
+	await page.route(/\/api\/v1\/tests\/\d+$/, async (route) => {
+		const res = await route.fetch();
+		await route.fulfill({ response: res, json: { ...(await res.json()), error_message: error } });
+	});
+	await openRun(page);
+	await openTest(page, "test_login_admin");
+	const card = page.locator("#locator-card");
+	const code = card.locator(".loc-code");
+	await expect(card.locator('[data-loc-tool="selenium"]')).toHaveAttribute("aria-pressed", "true");
+	await expect(code).toHaveText(new RegExp(`^(${[sugg.selenium_python, sugg.selenium_js].map((s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})$`));
+
+	await card.locator('[data-loc-lang="java"]').click();
+	await expect(code).toHaveText(sugg.selenium_java);
+	await card.locator("[data-loc-copy]").click();
+	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(sugg.selenium_java);
+
+	await card.locator('[data-loc-tool="playwright"]').click();
+	await expect(card.locator('[data-loc-lang="java"]')).toHaveCount(0); // Java solo en Selenium
+	await expect(code).toHaveText(sugg.python);
+
+	// un error que no es de Selenium: Playwright por defecto
+	error = "Error: locator.click: Timeout 5000ms exceeded. waiting for locator('#add-to-cart-btn')";
+	await page.reload();
+	await openTest(page, "test_login_admin");
+	await expect(page.locator('#locator-card [data-loc-tool="playwright"]')).toHaveAttribute("aria-pressed", "true");
+});
+
 test("un panel abierto justo después de cerrar otro queda visible", async ({ page }) => {
 	// Escape y abrir otro panel en menos de la animación de cierre (180 ms): el cierre pendiente lo
 	// ocultaba y quedaba abierto pero invisible (lab.spec.js fallaba así en CI)

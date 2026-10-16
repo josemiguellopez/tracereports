@@ -55,15 +55,20 @@ type Box struct {
 
 // Suggestion is a replacement selector for the broken one.
 type Suggestion struct {
-	Kind       string `json:"kind"`       // testid | role | label | placeholder | id | name | text
-	Selector   string `json:"selector"`   // selector CSS/Playwright legible
-	Python     string `json:"python"`     // Playwright Python
-	JS         string `json:"js"`         // Playwright JS/TS
-	Robustness string `json:"robustness"` // alta | media | baja
-	Reason     string `json:"reason"`
-	Score      int    `json:"score"`
-	Element    string `json:"element"` // descripción corta del elemento
-	Box        *Box   `json:"box,omitempty"`
+	Kind     string `json:"kind"`     // testid | role | label | placeholder | id | name | text
+	Selector string `json:"selector"` // selector CSS/Playwright legible
+	Python   string `json:"python"`   // Playwright Python
+	JS       string `json:"js"`       // Playwright JS/TS
+	// Selenium (driver.find_element / findElement) with the most natural By for the strategy:
+	// CSS, ID, NAME, or XPath when Selenium has no equivalent (role + name, label, text).
+	SeleniumPython string `json:"selenium_python"`
+	SeleniumJava   string `json:"selenium_java"`
+	SeleniumJS     string `json:"selenium_js"`
+	Robustness     string `json:"robustness"` // alta | media | baja
+	Reason         string `json:"reason"`
+	Score          int    `json:"score"`
+	Element        string `json:"element"` // descripción corta del elemento
+	Box            *Box   `json:"box,omitempty"`
 }
 
 // ─── extracción del selector roto ──────────────────────────────────────────
@@ -175,11 +180,26 @@ func tokens(s string) []string {
 
 var tagInSelector = regexp.MustCompile(`(?i)(?:^|[\s/>+~(])(input|button|a|select|textarea|label|h[1-6])(?:[\[.#:\s)]|$)`)
 
+// namedButton: an id or class that says it is a button (#add-to-cart-btn, .submit-button).
+var namedButton = regexp.MustCompile(`(?i)[#.\-_](?:btn|button)(?:$|[-_.\s\]])|[#.](?:btn|button)[-_]`)
+
+// containerRoles are roles of regions whose text is their children's, like containerTags.
+var containerRoles = map[string]bool{"navigation": true, "banner": true, "main": true, "contentinfo": true,
+	"complementary": true, "region": true, "list": true, "menubar": true, "tablist": true, "toolbar": true, "group": true}
+
+// interactiveRoles are the roles a test usually clicks or types into.
+var interactiveRoles = map[string]bool{"button": true, "link": true, "textbox": true, "checkbox": true, "radio": true,
+	"combobox": true, "menuitem": true, "tab": true, "option": true, "switch": true, "searchbox": true}
+
+// containerTags are elements whose text is their children's: they are not proposed for it.
+var containerTags = map[string]bool{"nav": true, "header": true, "footer": true, "main": true, "section": true,
+	"aside": true, "form": true, "ul": true, "ol": true, "table": true}
+
 func selectorTag(sel string) string {
 	if m := tagInSelector.FindStringSubmatch(sel); len(m) > 1 {
 		return strings.ToLower(m[1])
 	}
-	if strings.Contains(sel, `"button"`) || strings.Contains(sel, `'button'`) {
+	if strings.Contains(sel, `"button"`) || strings.Contains(sel, `'button'`) || namedButton.MatchString(sel) {
 		return "button"
 	}
 	if strings.Contains(sel, `"textbox"`) || strings.Contains(sel, `'textbox'`) {
@@ -296,8 +316,134 @@ func idSelector(id string) string {
 	return "[id=" + css(id) + "]"
 }
 
+// javaLit is a Java string literal: Java has no \x escapes, so control characters go as \uXXXX.
+func javaLit(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '\\' || r == '"':
+			b.WriteByte('\\')
+			b.WriteRune(r)
+		case r == '\n':
+			b.WriteString(`\n`)
+		case r == '\r':
+			b.WriteString(`\r`)
+		case r == '\t':
+			b.WriteString(`\t`)
+		case r < 0x20 || r == 0x7f || r == 0x2028 || r == 0x2029:
+			fmt.Fprintf(&b, `\u%04x`, r)
+		default:
+			b.WriteRune(r)
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
+}
+
+// xpathLit is an XPath string literal. XPath 1.0 has no escapes: a value with both kinds of quotes
+// is built with concat().
+func xpathLit(s string) string {
+	switch {
+	case !strings.Contains(s, `"`):
+		return `"` + s + `"`
+	case !strings.Contains(s, `'`):
+		return `'` + s + `'`
+	}
+	parts := strings.Split(s, `"`)
+	out := make([]string, 0, 2*len(parts))
+	for i, p := range parts {
+		if i > 0 {
+			out = append(out, `'"'`)
+		}
+		if p != "" {
+			out = append(out, `"`+p+`"`)
+		}
+	}
+	return "concat(" + strings.Join(out, ", ") + ")"
+}
+
+// by is a Selenium locator in each language: Python (By.CSS_SELECTOR, '…'), Java and JS.
+type by struct{ py, java, js string }
+
+func byCSS(sel string) by {
+	return by{"By.CSS_SELECTOR, " + pySel(sel), "By.cssSelector(" + javaLit(sel) + ")", "By.css(" + js(sel) + ")"}
+}
+func byXPath(x string) by {
+	return by{"By.XPATH, " + pySel(x), "By.xpath(" + javaLit(x) + ")", "By.xpath(" + js(x) + ")"}
+}
+func byID(id string) by {
+	return by{"By.ID, " + py(id), "By.id(" + javaLit(id) + ")", "By.id(" + js(id) + ")"}
+}
+func byName(n string) by {
+	return by{"By.NAME, " + py(n), "By.name(" + javaLit(n) + ")", "By.name(" + js(n) + ")"}
+}
+
+// withSelenium fills the Selenium snippets of s.
+func withSelenium(s Suggestion, b by) Suggestion {
+	s.SeleniumPython = "driver.find_element(" + b.py + ")"
+	s.SeleniumJava = "driver.findElement(" + b.java + ")"
+	s.SeleniumJS = "driver.findElement(" + b.js + ")"
+	return s
+}
+
+// xpathBase is the element in XPath: its explicit role, or its tag.
+func xpathBase(e Element) string {
+	if e.Role != "" {
+		return "//*[@role=" + xpathLit(e.Role) + "]"
+	}
+	tag := e.Tag
+	if tag == "" {
+		tag = "*"
+	}
+	return "//" + tag
+}
+
+// labelXPath matches an element by its accessible label: aria-label, or a <label for> pointing at it.
+func labelXPath(e Element, label string) string {
+	l := xpathLit(label)
+	return xpathBase(e) + "[@aria-label=" + l + " or @id=//label[normalize-space()=" + l + "]/@for]"
+}
+
+// nameXPath matches an element by the accessible name the recommender used (label, text or placeholder).
+func nameXPath(e Element) string {
+	if l := strings.TrimSpace(e.Label); l != "" && len(l) <= 60 {
+		return labelXPath(e, l)
+	}
+	if t := strings.TrimSpace(e.Text); t != "" && len(t) <= 60 {
+		return xpathBase(e) + "[normalize-space()=" + xpathLit(t) + "]"
+	}
+	return xpathBase(e) + "[@placeholder=" + xpathLit(strings.TrimSpace(e.Placeholder)) + "]"
+}
+
 // options returns the selector strategies available for an element, most robust first.
 func options(e Element) []Suggestion {
+	out := playwrightOptions(e)
+	for i, s := range out {
+		switch s.Kind {
+		case "testid", "placeholder":
+			out[i] = withSelenium(s, byCSS(s.Selector))
+		case "role":
+			out[i] = withSelenium(s, byXPath(nameXPath(e)))
+		case "label":
+			out[i] = withSelenium(s, byXPath(labelXPath(e, e.Label)))
+		case "id":
+			if cssIdent.MatchString(e.ID) {
+				out[i] = withSelenium(s, byID(e.ID))
+			} else {
+				out[i] = withSelenium(s, byCSS(s.Selector))
+			}
+		case "name":
+			out[i] = withSelenium(s, byName(e.Name))
+		case "text":
+			out[i] = withSelenium(s, byXPath(xpathBase(e)+"[normalize-space()="+xpathLit(strings.TrimSpace(e.Text))+"]"))
+		}
+	}
+	return out
+}
+
+// playwrightOptions are the strategies with their Playwright snippets.
+func playwrightOptions(e Element) []Suggestion {
 	var out []Suggestion
 	if e.TestID != "" {
 		attr := e.TestIDAttr
@@ -384,7 +530,11 @@ func Suggest(failed string, snap Snapshot, max int) []Suggestion {
 		if !e.Visible || e.W == 0 || e.H == 0 || isLayoutContainer(e, snap.Viewport) {
 			continue
 		}
-		hay := strings.ToLower(strings.Join([]string{e.TestID, e.ID, e.Name, e.Label, e.Placeholder, e.Text, e.Type}, " "))
+		text := e.Text
+		if containerTags[e.Tag] || containerRoles[e.Role] {
+			text = "" // el texto de un contenedor es el de sus hijos (un nav con "Cart 0" no es el botón)
+		}
+		hay := strings.ToLower(strings.Join([]string{e.TestID, e.ID, e.Name, e.Label, e.Placeholder, text, e.Type}, " "))
 		score := 0
 		var hits []string
 		for _, w := range want {
@@ -396,8 +546,8 @@ func Suggest(failed string, snap Snapshot, max int) []Suggestion {
 		if tag != "" && (e.Tag == tag || (tag == "button" && implicitRole(e) == "button")) {
 			score += 2
 		}
-		if tag == "" && implicitRole(e) != "" {
-			score++ // sin pistas del tag, preferir elementos interactivos
+		if tag == "" && interactiveRoles[implicitRole(e)] {
+			score++ // sin pistas del tag, preferir elementos interactivos (no landmarks ni mensajes)
 		}
 		if len(hits) == 0 && (tag == "" || score < 2) {
 			continue
