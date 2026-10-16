@@ -86,6 +86,14 @@ var selectorPatterns = []*regexp.Regexp{
 // of the test (an earlier click that worked), and those are not the selector that failed.
 var waitingGetter = regexp.MustCompile(`waiting for ((?:get_by_\w+|getBy\w+)\([^)]*\))`)
 
+// pySeleniumBy is the locator on the line that failed in a pytest traceback (the one marked with
+// ">"): Selenium for Python says nothing about it in a TimeoutException ("Message: "), only the
+// test's code does: `esperar(driver, (By.CSS_SELECTOR, "#menu"))`, `driver.find_element(By.ID, "pay")`.
+var pySeleniumBy = regexp.MustCompile(`(?m)^>.*?By\.(CSS_SELECTOR|XPATH|ID|NAME|CLASS_NAME|LINK_TEXT|PARTIAL_LINK_TEXT|TAG_NAME)\s*,\s*(?:"((?:[^"\\]|\\.)+)"|'((?:[^'\\]|\\.)+)')`)
+
+// pySeleniumNotFound: the Selenium for Python errors of an element that never showed up.
+var pySeleniumNotFound = regexp.MustCompile(`selenium\.common\.exceptions\.(?:TimeoutException|NoSuchElementException)`)
+
 // ExtractSelector finds the selector that failed in an error message / stack trace.
 func ExtractSelector(texts ...string) string {
 	for _, text := range texts {
@@ -98,7 +106,28 @@ func ExtractSelector(texts ...string) string {
 			}
 		}
 	}
+	if all := strings.Join(texts, "\n"); pySeleniumNotFound.MatchString(all) {
+		if m := pySeleniumBy.FindStringSubmatch(all); m != nil {
+			return pySeleniumSelector(m[1], m[2]+m[3])
+		}
+	}
 	return ""
+}
+
+// pySeleniumSelector writes a Selenium for Python locator as the CSS or XPath it means.
+func pySeleniumSelector(by, value string) string {
+	switch by {
+	case "ID":
+		return "#" + value
+	case "NAME":
+		return `[name="` + value + `"]`
+	case "CLASS_NAME":
+		return "." + value
+	case "LINK_TEXT", "PARTIAL_LINK_TEXT":
+		return "text=" + value
+	default: // CSS_SELECTOR, XPATH, TAG_NAME
+		return value
+	}
 }
 
 // LooksLikeLocatorFailure reports whether an error is about an element that was not found.
