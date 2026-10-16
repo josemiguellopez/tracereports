@@ -12,7 +12,7 @@ the driver.
 | **Backend incident** ("POST /api/orders → 500") and the **[Lab](fixlab.md)** to resend that call | From the network |
 | **Console** tab: JavaScript errors and warnings | From the browser log |
 | **Screenshot** when a test fails | Automatic |
-| **Suggested selector** when a locator breaks | The page's DOM at the failure |
+| **Suggested selector** when a locator breaks, ready to paste in Selenium (`By.CSS_SELECTOR`, `By.ID`, `By.XPATH`…) for Python, Java or JS | The page's DOM at the failure |
 
 Works with **Chrome and Edge** (Firefox has no performance log: there you still get steps, screenshot
 and DOM).
@@ -121,6 +121,21 @@ Full example: [examples/selenium-java](../../examples/selenium-java). Edge: `Sel
 ## Go
 
 The Go client is used with playwright-go, which already captures the network: see [Go](go.md).
+
+## Suggested selectors in Selenium
+
+When a locator breaks, the report proposes replacements from the page's DOM at the failure. With a
+Selenium error they come as Selenium code in the language of the run, ready to paste:
+
+```python
+driver.find_element(By.CSS_SELECTOR, '[data-testid="add-to-cart"]')   # a test attribute
+driver.find_element(By.XPATH, '//a[normalize-space()="PIM"]')        # a link by its text
+```
+
+The card switches between **Playwright** and **Selenium**, and between **Python**, **JS / TS** and
+**Java**. Each strategy uses the most natural `By`: CSS for test attributes and placeholders, `ID`,
+`NAME`, and XPath for what Selenium cannot express otherwise (a button or link by its text, a field by
+its label).
 
 ## How it works
 

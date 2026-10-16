@@ -6,6 +6,22 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Suggested selectors in Selenium**: every suggestion also comes as Selenium code for Python, Java and JS, with
+  the most natural `By` (CSS, `ID`, `NAME`, or XPath for a button, link or field by its text or label; XPath
+  literals with both kinds of quotes use `concat()`). The locator card switches between Playwright and Selenium
+  and between Python, JS / TS and Java; by default it follows the test (Selenium when the error is Selenium's)
+  and the language of the run.
+
+### Fixed
+
+- Locator suggestions: a broken selector that names a button (`#add-to-cart-btn`, `.submit-button`) prefers
+  buttons, landmarks and containers (`nav`, lists, regions) are not proposed for their children's text, and
+  without a tag hint interactive elements go first. On OrangeHRM the PIM link now comes first for the broken
+  `#menu_pim_viewPimModule`, and in the demo the Add to cart button before the "Added to your cart" message.
+- A panel opened right after closing another one no longer stays open but invisible.
+
 ## [0.4.0] - 2026-10-15
 
 Client versions released with it: **Python 0.4.0** (PyPI), **JavaScript 0.3.0** (npm) and **Java 0.3.0**. The Go
