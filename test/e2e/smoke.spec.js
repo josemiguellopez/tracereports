@@ -332,6 +332,22 @@ test("sin reemplazos, un fallo que la IA atribuye al backend no muestra 'Selecto
 	await expect(page.locator("#locator-card")).toHaveCount(0);
 });
 
+test("un panel abierto justo después de cerrar otro queda visible", async ({ page }) => {
+	// Escape y abrir otro panel en menos de la animación de cierre (180 ms): el cierre pendiente lo
+	// ocultaba y quedaba abierto pero invisible (lab.spec.js fallaba así en CI)
+	await openRun(page);
+	await page.evaluate(() => {
+		const { Drawer } = window.TraceReportsFeatures;
+		Drawer.open({ title: "Primero", body: "<p>uno</p>" });
+		Drawer.close();
+		Drawer.open({ title: "Segundo", body: "<button id='second-btn'>ok</button>" });
+	});
+	await page.waitForTimeout(400);
+	await expect(page.locator("#cf-drawer-title")).toHaveText("Segundo");
+	await expect(page.locator("#second-btn")).toBeVisible();
+	await page.locator("#second-btn").click();
+});
+
 test("exportar ZIP responde un archivo zip", async ({ page, request }) => {
 	await openRun(page);
 	const href = await page.locator("#export-btn").getAttribute("href");
