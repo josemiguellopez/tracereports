@@ -8,10 +8,15 @@ import (
 // The run explorer's text index (FTS5, trigram: substring search) and the tags of each run.
 //
 // Each row of run_search_text is keyed by its rowid, which SQLite finds directly: a run is
-// -run.id and a test is test.id. Updates and deletes (retention, a run deleted from the UI) touch
-// only their own rows instead of scanning the index, and run_id (UNINDEXED) is only read back
-// for the matches.
-const runSearchIndexSchema = `
+// -run.id, a test is test.id (its name, key and error message) and a failed network call is
+// networkRowBase + network.id (its method and URL). Updates and deletes (retention, a run deleted
+// from the UI) touch only their own rows instead of scanning the index, and run_id (UNINDEXED) is
+// only read back for the matches.
+//
+// runSearchIndexVersion is what the index holds; a database with an older one is rebuilt once:
+// 1 = runs and test names, 2 = also error messages and failed calls, 3 = failed calls also by
+// "METHOD /path", the way people write an endpoint.
+var runSearchIndexSchema = `
 DROP TRIGGER IF EXISTS run_search_runs_ai;
 DROP TRIGGER IF EXISTS run_search_runs_au;
 DROP TRIGGER IF EXISTS run_search_runs_ad;
@@ -39,17 +44,40 @@ END;
 CREATE TRIGGER IF NOT EXISTS run_search_text_runs_ad AFTER DELETE ON runs BEGIN
 	DELETE FROM run_search_text WHERE rowid = -old.id;
 END;
+DROP TRIGGER IF EXISTS run_search_text_tests_au;
 CREATE TRIGGER IF NOT EXISTS run_search_text_tests_ai AFTER INSERT ON tests BEGIN
-	INSERT INTO run_search_text(rowid, run_id, content) VALUES(new.id, new.run_id, new.name || ' ' || new.test_key);
+	INSERT INTO run_search_text(rowid, run_id, content) VALUES(new.id, new.run_id, new.name || ' ' || new.test_key || ' ' || new.error_message);
 END;
-CREATE TRIGGER IF NOT EXISTS run_search_text_tests_au AFTER UPDATE OF name, test_key ON tests BEGIN
+CREATE TRIGGER IF NOT EXISTS run_search_text_tests_au2 AFTER UPDATE OF name, test_key, error_message ON tests BEGIN
 	DELETE FROM run_search_text WHERE rowid = old.id;
-	INSERT INTO run_search_text(rowid, run_id, content) VALUES(new.id, new.run_id, new.name || ' ' || new.test_key);
+	INSERT INTO run_search_text(rowid, run_id, content) VALUES(new.id, new.run_id, new.name || ' ' || new.test_key || ' ' || new.error_message);
 END;
 CREATE TRIGGER IF NOT EXISTS run_search_text_tests_ad AFTER DELETE ON tests BEGIN
 	DELETE FROM run_search_text WHERE rowid = old.id;
 END;
+DROP TRIGGER IF EXISTS run_search_text_net_ai;
+CREATE TRIGGER run_search_text_net_ai AFTER INSERT ON network WHEN new.failed = 1 OR new.status >= 400 BEGIN
+	INSERT INTO run_search_text(rowid, run_id, content)
+	VALUES(1099511627776 + new.id, (SELECT run_id FROM tests WHERE id = new.test_id), ` + networkSearchText("new") + `);
+END;
+CREATE TRIGGER IF NOT EXISTS run_search_text_net_ad AFTER DELETE ON network WHEN old.failed = 1 OR old.status >= 400 BEGIN
+	DELETE FROM run_search_text WHERE rowid = 1099511627776 + old.id;
+END;
 `
+
+// networkSearchText is the indexed text of a failed call (columns of the row alias t): its method
+// and URL, and again its method and path ("POST http://shop:8180/api/orders POST /api/orders"), so
+// "POST /api/orders" finds it whatever the host.
+func networkSearchText(t string) string {
+	rest := "substr(" + t + ".url, instr(" + t + ".url, '://') + 3)"
+	return t + ".method || ' ' || " + t + ".url || CASE WHEN instr(" + t + ".url, '://') > 0 AND instr(" + rest + ", '/') > 0 " +
+		"THEN ' ' || " + t + ".method || ' ' || substr(" + rest + ", instr(" + rest + ", '/')) ELSE '' END"
+}
+
+// networkRowBase separates the failed calls from the tests in the index's rowids (2^40).
+const networkRowBase = 1 << 40
+
+const runSearchIndexVersion = 3
 
 // ensureRunSearchIndex creates the indexes of the run explorer and, only the first time (an
 // existing database), fills them from the runs and tests already stored. The fill and its mark
@@ -59,8 +87,8 @@ func ensureRunSearchIndex(sqldb *sql.DB) error {
 	if _, err := sqldb.Exec(runSearchIndexSchema); err != nil {
 		return err
 	}
-	var done int
-	if err := sqldb.QueryRow(`SELECT COUNT(*) FROM run_search_init`).Scan(&done); err != nil || done > 0 {
+	var version int
+	if err := sqldb.QueryRow(`SELECT COALESCE(MAX(done), 0) FROM run_search_init`).Scan(&version); err != nil || version >= runSearchIndexVersion {
 		return err
 	}
 	tx, err := sqldb.Begin()
@@ -72,7 +100,11 @@ func ensureRunSearchIndex(sqldb *sql.DB) error {
 		`DELETE FROM run_search_text`,
 		`INSERT INTO run_search_text(rowid, run_id, content)
 			SELECT -id, id, name || ' ' || project || ' ' || branch || ' ' || commit_sha || ' ' || environment FROM runs`,
-		`INSERT INTO run_search_text(rowid, run_id, content) SELECT id, run_id, name || ' ' || test_key FROM tests`,
+		`INSERT INTO run_search_text(rowid, run_id, content) SELECT id, run_id, name || ' ' || test_key || ' ' || error_message FROM tests`,
+		`INSERT INTO run_search_text(rowid, run_id, content)
+			SELECT 1099511627776 + n.id, t.run_id, ` + networkSearchText("n") + ` FROM network n JOIN tests t ON t.id = n.test_id
+			WHERE n.failed = 1 OR n.status >= 400`,
+		`DELETE FROM run_search_init`,
 	} {
 		if _, err := tx.Exec(q); err != nil {
 			return err
@@ -104,7 +136,7 @@ func ensureRunSearchIndex(sqldb *sql.DB) error {
 			return err
 		}
 	}
-	if _, err := tx.Exec(`INSERT INTO run_search_init(done) VALUES(1)`); err != nil {
+	if _, err := tx.Exec(`INSERT INTO run_search_init(done) VALUES(?)`, runSearchIndexVersion); err != nil {
 		return err
 	}
 	return tx.Commit()

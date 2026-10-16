@@ -112,3 +112,87 @@ func TestExtractSelectorPythonSelenium(t *testing.T) {
 		t.Fatalf("assertion is not a locator failure: %q", got)
 	}
 }
+
+// Each suggestion also comes in Selenium (Python, Java, JS), with the most natural By.
+func TestSeleniumSnippets(t *testing.T) {
+	get := func(e Element, kind string) Suggestion {
+		for _, s := range options(e) {
+			if s.Kind == kind {
+				return s
+			}
+		}
+		t.Fatalf("no %s suggestion for %+v", kind, e)
+		return Suggestion{}
+	}
+	s := get(Element{Tag: "button", TestID: "add-to-cart", TestIDAttr: "data-testid", Text: "Add to cart"}, "testid")
+	if s.SeleniumPython != `driver.find_element(By.CSS_SELECTOR, '[data-testid="add-to-cart"]')` ||
+		s.SeleniumJava != `driver.findElement(By.cssSelector("[data-testid=\"add-to-cart\"]"))` ||
+		s.SeleniumJS != `driver.findElement(By.css('[data-testid="add-to-cart"]'))` {
+		t.Fatalf("testid: %q | %q | %q", s.SeleniumPython, s.SeleniumJava, s.SeleniumJS)
+	}
+	if s := get(Element{Tag: "a", Text: "PIM"}, "role"); s.SeleniumPython != `driver.find_element(By.XPATH, '//a[normalize-space()="PIM"]')` {
+		t.Fatalf("role by text: %q", s.SeleniumPython)
+	}
+	if s := get(Element{Tag: "input", Type: "password", Label: "Password"}, "role"); s.SeleniumJava !=
+		`driver.findElement(By.xpath("//input[@aria-label=\"Password\" or @id=//label[normalize-space()=\"Password\"]/@for]"))` {
+		t.Fatalf("role by label: %q", s.SeleniumJava)
+	}
+	if s := get(Element{Tag: "input", ID: "email"}, "id"); s.SeleniumPython != `driver.find_element(By.ID, "email")` || s.SeleniumJS != `driver.findElement(By.id('email'))` {
+		t.Fatalf("id: %q %q", s.SeleniumPython, s.SeleniumJS)
+	}
+	if s := get(Element{Tag: "input", Name: "username"}, "name"); s.SeleniumJava != `driver.findElement(By.name("username"))` {
+		t.Fatalf("name: %q", s.SeleniumJava)
+	}
+	// both quotes in the text: XPath 1.0 has no escapes, so concat()
+	s = get(Element{Tag: "span", Text: `O'Reilly "books"`}, "text")
+	if s.SeleniumPython != `driver.find_element(By.XPATH, '//span[normalize-space()=concat("O\'Reilly ", \'"\', "books", \'"\')]')` {
+		t.Fatalf("quotes: %q", s.SeleniumPython)
+	}
+	if got := xpathLit(`it's`); got != `"it's"` {
+		t.Fatalf("xpathLit: %q", got)
+	}
+	if got := javaLit("a\u0001b"); got != `"a\u0001b"` {
+		t.Fatalf("javaLit: %q", got)
+	}
+}
+
+// "#add-to-cart-btn" names a button: the button goes before the "Added to your cart" message, and a
+// nav is not proposed for the text of its links.
+func TestSuggestPrefersTheNamedButton(t *testing.T) {
+	snap := Snapshot{Viewport: Size{W: 1280, H: 800}, Elements: []Element{
+		{Tag: "div", Role: "status", ID: "added", Text: "Added to your cart", Visible: true, W: 400, H: 40},
+		{Tag: "nav", Label: "Main", Text: "Products Cart 0 Sign in", Visible: true, W: 300, H: 40},
+		{Tag: "button", Type: "button", TestID: "add-to-cart", TestIDAttr: "data-testid", Text: "Add to cart", Visible: true, W: 120, H: 40},
+	}}
+	got := Suggest("#add-to-cart-btn", snap, 5)
+	if len(got) == 0 || got[0].Kind != "testid" || !strings.Contains(got[0].Selector, "add-to-cart") {
+		t.Fatalf("first: %+v", got)
+	}
+	for _, s := range got {
+		if strings.HasPrefix(s.Element, "<nav") {
+			t.Fatalf("a nav is not a replacement for a button: %+v", s)
+		}
+	}
+	for _, sel := range []string{"#add-to-cart-btn", ".submit-button", "#btn-pay", "button.x"} {
+		if selectorTag(sel) != "button" {
+			t.Fatalf("%s should hint a button", sel)
+		}
+	}
+	if selectorTag("#subtitle") != "" || selectorTag("#rebuttons-list") != "" {
+		t.Fatal("no button hint in unrelated ids")
+	}
+}
+
+// OrangeHRM: "#menu_pim_viewPimModule" broke; the PIM link goes before the navigation landmarks,
+// whose text is the text of all their links.
+func TestSuggestPrefersTheLinkOverNavigationLandmarks(t *testing.T) {
+	snap := Snapshot{Viewport: Size{W: 1280, H: 800}, Elements: []Element{
+		{Tag: "nav", Role: "navigation", Label: "Sidepanel", Text: "Admin PIM Leave Time", Visible: true, W: 250, H: 600},
+		{Tag: "a", Text: "PIM", Visible: true, W: 200, H: 40},
+		{Tag: "nav", Role: "navigation", Label: "Topbar Menu", Text: "User Management Job", Visible: true, W: 900, H: 50},
+	}}
+	got := Suggest("#menu_pim_viewPimModule", snap, 5)
+	if len(got) == 0 || got[0].Element != "<a> PIM" {
+		t.Fatalf("first: %+v", got)
+	}
+}

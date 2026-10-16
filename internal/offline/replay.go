@@ -78,7 +78,20 @@ func (rec *Recording) Replay(t Target) (*Result, error) {
 	open := map[int64]int64{}    // ejecuciones creadas sin su cierre -> ts del último evento
 	failed := map[int64]bool{}   // ids locales cuya creación falló
 	testRun := map[int64]int64{} // test real -> su ejecución (para saber cuándo fue su último evento)
-	for _, e := range rec.Events() {
+	events, err := rec.cursor()
+	if err != nil {
+		return res, err
+	}
+	defer events.close()
+	for {
+		next, err := events.next()
+		if err != nil {
+			return res, err
+		}
+		if next == nil {
+			break
+		}
+		e := *next
 		path, missing := rewrite(e.Path, ids)
 		if missing != 0 {
 			res.Skipped++
