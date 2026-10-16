@@ -26,6 +26,10 @@ export interface RunOptions { environment?: string; project?: string; branch?: s
 export interface TestOptions {
   category?: string; description?: string; key?: string; suite?: string; params?: string; worker?: string | number;
   status?: string; onFailure?: (t: TraceTest, err: unknown) => unknown | Promise<unknown>;
+  /** Right after the test starts (e.g. discard the browser logs of earlier tests). */
+  onStart?: (t: TraceTest) => unknown | Promise<unknown>;
+  /** Before the test is closed, passed or failed (`err` is null when it passed): network, console... */
+  onEnd?: (t: TraceTest, err: unknown) => unknown | Promise<unknown>;
 }
 
 export type Status = "INFO" | "PASS" | "FAIL" | "WARNING" | "SKIP";
