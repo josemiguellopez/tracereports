@@ -20,10 +20,17 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      # las notas del release son la sección del CHANGELOG de esta versión, no la lista de commits
+      - name: Release notes from the CHANGELOG
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          awk -v v="$v" 'index($0, "## [" v "]")==1 {on=1; next} on && index($0, "## [")==1 {exit} on {print}' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then echo "CHANGELOG.md has no section for $v"; exit 1; fi
+          printf '\n**Full changelog:** https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || echo "$GITHUB_REF_NAME")" "$GITHUB_REF_NAME" >> "$RUNNER_TEMP/notes.md"
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
-          args: release --clean
+          args: release --clean --release-notes ${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
