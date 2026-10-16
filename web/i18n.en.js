@@ -8,7 +8,7 @@
 		// ── navegación y barra superior ──
 		"Tests": "Tests", "Categorías": "Categories", "Errores": "Errors", "Análisis": "Analysis", "Métricas": "Metrics", "Ajustes": "Settings",
 		"Buscar": "Search", "Explora el historial de ejecuciones con filtros y comparación.": "Explore run history with filters and comparison.",
-		"Ver todas →": "See all →", "Buscar todas →": "Search all →", "Recientes": "Recent", "Ver todas las ejecuciones": "See all runs", "Ejecuciones recientes": "Recent runs", "Buscar ejecuciones, tests, errores, endpoints, ramas…": "Search runs, tests, errors, endpoints, branches…",
+		"Ver todas →": "See all →", "Inicio": "Start", "Evidencia local": "Local evidence", "Captura al fallar": "Screenshot at failure", "Buscar todas →": "Search all →", "Recientes": "Recent", "Ver todas las ejecuciones": "See all runs", "Ejecuciones recientes": "Recent runs", "Buscar ejecuciones, tests, errores, endpoints, ramas…": "Search runs, tests, errors, endpoints, branches…",
 		"Proyecto": "Project", "Ambiente": "Environment", "Rama": "Branch", "Dueño": "Owner", "Desde": "From", "Hasta": "To", "Orden": "Sort",
 		"Con fallos": "With failures", "En curso": "Running", "Incompletas": "Incomplete", "Limpiar todo": "Clear all", "Más reciente": "Most recent", "Más antiguo": "Oldest", "Más fallos": "Most failures", "Más lentas": "Slowest",
 		"Por dueño…": "By owner…", "Hoy": "Today", "7 días": "7 days", "30 días": "30 days", "Guardar búsqueda": "Save search", "Búsquedas guardadas": "Saved searches", "Nombre de la búsqueda": "Search name", "Nombre del dueño": "Owner name",
@@ -557,6 +557,14 @@
 		"Cerrar": "Close", "Ambiente": "Environment", "Comienzo": "Start", "Prom.": "Avg.", "General": "General",
 	});
 
+	// la pista que el servidor agrega a un error del proveedor (ai.HintText), dentro de un mensaje
+	const aiHint = (msg) => msg
+		.replace(" → El modelo no está disponible para esta cuenta.", " → The model is not available for this account.")
+		.replace(" → Se agotó la cuota diaria de este modelo.", " → This model's daily quota is used up.")
+		.replace(" → La cuenta del proveedor no tiene saldo: agrega créditos o cambia de proveedor.", " → The provider account has no balance: add credits or switch providers.")
+		.replace(" → El modelo está saturado en este momento.", " → The model is overloaded right now.")
+		.replace(/ Prueba con (.+)\.$/, " Try $1.");
+
 	EN.patterns.push(
 		[/^Comparar con #(\d+)$/, "Compare with #$1"],
 		[/^(\d+) días$/, "$1 days"],
@@ -593,8 +601,8 @@
 		[/^(.+): (\d+) pasaron, (\d+) fallaron$/, "$1: $2 passed, $3 failed"],
 		[/^Veces que pasó de PASS a FAIL o al revés en (\d+) ejecuciones$/, "Times it went from PASS to FAIL or back in $1 runs"],
 		[/^Analizando con (.+)…$/, "Analyzing with $1…"],
-		[/^No se pudo completar el análisis: (.+)$/, "The analysis could not be completed: $1"],
-		[/^No se pudo generar el diagnóstico: (.+)$/, "The diagnosis could not be generated: $1"],
+		[/^No se pudo completar el análisis: ([\s\S]+)$/, (m, e) => `The analysis could not be completed: ${aiHint(e)}`],
+		[/^No se pudo generar el diagnóstico: ([\s\S]+)$/, (m, e) => `The diagnosis could not be generated: ${aiHint(e)}`],
 		[/^No se pudo cargar(?: la red)?: (.+)$/, "Could not load: $1"],
 		[/^No se pudieron cargar las métricas: (.+)$/, "Could not load the metrics: $1"],
 		[/^No se pudieron cargar los ajustes: (.+)$/, "Could not load the settings: $1"],
