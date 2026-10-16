@@ -404,6 +404,7 @@ its screenshot, network calls and diagnosis.
 - [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md) · [Command line](docs/en/cli.md)
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md) · [Demo, playground and selftest](docs/en/demo.md): try it in a minute and check a deployment
 - [Allure](docs/en/allure.md): your Allure results, diagnosed with AI
+- [Selenium](docs/en/selenium.md): network, console and suggested selectors with Selenium in Python, JavaScript and Java
 - [FixLab](docs/en/fixlab.md): reproduce a failure and verify the fix, from the report, the terminal, CI or an AI agent
 - [Python](docs/en/python.md) · [JavaScript](docs/en/javascript.md) · [Java](docs/en/java.md) · [Go](docs/en/go.md) · [REST API](docs/en/api.md)
 - [Continuous integration](docs/en/ci.md) · [Without a server: record, report and upload later](docs/en/offline.md)

@@ -35,7 +35,7 @@ var scenarioES = map[string][2]string{
 	"playwright-ok":          {"Playwright Test (JS) · iniciar sesión", "Una ejecución real de Playwright Test con el reporter de TraceReports: pasos, adjuntos y red."},
 	"playwright-nok-backend": {"Playwright Test (JS) · el pago falla (500)", "El mismo fallo de backend visto desde JavaScript: se agrupa en un incidente de backend y el Lab lo reproduce."},
 	"playwright-flaky":       {"Playwright Test (JS) · pasa al reintentar", "Las recomendaciones fallan en la primera llamada (503) y funcionan en la segunda: el test queda como pasado tras reintento (inestable)."},
-	"selenium-ok":            {"Selenium + JUnit 5 (Java) · iniciar sesión", "Un test real de Selenium WebDriver con la extensión de JUnit 5: pasos y una captura."},
+	"selenium-ok":            {"Selenium + JUnit 5 (Java) · iniciar sesión", "Un test real de Selenium WebDriver con la extensión de JUnit 5: pasos, una captura y la red del navegador, del log de rendimiento de Chrome."},
 	"selenium-nok-selector":  {"Selenium + JUnit 5 (Java) · cambió un selector", "NoSuchElementException para #add-to-cart-btn: captura, snapshot de la página y el selector sugerido."},
 	"go-ok":                  {"Go (go test) · la API pasa", "Un test de API en Go con el cliente de Go: la llamada que hizo aparece en la pestaña Red."},
 	"go-nok-backend":         {"Go (go test) · la API responde 500", "El test de API que crea un pedido falla con 500: incidente de backend y el Lab, desde Go."},

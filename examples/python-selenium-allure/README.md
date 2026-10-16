@@ -45,11 +45,15 @@ it and adds up the previous results.
 python -m pytest examples/python-selenium-allure --alluredir=allure-results --tracereports
 ```
 
-Allure writes its results as always and TraceReports also gets the run **live**. What
-[conftest.py](conftest.py) adds, ready to copy into your project:
+Allure writes its results as always and TraceReports also gets the run **live**, with each test's
+**network** (Network tab, backend incidents, [Lab](../../docs/en/fixlab.md)), **console**, and the
+**screenshot** and **suggested selector** when it fails. What [conftest.py](conftest.py) adds, ready to
+copy into your project:
 
+- `selenium_options(webdriver.ChromeOptions())`: the one line that turns on Chrome's network and
+  console logs. The plugin does the rest.
 - `paso("text")`: an `allure.step` that is also a step in TraceReports.
-- When a test fails, the browser screenshot goes to Allure and to TraceReports.
+- When a test fails, the browser screenshot also goes to Allure.
 
 Without `--tracereports`, the `tracereports` fixture does nothing: the suite is the same as always.
 
@@ -74,9 +78,9 @@ tracereports report allure-results -o report --ai
 An HTML report (`report/index.html`) with the AI diagnosis of the provider in your environment, to
 keep as a CI artifact.
 
-## What Selenium in Python does not have (yet)
+## Level 1 or level 2?
 
-With Selenium, the Python client captures neither the **browser's network** nor the **DOM** on
-failure, so there is no Network tab, [Lab](../../docs/en/fixlab.md) or suggested selector; the
-diagnosis uses the error, the steps and the screenshot. The network is captured with Playwright
-(Python, JS, Java, Go); the DOM, and with it the suggested selector, also with Selenium in Java and JS.
+Level 1 (only `allure-results`) gives the AI diagnosis, history and everything Allure recorded. Allure
+does not record the browser's network nor the page's DOM, so level 2 adds what only TraceReports
+captures: the Network tab, backend incidents, the Lab and the suggested selector. Both work with
+Chrome and Edge; more in [Selenium](../../docs/en/selenium.md).

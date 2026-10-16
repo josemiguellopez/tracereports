@@ -12,7 +12,7 @@ To use it without publishing, include it as a Gradle *composite build* (like the
 // settings.gradle.kts
 includeBuild("../path/to/tracereports/client/java")
 // build.gradle.kts
-dependencies { testImplementation("tracereports:tracereports-java:0.2.0") }
+dependencies { testImplementation("tracereports:tracereports-java:0.3.0") }
 ```
 
 With Maven: `cd client/java && ./gradlew publishToMavenLocal` (it lands in `~/.m2`) or
@@ -48,8 +48,8 @@ class LoginTest {
 
     @BeforeEach
     void setUp(TraceTest t) {                 // TraceTest is injected
-        driver = new ChromeDriver();
-        SeleniumEvidence.attach(t, driver);      // on failure: screenshot + DOM, before @AfterEach
+        driver = new ChromeDriver(SeleniumEvidence.options(new ChromeOptions()));   // network and console logs
+        SeleniumEvidence.attach(t, driver);      // network and console; on failure screenshot + DOM, before @AfterEach
     }
 
     @Test @Tag("smoke")

@@ -45,11 +45,15 @@ y suma los resultados anteriores.
 python -m pytest examples/python-selenium-allure --alluredir=allure-results --tracereports
 ```
 
-Allure escribe sus resultados como siempre y, además, TraceReports recibe la ejecución **en vivo**.
-Lo que agrega [conftest.py](conftest.py), y puedes copiar a tu proyecto:
+Allure escribe sus resultados como siempre y, además, TraceReports recibe la ejecución **en vivo**,
+con la **red** de cada test (pestaña Red, incidentes de backend, [Lab](../../docs/es/fixlab.md)), la
+**consola**, y la **captura** y el **selector sugerido** si falla. Lo que agrega
+[conftest.py](conftest.py), y puedes copiar a tu proyecto:
 
+- `selenium_options(webdriver.ChromeOptions())`: la única línea que activa los logs de red y consola de
+  Chrome. El plugin hace el resto.
 - `paso("texto")`: un `allure.step` que también queda como paso en TraceReports.
-- Al fallar un test, la captura del navegador va a Allure y a TraceReports.
+- Al fallar un test, la captura del navegador también va a Allure.
 
 Sin `--tracereports`, la fixture `tracereports` no hace nada: la suite es la misma de siempre.
 
@@ -74,9 +78,9 @@ tracereports report allure-results -o reporte --ai
 Un reporte HTML (`reporte/index.html`) con el diagnóstico de IA del proveedor de tu entorno, para
 guardarlo como artefacto de CI.
 
-## Qué no hay con Selenium en Python (todavía)
+## ¿Nivel 1 o nivel 2?
 
-Con Selenium, el cliente de Python no captura la **red del navegador** ni el **DOM** al fallar, así
-que no hay pestaña Red, [Lab](../../docs/es/fixlab.md) ni selector sugerido; el diagnóstico usa el
-error, los pasos y la captura. La red se captura con Playwright (Python, JS, Java, Go); el DOM, y con
-él el selector sugerido, también con Selenium en Java y JS.
+El nivel 1 (solo `allure-results`) da el diagnóstico con IA, la historia y todo lo que grabó Allure.
+Allure no graba la red del navegador ni el DOM de la página, así que el nivel 2 suma lo que solo
+captura TraceReports: la pestaña Red, los incidentes de backend, el Lab y el selector sugerido. Los dos
+funcionan con Chrome y Edge; más en [Selenium](../../docs/es/selenium.md).

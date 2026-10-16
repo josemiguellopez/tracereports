@@ -119,7 +119,9 @@ ejecución como **incompleta**: nunca aparece como exitosa.
 
 ## Opción 2: API del cliente (unittest, Selenium, scripts…)
 
-> Con pytest + Selenium (y Allure), bastan el plugin y un `conftest.py`: ver
+> **Selenium con pytest:** crea el driver con `tracereports.selenium.selenium_options(options)` y
+> `pytest --tracereports` envía solo la red, la consola, la captura y el DOM de cada test. Sin pytest,
+> `report_selenium(driver, cr)`. Paso a paso: [Selenium](selenium.md); con Allure:
 > [examples/python-selenium-allure](../../examples/python-selenium-allure/README.es.md).
 
 ```python

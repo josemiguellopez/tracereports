@@ -12,6 +12,8 @@ Selenium y Playwright para Java. Java 17+, sin dependencias en tiempo de ejecuci
 
 - **JUnit 5**: `@ExtendWith(TraceReportsExtension.class)` reporta cada test con su resultado; inyecta
   `TraceTest` para agregar pasos, capturas, red, la consola del navegador y traces o videos de Playwright.
+- **Selenium (Chrome, Edge)**: `SeleniumEvidence.options(options)` y `SeleniumEvidence.attach(t, driver)` envían
+  la red (pestaña Red, Lab) y la consola de cada test, y la captura y el DOM al fallar ([guía de Selenium](https://github.com/josemiguellopez/tracereports/blob/main/docs/es/selenium.md)).
 - **Nunca frena ni rompe tus tests**: la evidencia sale en un hilo en segundo plano, con reintentos
   y sin duplicados; los shards pueden unirse a la misma ejecución.
 - **Sin servidor**: si el servidor está caído o rechaza el token, la ejecución se graba en local;

@@ -6,6 +6,30 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-15
+
+Client versions released with it: **Python 0.4.0** (PyPI), **JavaScript 0.3.0** (npm) and **Java 0.3.0**. The Go
+client did not change.
+
+### Added
+
+**Selenium: network, console and suggested selectors**
+- The clients read Chrome's and Edge's performance and browser logs, so Selenium tests get the **Network** tab
+  (with the bodies of the APIs and errors, through CDP), backend incidents, the **Lab** and the **Console** tab,
+  like Playwright. One line where the driver is created:
+  - Python: `tracereports.selenium.selenium_options(options)`; with `pytest --tracereports` the plugin finds the
+    driver in the test's fixtures and sends each test's network and console, and the screenshot and DOM when it
+    fails. Without pytest, `report_selenium(driver, cr)`.
+  - JavaScript: `seleniumOptions(options)`; `withDriver` now also sends the network and console. `cr.test` gets
+    `onStart` and `onEnd` hooks.
+  - Java: `SeleniumEvidence.options(options)`; `SeleniumEvidence.attach` now also sends the network and console
+    (`CdpNetwork` turns the log into connections).
+- Suggested selector for Selenium with pytest: the locator is read from the failing line of the traceback
+  (`By.CSS_SELECTOR, "#menu"`), since a `TimeoutException` does not name it.
+- The demo's Selenium scenarios now carry the browser's network.
+- [Selenium guide](docs/en/selenium.md) (English and Spanish), linked from the client guides, their READMEs and
+  the examples, which now create the driver with the helper.
+
 ## [0.3.0] - 2026-10-15
 
 The clients did not change: Python 0.3.0, JavaScript 0.2.0, Java 0.2.0 and the Go client keep working with it.
@@ -179,7 +203,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/josemiguellopez/tracereports/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/josemiguellopez/tracereports/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/josemiguellopez/tracereports/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/josemiguellopez/tracereports/releases/tag/v0.1.0

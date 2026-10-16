@@ -27,7 +27,7 @@ import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 import { downloadBinary } from "./binary.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.3.0";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
 
@@ -314,19 +314,23 @@ export class TraceReports {
 
   /**
    * Corre `fn` como un test: lo inicia, lo cierra según el resultado y, si falla, adjunta la
-   * captura y el snapshot de `onFailure` (opcional). El error se vuelve a lanzar.
+   * captura y el snapshot de `onFailure` (opcional). `onStart` corre al empezar y `onEnd` antes de
+   * cerrarlo, pase o falle (la red y la consola de `withDriver`). El error se vuelve a lanzar.
    */
   async test(name, opts, fn) {
     if (typeof opts === "function") [fn, opts] = [opts, {}];
     const t = await this.startTest(name, opts);
+    // la evidencia nunca rompe el test
+    const hook = async (h, ...args) => { if (h) { try { await h(t, ...args); } catch { /* sin evidencia */ } } };
+    await hook(opts.onStart);
     try {
       const out = await fn(t);
+      await hook(opts.onEnd, null);
       t.finish(opts.status);
       return out;
     } catch (err) {
-      if (opts.onFailure) {
-        try { await opts.onFailure(t, err); } catch { /* la evidencia nunca rompe el test */ }
-      }
+      await hook(opts.onFailure, err);
+      await hook(opts.onEnd, err);
       t.fail(`${err?.name || "Error"}: ${err?.message ?? err}`);
       t.finish("FAIL", { error: err });
       throw err;
