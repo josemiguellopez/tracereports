@@ -19,6 +19,8 @@ Qué hace:
     evidencia del primer fallo se conserva;
   - con pytest-playwright (fixture `page`): captura de pantalla al fallar, snapshot del DOM y
     captura de red del test (pestaña "Red"), sin configurar nada;
+  - con Selenium (Chrome o Edge) en cualquier fixture (`driver`, `browser`...): lo mismo, si el driver
+    se creó con tracereports.selenium.selenium_options(options), que activa sus logs de red y consola;
   - @pytest.mark.tracereports_expect(status=401, url="/api/auth") declara una respuesta negativa que
     el test verifica a propósito (también en la clase o el módulo): no cuenta como error ni como
     causa del fallo;
@@ -49,10 +51,14 @@ from ._env import env
 from .client import TraceReports
 from .dom import capturar_dom
 from .network import attach_listeners, reportar_red
+from .selenium import capture_dom as _selenium_dom
+from .selenium import discard_logs, is_webdriver, report_selenium
+from .selenium import screenshot as _selenium_screenshot
 
 _TEST_ID = pytest.StashKey[int]()
 _OUTCOME = pytest.StashKey[dict]()
 _PAGE = pytest.StashKey[object]()
+_DRIVER = pytest.StashKey[object]()
 
 
 def _page(item):
@@ -249,17 +255,24 @@ class TraceReportsPlugin:
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_call(self, item):
         # La captura de red se engancha antes de que el test navegue (la fixture page ya existe).
-        page = (getattr(item, "funcargs", None) or {}).get("page")
+        funcargs = getattr(item, "funcargs", None) or {}
+        page = funcargs.get("page")
+        driver = None if page is not None else next((v for v in funcargs.values() if is_webdriver(v)), None)
         if page is not None:
             item.stash[_PAGE] = page
             if self.capture_network and not hasattr(page, "_network_evidence"):
                 attach_listeners(page)
+        if driver is not None:
+            item.stash[_DRIVER] = driver
+            discard_logs(driver)  # lo de antes del test (otro test con el mismo driver) no es suyo
         yield
         # Con la página todavía abierta: esperar (máx. 2 s) las llamadas en vuelo y enviar la red.
         # Después del teardown pytest-playwright cierra la página y ya no se puede esperar.
         test_id = item.stash.get(_TEST_ID, None)
         if page is not None and test_id and hasattr(page, "_network_evidence"):
             reportar_red(page, self.cr, test_id=test_id, esperar_en_vuelo_ms=2000)
+        if driver is not None and test_id and self.capture_network:
+            report_selenium(driver, self.cr, test_id=test_id)  # red y consola del test (Selenium)
 
     @pytest.hookimpl(hookwrapper=True)
     def pytest_runtest_makereport(self, item, call):
@@ -292,9 +305,17 @@ class TraceReportsPlugin:
 
     def _evidence_on_failure(self, item):
         page = _page(item)
-        if page is None:
-            return
         test_id = item.stash.get(_TEST_ID, None)
+        if page is None:
+            driver = item.stash.get(_DRIVER, None)
+            if driver is not None:  # Selenium: captura y DOM con el navegador todavía abierto
+                if self.capture_screenshots:
+                    png = _selenium_screenshot(driver)
+                    if png:
+                        self.cr.attach_screenshot(png, "Captura al fallar", status="FAIL", test_id=test_id)
+                if self.capture_dom:
+                    self.cr.attach_dom(_selenium_dom(driver), test_id=test_id)
+            return
         if self.capture_screenshots:
             try:
                 self.cr.attach_screenshot(page.screenshot(timeout=5000), "Captura al fallar", status="FAIL", test_id=test_id)
