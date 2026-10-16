@@ -12,6 +12,8 @@ and Playwright for Java. Java 17+, no runtime dependencies.
 
 - **JUnit 5**: `@ExtendWith(TraceReportsExtension.class)` reports each test with its result; inject
   `TraceTest` to add steps, screenshots, network, the browser console and Playwright traces or videos.
+- **Selenium (Chrome, Edge)**: `SeleniumEvidence.options(options)` and `SeleniumEvidence.attach(t, driver)` send
+  each test's network (Network tab, Lab), console, and the screenshot and DOM on failure ([Selenium guide](https://github.com/josemiguellopez/tracereports/blob/main/docs/en/selenium.md)).
 - **Never slows down or breaks your tests**: evidence goes out in a background thread with retries
   and no duplicates; shards can join the same run.
 - **Without a server**: if the server is down or rejects the token, the run is recorded locally;

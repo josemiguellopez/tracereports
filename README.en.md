@@ -137,6 +137,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md): start the report and the demo shop step by step.
 - [Demo, playground and selftest](docs/en/demo.md): sample data, the demo shop and checking a deployment.
 - [Allure](docs/en/allure.md): send your allure-results and get every failure diagnosed with AI.
+- [Selenium](docs/en/selenium.md): network, console and suggested selectors with Selenium (Python, JavaScript, Java).
 - [FixLab](docs/en/fixlab.md): reproduce a failure, save checks, verify the fix; capsule, CLI and MCP.
 - [Python client and pytest plugin](docs/en/python.md)
 - [JavaScript/TypeScript client: Playwright Test and Selenium](docs/en/javascript.md)

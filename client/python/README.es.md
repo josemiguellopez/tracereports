@@ -12,6 +12,8 @@ pytest --tracereports                     # reporta tu suite de pytest sin cambi
 - **Plugin de pytest**: pasos, capturas, red y DOM con pytest-playwright, la consola del navegador
   y los workers de pytest-xdist reunidos en una sola ejecución. También una API para unittest,
   Selenium o scripts.
+- **Selenium (Chrome, Edge)**: crea el driver con `selenium_options(options)` y el plugin envía también la
+  red (pestaña Red, Lab), la consola, la captura y el DOM de cada test ([guía de Selenium](https://github.com/josemiguellopez/tracereports/blob/main/docs/es/selenium.md)).
 - **Nunca frena ni rompe tus tests**: la evidencia sale en segundo plano, con reintentos y sin
   duplicados; lo que no se pudo enviar se puede guardar y reenviar después.
 - **Sin servidor**: si el servidor está caído o rechaza el token, la ejecución se graba en local;

@@ -135,6 +135,7 @@ Todos usan la demo pública de [OrangeHRM](https://opensource-demo.orangehrmlive
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md): levanta el reporte y la tienda de prueba paso a paso.
 - [Demo, playground y selftest](docs/es/demo.md): datos de ejemplo, la tienda de prueba y comprobar un despliegue.
 - [Allure](docs/es/allure.md): envía tus allure-results y recibe cada fallo diagnosticado con IA.
+- [Selenium](docs/es/selenium.md): red, consola y selectores sugeridos con Selenium (Python, JavaScript, Java).
 - [FixLab](docs/es/fixlab.md): reproducir un fallo, guardar checks, verificar el arreglo; cápsula, CLI y MCP.
 - [Cliente Python y plugin de pytest](docs/es/python.md)
 - [Cliente JavaScript/TypeScript: Playwright Test y Selenium](docs/es/javascript.md)

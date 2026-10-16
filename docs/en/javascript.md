@@ -75,8 +75,9 @@ Full example: [`examples/playwright-js`](../../examples/playwright-js).
 
 ```js
 import { TraceReports } from "tracereports";
-import { screenshot, withDriver } from "tracereports/selenium";
+import { screenshot, seleniumOptions, withDriver } from "tracereports/selenium";
 
+// create the driver with seleniumOptions(new chrome.Options()): network and console logs
 const cr = new TraceReports();
 await cr.startRun("Web regression", { environment: "chrome", framework: "selenium" });
 
@@ -89,9 +90,10 @@ await cr.test("Valid login", withDriver(driver, { key: "login.test.js > ok", cat
 await cr.finishRun();   // waits for the queue and closes the run
 ```
 
-`withDriver` attaches the **screenshot** and the **DOM snapshot** when the test fails and re-throws
-the error so the runner sees it. Selenium does not expose the browser's network: for the Network tab
-use Playwright or send the calls with `t.network([...])`.
+`withDriver` sends the **network** (Network tab, Lab) and the **console** of each test, and when it
+fails the **screenshot** and the **DOM snapshot**; it re-throws the error so the runner sees it. The
+network and console come from Chrome's and Edge's logs, so create the driver with
+`seleniumOptions(options)`. Step by step: [Selenium](selenium.md).
 
 Full example with `node:test`: [`examples/selenium-js`](../../examples/selenium-js).
 

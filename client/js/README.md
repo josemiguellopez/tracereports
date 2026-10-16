@@ -12,7 +12,8 @@ npm install --save-dev tracereports
 - **Playwright Test**: the reporter sends each test with its steps, error and screenshots, plus the
   traces and videos Playwright keeps; with the fixtures, also the network the browser saw, the DOM
   at the failure and the browser console.
-- **Selenium WebDriver or any runner**: screenshot and DOM on failure, and an API for steps and network.
+- **Selenium WebDriver or any runner**: with `seleniumOptions(options)` and `withDriver`, each test's network
+  (Network tab, Lab) and console, and the screenshot and DOM on failure ([Selenium guide](https://github.com/josemiguellopez/tracereports/blob/main/docs/en/selenium.md)).
 - **Never slows down or breaks your tests**: evidence goes out in the background with retries and
   no duplicates; shards can join the same run.
 - **Without a server**: if the server is down or rejects the token, the run is recorded locally;
