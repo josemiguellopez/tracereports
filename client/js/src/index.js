@@ -27,7 +27,7 @@ import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 import { downloadBinary } from "./binary.js";
 
-export const VERSION = "0.1.0";
+export const VERSION = "0.3.0";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
 
