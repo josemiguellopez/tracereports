@@ -121,7 +121,7 @@ func TestRunSearchFindsErrorsAndFailedEndpoints(t *testing.T) {
 		}
 		return ids
 	}
-	for _, q := range []string{"pool exhausted", "/api/orders", "POST https://shop.test/api/orders", "down.test"} {
+	for _, q := range []string{"pool exhausted", "/api/orders", "POST https://shop.test/api/orders", "POST /api/orders", "down.test"} {
 		if got := find(q); len(got) != 1 || got[0] != run {
 			t.Fatalf("%q: %v, want [%d]", q, got, run)
 		}
@@ -162,7 +162,7 @@ func TestRunSearchIndexUpgradesOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer s.Close()
-	for _, q := range []string{"pool exhausted", "/api/orders"} {
+	for _, q := range []string{"pool exhausted", "/api/orders", "POST /api/orders"} {
 		items, _, _, err := s.SearchRuns(RunSearchQuery{Q: q, Limit: 5, Sort: "recent"})
 		if err != nil || len(items) != 1 {
 			t.Fatalf("%q after the upgrade: %v %v", q, items, err)

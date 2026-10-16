@@ -14,8 +14,9 @@ import (
 // only read back for the matches.
 //
 // runSearchIndexVersion is what the index holds; a database with an older one is rebuilt once:
-// 1 = runs and test names, 2 = also error messages and failed calls.
-const runSearchIndexSchema = `
+// 1 = runs and test names, 2 = also error messages and failed calls, 3 = failed calls also by
+// "METHOD /path", the way people write an endpoint.
+var runSearchIndexSchema = `
 DROP TRIGGER IF EXISTS run_search_runs_ai;
 DROP TRIGGER IF EXISTS run_search_runs_au;
 DROP TRIGGER IF EXISTS run_search_runs_ad;
@@ -54,19 +55,29 @@ END;
 CREATE TRIGGER IF NOT EXISTS run_search_text_tests_ad AFTER DELETE ON tests BEGIN
 	DELETE FROM run_search_text WHERE rowid = old.id;
 END;
-CREATE TRIGGER IF NOT EXISTS run_search_text_net_ai AFTER INSERT ON network WHEN new.failed = 1 OR new.status >= 400 BEGIN
+DROP TRIGGER IF EXISTS run_search_text_net_ai;
+CREATE TRIGGER run_search_text_net_ai AFTER INSERT ON network WHEN new.failed = 1 OR new.status >= 400 BEGIN
 	INSERT INTO run_search_text(rowid, run_id, content)
-	VALUES(1099511627776 + new.id, (SELECT run_id FROM tests WHERE id = new.test_id), new.method || ' ' || new.url);
+	VALUES(1099511627776 + new.id, (SELECT run_id FROM tests WHERE id = new.test_id), ` + networkSearchText("new") + `);
 END;
 CREATE TRIGGER IF NOT EXISTS run_search_text_net_ad AFTER DELETE ON network WHEN old.failed = 1 OR old.status >= 400 BEGIN
 	DELETE FROM run_search_text WHERE rowid = 1099511627776 + old.id;
 END;
 `
 
+// networkSearchText is the indexed text of a failed call (columns of the row alias t): its method
+// and URL, and again its method and path ("POST http://shop:8180/api/orders POST /api/orders"), so
+// "POST /api/orders" finds it whatever the host.
+func networkSearchText(t string) string {
+	rest := "substr(" + t + ".url, instr(" + t + ".url, '://') + 3)"
+	return t + ".method || ' ' || " + t + ".url || CASE WHEN instr(" + t + ".url, '://') > 0 AND instr(" + rest + ", '/') > 0 " +
+		"THEN ' ' || " + t + ".method || ' ' || substr(" + rest + ", instr(" + rest + ", '/')) ELSE '' END"
+}
+
 // networkRowBase separates the failed calls from the tests in the index's rowids (2^40).
 const networkRowBase = 1 << 40
 
-const runSearchIndexVersion = 2
+const runSearchIndexVersion = 3
 
 // ensureRunSearchIndex creates the indexes of the run explorer and, only the first time (an
 // existing database), fills them from the runs and tests already stored. The fill and its mark
@@ -91,7 +102,7 @@ func ensureRunSearchIndex(sqldb *sql.DB) error {
 			SELECT -id, id, name || ' ' || project || ' ' || branch || ' ' || commit_sha || ' ' || environment FROM runs`,
 		`INSERT INTO run_search_text(rowid, run_id, content) SELECT id, run_id, name || ' ' || test_key || ' ' || error_message FROM tests`,
 		`INSERT INTO run_search_text(rowid, run_id, content)
-			SELECT 1099511627776 + n.id, t.run_id, n.method || ' ' || n.url FROM network n JOIN tests t ON t.id = n.test_id
+			SELECT 1099511627776 + n.id, t.run_id, ` + networkSearchText("n") + ` FROM network n JOIN tests t ON t.id = n.test_id
 			WHERE n.failed = 1 OR n.status >= 400`,
 		`DELETE FROM run_search_init`,
 	} {
