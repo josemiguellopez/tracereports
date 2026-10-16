@@ -686,12 +686,13 @@
 					<br><small>Busca la conexión por su URL dentro de ese archivo.</small>`
 				: `<br><small>Para conservarlo entero, usa <code>reportar_red(page, cr, guardar_en="carpeta")</code>: el reporte mostrará aquí la ruta del archivo.</small>`}</div>`;
 		const general = {
-			URL: c.url, Método: c.method,
-			Estado: c.failed ? `sin respuesta (${c.error_text})` : `${c.status || "—"} ${c.status_text || ""}`,
-			Tipo: [c.resource_type, c.mime_type].filter(Boolean).join(" · ") || "—",
-			Inicio: c.started_at ? fmtTime(c.started_at) : "—",
-			Duración: c.duration_ms != null ? `${c.duration_ms} ms` : "—",
-			...(c.evidence_file ? { "Evidencia local": c.evidence_file } : {}),
+			// un solo bloque de texto: las etiquetas se traducen aquí, no en el DOM
+			URL: c.url, [tr("Método")]: c.method,
+			[tr("Estado")]: c.failed ? `${tr("sin respuesta")} (${c.error_text})` : `${c.status || "—"} ${c.status_text || ""}`,
+			[tr("Tipo")]: [c.resource_type, c.mime_type].filter(Boolean).join(" · ") || "—",
+			[tr("Inicio")]: c.started_at ? fmtTime(c.started_at) : "—",
+			[tr("Duración")]: c.duration_ms != null ? `${c.duration_ms} ms` : "—",
+			...(c.evidence_file ? { [tr("Evidencia local")]: c.evidence_file } : {}),
 		};
 		const loc = bodyLocation(c);
 		const compare = isNetError(c) && !STATIC
@@ -1422,7 +1423,7 @@
 		if (!ev.length && !inc.location) return "";
 		const tr = window.TraceReportsI18n.t;
 		return `<ul class="inc-evidence" aria-label="${esc(tr("Evidencia observada"))}">${ev.map((e) =>
-			`<li><a data-goto="${e.test_id}" data-no-i18n>${esc(e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
+			`<li><a data-goto="${e.test_id}" data-no-i18n>${esc(e.kind === "network" ? tr(e.text) : e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
 	}
 
 	/** Botón "Abrir en Lab" de un incidente de backend: reenvía su llamada causal (no en el ZIP). */

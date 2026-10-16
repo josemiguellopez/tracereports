@@ -51,7 +51,7 @@ Not using pytest? TraceReports works the same with **Playwright Test**, **Seleni
 language over the **REST API**: [pick your language](#2-run-an-example-in-your-language).
 
 <p align="center">
-  <img src="./.github/assets/tour.gif" alt="Tour of a real TraceReports run: run diagnosis, AI failure triage, timeline, network, broken locators and escalation" width="100%" />
+  <img src="./.github/assets/tour.gif" alt="Tour of a TraceReports run: run diagnosis, AI failure triage, timeline, network, broken locators, search and escalation" width="100%" />
   <br />
   <sub>A real run of the <a href="examples/orangehrm">OrangeHRM example suite</a> with simulated backend failures, in the Pixel theme.</sub>
 </p>

@@ -52,7 +52,7 @@ temporales y no salen de tu PC. **[Inicio rápido: la demo en 5 minutos](docs/es
 cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en-tu-lenguaje).
 
 <p align="center">
-  <img src="./.github/assets/tour.gif" alt="Recorrido por una ejecución real de TraceReports: diagnóstico, triage con IA, timeline, red, locators rotos y escalamiento" width="100%" />
+  <img src="./.github/assets/tour.gif" alt="Recorrido por una ejecución de TraceReports: diagnóstico, triage con IA, timeline, red, locators rotos, búsqueda y escalamiento" width="100%" />
   <br />
   <sub>Una ejecución real de la <a href="examples/orangehrm">suite de ejemplo de OrangeHRM</a> con fallos de backend simulados, en el tema Pixel.</sub>
 </p>

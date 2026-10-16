@@ -6,7 +6,15 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-16
+
+Server only: the clients did not change (Python 0.4.0, JavaScript 0.3.0, Java 0.3.0 and Go stay as they are).
+
 ### Added
+
+- **Search inside errors and endpoints**: the run search (and Ctrl+K) also finds a run by the error message of
+  any of its tests (`pool exhausted`) and by the method and URL of a failed network call (`POST /api/orders`).
+  Only failed calls are indexed; an existing database is reindexed once on the first start.
 
 - **Suggested selectors in Selenium**: every suggestion also comes as Selenium code for Python, Java and JS, with
   the most natural `By` (CSS, `ID`, `NAME`, or XPath for a button, link or field by its text or label; XPath
@@ -21,6 +29,12 @@ All notable changes to TraceReports. The format follows
   without a tag hint interactive elements go first. On OrangeHRM the PIM link now comes first for the broken
   `#menu_pim_viewPimModule`, and in the demo the Add to cart button before the "Added to your cart" message.
 - A panel opened right after closing another one no longer stays open but invisible.
+- English UI: the labels of a call's General block (Method, Status, Start…), an AI provider error with its
+  hint (a quota, no credits), the time before the failure in an incident's evidence and the clients'
+  "Screenshot at failure" step were still in Spanish.
+- `tracereports push` and `report` read a recording in streaming instead of loading it whole: pushing a 300 MB
+  recording went from a 386 MB memory peak to 40 MB (`report` from 693 MB to 446 MB; the rest is the report
+  itself, which carries the evidence).
 
 ## [0.4.0] - 2026-10-15
 
@@ -219,7 +233,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/josemiguellopez/tracereports/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/josemiguellopez/tracereports/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/josemiguellopez/tracereports/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/josemiguellopez/tracereports/compare/v0.1.0...v0.2.0
