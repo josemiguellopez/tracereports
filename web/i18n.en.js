@@ -8,7 +8,7 @@
 		// ── navegación y barra superior ──
 		"Tests": "Tests", "Categorías": "Categories", "Errores": "Errors", "Análisis": "Analysis", "Métricas": "Metrics", "Ajustes": "Settings",
 		"Buscar": "Search", "Explora el historial de ejecuciones con filtros y comparación.": "Explore run history with filters and comparison.",
-		"Ver todas →": "See all →", "Buscar todas →": "Search all →", "Recientes": "Recent", "Ver todas las ejecuciones": "See all runs", "Ejecuciones recientes": "Recent runs", "Buscar ejecuciones, tests, ramas, commits…": "Search runs, tests, branches, commits…",
+		"Ver todas →": "See all →", "Buscar todas →": "Search all →", "Recientes": "Recent", "Ver todas las ejecuciones": "See all runs", "Ejecuciones recientes": "Recent runs", "Buscar ejecuciones, tests, errores, endpoints, ramas…": "Search runs, tests, errors, endpoints, branches…",
 		"Proyecto": "Project", "Ambiente": "Environment", "Rama": "Branch", "Dueño": "Owner", "Desde": "From", "Hasta": "To", "Orden": "Sort",
 		"Con fallos": "With failures", "En curso": "Running", "Incompletas": "Incomplete", "Limpiar todo": "Clear all", "Más reciente": "Most recent", "Más antiguo": "Oldest", "Más fallos": "Most failures", "Más lentas": "Slowest",
 		"Por dueño…": "By owner…", "Hoy": "Today", "7 días": "7 days", "30 días": "30 days", "Guardar búsqueda": "Save search", "Búsquedas guardadas": "Saved searches", "Nombre de la búsqueda": "Search name", "Nombre del dueño": "Owner name",

@@ -90,3 +90,87 @@ func TestRunSearchIndexIsFilledOnce(t *testing.T) {
 		t.Fatalf("a later start took %v: the index is filled again", took)
 	}
 }
+
+// Phase 2: a run is also found by the error message of a test and by the endpoint of a failed call
+// (a call that answered fine is not indexed).
+func TestRunSearchFindsErrorsAndFailedEndpoints(t *testing.T) {
+	s := openTestStore(t)
+	other, _ := s.CreateRun("nightly ok", "qa")
+	run, _ := s.CreateRun("nightly", "qa")
+	tid, _ := s.CreateTest(run, "test_checkout", "", "")
+	if err := s.AddNetwork(tid, []NetConn{
+		{Method: "POST", URL: "https://shop.test/api/orders", Status: 500},
+		{Method: "GET", URL: "https://shop.test/api/products", Status: 200},
+		{Method: "GET", URL: "https://down.test/api/stock", Failed: true},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FinishTest(tid, "FAIL", "payments: connection pool exhausted", ""); err != nil {
+		t.Fatal(err)
+	}
+	ok, _ := s.CreateTest(other, "test_catalog", "", "")
+	s.AddNetwork(ok, []NetConn{{Method: "GET", URL: "https://shop.test/api/products", Status: 200}})
+	find := func(q string) []int64 {
+		items, _, _, err := s.SearchRuns(RunSearchQuery{Q: q, Limit: 10, Sort: "recent"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		var ids []int64
+		for _, it := range items {
+			ids = append(ids, it.ID)
+		}
+		return ids
+	}
+	for _, q := range []string{"pool exhausted", "/api/orders", "POST https://shop.test/api/orders", "down.test"} {
+		if got := find(q); len(got) != 1 || got[0] != run {
+			t.Fatalf("%q: %v, want [%d]", q, got, run)
+		}
+	}
+	if got := find("/api/products"); len(got) != 0 {
+		t.Fatalf("a call that answered fine is not indexed: %v", got)
+	}
+	// deleting the run removes its calls from the index
+	if _, err := s.db.Exec(`DELETE FROM runs WHERE id = ?`, run); err != nil {
+		t.Fatal(err)
+	}
+	if got := find("/api/orders"); len(got) != 0 {
+		t.Fatalf("deleted run still found by its endpoint: %v", got)
+	}
+}
+
+// A database indexed by an older version (names only) is rebuilt once with the errors and failed calls.
+func TestRunSearchIndexUpgradesOnce(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "s.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	run, _ := s.CreateRun("nightly", "qa")
+	tid, _ := s.CreateTest(run, "test_checkout", "", "")
+	s.AddNetwork(tid, []NetConn{{Method: "POST", URL: "https://shop.test/api/orders", Status: 500}})
+	s.FinishTest(tid, "FAIL", "payments: connection pool exhausted", "")
+	// como la versión 1: el índice solo con los nombres, y su marca
+	for _, q := range []string{`DELETE FROM run_search_text WHERE rowid >= ` + fmt.Sprint(networkRowBase),
+		`UPDATE run_search_text SET content = 'test_checkout' WHERE rowid = ` + fmt.Sprint(tid),
+		`DELETE FROM run_search_init`, `INSERT INTO run_search_init(done) VALUES(1)`} {
+		if _, err := s.db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	s.Close()
+	if s, err = Open(path); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, q := range []string{"pool exhausted", "/api/orders"} {
+		items, _, _, err := s.SearchRuns(RunSearchQuery{Q: q, Limit: 5, Sort: "recent"})
+		if err != nil || len(items) != 1 {
+			t.Fatalf("%q after the upgrade: %v %v", q, items, err)
+		}
+	}
+	var version int
+	s.db.QueryRow(`SELECT MAX(done) FROM run_search_init`).Scan(&version)
+	if version != runSearchIndexVersion {
+		t.Fatalf("version mark %d", version)
+	}
+}

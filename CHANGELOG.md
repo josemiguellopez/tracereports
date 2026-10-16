@@ -8,6 +8,10 @@ All notable changes to TraceReports. The format follows
 
 ### Added
 
+- **Search inside errors and endpoints**: the run search (and Ctrl+K) also finds a run by the error message of
+  any of its tests (`pool exhausted`) and by the method and URL of a failed network call (`POST /api/orders`).
+  Only failed calls are indexed; an existing database is reindexed once on the first start.
+
 - **Suggested selectors in Selenium**: every suggestion also comes as Selenium code for Python, Java and JS, with
   the most natural `By` (CSS, `ID`, `NAME`, or XPath for a button, link or field by its text or label; XPath
   literals with both kinds of quotes use `concat()`). The locator card switches between Playwright and Selenium
