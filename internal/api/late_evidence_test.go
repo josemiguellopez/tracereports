@@ -303,9 +303,11 @@ func TestChangedFailureReanalyzesTest(t *testing.T) {
 	}
 }
 
-// FAIL A -> FAIL B -> PASS mientras A sigue en el proveedor: el test aprobado no queda con un
-// diagnóstico de fallo ni se pide un segundo diagnóstico (con respuesta correcta o con error del
-// proveedor). Si B sigue en FAIL, el diagnóstico final es el de B. El orden se fija con canales.
+// FAIL A -> FAIL B -> PASS mientras A está en el proveedor: el test aprobado no queda con un
+// diagnóstico de fallo ni se pide un diagnóstico para el PASS (con respuesta correcta o con error
+// del proveedor). Si B sigue en FAIL, el diagnóstico final es el de B. El FAIL B cancela la llamada
+// de A (Supersede) y B puede alcanzar a diagnosticarse antes de que llegue el PASS: eso es correcto
+// (era el fallo vigente) y no depende del orden, por eso se cuentan las llamadas por error.
 func TestQueuedDiagnosisAfterPass(t *testing.T) {
 	for _, tc := range []struct {
 		name       string
@@ -320,12 +322,20 @@ func TestQueuedDiagnosisAfterPass(t *testing.T) {
 			clearAIEnv(t)
 			srv, _ := newTestServer(t)
 			started, unblock := make(chan struct{}), make(chan struct{})
-			var calls atomic.Int32
+			var calls, callsA, callsB, callsOther atomic.Int32
 			llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				b, _ := io.ReadAll(r.Body)
 				if !strings.Contains(string(b), "Classify the root cause") {
 					w.Write([]byte(`{"message":{"content":"{\"headline\":\"h\",\"summary\":\"s\",\"incidents\":[]}"}}`))
 					return
+				}
+				switch {
+				case strings.Contains(string(b), "ERROR_A"):
+					callsA.Add(1)
+				case strings.Contains(string(b), "ERROR_B"):
+					callsB.Add(1)
+				default:
+					callsOther.Add(1)
 				}
 				first := calls.Add(1) == 1
 				if first {
@@ -370,8 +380,11 @@ func TestQueuedDiagnosisAfterPass(t *testing.T) {
 				if got.Status != "PASS" || got.Triage != nil {
 					t.Fatalf("a passing test kept a failure diagnosis: status=%s triage=%+v", got.Status, got.Triage)
 				}
-				if n := calls.Load(); n != 1 {
-					t.Fatalf("no second diagnosis may be requested for the PASS: %d calls", n)
+				// B's finish cancels A's call (Supersede) and B, the current failure for a moment, may be
+				// diagnosed before the PASS lands: one call for A and at most one for B. Nothing for the
+				// PASS, and never a retry of an old result.
+				if a, b, other := callsA.Load(), callsB.Load(), callsOther.Load(); a != 1 || b > 1 || other != 0 {
+					t.Fatalf("no diagnosis may be requested for the PASS: A=%d B=%d other=%d", a, b, other)
 				}
 				return
 			}
