@@ -76,7 +76,9 @@ type Recording struct {
 	RawRemoved bool
 	Dir        string
 	ID         string
-	streams    [][]Event // one per events file, in file order
+	// files are the events files, in file order. They are read in streaming (one event per file
+	// in memory at a time): a recording of gigabytes does not take gigabytes to replay.
+	files []string
 }
 
 // IsRecording reports whether dir looks like a recording (marker or events files).
@@ -122,76 +124,155 @@ func Open(dir string) (*Recording, error) {
 	if rec.ID == "" {
 		rec.ID = filepath.Base(filepath.Clean(dir))
 	}
+	// todo se valida antes de enviar nada (un evento que no es evidencia invalida la grabaciÃ³n
+	// entera), sin guardar los eventos: se vuelven a leer al reproducir
 	for _, f := range files {
-		evs, err := readEvents(f)
-		if err != nil {
+		if err := validateEvents(f); err != nil {
 			return nil, err
 		}
-		rec.streams = append(rec.streams, evs)
 	}
+	rec.files = files
 	return rec, nil
 }
 
-func readEvents(path string) ([]Event, error) {
+// validateEvents reads a whole events file and checks every event, keeping none of them.
+func validateEvents(path string) error {
+	r, err := newEventReader(path)
+	if err != nil {
+		return err
+	}
+	defer r.close()
+	for {
+		e, err := r.next()
+		if err != nil || e == nil {
+			return err
+		}
+	}
+}
+
+// eventReader reads an events file one event at a time.
+type eventReader struct {
+	f      *os.File
+	sc     *bufio.Scanner
+	name   string
+	line   int
+	broken error // lÃ­nea invÃ¡lida: solo se perdona si es la Ãºltima (el proceso muriÃ³ escribiÃ©ndola)
+}
+
+func newEventReader(path string) (*eventReader, error) {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
 	sc := bufio.NewScanner(f)
 	sc.Buffer(make([]byte, 64<<10), maxEvent)
-	name := filepath.Base(path)
-	var out []Event
-	var broken error // línea inválida: solo se perdona si es la última (el proceso murió escribiéndola)
-	line := 1
-	for ; sc.Scan(); line++ {
-		raw := bytes.TrimSpace(sc.Bytes())
+	return &eventReader{f: f, sc: sc, name: filepath.Base(path)}, nil
+}
+
+func (r *eventReader) close() { r.f.Close() }
+
+// next returns the next event of the file, nil at its end.
+func (r *eventReader) next() (*Event, error) {
+	for r.sc.Scan() {
+		r.line++
+		raw := bytes.TrimSpace(r.sc.Bytes())
 		if len(raw) == 0 {
 			continue
 		}
-		if broken != nil {
-			return nil, broken
+		if r.broken != nil {
+			return nil, r.broken
 		}
 		var e Event
 		if err := json.Unmarshal(raw, &e); err != nil {
-			broken = fmt.Errorf("%s:%d: invalid event: %v", name, line, err)
+			r.broken = fmt.Errorf("%s:%d: invalid event: %v", r.name, r.line, err)
 			continue
 		}
 		// solo evidencia: crear ejecuciones y tests, adjuntarles evidencia y cerrarlos (allowed.go).
-		// Un evento distinto invalida la grabación entera: nada se envía a ninguna parte
+		// Un evento distinto invalida la grabaciÃ³n entera: nada se envÃ­a a ninguna parte
 		if !Ingest(e.Method, e.Path) {
 			return nil, fmt.Errorf("%s:%d: %s %q is not an evidence event (a recording can only create runs and tests, add their evidence and finish them)",
-				name, line, e.Method, e.Path)
+				r.name, r.line, e.Method, e.Path)
 		}
-		e.file = name
-		out = append(out, e)
+		e.file = r.name
+		return &e, nil
 	}
-	if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
+	if err := r.sc.Err(); errors.Is(err, bufio.ErrTooLong) {
 		return nil, fmt.Errorf("%s:%d: event larger than %d MiB (the most the server accepts in one request): "+
-			"it was not written by a TraceReports client or the file is damaged", name, line, maxEvent>>20)
+			"it was not written by a TraceReports client or the file is damaged", r.name, r.line+1, maxEvent>>20)
 	} else if err != nil {
-		return nil, fmt.Errorf("%s: %w", name, err)
+		return nil, fmt.Errorf("%s: %w", r.name, err)
 	}
-	return out, nil
+	return nil, nil
 }
 
-// Events returns every event in replay order: files merged by ts, each file keeping its order.
-// At the same millisecond, a run must exist before a worker's tests and finish after them.
+// cursor yields every event in replay order: files merged by ts, each file keeping its order.
+// At the same millisecond, a run must exist before a worker's tests and finish after them. Only
+// the next event of each file is in memory.
+type cursor struct {
+	readers []*eventReader
+	heads   []*Event
+}
+
+func (r *Recording) cursor() (*cursor, error) {
+	c := &cursor{}
+	for _, path := range r.files {
+		rd, err := newEventReader(path)
+		if err != nil {
+			c.close()
+			return nil, err
+		}
+		c.readers = append(c.readers, rd)
+		e, err := rd.next()
+		if err != nil {
+			c.close()
+			return nil, err
+		}
+		c.heads = append(c.heads, e)
+	}
+	return c, nil
+}
+
+// next returns the next event, nil when there are no more.
+func (c *cursor) next() (*Event, error) {
+	best := -1
+	for i, e := range c.heads {
+		if e != nil && (best < 0 || before(*e, *c.heads[best])) {
+			best = i
+		}
+	}
+	if best < 0 {
+		return nil, nil
+	}
+	e := c.heads[best]
+	h, err := c.readers[best].next()
+	if err != nil {
+		return nil, err
+	}
+	c.heads[best] = h
+	return e, nil
+}
+
+func (c *cursor) close() {
+	for _, rd := range c.readers {
+		rd.close()
+	}
+}
+
+// Events returns every event in replay order (see cursor), all in memory: for tests. Replay
+// streams them.
 func (r *Recording) Events() []Event {
-	idx := make([]int, len(r.streams))
+	c, err := r.cursor()
+	if err != nil {
+		return nil
+	}
+	defer c.close()
 	var out []Event
 	for {
-		best := -1
-		for i, s := range r.streams {
-			if idx[i] < len(s) && (best < 0 || before(s[idx[i]], r.streams[best][idx[best]])) {
-				best = i
-			}
-		}
-		if best < 0 {
+		e, err := c.next()
+		if err != nil || e == nil {
 			return out
 		}
-		out = append(out, r.streams[best][idx[best]])
-		idx[best]++
+		out = append(out, *e)
 	}
 }
 
