@@ -86,3 +86,29 @@ Call log:
 		t.Fatalf("getter: got %q", got)
 	}
 }
+
+// Selenium for Python: a TimeoutException says nothing about the locator, the failing line of the
+// pytest traceback (">") does. Only for "not found" errors, and only that line.
+func TestExtractSelectorPythonSelenium(t *testing.T) {
+	trace := "    def test_abrir_pim(driver, paso):\n" +
+		"        login(driver, paso, \"Admin\", \"admin123\")\n" +
+		"        with paso(\"Abrir el módulo PIM\"):\n" +
+		">           esperar(driver, (By.CSS_SELECTOR, \"#menu_pim_viewPimModule\"), segundos=5).click()\n" +
+		"\n" +
+		"    def esperar(driver, locator, segundos=20):\n" +
+		">       return WebDriverWait(driver, segundos).until(EC.visibility_of_element_located(locator))\n" +
+		"E       selenium.common.exceptions.TimeoutException: Message:\n"
+	msg := "selenium.common.exceptions.TimeoutException: Message: Stacktrace: chromedriver!GetHandleVerifier"
+	if got := ExtractSelector(msg, trace); got != "#menu_pim_viewPimModule" {
+		t.Fatalf("css: %q", got)
+	}
+	byID := ">       driver.find_element(By.ID, 'pay').click()\nE   selenium.common.exceptions.NoSuchElementException: Message: no such element"
+	if got := ExtractSelector("NoSuchElementException", byID); got != "#pay" {
+		t.Fatalf("by id: %q", got)
+	}
+	// an assertion on an element that was found is not a broken locator
+	assertion := ">       assert driver.find_element(By.ID, \"total\").text == \"$10\"\nE       AssertionError: assert '$12' == '$10'"
+	if got := ExtractSelector("AssertionError: assert '$12' == '$10'", assertion); got != "" {
+		t.Fatalf("assertion is not a locator failure: %q", got)
+	}
+}

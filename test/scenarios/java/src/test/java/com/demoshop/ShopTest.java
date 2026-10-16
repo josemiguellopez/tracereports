@@ -30,7 +30,8 @@ class ShopTest {
 
     @BeforeEach
     void openBrowser(TraceTest t) {
-        ChromeOptions options = new ChromeOptions().addArguments("--headless=new", "--window-size=1280,800");
+        // los logs de red y consola de Chrome: la pestaña Red, el incidente de backend y el Lab
+        ChromeOptions options = SeleniumEvidence.options(new ChromeOptions().addArguments("--headless=new", "--window-size=1280,800"));
         driver = new ChromeDriver(options);
         wait = new WebDriverWait(driver, Duration.ofSeconds(5));
         SeleniumEvidence.attach(t, driver);

@@ -11,6 +11,8 @@ pytest --tracereports                     # reports your pytest suite with no co
 
 - **pytest plugin**: steps, screenshots, network and DOM with pytest-playwright, the browser console,
   and pytest-xdist workers merged into one run. Also a client API for unittest, Selenium or scripts.
+- **Selenium (Chrome, Edge)**: create the driver with `selenium_options(options)` and the plugin also sends
+  each test's network (Network tab, Lab), console, screenshot and DOM ([Selenium guide](https://github.com/josemiguellopez/tracereports/blob/main/docs/en/selenium.md)).
 - **Never slows down or breaks your tests**: evidence goes out in the background with retries and
   no duplicates; whatever could not be sent can be saved and resent later.
 - **Without a server**: if the server is down or rejects the token, the run is recorded locally;

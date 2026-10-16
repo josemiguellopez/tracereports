@@ -48,8 +48,8 @@ class LoginTest {
 
     @BeforeEach
     void setUp(TraceTest t) {                 // TraceTest se inyecta
-        driver = new ChromeDriver();
-        SeleniumEvidence.attach(t, driver);      // si falla: captura + DOM, antes de @AfterEach
+        driver = new ChromeDriver(SeleniumEvidence.options(new ChromeOptions()));   // logs de red y consola
+        SeleniumEvidence.attach(t, driver);      // red y consola; si falla captura + DOM, antes de @AfterEach
     }
 
     @Test @Tag("smoke")

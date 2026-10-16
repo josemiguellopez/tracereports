@@ -13,5 +13,6 @@ TRACEREPORTS_DEMO_FAIL=1 ./gradlew test     # include the controlled failure
 HEADLESS=0 ./gradlew test              # watch the browser
 ```
 
-Selenium Manager downloads the matching chromedriver. If the server has a token, set `TRACEREPORTS_TOKEN`. Client documentation:
+The driver is created with `SeleniumEvidence.options(...)`, so each test also brings its **network** (Network tab,
+backend incidents, Lab) and **console**: see [Selenium](../../docs/en/selenium.md). Selenium Manager downloads the matching chromedriver. If the server has a token, set `TRACEREPORTS_TOKEN`. Client documentation:
 [docs/en/java.md](../../docs/en/java.md).

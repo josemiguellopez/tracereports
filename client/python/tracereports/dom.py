@@ -43,6 +43,13 @@ def capturar_dom(page):
         snap = page.evaluate(DOM_SCRIPT)
     except Exception:
         return None
+    return _mask_dom(snap)
+
+
+def _mask_dom(snap):
+    """Enmascara los textos del snapshot (también lo usa la captura de Selenium)."""
+    if not isinstance(snap, dict):
+        return None
     for el in snap.get("elements", []):
         for key in ("text", "label", "placeholder"):
             el[key] = _mask_sensitive(el.get(key) or "")

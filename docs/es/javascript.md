@@ -76,8 +76,9 @@ Ejemplo completo: [`examples/playwright-js`](../../examples/playwright-js).
 
 ```js
 import { TraceReports } from "tracereports";
-import { screenshot, withDriver } from "tracereports/selenium";
+import { screenshot, seleniumOptions, withDriver } from "tracereports/selenium";
 
+// crea el driver con seleniumOptions(new chrome.Options()): logs de red y consola
 const cr = new TraceReports();
 await cr.startRun("Regresión web", { environment: "chrome", framework: "selenium" });
 
@@ -90,9 +91,10 @@ await cr.test("Login correcto", withDriver(driver, { key: "login.test.js > ok", 
 await cr.finishRun();   // espera la cola y cierra la ejecución
 ```
 
-`withDriver` adjunta la **captura** y el **snapshot del DOM** si el test falla y vuelve a lanzar el
-error para que el runner lo vea. Selenium no expone la red del navegador: para la pestaña Red usa
-Playwright o envía las llamadas con `t.network([...])`.
+`withDriver` envía la **red** (pestaña Red, Lab) y la **consola** de cada test y, si falla, la
+**captura** y el **snapshot del DOM**; vuelve a lanzar el error para que el runner lo vea. La red y la
+consola salen de los logs de Chrome y Edge, así que crea el driver con `seleniumOptions(options)`.
+Paso a paso: [Selenium](selenium.md).
 
 Ejemplo completo con `node:test`: [`examples/selenium-js`](../../examples/selenium-js).
 

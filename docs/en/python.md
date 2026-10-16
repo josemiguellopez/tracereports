@@ -119,7 +119,9 @@ all of them finish. If a worker crashes, its running tests are marked *Interrupt
 
 ## Option 2: client API (unittest, Selenium, scripts…)
 
-> With pytest + Selenium (and Allure), the plugin and a `conftest.py` are enough: see
+> **Selenium with pytest:** create the driver with `tracereports.selenium.selenium_options(options)` and
+> `pytest --tracereports` sends each test's network, console, screenshot and DOM by itself. Without
+> pytest, `report_selenium(driver, cr)`. Step by step: [Selenium](selenium.md); with Allure:
 > [examples/python-selenium-allure](../../examples/python-selenium-allure).
 
 ```python

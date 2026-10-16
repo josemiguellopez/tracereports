@@ -410,6 +410,7 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 - [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Configuración](docs/es/configuration.md) · [Línea de comandos](docs/es/cli.md)
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md) · [Demo, playground y selftest](docs/es/demo.md): pruébalo en un minuto y comprueba un despliegue
 - [Allure](docs/es/allure.md): tus resultados de Allure, diagnosticados con IA
+- [Selenium](docs/es/selenium.md): red, consola y selectores sugeridos con Selenium en Python, JavaScript y Java
 - [FixLab](docs/es/fixlab.md): reproduce un fallo y verifica el arreglo, desde el reporte, la terminal, CI o un agente de IA
 - [Python](docs/es/python.md) · [JavaScript](docs/es/javascript.md) · [Java](docs/es/java.md) · [Go](docs/es/go.md) · [API REST](docs/es/api.md)
 - [Integración continua](docs/es/ci.md) · [Sin servidor: grabar, reportar y subir después](docs/es/offline.md)
