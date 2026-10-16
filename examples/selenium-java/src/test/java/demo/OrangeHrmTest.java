@@ -28,7 +28,8 @@ import org.openqa.selenium.support.ui.WebDriverWait;
  *   TRACEREPORTS_DEMO_FAIL=1 ./gradlew test     # incluye un fallo controlado (diagnóstico + locators)
  * </pre>
  *
- * La extensión reporta cada test; {@link SeleniumEvidence#attach} adjunta captura y DOM si falla.
+ * La extensión reporta cada test; {@link SeleniumEvidence#attach} envía la red y la consola de cada test
+ * (con el driver creado con {@link SeleniumEvidence#options}) y, si falla, la captura y el DOM.
  */
 @ExtendWith(TraceReportsExtension.class)
 class OrangeHrmTest {
@@ -38,7 +39,8 @@ class OrangeHrmTest {
 
     @BeforeEach
     void abrirNavegador(TraceTest t) {
-        ChromeOptions options = new ChromeOptions().addArguments("--window-size=1280,800");
+        // logs de red y consola de Chrome: pestañas Red y Consola, y el Lab
+        ChromeOptions options = SeleniumEvidence.options(new ChromeOptions().addArguments("--window-size=1280,800"));
         if (!"0".equals(System.getenv("HEADLESS"))) options.addArguments("--headless=new");
         driver = new ChromeDriver(options); // Selenium Manager trae el driver
         wait = new WebDriverWait(driver, Duration.ofSeconds(20));

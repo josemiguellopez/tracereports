@@ -10,7 +10,7 @@ import { after, before, test } from "node:test";
 import { Builder, By, until } from "selenium-webdriver";
 import chrome from "selenium-webdriver/chrome.js";
 import { TraceReports } from "tracereports";
-import { screenshot, withDriver } from "tracereports/selenium";
+import { screenshot, seleniumOptions, withDriver } from "tracereports/selenium";
 
 const URL = "https://opensource-demo.orangehrmlive.com/web/index.php/auth/login";
 const FILE = "tests/orangehrm.test.js";
@@ -24,7 +24,7 @@ after(async () => {
 });
 
 function newDriver() {
-  const options = new chrome.Options();
+  const options = seleniumOptions(new chrome.Options()); // logs de red y consola: pestañas Red y Consola, Lab
   if (process.env.HEADLESS !== "0") options.addArguments("--headless=new");
   options.addArguments("--window-size=1280,800");
   return new Builder().forBrowser("chrome").setChromeOptions(options).build(); // Selenium Manager trae el driver
