@@ -61,7 +61,7 @@
 
 	// ─── drawer accesible ────────────────────────────────────────────────────
 	const Drawer = (() => {
-		let root, panel, lastFocus, onClose;
+		let root, panel, lastFocus, onClose, hideTimer;
 		const FOCUSABLE = 'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 		function ensure() {
@@ -102,6 +102,8 @@
 			const slot = panel.querySelector(".cf-drawer-body");
 			slot.innerHTML = "";
 			if (typeof body === "string") slot.innerHTML = body; else slot.appendChild(body);
+			// abrir justo después de cerrar (Escape y abrir otro): el cierre pendiente no debe ocultarlo
+			clearTimeout(hideTimer);
 			root.hidden = false;
 			document.documentElement.classList.add("cf-no-scroll");
 			requestAnimationFrame(() => {
@@ -115,7 +117,8 @@
 			if (!root || root.hidden) return;
 			root.classList.remove("open");
 			document.documentElement.classList.remove("cf-no-scroll");
-			setTimeout(() => { root.hidden = true; }, 180);
+			clearTimeout(hideTimer);
+			hideTimer = setTimeout(() => { if (!root.classList.contains("open")) root.hidden = true; }, 180);
 			onClose?.();
 			lastFocus?.focus?.();
 		}
