@@ -1,7 +1,7 @@
 <a href="https://github.com/josemiguellopez/tracereports"><img src="./.github/assets/banner.es.svg" alt="TraceReports: del fallo a la causa. Pasos, capturas, red y diagnóstico con IA para tus tests." width="100%" /></a>
 
 <p align="center">
-  <a href="https://tracereports.netlify.app/#start"><img alt="Pruébalo ya" src="https://img.shields.io/badge/pru%C3%A9balo%20ya-%E2%86%92-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
+  <a href="https://tracereports.cl/"><img alt="Pruébalo ya" src="https://img.shields.io/badge/pru%C3%A9balo%20ya-%E2%86%92-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/stargazers"><img alt="Estrellas en GitHub" src="https://img.shields.io/github/stars/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&color=c9fa6b" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/josemiguellopez/tracereports/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI" /></a>
   <a href="./LICENSE"><img alt="Licencia: Apache-2.0" src="https://img.shields.io/badge/licencia-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
@@ -40,7 +40,7 @@ pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # listo, sin cambiar tu código
 ```
 
-👉 **[Prueba la demo en vivo](https://tracereports.netlify.app/demo/)**: un reporte real para recorrer, sin instalar nada.
+👉 **[Prueba la demo en vivo](https://tracereports.cl/demo/)**: un reporte real para recorrer, sin instalar nada.
 
 👉 **O en tu equipo en un minuto**: `tracereports demo` levanta el servidor con ejecuciones reales grabadas con los
 clientes de pytest + Playwright, Playwright Test, Selenium + JUnit 5 y Go, más una tienda de prueba cuyo backend puedes
@@ -109,14 +109,14 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
       Agrupa en incidentes los fallos que comparten evidencia (la misma llamada de backend fallida,
       la misma firma de error), con la causa probable y qué revisar primero.
       <br /><br />
-      <img src="./.github/assets/diagnosis.png" alt="Diagnóstico que agrupa los fallos en incidentes de backend" />
+      <img src="./.github/assets/diagnosis.es.png" alt="Diagnóstico que agrupa los fallos en incidentes de backend" />
     </td>
     <td width="50%" valign="top">
       <h3>⏱️ Timeline</h3>
       Pasos, capturas y llamadas de red en una sola línea de tiempo. Ves exactamente qué esperaba el
       test cuando el backend respondió 500.
       <br /><br />
-      <img src="./.github/assets/timeline.png" alt="Timeline con pasos, capturas y llamadas de red" />
+      <img src="./.github/assets/timeline.es.png" alt="Timeline con pasos, capturas y llamadas de red" />
     </td>
   </tr>
   <tr>
@@ -126,14 +126,14 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
       Cypress o WireMock generado desde la llamada fallida. Contraseñas y cookies llegan ya
       enmascaradas.
       <br /><br />
-      <img src="./.github/assets/network.png" alt="Pestaña Red con un POST fallido y la contraseña y la cookie enmascaradas" />
+      <img src="./.github/assets/network.es.png" alt="Pestaña Red con un POST fallido y la contraseña y la cookie enmascaradas" />
     </td>
     <td width="50%" valign="top">
       <h3>🎯 Locators rotos</h3>
       Cuando un selector deja de funcionar, lee el DOM del momento del fallo y propone reemplazos
       robustos, listos para copiar y marcados sobre la captura.
       <br /><br />
-      <img src="./.github/assets/locators.png" alt="Selector roto con reemplazos sugeridos con get_by_role" />
+      <img src="./.github/assets/locators.es.png" alt="Selector roto con reemplazos sugeridos con get_by_role" />
     </td>
   </tr>
   <tr>
@@ -142,14 +142,14 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
       Un resumen para Negocio, QA o Desarrollo con la captura, las llamadas fallidas y el
       diagnóstico. Cópialo como texto, Markdown, correo o imagen, o envíalo a Teams o Slack.
       <br /><br />
-      <img src="./.github/assets/escalate.png" alt="Resumen de escalamiento para desarrollo con severidad y captura" />
+      <img src="./.github/assets/escalate.es.png" alt="Resumen de escalamiento para desarrollo con severidad y captura" />
     </td>
     <td width="50%" valign="top">
       <h3>▶️ Replay</h3>
       Reproduce el test paso a paso con sus capturas, como un video. Play, pausa, 1x/2x y atajos de
       teclado.
       <br /><br />
-      <img src="./.github/assets/replay.png" alt="Replay paso a paso de un test de login fallido" />
+      <img src="./.github/assets/replay.es.png" alt="Replay paso a paso de un test de login fallido" />
     </td>
   </tr>
 </table>

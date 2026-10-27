@@ -18,14 +18,14 @@ repositories { mavenCentral() }
 dependencies {
     compileOnly("org.junit.jupiter:junit-jupiter-api:6.1.3")
     compileOnly("org.seleniumhq.selenium:selenium-api:4.51.0")
-    compileOnly("com.microsoft.playwright:playwright:1.63.0")
+    compileOnly("com.microsoft.playwright:playwright:1.64.0")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.jupiter:junit-jupiter-params")
     testImplementation("org.junit.platform:junit-platform-testkit")
     // la captura de Playwright se prueba con un Response simulado (sin navegador)
-    testImplementation("com.microsoft.playwright:playwright:1.63.0")
+    testImplementation("com.microsoft.playwright:playwright:1.64.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
