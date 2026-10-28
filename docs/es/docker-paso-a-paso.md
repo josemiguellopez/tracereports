@@ -16,6 +16,10 @@ comprobar que la seguridad está bien configurada.
 Los comandos están pensados para **Windows (PowerShell)**. Donde cambian en macOS o Linux, hay un bloque
 desplegable **"macOS / Linux"** debajo.
 
+> **¿Ya tienes TraceReports instalado con Docker en este equipo?** Haz también el
+> [paso 3b](#paso-3b--opcional-si-ya-tienes-tracereports-instalado) para no reemplazar tu instalación ni
+> sus datos.
+>
 > **Tiempo:** unos 30 minutos. La primera vez Docker descarga y construye la imagen (1 a 3 minutos).
 >
 > **Ya conoces Docker y solo quieres la referencia?** Ve a [Docker](docker.md). Para un servidor compartido
@@ -25,7 +29,7 @@ desplegable **"macOS / Linux"** debajo.
 
 ## Índice
 
-- [Parte A — Preparar](#parte-a--preparar) (pasos 1 a 3)
+- [Parte A — Preparar](#parte-a--preparar) (pasos 1 a 3, y el 3b opcional)
 - [Parte B — Configurar](#parte-b--configurar) (paso 4)
 - [Parte C — Arrancar](#parte-c--arrancar) (pasos 5 a 7)
 - [Parte D — Entrar y revisar](#parte-d--entrar-y-revisar) (pasos 8 a 10)
@@ -134,45 +138,105 @@ ls docker-compose.yml .env.example
 > `tracereports`** (donde está el `docker-compose.yml`). Si estás en otra carpeta responden
 > `no configuration file provided: not found`. Si cierras la terminal, vuelve con `cd $HOME\tracereports`.
 
-<details>
-<summary><b>Opcional — Si ya tienes TraceReports instalado con Docker en este equipo</b></summary>
+---
 
-Docker identifica cada instalación por el **nombre de su carpeta**. Si ya tienes otra copia en una carpeta
-que también se llama `tracereports`, Docker creería que es la misma: reemplazaría su contenedor y usaría
-sus datos. Además, las dos usan el puerto 8080.
+### Paso 3b — (Opcional) Si ya tienes TraceReports instalado
 
-1. **Detén** la instalación anterior (no se borra nada). Usa la carpeta donde está esa instalación:
+🎯 **Haz este paso solo si en este equipo ya tienes otra instalación de TraceReports con Docker** (por
+ejemplo, quieres probar una versión nueva sin perder la que usas). Si es tu primera instalación, sáltalo y
+ve al paso 4.
 
-   ```powershell
-   cd C:\ruta\de\tu\instalacion\anterior
-   docker compose stop
-   ```
+**Por qué hace falta:** Docker identifica cada instalación por el **nombre de su carpeta**. Si tu
+instalación anterior también está en una carpeta llamada `tracereports`, Docker creería que la nueva es la
+misma: **reemplazaría su contenedor y usaría sus datos**. Además, las dos usan el puerto 8080.
 
-2. **Vuelve a la carpeta nueva** (`cd $HOME\tracereports`) y crea este archivo, que le da a la nueva su
-   propio nombre, su propia imagen y su propio volumen de datos:
+**1. Busca tu instalación anterior** (dónde está y si está encendida):
 
-   ```powershell
-   @"
-   name: tracereports-nuevo
-   services:
-     tracereports:
-       image: tracereports:nuevo
-   volumes:
-     tracereports-data:
-       name: tracereports-nuevo-data
-   "@ | Set-Content -Encoding ascii docker-compose.override.yml
-   ```
+💻
 
-3. Comprueba que quedó separada:
+```powershell
+docker ps -a --filter "label=com.docker.compose.service=tracereports" --format "{{.Names}}|{{.Status}}|{{.Labels}}" | ForEach-Object { $n, $s, $l = $_ -split '\|', 3; "$n  ($s)  carpeta: " + (($l -split ',' | Where-Object { $_ -like 'com.docker.compose.project.working_dir=*' }) -replace '^[^=]*=', '') }
+```
 
-   ```powershell
-   docker compose config --format json | Select-String '"name": "tracereports-nuevo'
-   ```
+✅ **Deberías ver** algo como:
 
-   ✅ Deberías ver tres líneas, todas con `tracereports-nuevo`.
+```
+tracereports-tracereports-1  (Up 14 minutes)  carpeta: C:\dev\tracereports
+```
 
-Para volver a la anterior más adelante: en la carpeta nueva `docker compose stop`, y en la anterior
-`docker compose start`.
+Si no aparece nada, no tienes otra instalación con Docker: sáltate el resto de este paso.
+
+**2. Detén la instalación anterior** (no se borra nada: sus datos quedan intactos). Usa la carpeta que te
+mostró el comando anterior:
+
+```powershell
+cd C:\ruta\que\te\mostro\el\comando
+```
+
+```powershell
+docker compose stop
+```
+
+✅ **Deberías ver** `Container tracereports-tracereports-1  Stopped`.
+
+**3. Vuelve a la carpeta nueva y sepárala.** Este archivo le da a la nueva instalación **su propio nombre,
+su propia imagen y su propio volumen de datos**:
+
+```powershell
+cd $HOME\tracereports
+```
+
+```powershell
+@"
+name: tracereports-nuevo
+services:
+  tracereports:
+    image: tracereports:nuevo
+volumes:
+  tracereports-data:
+    name: tracereports-nuevo-data
+"@ | Set-Content -Encoding ascii docker-compose.override.yml
+```
+
+**4. Comprueba** que quedó separada:
+
+```powershell
+docker compose config --format json | Select-String '"name": "tracereports-nuevo'
+```
+
+✅ **Deberías ver** tres líneas, **todas con `tracereports-nuevo`**:
+
+```
+  "name": "tracereports-nuevo",
+      "name": "tracereports-nuevo_default",
+      "name": "tracereports-nuevo-data"
+```
+
+⚠️ Si no aparecen esas líneas, **no sigas**: revisa que estás en `$HOME\tracereports` y repite el punto 3.
+
+> Desde ahora, en los pasos siguientes los nombres que veas dirán `tracereports-nuevo` en lugar de
+> `tracereports` (por ejemplo `tracereports-nuevo-tracereports-1`). Es lo correcto.
+>
+> **Para volver a tu instalación anterior** cuando termines: en la carpeta nueva `docker compose stop`, y en
+> la carpeta anterior `docker compose start`.
+
+<details><summary>macOS / Linux</summary>
+
+```bash
+docker ps -a --filter label=com.docker.compose.service=tracereports --format '{{.Names}}  ({{.Status}})  {{.Label "com.docker.compose.project.working_dir"}}'
+cd /ruta/que/te/mostro/el/comando && docker compose stop
+cd ~/tracereports
+cat > docker-compose.override.yml <<'EOF'
+name: tracereports-nuevo
+services:
+  tracereports:
+    image: tracereports:nuevo
+volumes:
+  tracereports-data:
+    name: tracereports-nuevo-data
+EOF
+docker compose config --format json | grep '"name": "tracereports-nuevo'
+```
 
 </details>
 
@@ -304,7 +368,7 @@ docker compose up -d
 ⚠️ **Si ves esto:**
 
 - `port is already allocated` → otro programa usa el puerto 8080 (¿otra instalación de TraceReports?).
-  Mira el paso opcional del [paso 3](#paso-3--descargar-tracereports).
+  Mira el [paso 3b](#paso-3b--opcional-si-ya-tienes-tracereports-instalado).
 - Un error de red al descargar → revisa tu conexión y repite.
 
 ---
@@ -753,6 +817,11 @@ juntas, a veces dos se unen en una y el comando falla).
    docker image rm tracereports:latest
    ```
 
+   Si hiciste el **paso 3b**, la imagen se llama distinto: `docker image rm tracereports:nuevo`. En ese caso,
+   `docker compose down -v` del punto 2 borró solo los datos **de esta** instalación (`tracereports-nuevo-data`):
+   tu instalación anterior y sus datos siguen intactos. Para volver a encenderla, en su carpeta:
+   `docker compose start`.
+
 4. Cierra la otra terminal, el Bloc de notas y cualquier ventana del Explorador que esté en esas carpetas, y
    borra las carpetas:
 
@@ -775,7 +844,7 @@ terminal, abre una nueva y repite solo la última línea.
 | --- | --- |
 | `no configuration file provided: not found` | Estás fuera de la carpeta `tracereports`. Haz `cd $HOME\tracereports` |
 | `Cannot connect to the Docker daemon` | Docker está apagado: abre Docker Desktop y espera **Engine running** |
-| `port is already allocated` | Otra instalación usa el puerto 8080. Ver el paso opcional del [paso 3](#paso-3--descargar-tracereports) |
+| `port is already allocated` | Otra instalación usa el puerto 8080. Ver el [paso 3b](#paso-3b--opcional-si-ya-tienes-tracereports-instalado) |
 | El log dice `refusing to start` | Faltan las contraseñas en el `.env`: repite el paso 4 y `docker compose up -d` |
 | `missing or invalid API token` | El token no es el de ingesta del `.env`, o tiene un texto de ejemplo sin reemplazar |
 | El navegador pide la clave una y otra vez | La clave no coincide con el `.env` |
