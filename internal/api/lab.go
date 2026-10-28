@@ -3,7 +3,6 @@ package api
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -26,15 +25,7 @@ type LabConfig struct {
 }
 
 // ParseLabHosts splits TRACEREPORTS_LAB_HOSTS (comma separated).
-func ParseLabHosts(s string) []string {
-	var out []string
-	for _, h := range strings.Split(s, ",") {
-		if h = strings.ToLower(strings.TrimSpace(h)); h != "" {
-			out = append(out, h)
-		}
-	}
-	return out
-}
+func ParseLabHosts(s string) []string { return lab.ParseHosts(s) }
 
 // labPlan returns the plan to resend one captured call, and whether this person may send it.
 func (s *Server) labPlan(w http.ResponseWriter, r *http.Request) {
@@ -84,22 +75,7 @@ func (s *Server) labAllow(r *http.Request, plan *lab.Plan) func(*url.URL) error 
 	if s.labLocal(r) {
 		return nil // el transporte igual bloquea direcciones link-local
 	}
-	allowed := map[string]bool{}
-	for _, h := range plan.Hosts {
-		allowed[strings.ToLower(h)] = true
-	}
-	return func(u *url.URL) error {
-		host := strings.ToLower(u.Host)
-		if allowed[host] {
-			return nil
-		}
-		for _, h := range s.Lab.Hosts {
-			if h == host || h == u.Hostname() || (strings.HasPrefix(h, "*.") && strings.HasSuffix(u.Hostname(), h[1:])) {
-				return nil
-			}
-		}
-		return fmt.Errorf("host %s is not one the test called nor in TRACEREPORTS_LAB_HOSTS", u.Host)
-	}
+	return lab.HostRule(plan, s.Lab.Hosts)
 }
 
 // labSend resends a captured call: {"conn_id", "values", "base_url", "request"}.

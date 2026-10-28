@@ -143,6 +143,11 @@ El Lab hace que el servidor envíe peticiones HTTP, así que se trata como una c
 - **A dónde** puede enviar:
   - Desde la máquina del propio servidor, a cualquier host, como tu terminal.
   - En un servidor compartido, solo a los hosts que llamó el test más `TRACEREPORTS_LAB_HOSTS`.
+  - **`repro`, `verify` y el MCP** (desde tu equipo, con los secretos de `TRACEREPORTS_LAB_<NOMBRE>`):
+    solo a los hosts que llamó el test, los de `TRACEREPORTS_LAB_HOSTS` y, en la CLI, la URL que
+    pasas con `-base`. Una cápsula o un plan vienen de datos ingeridos: así nadie con el token de
+    ingesta puede dirigir tus secretos a otro host. En el MCP la URL base la propone el agente, por eso
+    nunca abre un host nuevo: decláralo en `TRACEREPORTS_LAB_HOSTS`.
   - Las direcciones link-local (metadatos de nube, `169.254.169.254`) y los esquemas que no sean
     `http`/`https` siempre se bloquean.
   - Las redirecciones se muestran, no se siguen.
@@ -150,6 +155,9 @@ El Lab hace que el servidor envíe peticiones HTTP, así que se trata como una c
   logs. La respuesta pasa por la política de enmascarado antes de mostrarse, así que un token nuevo
   queda oculto.
 - El **ZIP exportado** no tiene Lab: no hay servidor desde donde enviar.
+- **Credenciales para leer**: `repro`, `verify` y el MCP leen del servidor con la credencial más chica
+  que haya: `TRACEREPORTS_INGEST_TOKEN` antes que `TRACEREPORTS_TOKEN`, y el login de solo lectura
+  (`TRACEREPORTS_UI_VIEWER_USER`) antes que el de administración. Al agente no le hace falta administrar.
 
 | Variable | Por defecto | Qué hace |
 | --- | --- | --- |

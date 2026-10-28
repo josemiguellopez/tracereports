@@ -56,8 +56,8 @@ de chat, tracker, una dependencia del build); quien **roba el host o un backup**
 | **Proveedores de IA** | Evidencia que sale de la red; inyección de prompts desde la salida de los tests | Por defecto el **motor local de reglas, sin red** (#43); perfil de LLM local (#44); allowlist de proveedores; destinos de salida registrados al arrancar; el diagnóstico es texto de apoyo y nunca ejecuta acciones | Los proveedores en la nube reciben la evidencia redactada; ver la brecha de Ajustes |
 | **Notificaciones** (Teams, Slack) | Nombres de tests y errores en un chat con más audiencia | `NOTIFY_DETAIL=minimal`: solo conteos y un link (#40) | Detalle completo por defecto |
 | **Trackers** (GitHub, Jira, Azure DevOps) | Evidencia copiada a otro sistema | Solo por una acción explícita de administración (que incluye a cualquier usuario de la UI), nunca automática | La captura del fallo va adjunta: el tracker la hereda |
-| **FixLab Request Lab** (UI, `repro`, MCP) | El servidor o un portátil usado para llegar a hosts internos (SSRF) | Desde la UI en un servidor compartido, solo los hosts registrados del test más `TRACEREPORTS_LAB_HOSTS`; direcciones link-local siempre bloqueadas; `TRACEREPORTS_LAB=off` lo desactiva | Los hosts registrados vienen de datos ingeridos (quien tiene el token de ingesta los decide); desde el propio equipo del servidor, `repro` y las herramientas MCP no hay restricción de hosts |
-| **Servidor MCP** (`tracereports mcp`) | Un agente con demasiado poder | Local por stdio, no escucha en la red | Se autentica con el token de administración, también para llamadas de solo lectura |
+| **FixLab Request Lab** (UI, `repro`, MCP) | El servidor o un portátil usado para llegar a hosts internos (SSRF) | Desde la UI en un servidor compartido, solo los hosts registrados del test más `TRACEREPORTS_LAB_HOSTS`; direcciones link-local siempre bloqueadas; `TRACEREPORTS_LAB=off` lo desactiva | `repro`, `verify` y el MCP también se quedan en los hosts que llamó el test más `TRACEREPORTS_LAB_HOSTS` (y `-base` en la CLI); la URL base del agente nunca abre un host. Los hosts registrados igual vienen de datos ingeridos, y la UI en el propio equipo del servidor no restringe hosts (como la terminal del desarrollador) |
+| **Servidor MCP** (`tracereports mcp`) | Un agente con demasiado poder | Local por stdio, no escucha en la red; lee con el token de ingesta o el login de solo lectura cuando existen, no con las credenciales de administración | Si solo está el token de administración, usa ese |
 | **Exportaciones y reportes estáticos** (ZIP, `tracereports report`) | Evidencia que sale del servidor | Exportar requiere acceso de lectura; el ZIP va **descifrado** a propósito (quien exporta ya la veía) | `tracereports report` escribe sus archivos solo para el usuario (`0700`/`0600`); una vez copiado o publicado, trata su salida como la evidencia misma |
 | **Grabaciones offline y mirror de los clientes** | Evidencia en el disco del CI | El replay se limita a endpoints de ingesta; carpetas `0700` y archivos `0600` (Linux, macOS) en los cuatro clientes | Las grabaciones quedan **antes** de la redacción del servidor |
 | **Cadena de suministro** | Binario o imagen alterados; dependencia vulnerable | Releases firmados (cosign sin llaves), SBOM y procedencia SLSA (#36); govulncheck y CodeQL en cada pull request; Scorecard semanal y en `main`; actions de terceros fijadas por SHA (las `actions/*` de GitHub por tag de versión); un solo binario estático, sin CGO | |
@@ -99,8 +99,9 @@ Conocidos y aceptados, o en manos del operador. La guía de hardening y `doctor 
 8. **Archivos fuera del servidor.** Los reportes estáticos y las grabaciones de los clientes son
    privados de su usuario, pero las grabaciones todavía no se redactan y los artefactos del CI siguen las
    reglas de acceso del CI. Mantenlos en workspaces y artefactos privados.
-9. **Los destinos del Lab y de MCP vienen de datos ingeridos**, y no tienen restricción desde el propio
-   equipo del servidor.
+9. **Los destinos del Lab vienen de datos ingeridos.** Un reenvío se queda en los hosts que registró el
+   test, pero esos hosts los envió quien tiene el token de ingesta; la UI en el propio equipo del servidor
+   no tiene restricción.
 10. **La gestión de claves es del operador.** Perder `TRACEREPORTS_DB_KEY` pierde la evidencia cifrada;
     filtrarla con un backup la expone. El servidor rechaza una clave dentro de `DATA_DIR`, nada más.
 11. **HTTP Basic sin TLS.** El servidor no termina TLS; debe hacerlo un proxy.

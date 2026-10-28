@@ -75,6 +75,11 @@ warning, and anyone who reached the port could read and change the reports. Now 
   `0600` on Linux and macOS (before: readable by every user of the machine). A recording holds the
   evidence before server-side redaction. To publish a static report with a web server, grant read access
   on purpose (`chmod -R a+rX`).
+- **`repro`, `verify` and the MCP stay on the test's hosts**: a resend from your machine (with the secrets
+  of `TRACEREPORTS_LAB_<NAME>`) only goes to the hosts the test called, those of `TRACEREPORTS_LAB_HOSTS`
+  and, in the CLI, the URL passed with `-base`. The base URL an agent proposes over MCP never opens a new
+  host. They also read from the server with the smallest credential available (ingest token, read-only
+  login) instead of the admin ones, and the token no longer gets overwritten when a UI login is also set.
 
 - **`tracereports doctor --security`**: the hardening checklist as checks (tokens, UI login, network
   exposure and CIDR allowlist, AI provider and allowlist, Settings lock, retention, encryption at rest,
