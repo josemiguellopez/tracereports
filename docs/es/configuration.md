@@ -38,6 +38,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_BIND` | todas las interfaces; sin credenciales, solo este equipo | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows). Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_INSECURE` | — | `1`: arranca escuchando en la red **sin** token ni login (solo en una red cerrada de laboratorio). Ver [Seguridad](#seguridad) |
 | `NOTIFY_ON` | `always` | `always`, o `failures` para avisar solo si hubo fallos |
+| `NOTIFY_DETAIL` | `full` | `minimal`: Teams y Slack reciben solo conteos, estado y el link; sin nombres de tests, errores, URLs del backend ni texto de IA. Ver [Notificaciones](#notificaciones-a-teams-y-slack) |
 | `NETWORK_MAX_BODY_KB` | `256` | Máximo guardado por cada *response body* de red; `0` = no guardar bodies |
 | `TRACEREPORTS_REDACT` | activo | `off` guarda los secretos tal como llegan (no recomendado) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
@@ -356,6 +357,12 @@ Al cerrar cada ejecución (`PATCH /runs/{id}/finish`) se envía:
 - el titular del diagnóstico y las principales causas con su acción sugerida;
 - la comparación con la ejecución anterior (fallos nuevos, arreglados, flaky);
 - un botón **Ver reporte** si definiste `PUBLIC_URL`.
+
+**Canales compartidos (`NOTIFY_DETAIL=minimal`)**: si el canal no debe ver los nombres de los tests, los
+errores ni el diagnóstico, con `NOTIFY_DETAIL=minimal` solo llegan el nombre de la ejecución, los conteos
+(OK, fallidos, omitidos, cambios respecto de la anterior), el estado y el botón **Ver reporte**. Aplica a
+todo lo que se envía: el aviso de cada ejecución, el resumen semanal (con sus números, sin la lista de
+tests) y los escalamientos (solo la severidad y el link; el detalle queda en el reporte).
 
 **Microsoft Teams** (webhook de Workflows):
 1. En el canal: **⋯ → Workflows → "Post to a channel when a webhook request is received"**.

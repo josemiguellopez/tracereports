@@ -319,7 +319,7 @@ func (s *Server) sendEscalation(w http.ResponseWriter, r *http.Request) {
 	}
 	l := escalationLabels[in.Lang]
 	msg := &notify.Escalation{Title: e.Title, Severity: l[e.Severity], Critical: e.Severity == "critical" || e.Severity == "high",
-		Headline: e.Headline, LinkLabel: l["link"],
+		Headline: e.Headline, LinkLabel: l["link"], Lang: in.Lang,
 		Sections: [][2]string{{l["what"], e.WhatHappened}, {l["impact"], e.Impact}, {l["cause"], e.RootCause}, {l["owner"], e.Owner}},
 		Lists:    [][2]any{{l["evidence"], e.Evidence}, {l["next"], e.NextSteps}}}
 	if base := s.Notify.PublicURL(); base != "" {

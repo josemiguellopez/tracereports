@@ -22,12 +22,15 @@ import (
 //	SLACK_WEBHOOK_URL  Slack Incoming Webhook
 //	PUBLIC_URL         base URL of this server, for the "Ver reporte" button
 //	NOTIFY_ON          "always" (default) or "failures"
+//	NOTIFY_DETAIL      "full" (default) or "minimal": only counts, status and the link, without test
+//	                   names, errors, backend URLs or AI text (for shared channels)
 type Notifier struct {
 	store     *db.Store
 	teams     string
 	slack     string
 	publicURL string
 	onlyFails bool
+	minimal   bool
 	client    *http.Client
 }
 
@@ -39,12 +42,16 @@ func New(store *db.Store) *Notifier {
 		slack:     strings.TrimSpace(os.Getenv("SLACK_WEBHOOK_URL")),
 		publicURL: strings.TrimRight(strings.TrimSpace(os.Getenv("PUBLIC_URL")), "/"),
 		onlyFails: strings.EqualFold(os.Getenv("NOTIFY_ON"), "failures"),
+		minimal:   strings.EqualFold(strings.TrimSpace(os.Getenv("NOTIFY_DETAIL")), "minimal"),
 		client:    &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
 // Enabled reports whether at least one webhook is configured.
 func (n *Notifier) Enabled() bool { return n.teams != "" || n.slack != "" }
+
+// Minimal reports NOTIFY_DETAIL=minimal: the channels only get counts, status and the link.
+func (n *Notifier) Minimal() bool { return n.minimal }
 
 // Message is the channel-agnostic content of a run notification.
 type Message struct {
@@ -123,7 +130,9 @@ func (n *Notifier) build(runID int64) (*Message, error) {
 		m.Stats += fmt.Sprintf(" · %d sin terminar", run.Running)
 	}
 	m.Stats += fmt.Sprintf(" · %d%% correctos%s", pct, dur)
-	if run.Summary != nil {
+	// NOTIFY_DETAIL=minimal: ni el diagnóstico ni los incidentes (nombres de tests, errores,
+	// endpoints y texto de IA); los conteos y el link alcanzan para saber que hay que mirar
+	if run.Summary != nil && !n.minimal {
 		m.Summary = strings.TrimSpace(run.Summary.Headline + " " + run.Summary.Summary)
 		for i, in := range run.Summary.Incidents {
 			if i == 3 {
@@ -267,6 +276,33 @@ type Escalation struct {
 	ImageURL  string      // absoluta y pública (solo con PUBLIC_URL)
 	URL       string      // link al reporte (solo con PUBLIC_URL)
 	LinkLabel string
+	Lang      string // es | en: el idioma del aviso en NOTIFY_DETAIL=minimal
+}
+
+var minimalText = map[string][2]string{
+	"es": {"Escalamiento para revisar", "El detalle está en el reporte: este canal solo recibe el aviso (NOTIFY_DETAIL=minimal)."},
+	"en": {"Escalation to review", "The details are in the report: this channel only gets the notice (NOTIFY_DETAIL=minimal)."},
+}
+
+// forChannels is what a channel receives of an escalation or weekly summary. With
+// NOTIFY_DETAIL=minimal: an escalation keeps only its severity and the link (its title and every
+// section are written from the evidence); the weekly summary keeps its numbers and drops the test
+// names.
+func (n *Notifier) forChannels(kind string, e *Escalation) *Escalation {
+	if !n.minimal {
+		return e
+	}
+	m := *e
+	m.Lists, m.ImageURL = nil, ""
+	if kind == "weekly" {
+		return &m
+	}
+	t, ok := minimalText[e.Lang]
+	if !ok {
+		t = minimalText["es"]
+	}
+	m.Title, m.Headline, m.Sections = t[0], t[1], nil
+	return &m
 }
 
 // Channels tells which webhooks are configured.
@@ -285,6 +321,7 @@ func (n *Notifier) SendEscalation(ctx context.Context, channel string, e *Escala
 // sendOnDemand sends a message someone asked for (an escalation, the weekly summary "send now"):
 // once sent, asking again sends it again.
 func (n *Notifier) sendOnDemand(ctx context.Context, kind, channel string, e *Escalation) error {
+	e = n.forChannels(kind, e)
 	var payload any
 	switch channel {
 	case "teams":

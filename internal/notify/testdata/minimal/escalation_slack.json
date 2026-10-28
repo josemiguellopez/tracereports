@@ -1,0 +1,41 @@
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Escalamiento para revisar",
+        "type": "plain_text"
+      },
+      "type": "header"
+    },
+    {
+      "elements": [
+        {
+          "text": "*Severidad alta*",
+          "type": "mrkdwn"
+        }
+      ],
+      "type": "context"
+    },
+    {
+      "text": {
+        "text": "El detalle está en el reporte: este canal solo recibe el aviso (NOTIFY_DETAIL=minimal).",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "elements": [
+        {
+          "text": {
+            "text": "Ver en TraceReports",
+            "type": "plain_text"
+          },
+          "type": "button",
+          "url": "https://reports.example.com/#run=1\u0026test=2"
+        }
+      ],
+      "type": "actions"
+    }
+  ],
+  "text": "Escalamiento para revisar — El detalle está en el reporte: este canal solo recibe el aviso (NOTIFY_DETAIL=minimal)."
+}

@@ -67,6 +67,9 @@ warning, and anyone who reached the port could read and change the reports. Now 
   connection" never calls them and an unknown name stops the server. At startup the server logs every
   external destination its configuration sends data to (AI and its status page, Teams, Slack, trackers, Lab
   hosts), by host and scope.
+- **Minimal notifications** (`NOTIFY_DETAIL=minimal`): Teams and Slack get only the run name, counts, status
+  and the report link, without test names, errors, backend URLs or AI text. It also applies to the weekly
+  summary (numbers only) and escalations (severity and link).
 - **Screenshot policy on the server** (`TRACEREPORTS_SCREENSHOTS=all|failures|off`): with `failures` only the
   screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
   trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.
