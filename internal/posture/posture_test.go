@@ -147,3 +147,17 @@ func TestTableShowsFixes(t *testing.T) {
 		}
 	}
 }
+
+// Las instrucciones nombran la variable completa (con TRACEREPORTS_): copiada tal cual, funciona.
+func TestAIFixNamesTheRealVariable(t *testing.T) {
+	c := Hardened()
+	c.AIProvider, c.AIScope = "openai", egress.ScopeName
+	for _, text := range []string{level(Evaluate(c), "ai.provider").Detail, level(Evaluate(c), "ai.provider").Fix} {
+		if strings.Contains(text, "AI_ALLOWED_PROVIDERS") && !strings.Contains(text, "TRACEREPORTS_AI_ALLOWED_PROVIDERS") {
+			t.Fatalf("nombre incompleto: %s", text)
+		}
+	}
+	if !strings.Contains(level(Evaluate(c), "ai.provider").Fix, "TRACEREPORTS_AI_ALLOWED_PROVIDERS") {
+		t.Fatal("la instrucción no nombra la variable")
+	}
+}

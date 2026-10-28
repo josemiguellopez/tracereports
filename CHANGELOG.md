@@ -56,6 +56,12 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 ### Security
 
+- **Docs fixes**: `TRACEREPORTS_SCREENSHOT_MASK` is read by the test clients, not the server (removed from
+  the server profile of the hardening guide); `doctor --security` now names the full
+  `TRACEREPORTS_AI_ALLOWED_PROVIDERS` variable; the Docker guide explains `TRACEREPORTS_TRUSTED_PROXIES`
+  when the proxy runs on the same server as the container and `TRACEREPORTS_ALLOWED_CIDRS` is set; duplicated
+  rows of the threat model removed.
+
 - **Browser protections**: every response carries a Content-Security-Policy (only this server's scripts,
   the inline ones of `index.html` by hash), `X-Frame-Options: DENY`, `nosniff` and
   `Referrer-Policy: same-origin`. **Cross-site writes are rejected** (403 when the browser says the request

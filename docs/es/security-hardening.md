@@ -49,7 +49,6 @@ NOTIFY_DETAIL=minimal                 # Teams/Slack: conteos y un link, sin nomb
 # evidencia
 TRACEREPORTS_RETENTION_DAYS=90    # lo que tu política de datos permita
 TRACEREPORTS_SCREENSHOTS=failures # o off si en pantalla hay datos que no se pueden mostrar
-TRACEREPORTS_SCREENSHOT_MASK=     # selectores CSS de tu aplicación con datos sensibles
 TRACEREPORTS_ENCRYPT_AT_REST=1    # capturas, traces, videos y DOM cifrados
 TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64 32, fuera de DATA_DIR
 
@@ -79,7 +78,9 @@ TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64
 - Sin login de UI, `TRACEREPORTS_ALLOWED_HOSTS` lista los nombres por los que se entra; un `Host`
   desconocido recibe `403` (protección contra DNS rebinding).
 - `TRACEREPORTS_ALLOWED_CIDRS` deja entrar solo a las redes indicadas (`403` a cualquier otra, incluso con
-  token); `TRACEREPORTS_TRUSTED_PROXIES` dice de qué proxies se confía la IP real del cliente.
+  token); `TRACEREPORTS_TRUSTED_PROXIES` dice de qué proxies se confía la IP real del cliente. Con
+  Docker y el proxy en el mismo servidor, el proxy llega desde una IP de la red de Docker: ver
+  [Docker → Desplegar en un servidor](docker.md#desplegar-en-un-servidor).
 - **Límite de tasa en el proxy**: el servidor frena la fuerza bruta de credenciales, pero no limita las
   peticiones de un cliente con un token válido. En un servidor compartido configura límites en el proxy
   (`limit_req` en nginx, `rate_limit` en Caddy o Traefik) y un tamaño máximo de cuerpo.
@@ -174,7 +175,9 @@ claro, su contenido viejo puede quedar en bloques libres del disco: otra razón 
   tener el dato.
 - No corras tests E2E contra **producción** con datos de personas reales.
 - Marca en tu aplicación lo sensible con `data-tracereports-mask` (o lístalo en
-  `TRACEREPORTS_SCREENSHOT_MASK`) para que ninguna captura lo muestre.
+  `TRACEREPORTS_SCREENSHOT_MASK`) para que ninguna captura lo muestre. Esa variable va en el
+  **entorno donde corren los tests o el CI**: la leen los clientes, que tapan antes de capturar; el
+  servidor la ignora.
 - Si un dato llega como texto libre sin clave reconocible, agrega un patrón con
   `TRACEREPORTS_REDACT_PATTERNS`.
 
@@ -226,8 +229,8 @@ Comprueba la firma, el SBOM y la provenance del binario o la imagen antes de ins
 - [ ] Opcional: `TRACEREPORTS_ENCRYPT_AT_REST=1` con la clave fuera de `DATA_DIR` y respaldada aparte.
 - [ ] `TRACEREPORTS_RETENTION_DAYS` según la política de datos.
 - [ ] Diagnóstico sin salida de datos: motor local u Ollama/LLM dentro de la red.
-- [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` u `off`) y `TRACEREPORTS_SCREENSHOT_MASK` con los campos
-      sensibles de la aplicación.
+- [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` u `off`) en el servidor, y `TRACEREPORTS_SCREENSHOT_MASK`
+      con los campos sensibles de la aplicación en el entorno de los tests o del CI.
 - [ ] Ambientes de prueba con datos sintéticos; nada de E2E contra producción con datos reales.
 - [ ] Grabaciones offline y reportes estáticos como artefactos privados del CI, con su propia retención.
 - [ ] `TRACEREPORTS_LAB_HOSTS` solo con los hosts a los que el Lab debe llegar (o `TRACEREPORTS_LAB=off`).

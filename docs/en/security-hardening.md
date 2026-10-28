@@ -49,7 +49,6 @@ NOTIFY_DETAIL=minimal                 # Teams/Slack: counts and a link, no test 
 # evidence
 TRACEREPORTS_RETENTION_DAYS=90    # what your data policy allows
 TRACEREPORTS_SCREENSHOTS=failures # or off if the screen shows data that cannot be shown
-TRACEREPORTS_SCREENSHOT_MASK=     # CSS selectors of your application with sensitive data
 TRACEREPORTS_ENCRYPT_AT_REST=1    # screenshots, traces, videos and DOM encrypted
 TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64 32, outside DATA_DIR
 
@@ -79,7 +78,9 @@ TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64
 - Without a UI login, `TRACEREPORTS_ALLOWED_HOSTS` lists the names it is reached by; an unknown `Host`
   gets `403` (DNS rebinding protection).
 - `TRACEREPORTS_ALLOWED_CIDRS` only lets the listed networks in (`403` to any other, even with a token);
-  `TRACEREPORTS_TRUSTED_PROXIES` says which proxies are trusted for the client's real IP.
+  `TRACEREPORTS_TRUSTED_PROXIES` says which proxies are trusted for the client's real IP. With Docker
+  and the proxy on the same server, the proxy arrives from a Docker network IP: see
+  [Docker → Deploy on a server](docker.md#deploy-on-a-server).
 - **Rate limits on the proxy**: the server throttles credential brute force, but does not limit the requests
   of a client with a valid token. On a shared server set limits on the proxy (`limit_req` in nginx,
   `rate_limit` in Caddy or Traefik) and a maximum body size.
@@ -174,7 +175,8 @@ content may survive in free disk blocks: one more reason for the encrypted volum
 - Use **synthetic data** in the environments where E2E tests run. No redaction replaces not having the data.
 - Do not run E2E tests against **production** with data of real people.
 - Mark what is sensitive in your application with `data-tracereports-mask` (or list it in
-  `TRACEREPORTS_SCREENSHOT_MASK`) so no screenshot shows it.
+  `TRACEREPORTS_SCREENSHOT_MASK`) so no screenshot shows it. That variable goes in the **environment
+  where the tests or the CI run**: the clients read it and cover before capturing; the server ignores it.
 - If some data arrives as free text without a recognizable key, add a pattern with
   `TRACEREPORTS_REDACT_PATTERNS`.
 
@@ -226,8 +228,8 @@ Check the signature, SBOM and provenance of the binary or image before installin
 - [ ] Optional: `TRACEREPORTS_ENCRYPT_AT_REST=1` with the key outside `DATA_DIR` and backed up apart.
 - [ ] `TRACEREPORTS_RETENTION_DAYS` per the data policy.
 - [ ] Diagnosis with no data leaving: local engine or Ollama/LLM inside the network.
-- [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` or `off`) and `TRACEREPORTS_SCREENSHOT_MASK` with the
-      application's sensitive fields.
+- [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` or `off`) on the server, and `TRACEREPORTS_SCREENSHOT_MASK`
+      with the application's sensitive fields in the tests' or CI's environment.
 - [ ] Test environments with synthetic data; no E2E against production with real data.
 - [ ] Offline recordings and static reports as private CI artifacts, with their own retention.
 - [ ] `TRACEREPORTS_LAB_HOSTS` only with the hosts the Lab must reach (or `TRACEREPORTS_LAB=off`).
