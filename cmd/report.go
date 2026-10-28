@@ -393,15 +393,26 @@ func unzipTo(data []byte, dir string) error {
 			}
 		}
 	}
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
 	for _, f := range zr.File {
 		if strings.TrimPrefix(f.Name, prefix) == "" {
 			continue
+		}
+		// zip slip: ninguna entrada sale de la carpeta del reporte
+		if strings.Contains(f.Name, "..") {
+			return fmt.Errorf("unexpected path in the report: %s", f.Name)
 		}
 		name := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(f.Name, prefix)))
 		if filepath.IsAbs(name) || strings.HasPrefix(name, "..") {
 			return fmt.Errorf("unexpected path in the report: %s", f.Name)
 		}
-		dest := filepath.Join(dir, name)
+		dest := filepath.Join(root, name)
+		if rel, err := filepath.Rel(root, dest); err != nil || strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("unexpected path in the report: %s", f.Name)
+		}
 		if f.FileInfo().IsDir() {
 			if err := os.MkdirAll(dest, 0o700); err != nil {
 				return err

@@ -38,3 +38,21 @@ func TestStaticReportIsPrivate(t *testing.T) {
 		return nil
 	})
 }
+
+// Una entrada con ".." no escribe fuera de la carpeta del reporte (zip slip).
+func TestStaticReportRejectsZipSlip(t *testing.T) {
+	for _, name := range []string{"reporte/../../fuera.txt", "../fuera.txt", "reporte/a/../../../fuera.txt"} {
+		var buf bytes.Buffer
+		zw := zip.NewWriter(&buf)
+		w, _ := zw.Create(name)
+		w.Write([]byte("x"))
+		zw.Close()
+		base := t.TempDir()
+		if err := unzipTo(buf.Bytes(), filepath.Join(base, "salida")); err == nil {
+			t.Errorf("%s: aceptada", name)
+		}
+		if _, err := os.Stat(filepath.Join(base, "fuera.txt")); err == nil {
+			t.Errorf("%s: escribió fuera", name)
+		}
+	}
+}
