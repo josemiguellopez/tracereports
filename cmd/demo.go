@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports"
+	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/demo"
 )
 
@@ -93,13 +94,16 @@ func demoAIStatus(base string, asked bool) string {
 		_ = json.NewDecoder(res.Body).Decode(&cfg)
 		res.Body.Close()
 	}
+	local := "Diagnosis: local rules engine (" + cfg.Model + "), no LLM and no network."
 	switch {
-	case cfg.Enabled:
+	case cfg.Enabled && cfg.Provider != ai.ProviderBuiltin:
 		return fmt.Sprintf("AI diagnosis: on (%s, %s), with the key of your environment or .env: it spends tokens. -ai=false turns it off.", cfg.Provider, cfg.Model)
+	case !cfg.Enabled:
+		return "Diagnosis: off (AI_PROVIDER=off)."
 	case asked:
-		return "AI diagnosis: off, no API key found. Add AI_PROVIDER and AI_API_KEY (or GEMINI_API_KEY) to your environment or .env."
+		return local + " For an LLM, add AI_PROVIDER and AI_API_KEY (or GEMINI_API_KEY) to your environment or .env."
 	default:
-		return "AI diagnosis: off (-ai=false)."
+		return local + " (-ai=false: the AI keys of your environment are not used)."
 	}
 }
 

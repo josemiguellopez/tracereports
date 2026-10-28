@@ -23,11 +23,12 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: con token y sin login, el mismo equipo (sin proxy) puede cambiar Ajustes y usar las acciones de la UI |
-| `AI_PROVIDER` | se deduce de la key | `gemini`, `anthropic`, `openai`, `openai_compatible` u `ollama` |
+| `AI_PROVIDER` | se deduce de la key; sin key, `builtin` | `builtin` (motor local, sin LLM), `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` u `off` (sin diagnóstico). Ver [Motor local](#motor-local-de-diagnóstico-sin-llm) |
 | `AI_MODEL` | el del proveedor | Modelo (ver la tabla de proveedores) |
 | `AI_API_KEY` | — | API key del proveedor (Ollama no la usa) |
 | `AI_BASE_URL` | la del proveedor | URL de la API: proxy, endpoint propio, servicio compatible u Ollama remoto |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternativa a las `AI_*`: con una sola de estas el proveedor se elige solo |
+| `TRACEREPORTS_AI_BUILTIN_HINT` | `1` | Con un LLM configurado, su prompt incluye primero la conclusión del motor local (ya redactada). `0` la quita |
 | `TRACEREPORTS_ENV_FILE` | `.env` | Archivo `CLAVE=valor` que el servidor lee al arrancar |
 | `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: la pantalla de Ajustes queda de solo lectura; la IA se configura solo con el entorno |
 | `TEAMS_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Microsoft Teams |
@@ -130,9 +131,71 @@ Las capturas de red se enmascaran en el cliente antes de enviarse: headers `Auth
 `Cookie` y `Set-Cookie`, tokens, contraseñas y RUT. Aun así, **no reportes datos personales
 reales** desde ambientes productivos.
 
+## Motor local de diagnóstico (sin LLM)
+
+Sin configurar nada, cada fallo y cada ejecución reciben un diagnóstico del **motor local de reglas**
+(`AI_PROVIDER=builtin`): un catálogo de reglas determinísticas dentro del mismo binario. **No usa la red,
+no necesita modelo ni API key y no tiene costo**: los datos de los tests no salen del servidor. Da siempre
+la misma respuesta para la misma evidencia, en milisegundos, y cada conclusión cita la evidencia en la que
+se apoya (la llamada, el paso, la línea). La UI la marca como **Motor local** con el nombre de la regla,
+nunca como IA.
+
+El motor usa lo que TraceReports ya correlaciona: la llamada al backend que causó el fallo, el mensaje de
+error y la traza, el paso que falló, los errores de JavaScript de la página, el historial del test y cuánto
+falló la ejecución. Gana la regla de mayor prioridad (a igual prioridad, la de más confianza):
+
+| Regla | Categoría | Cuándo aplica |
+|---|---|---|
+| `backend_5xx` | `BACKEND_TIMEOUT` | Una llamada al backend respondió 5xx justo antes del fallo |
+| `backend_rate_limited` | `BACKEND_TIMEOUT` | Respondió 429 |
+| `network_unreachable` | `INFRA_ERROR` | La llamada no tuvo respuesta por DNS, conexión rechazada, TLS o conexión cortada |
+| `backend_no_response` | `BACKEND_TIMEOUT` | Sin respuesta por timeout, o 408 |
+| `auth_rejected` | `INFRA_ERROR` | 401/403: sesión o credenciales del test |
+| `backend_status` | `BACKEND_TIMEOUT` | Sin red capturada, el test esperaba otro código y recibió 5xx/429/408 (Go, REST, JUnit) |
+| `network_error` | `INFRA_ERROR` | El mensaje de error es de DNS, conexión rechazada, TLS o una excepción de conexión (`ConnectionError`) |
+| `js_error` | `LOGIC_BUG` | Un error de JavaScript no capturado y el elemento esperado nunca apareció |
+| `backend_client_error` | `LOGIC_BUG` | Un 4xx del que la aplicación no se recuperó |
+| `locator_not_found` | `LOCATOR_CHANGED` | El selector no encontró el elemento |
+| `assertion` | `LOGIC_BUG` | Falló una verificación (cita el valor esperado, el real y la línea) |
+| `environment_down` | `INFRA_ERROR` | Falló el 80 % o más de una ejecución de al menos 5 tests |
+| `timeout` | `BACKEND_TIMEOUT` | Un timeout sin evidencia de red |
+| `flaky` | `INFRA_ERROR` | El test alterna entre pasar y fallar y no hay otra evidencia |
+| `no_conclusive_rule` | `LOGIC_BUG` | Ninguna aplica: lo dice y cita la mejor evidencia |
+
+Si el test es inestable, la conclusión lo agrega como nota. El resumen de la ejecución cuenta los
+incidentes por tipo y, si falló casi todo, apunta al ambiente.
+
+### Motor local, LLM local o LLM en la nube
+
+| | Motor local (`builtin`) | LLM local (Ollama, llama.cpp, LM Studio…) | LLM en la nube |
+|---|---|---|---|
+| Datos fuera del servidor | Nunca | No salen de tu red | Sí (redactados) |
+| Instalación | Ninguna | Un runtime y un modelo | Una API key |
+| Costo | Cero | Hardware | Por uso |
+| Resultado | Determinístico, con la regla citada | Redactado; varía | Redactado; el más preciso |
+| Fallos poco comunes | "Sin regla concluyente" | Propone una hipótesis | Propone una hipótesis |
+
+Con un LLM configurado, el motor local **corre primero** y el modelo recibe su conclusión (redactada)
+para confirmarla o corregirla: el LLM redacta y enriquece, pero la evidencia y el agrupamiento no
+dependen de él. `TRACEREPORTS_AI_BUILTIN_HINT=0` lo desactiva. `AI_PROVIDER=off` apaga todo diagnóstico.
+El límite `TRACEREPORTS_AI_MAX_PER_RUN` no se aplica al motor local (no tiene costo), y sus diagnósticos
+no cuentan en **Uso de la IA**. `tracereports report` también lo usa sin `--ai`.
+
+### Agregar una regla
+
+Las reglas viven en [`internal/ai/builtin`](../../internal/ai/builtin): cada una es una función que lee
+la evidencia (`Input`) y, si aplica, propone categoría, confianza y los datos de sus textos. Para
+contribuir una:
+
+1. Agrégala a `Catalog` en `builtin.go` con una prioridad que no choque con otra.
+2. Escribe sus textos en español **e** inglés en `templates.go` (un test exige las mismas variables).
+3. Suma casos en `builtin_test.go`: uno que la active, uno que no y el borde de su condición.
+4. Si cambia el significado del catálogo, sube `Version` (`rules-v1` → `rules-v2`).
+5. `go run ./cmd selftest` muestra la tasa de aciertos sobre los escenarios grabados (mínimo 90 %).
+
 ## Diagnóstico con IA
 
-Funciona con cualquiera de estos proveedores:
+Además del motor local, funciona con cualquiera de estos proveedores:
 
 | Proveedor | `AI_PROVIDER` | Modelo por defecto | Notas |
 |---|---|---|---|

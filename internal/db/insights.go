@@ -533,8 +533,10 @@ type Incident struct {
 	TestIDs   []int64    `json:"test_ids"`
 	TestNames []string   `json:"test_names"`
 	Evidence  []Evidence `json:"evidence,omitempty"`
-	Cause     string     `json:"cause"`  // hipótesis de la IA
+	Cause     string     `json:"cause"`  // hipótesis de la IA (o conclusión del motor local)
 	Action    string     `json:"action"` // siguiente paso sugerido
+	// Rule of the local rules engine that wrote Cause/Action (empty when an LLM did or nobody).
+	Rule string `json:"rule,omitempty"`
 	// Insufficient: the AI said the evidence does not support a cause (it abstained).
 	Insufficient bool `json:"insufficient,omitempty"`
 }
@@ -562,6 +564,8 @@ type RunTriage struct {
 	PendingTests int    `json:"pending_tests"`
 	Error        string `json:"error,omitempty"`
 	UpdatedAt    int64  `json:"updated_at"`
+	// Provider that wrote the causes: "builtin" (local rules engine), the LLM's id, or "".
+	Provider string `json:"provider,omitempty"`
 }
 
 // SetRunTriagePending marks a run as awaiting its diagnosis.
@@ -577,12 +581,12 @@ func (s *Store) SaveRunTriage(runID int64, rt *RunTriage) error {
 	if err != nil {
 		return err
 	}
-	_, err = s.db.Exec(`INSERT INTO run_triage(run_id, state, headline, summary, incidents, ai, error, updated_at, ai_incidents, pending_tests)
-		VALUES(?,?,?,?,?,?,?,?,?,?)
+	_, err = s.db.Exec(`INSERT INTO run_triage(run_id, state, headline, summary, incidents, ai, error, updated_at, ai_incidents, pending_tests, provider)
+		VALUES(?,?,?,?,?,?,?,?,?,?,?)
 		ON CONFLICT(run_id) DO UPDATE SET state=excluded.state, headline=excluded.headline, summary=excluded.summary,
 			incidents=excluded.incidents, ai=excluded.ai, error=excluded.error, updated_at=excluded.updated_at,
-			ai_incidents=excluded.ai_incidents, pending_tests=excluded.pending_tests`,
-		runID, rt.State, rt.Headline, rt.Summary, string(inc), rt.AI, rt.Error, NowMs(), rt.AIIncidents, rt.PendingTests)
+			ai_incidents=excluded.ai_incidents, pending_tests=excluded.pending_tests, provider=excluded.provider`,
+		runID, rt.State, rt.Headline, rt.Summary, string(inc), rt.AI, rt.Error, NowMs(), rt.AIIncidents, rt.PendingTests, rt.Provider)
 	return err
 }
 
@@ -590,9 +594,9 @@ func (s *Store) SaveRunTriage(runID int64, rt *RunTriage) error {
 func (s *Store) GetRunTriage(runID int64) (*RunTriage, error) {
 	var rt RunTriage
 	var inc string
-	err := s.db.QueryRow(`SELECT state, headline, summary, incidents, ai, error, updated_at, ai_incidents, pending_tests
+	err := s.db.QueryRow(`SELECT state, headline, summary, incidents, ai, error, updated_at, ai_incidents, pending_tests, provider
 		FROM run_triage WHERE run_id=?`, runID).
-		Scan(&rt.State, &rt.Headline, &rt.Summary, &inc, &rt.AI, &rt.Error, &rt.UpdatedAt, &rt.AIIncidents, &rt.PendingTests)
+		Scan(&rt.State, &rt.Headline, &rt.Summary, &inc, &rt.AI, &rt.Error, &rt.UpdatedAt, &rt.AIIncidents, &rt.PendingTests, &rt.Provider)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

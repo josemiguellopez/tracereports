@@ -5,8 +5,9 @@
 //	PORT            HTTP port (default 8080)
 //	TRACEREPORTS_BIND  address to listen on (default: all interfaces; 127.0.0.1 = only this machine)
 //	DATA_DIR        data directory for SQLite + screenshots (default ./data)
-//	AI_PROVIDER     gemini | anthropic | openai | openai_compatible | ollama (optional; inferred
-//	                from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST)
+//	AI_PROVIDER     builtin | gemini | anthropic | openai | openai_compatible | ollama | off (optional;
+//	                inferred from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST;
+//	                without any of them: builtin, the local rules engine with no LLM and no network)
 //	AI_MODEL / AI_API_KEY / AI_BASE_URL  model, key and API URL (each provider has defaults)
 //	GEMINI_API_KEY / GEMINI_MODEL / GEMINI_BASE_URL  still supported
 //	TRACEREPORTS_SETTINGS_LOCKED  1 = the Settings screen is read-only (config only from the env)
@@ -24,7 +25,8 @@
 //	TRACEREPORTS_REDACT_HEADERS / TRACEREPORTS_REDACT_KEYS / TRACEREPORTS_REDACT_PATTERNS  extra masking rules
 //	TRACEREPORTS_RETENTION_DAYS  delete runs (and screenshots) older than N days (default: keep all)
 //	TRACEREPORTS_STALE_RUN_HOURS  close as incomplete the runs without activity for N hours (default 24; 0 = never)
-//	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit)
+//	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit; not for builtin)
+//	TRACEREPORTS_AI_BUILTIN_HINT  0 = LLM prompts without the local engine's conclusion (default: included)
 //	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
 //	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
 //	TRACEREPORTS_LAB      off = disable FixLab's Request Lab (resending captured calls from the report)
@@ -256,10 +258,13 @@ func runServer(parent context.Context) error {
 	for _, t := range apiServer.Trackers {
 		slog.Info("tickets enabled", "tracker", t.Name())
 	}
-	if analyzer.Enabled() {
+	switch {
+	case analyzer.UsesLLM():
 		slog.Info("AI triage enabled", "provider", analyzer.Provider(), "model", analyzer.Model())
-	} else {
-		slog.Info("AI triage disabled: set AI_PROVIDER/AI_API_KEY (or GEMINI_API_KEY) or configure it in Settings")
+	case analyzer.Enabled():
+		slog.Info("failure diagnosis: local rules engine (no LLM, no network); set AI_PROVIDER/AI_API_KEY or use Settings for an LLM", "rules", analyzer.Model())
+	default:
+		slog.Info("failure diagnosis disabled (AI_PROVIDER=off)")
 	}
 	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })

@@ -175,8 +175,9 @@ func newLocalServer(useAI bool) (*localServer, error) {
 	analyzer := ai.New(store)
 	analyzer.Redact = redact.FromEnv()
 	if !useAI {
-		_ = analyzer.SetConfig(ai.Config{}) // sin --ai no sale nada a la red
-	} else if !analyzer.Enabled() {
+		// sin --ai diagnostica el motor local: nada sale a la red
+		_ = analyzer.SetConfig(ai.Config{Provider: ai.ProviderBuiltin})
+	} else if !analyzer.UsesLLM() {
 		cleanup()
 		return nil, errors.New("--ai needs an AI provider in the environment (AI_PROVIDER and AI_API_KEY, or GEMINI_API_KEY...)")
 	}

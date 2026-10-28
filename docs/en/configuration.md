@@ -23,11 +23,12 @@ steps to apply it.
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: with a token and no login, the same machine (no proxy) may change Settings and use the UI actions |
-| `AI_PROVIDER` | inferred from the key | `gemini`, `anthropic`, `openai`, `openai_compatible` or `ollama` |
+| `AI_PROVIDER` | inferred from the key; without a key, `builtin` | `builtin` (local engine, no LLM), `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` or `off` (no diagnosis). See [Local engine](#local-diagnosis-engine-no-llm) |
 | `AI_MODEL` | the provider's default | Model (see the provider table) |
 | `AI_API_KEY` | — | The provider's API key (Ollama does not use one) |
 | `AI_BASE_URL` | the provider's API | API URL: proxy, your own endpoint, a compatible service or a remote Ollama |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternative to the `AI_*` variables: with just one of these the provider is picked automatically |
+| `TRACEREPORTS_AI_BUILTIN_HINT` | `1` | With an LLM configured, its prompt first includes the local engine's conclusion (already redacted). `0` removes it |
 | `TRACEREPORTS_ENV_FILE` | `.env` | `KEY=value` file the server reads on startup |
 | `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: the Settings screen becomes read-only; AI is configured only from the environment |
 | `TEAMS_WEBHOOK_URL` | — | Sends each run's summary to Microsoft Teams |
@@ -130,9 +131,70 @@ Network captures are masked on the client before being sent: `Authorization`, `C
 `Set-Cookie` headers, tokens, passwords and national IDs (RUT). Even so, **do not report real
 personal data** from production environments.
 
+## Local diagnosis engine (no LLM)
+
+With nothing configured, each failure and each run get a diagnosis from the **local rules engine**
+(`AI_PROVIDER=builtin`): a catalog of deterministic rules inside the same binary. **It uses no network,
+needs no model or API key and costs nothing**: test data never leaves the server. It always gives the
+same answer for the same evidence, in milliseconds, and each conclusion cites the evidence it relies on
+(the call, the step, the line). The UI labels it **Local engine** with the rule's name, never as AI.
+
+The engine uses what TraceReports already correlates: the backend call that caused the failure, the error
+message and trace, the failed step, the page's JavaScript errors, the test's history and how much of the
+run failed. The rule with the highest priority wins (on a tie, the most confident one):
+
+| Rule | Category | When it applies |
+|---|---|---|
+| `backend_5xx` | `BACKEND_TIMEOUT` | A backend call answered 5xx right before the failure |
+| `backend_rate_limited` | `BACKEND_TIMEOUT` | It answered 429 |
+| `network_unreachable` | `INFRA_ERROR` | The call got no answer because of DNS, a refused connection, TLS or a cut connection |
+| `backend_no_response` | `BACKEND_TIMEOUT` | No answer because of a timeout, or 408 |
+| `auth_rejected` | `INFRA_ERROR` | 401/403: the test's session or credentials |
+| `backend_status` | `BACKEND_TIMEOUT` | No network captured; the test expected another status and got 5xx/429/408 (Go, REST, JUnit) |
+| `network_error` | `INFRA_ERROR` | The error message is about DNS, a refused connection, TLS or a connection exception (`ConnectionError`) |
+| `js_error` | `LOGIC_BUG` | An uncaught JavaScript error and the expected element never showed up |
+| `backend_client_error` | `LOGIC_BUG` | A 4xx the application did not recover from |
+| `locator_not_found` | `LOCATOR_CHANGED` | The selector did not find the element |
+| `assertion` | `LOGIC_BUG` | A check failed (cites the expected value, the actual one and the line) |
+| `environment_down` | `INFRA_ERROR` | 80 % or more of a run of at least 5 tests failed |
+| `timeout` | `BACKEND_TIMEOUT` | A timeout with no network evidence |
+| `flaky` | `INFRA_ERROR` | The test alternates between passing and failing and there is no other evidence |
+| `no_conclusive_rule` | `LOGIC_BUG` | None applies: it says so and cites the best evidence |
+
+If the test is flaky, the conclusion adds it as a note. The run summary counts the incidents by kind and,
+when almost everything failed, points at the environment.
+
+### Local engine, local LLM or cloud LLM
+
+| | Local engine (`builtin`) | Local LLM (Ollama, llama.cpp, LM Studio…) | Cloud LLM |
+|---|---|---|---|
+| Data leaving the server | Never | Stays in your network | Yes (redacted) |
+| Setup | None | A runtime and a model | An API key |
+| Cost | Zero | Hardware | Per use |
+| Result | Deterministic, citing the rule | Written; varies | Written; the most accurate |
+| Uncommon failures | "No conclusive rule" | Proposes a hypothesis | Proposes a hypothesis |
+
+With an LLM configured, the local engine **runs first** and the model gets its conclusion (redacted) to
+confirm or correct it: the LLM writes up and enriches, but the evidence and the grouping do not depend on
+it. `TRACEREPORTS_AI_BUILTIN_HINT=0` turns that off. `AI_PROVIDER=off` turns every diagnosis off. The
+`TRACEREPORTS_AI_MAX_PER_RUN` limit does not apply to the local engine (it costs nothing), and its
+diagnoses do not count in **AI usage**. `tracereports report` uses it too without `--ai`.
+
+### Adding a rule
+
+The rules live in [`internal/ai/builtin`](../../internal/ai/builtin): each one is a function that reads the
+evidence (`Input`) and, when it applies, proposes a category, a confidence and the data of its texts. To
+contribute one:
+
+1. Add it to `Catalog` in `builtin.go` with a priority that does not clash with another.
+2. Write its texts in Spanish **and** English in `templates.go` (a test requires the same variables).
+3. Add cases to `builtin_test.go`: one that triggers it, one that does not and the edge of its condition.
+4. If the meaning of the catalog changes, bump `Version` (`rules-v1` → `rules-v2`).
+5. `go run ./cmd selftest` shows the hit rate over the recorded scenarios (minimum 90 %).
+
 ## AI diagnosis
 
-Works with any of these providers:
+Besides the local engine, it works with any of these providers:
 
 | Provider | `AI_PROVIDER` | Default model | Notes |
 |---|---|---|---|

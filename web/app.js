@@ -458,7 +458,7 @@
 				<p style="margin-top:8px">El análisis de IA aún no había terminado cuando se exportó este reporte.</p></div>`;
 		}
 		if (tr.state === "PENDING") {
-			return `<div class="card ai-card"><div class="ai-head">${title}<span class="ai-model">Analizando con ${esc(S.config.ai_model)}…</span></div>
+			return `<div class="card ai-card"><div class="ai-head">${title}<span class="ai-model">${S.config.ai_provider === "builtin" ? "Diagnosticando con el motor local…" : `Analizando con ${esc(S.config.ai_model)}…`}</span></div>
 				<div class="shimmer"></div><div class="shimmer short"></div>${loc}</div>`;
 		}
 		if (tr.state === "ERROR") {
@@ -471,7 +471,7 @@
 		}
 		return `<div class="card ai-card">
 			<div class="ai-head">${title}<span class="ai-cat ${esc(tr.category)}" tabindex="0" data-tip-title="Categoría del fallo" data-tip="${esc(AI_LABEL[tr.category] || tr.category)}">${esc(tr.category)}</span>
-				<span class="ai-model">${esc(S.config.ai_model)}</span></div>
+				${isLocal(tr) ? localBadge(tr.rule) : `<span class="ai-model">${esc(S.config.ai_model)}</span>`}</div>
 			<h6>Resumen</h6><p>${esc(tr.summary)}</p>
 			<h6>Sugerencia</h6><p class="suggestion">${esc(tr.suggestion)}</p>
 			${loc}
@@ -1474,9 +1474,22 @@
 		loadLabRun();
 	}
 
-	/** Causa: hipótesis de la IA (nunca confirmada), o la IA dijo que la evidencia no alcanza. */
-	function incidentCause(inc, cls) {
+	/** El diagnóstico lo escribió el motor local de reglas (sin LLM): se marca como tal, nunca como IA. */
+	function isLocal(x) { return x?.provider === "builtin"; }
+
+	function localBadge(rule) {
 		const tr = window.TraceReportsI18n.t;
+		return `<span class="ai-model ai-local" tabindex="0" data-tip="${esc(tr("Motor local de reglas: sin LLM y sin red. Los datos no salen del servidor."))}">${tr("Motor local")}${rule ? ` · <span class="mono" data-no-i18n>${esc(rule)}</span>` : ""}</span>`;
+	}
+
+	/** Causa: hipótesis de la IA (nunca confirmada), o la IA dijo que la evidencia no alcanza. Con el
+	 * motor local (local = true) es la conclusión de una regla determinística. */
+	function incidentCause(inc, cls, local) {
+		const tr = window.TraceReportsI18n.t;
+		if (local) {
+			if (inc.insufficient) return `<div class="${cls} muted">${tr("El motor local no encontró una regla concluyente.")}${inc.cause ? ` ${esc(inc.cause)}` : ""}</div>`;
+			return inc.cause ? `<div class="${cls}"><span class="hyp" data-tip="${esc(tr("Conclusión de una regla del motor local a partir de la evidencia observada. Confírmala antes de tratarla como la causa."))}">${tr("Conclusión")}</span> ${esc(inc.cause)}</div>` : "";
+		}
 		if (inc.insufficient) return `<div class="${cls} muted">${tr("La IA no propone causa: la evidencia no alcanza.")}</div>`;
 		return inc.cause ? `<div class="${cls}"><span class="hyp" data-tip="${esc(tr("Hipótesis de la IA a partir de la evidencia. Confírmala antes de tratarla como la causa."))}">${tr("Causa probable")}</span> ${esc(inc.cause)}</div>` : "";
 	}
@@ -1500,7 +1513,7 @@
 			<span class="inc-icon">${icon(INCIDENT_ICON[inc.kind] || "i-warning")}</span>
 			<div class="inc-body">
 				<div class="inc-title"><b data-no-i18n>${esc(inc.title)}</b><span class="inc-count">${inc.test_ids.length} test${inc.test_ids.length === 1 ? "" : "s"}</span>${compact ? "" : incidentVerified(inc)}</div>
-				${incidentCause(inc, "inc-cause")}
+				${incidentCause(inc, "inc-cause", isLocal(sum))}
 				${inc.action ? `<div class="inc-action">→ ${esc(inc.action)}</div>` : ""}
 				${compact ? "" : incidentEvidence(inc)}
 				${compact ? "" : `<div class="inc-tests">${inc.test_ids.map((id, i) => `<a data-goto="${id}">${esc(inc.test_names[i])}</a>`).join("")}</div>`}
@@ -1528,7 +1541,7 @@
 			return;
 		}
 		setHTML(el, `<div class="sum-head ${S.run.failed ? "has-fail" : "all-ok"}">${icon(S.run.failed ? "i-spark" : "i-pass")}
-				<h3>${esc(sum.headline)}</h3>${sum.ai ? `<span class="ai-model">${esc(S.config.ai_model)}</span>` : ""}</div>
+				<h3>${esc(sum.headline)}</h3>${sum.ai ? `<span class="ai-model">${esc(S.config.ai_model)}</span>` : isLocal(sum) ? localBadge("") : ""}</div>
 			${summaryBody(sum, false)}`);
 	}
 
@@ -2203,14 +2216,15 @@
 				: sum.state === "PENDING" ? `<div class="shimmer"></div><div class="shimmer short"></div>`
 				: sum.state === "ERROR" ? `<p class="ai-err">${icon("i-fail")}<span>${esc(sum.error || "")}</span></p>`
 				: `<p class="ai-headline">${esc(sum.headline)}</p>${sum.summary ? `<p>${esc(sum.summary)}</p>` : ""}
-					${!sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, o con la misma firma de error.")}</p>` : ""}
+					${isLocal(sum) ? `<p class="m-hint">${tr("Diagnóstico del motor local de reglas: cada conclusión sale de una regla determinística sobre la evidencia observada, sin IA y sin red.")}</p>`
+						: !sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, o con la misma firma de error.")}</p>` : ""}
 					${summaryCoverage(sum)}`;
 			const incidents = (sum?.incidents || []).map((inc) => `<article class="card incident-card">
 				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error") }[inc.kind] || inc.kind)}</span>
 					<h6 data-no-i18n>${esc(AI_LABEL[inc.title] ? tr(AI_LABEL[inc.title]) : inc.title)}</h6>
 					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}${incidentVerified(inc)}</header>
 				${incidentEvidence(inc)}
-				${incidentCause(inc, "inc-cause-p")}
+				${incidentCause(inc, "inc-cause-p", isLocal(sum))}
 				${inc.action ? `<p><b>${tr("Qué hacer")}:</b> ${esc(inc.action)}</p>` : ""}
 				<ul class="inc-tests">${inc.test_ids.map((id, i) => `<li><a href="#run=${r.id}&view=tests&test=${id}" data-no-i18n>${esc(inc.test_names[i] || "#" + id)}</a></li>`).join("")}</ul>
 				${canAct() || incidentLab(inc) ? `<div class="inc-actions">${incidentLab(inc)}${canAct() ? `<button class="cf-btn cf-btn-sm" data-escalate="${inc.test_ids.length === 1 ? inc.test_ids[0] : 0}">${icon("i-megaphone")}${tr("Escalar")}</button>` : ""}</div>` : ""}
@@ -3569,7 +3583,7 @@
 					: `<span class="dot"></span>${tr("Desactivada")}`}
 					<span class="src-badge" data-tip="${d.ai_source === "ui" ? "Configurada desde esta pantalla: manda sobre el .env." : "Configurada con variables de entorno (.env)."}">${d.ai_source === "ui" ? "desde Ajustes" : "desde .env"}</span></span>
 			</div>
-			<p class="field-help">Diagnostica cada fallo y el resumen de la ejecución. Elige el proveedor: en la nube (Gemini, Claude, OpenAI) o local con Ollama, donde los datos de tus tests no salen de tu red.</p>
+			<p class="field-help">Diagnostica cada fallo y el resumen de la ejecución. Por defecto lo hace el motor local de reglas, sin IA y sin red. Para un diagnóstico redactado elige un LLM: en la nube (Gemini, Claude, OpenAI) o local con Ollama, donde los datos de tus tests no salen de tu red.</p>
 			${ro ? readOnlyHelp(d) : ""}${secretKeyNotice(d.secrets?.saved_key)}
 			<fieldset class="prov-grid" ${ro ? "disabled" : ""}>
 				<legend class="field-label">Proveedor</legend>
@@ -3580,7 +3594,8 @@
 						<span class="prov-note">${esc(x.note)}</span>
 					</label>`).join("")}
 			</fieldset>
-			${p ? `<fieldset class="ai-fields" ${ro ? "disabled" : ""}>
+			${p?.id === "builtin" ? `<p class="field-help">${tr("El motor local reconoce fallos de backend, red, credenciales, selectores, aserciones, tests inestables y ambientes caídos con reglas fijas. No necesita modelo, URL ni API key.")}</p>` : ""}
+			${p && p.id !== "builtin" ? `<fieldset class="ai-fields" ${ro ? "disabled" : ""}>
 				<label class="field"><span class="field-label">Modelo</span>
 					<input type="text" data-ai-field="model" value="${esc(f.model)}" placeholder="${esc(p.default_model || "nombre-del-modelo")}" autocomplete="off" spellcheck="false">
 					<span class="field-help">${p.default_model ? tr("Vacío = {m}.", { m: p.default_model }) : tr("El nombre exacto que usa ese servicio.")}${p.id === "ollama" ? ` ${tr("Descárgalo antes con")} <code>ollama pull ${esc(f.model || p.default_model)}</code>.` : ""}</span></label>

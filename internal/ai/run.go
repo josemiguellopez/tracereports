@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
 	"github.com/josemiguellopez/tracereports/internal/db"
 )
 
@@ -112,17 +113,27 @@ func (a *Analyzer) analyzeRun(ctx context.Context, runID int64) (*db.RunTriage, 
 	if len(incidents) == 0 || !a.Enabled() {
 		return rt, nil
 	}
+	provider := a.Provider()
+	if provider == ProviderBuiltin {
+		return rt, a.builtinRun(run, rt)
+	}
 	forAI := incidents
 	if len(forAI) > maxIncidentsForAI {
 		forAI = forAI[:maxIncidentsForAI]
 	}
-	res, err := a.summarizeRun(ctx, run, forAI, len(incidents))
+	var local []builtin.Diagnosis
+	if builtinHint() {
+		if local, _, err = a.builtinIncidents(run, forAI); err != nil {
+			return nil, err
+		}
+	}
+	res, err := a.summarizeRun(ctx, run, forAI, len(incidents), local)
 	if err != nil {
 		// sin texto de IA, el resumen agrupado sigue siendo útil
 		slog.Warn("ai: run summary failed, keeping grouped incidents", "run_id", runID, "err", err)
 		return rt, nil
 	}
-	rt.AI, rt.AIIncidents = true, len(forAI)
+	rt.AI, rt.AIIncidents, rt.Provider = true, len(forAI), provider
 	if res.Headline != "" {
 		rt.Headline = res.Headline
 	}
@@ -202,7 +213,9 @@ type runSummary struct {
 	} `json:"incidents"`
 }
 
-func (a *Analyzer) summarizeRun(ctx context.Context, run *db.RunDetail, incidents []db.Incident, total int) (*runSummary, error) {
+// summarizeRun asks the LLM for the run summary; local (optional, one per incident) is the
+// conclusion of the local rules engine, given to the model as a starting point.
+func (a *Analyzer) summarizeRun(ctx context.Context, run *db.RunDetail, incidents []db.Incident, total int, local []builtin.Diagnosis) (*runSummary, error) {
 	var b strings.Builder
 	fmt.Fprintf(&b, `You are the QA lead summarizing an automated test run for the team and for non-technical stakeholders.
 The failed tests were already grouped into incidents by shared evidence (the same failing backend call
@@ -229,8 +242,11 @@ Result: %d tests, %d passed, %d failed, %d skipped.
 	for _, t := range run.Tests {
 		byID[t.ID] = t
 	}
-	for _, in := range incidents {
+	for i, in := range incidents {
 		fmt.Fprintf(&b, "\n- key: %s\n  title: %s\n  tests (%d): %s\n", in.Key, in.Title, len(in.TestIDs), strings.Join(in.TestNames, "; "))
+		if i < len(local) {
+			fmt.Fprintf(&b, "  local rules engine (deterministic, confirm or correct it): [%s, rule %s] %s\n", local[i].Category, local[i].Rule, local[i].Summary)
+		}
 		for _, ev := range in.Evidence {
 			if ev.Kind != "screenshot" {
 				fmt.Fprintf(&b, "  evidence: %s\n", ev.Text)

@@ -20,7 +20,13 @@ type Check struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail,omitempty"`
+	// Builtin: the diagnosis of the local rules engine. It counts for the hit rate of selftest
+	// (BuiltinMinRate), not for the result of the scenario.
+	Builtin bool `json:"builtin,omitempty"`
 }
+
+// BuiltinMinRate is the share of scenarios the local rules engine must diagnose as expected.
+const BuiltinMinRate = 0.9
 
 type verifier struct {
 	ctx    context.Context
@@ -178,6 +184,11 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 		}
 		add("command to run it locally", strings.Contains(got, e.Command), "framework %q key %q: %s", run.Framework, watched[0].Key, got)
 	}
+	if e.Builtin != "" {
+		if c, ok := v.builtin(run, failed, e.Builtin); ok {
+			out = append(out, c)
+		}
+	}
 	if e.Lab {
 		add("Lab reproduces the failure", true, "")
 		verdict, err := v.lab(conns)
@@ -236,6 +247,48 @@ func (v verifier) incident(runID int64, t *db.Test) string {
 		}
 	}
 	return "no diagnosis after 20 s"
+}
+
+// builtin checks the diagnosis of the local rules engine for the focus test (want "none": no
+// test of the run gets one). ok=false when the server diagnoses with an LLM: nothing to check.
+func (v verifier) builtin(run db.RunDetail, focus *db.Test, want string) (Check, bool) {
+	var cfg struct {
+		Provider string `json:"ai_provider"`
+	}
+	if _, err := v.get("/api/v1/config", &cfg); err != nil || cfg.Provider != "builtin" {
+		return Check{}, false
+	}
+	c := Check{Name: "local rules engine says " + want, Builtin: true}
+	if want == "none" {
+		c.OK = true
+		for _, t := range run.Tests {
+			if t.Triage != nil && t.Triage.State == "DONE" {
+				c.OK, c.Detail = false, fmt.Sprintf("%q got %s", t.Name, t.Triage.Category)
+			}
+		}
+		return c, true
+	}
+	if focus == nil {
+		c.Detail = "no failed test to check"
+		return c, true
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		var t db.Test
+		_, _ = v.get(fmt.Sprintf("/api/v1/tests/%d", focus.ID), &t)
+		if tr := t.Triage; tr != nil && (tr.State == "DONE" || tr.State == "ERROR") {
+			c.OK, c.Detail = tr.State == "DONE" && tr.Category == want, fmt.Sprintf("got %s (rule %s) %s", tr.Category, tr.Rule, tr.Error)
+			return c, true
+		}
+		select {
+		case <-v.ctx.Done():
+			c.Detail = "cancelled"
+			return c, true
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	c.Detail = "no diagnosis after 20 s"
+	return c, true
 }
 
 // lab resends the failed backend call from its capsule, like `tracereports repro`.

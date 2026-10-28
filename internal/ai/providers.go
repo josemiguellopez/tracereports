@@ -18,6 +18,8 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/anthropics/anthropic-sdk-go/option"
 	"github.com/anthropics/anthropic-sdk-go/shared/constant"
+
+	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
 )
 
 // Config selects the AI provider. It comes from the environment (.env) and can be overridden
@@ -41,8 +43,14 @@ type ProviderInfo struct {
 	Note           string `json:"note"`
 }
 
+// ProviderBuiltin is the local rules engine (internal/ai/builtin): no LLM, no network, no key. It
+// is the provider when nothing else is configured; AI_PROVIDER=off turns the diagnosis off.
+const ProviderBuiltin = "builtin"
+
 // Providers lists the supported providers, in the order the UI shows them.
 var Providers = []ProviderInfo{
+	{ID: ProviderBuiltin, Name: "Motor local (sin LLM)", DefaultModel: builtin.Version,
+		Note: "Reglas determinísticas dentro del binario: sin red, sin API key y sin costo. Los datos no salen del servidor."},
 	// alias de Google: apunta siempre al flash-lite vigente, así no queda obsoleto (gemini-2.5-flash ya no se
 	// habilita a cuentas nuevas) y tiene más cuota gratuita que los flash completos
 	{ID: "gemini", Name: "Google Gemini", DefaultModel: "gemini-flash-lite-latest", DefaultBaseURL: "https://generativelanguage.googleapis.com",
@@ -73,6 +81,9 @@ func (c Config) withDefaults() Config {
 	c.Model = strings.TrimSpace(c.Model)
 	c.APIKey = strings.TrimSpace(c.APIKey)
 	c.BaseURL = strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
+	if c.Provider == ProviderBuiltin {
+		c.Model, c.APIKey, c.BaseURL = builtin.Version, "", "" // el catálogo vigente; nada sale a la red
+	}
 	if p := ProviderByID(c.Provider); p != nil {
 		if c.Model == "" {
 			c.Model = p.DefaultModel
@@ -94,6 +105,8 @@ func (c Config) Validate() error {
 	switch {
 	case p == nil:
 		return fmt.Errorf("proveedor de IA desconocido: %q", c.Provider)
+	case p.ID == ProviderBuiltin:
+		return nil
 	case p.NeedsKey && c.APIKey == "":
 		return fmt.Errorf("%s necesita una API key", p.Name)
 	case c.BaseURL == "":
@@ -107,7 +120,8 @@ func (c Config) Validate() error {
 // ConfigFromEnv reads the provider from the environment. AI_PROVIDER / AI_MODEL / AI_API_KEY /
 // AI_BASE_URL are generic; without AI_PROVIDER the provider is inferred from the first
 // provider-specific key found (GEMINI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY, OLLAMA_HOST),
-// so existing GEMINI_* setups keep working.
+// so existing GEMINI_* setups keep working. With none of them the local rules engine diagnoses
+// (builtin); AI_PROVIDER=off turns the diagnosis off.
 func ConfigFromEnv() Config {
 	env := func(keys ...string) string {
 		for _, k := range keys {
@@ -128,9 +142,15 @@ func ConfigFromEnv() Config {
 			c.Provider = "openai"
 		case env("OLLAMA_HOST") != "":
 			c.Provider = "ollama"
+		default:
+			c.Provider = ProviderBuiltin
 		}
 	}
 	switch strings.ToLower(c.Provider) {
+	case "off", "none", "disabled":
+		return Config{}
+	case ProviderBuiltin:
+		return Config{Provider: ProviderBuiltin}.withDefaults()
 	case "gemini":
 		c.Model, c.APIKey, c.BaseURL = env("AI_MODEL", "GEMINI_MODEL"), env("AI_API_KEY", "GEMINI_API_KEY"), env("AI_BASE_URL", "GEMINI_BASE_URL")
 	case "anthropic":
@@ -277,6 +297,9 @@ func call(ctx context.Context, client *http.Client, c Config, prompt string, sch
 		text, u, err = callOpenAI(ctx, client, c, prompt, schema)
 	case "ollama":
 		text, u, err = callOllama(ctx, client, c, prompt, schema)
+	case ProviderBuiltin:
+		// el motor local no es un modelo: nunca se le manda un prompt (ni sale nada a la red)
+		return "", Usage{}, errors.New("el motor local no recibe prompts")
 	default:
 		return "", Usage{}, fmt.Errorf("proveedor de IA desconocido: %q", c.Provider)
 	}

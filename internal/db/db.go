@@ -96,6 +96,10 @@ func Open(path string) (*Store, error) {
 		{"network", "expected", "INTEGER NOT NULL DEFAULT 0"},
 		{"ai_triage", "locator_pick", "TEXT NOT NULL DEFAULT ''"},
 		{"ai_triage", "locator_reason", "TEXT NOT NULL DEFAULT ''"},
+		// quién escribió el diagnóstico: el proveedor (builtin, gemini...) y la regla del motor local
+		{"ai_triage", "provider", "TEXT NOT NULL DEFAULT ''"},
+		{"ai_triage", "rule", "TEXT NOT NULL DEFAULT ''"},
+		{"run_triage", "provider", "TEXT NOT NULL DEFAULT ''"},
 		// contexto de la ejecución: los historiales solo comparan ejecuciones compatibles
 		{"runs", "project", "TEXT NOT NULL DEFAULT ''"},
 		{"runs", "branch", "TEXT NOT NULL DEFAULT ''"},
@@ -315,6 +319,10 @@ type Triage struct {
 	// Locator recomendado por la IA entre los candidatos del snapshot (si el fallo fue de locator).
 	LocatorPick   string `json:"locator_pick,omitempty"`
 	LocatorReason string `json:"locator_reason,omitempty"`
+	// Provider that wrote the diagnosis ("builtin" = local rules engine, no LLM; "" = before it
+	// was recorded) and, for builtin, the rule that concluded it.
+	Provider string `json:"provider,omitempty"`
+	Rule     string `json:"rule,omitempty"`
 }
 
 // RunDetail is a run with its tests and step statistics (for the dashboard).
@@ -600,7 +608,7 @@ const testSelect = `
 	       (SELECT COUNT(*) FROM network n WHERE n.test_id = t.id AND (n.failed = 1 OR n.status >= 400) AND n.expected = 0),
 	       (SELECT COUNT(*) FROM console c WHERE c.test_id = t.id AND c.level IN ('error', 'pageerror')),
 	       a.state, a.category, a.summary, a.suggestion, a.error, a.updated_at, a.locator_pick, a.locator_reason,
-	       q.reason, q.owner, q.until, q.created_at
+	       a.provider, a.rule, q.reason, q.owner, q.until, q.created_at
 	FROM tests t LEFT JOIN ai_triage a ON a.test_id = t.id
 	JOIN runs r ON r.id = t.run_id
 	LEFT JOIN quarantine q ON q.project = r.project AND q.test_key = t.test_key`
@@ -609,13 +617,13 @@ type scanner interface{ Scan(dest ...any) error }
 
 func scanTest(sc scanner) (*Test, error) {
 	var t Test
-	var aState, aCat, aSum, aSug, aErr, aPick, aReason sql.NullString
+	var aState, aCat, aSum, aSug, aErr, aPick, aReason, aProv, aRule sql.NullString
 	var aUpd sql.NullInt64
 	var qReason, qOwner sql.NullString
 	var qUntil, qCreated sql.NullInt64
 	if err := sc.Scan(&t.ID, &t.RunID, &t.Name, &t.Category, &t.Description, &t.Status, &t.StartedAt, &t.EndedAt,
 		&t.ErrorMessage, &t.ErrorTrace, &t.Key, &t.Suite, &t.Params, &t.Worker, &t.Attempts, &t.NetworkTotal, &t.NetworkErrors, &t.ConsoleErrors, &aState, &aCat, &aSum, &aSug, &aErr, &aUpd, &aPick, &aReason,
-		&qReason, &qOwner, &qUntil, &qCreated); err != nil {
+		&aProv, &aRule, &qReason, &qOwner, &qUntil, &qCreated); err != nil {
 		return nil, err
 	}
 	if qUntil.Valid {
@@ -625,7 +633,8 @@ func scanTest(sc scanner) (*Test, error) {
 	t.KeyApprox = strings.HasPrefix(t.Key, "name:")
 	if aState.Valid {
 		t.Triage = &Triage{State: aState.String, Category: aCat.String, Summary: aSum.String,
-			Suggestion: aSug.String, Error: aErr.String, UpdatedAt: aUpd.Int64, LocatorPick: aPick.String, LocatorReason: aReason.String}
+			Suggestion: aSug.String, Error: aErr.String, UpdatedAt: aUpd.Int64, LocatorPick: aPick.String, LocatorReason: aReason.String,
+			Provider: aProv.String, Rule: aRule.String}
 	}
 	return &t, nil
 }
@@ -847,7 +856,8 @@ func (s *Store) AddLog(testID int64, status, message string, timestamp int64, sc
 // SetTriagePending marks a test as awaiting AI analysis.
 func (s *Store) SetTriagePending(testID int64) error {
 	_, err := s.db.Exec(`INSERT INTO ai_triage(test_id, state, updated_at) VALUES(?, 'PENDING', ?)
-		ON CONFLICT(test_id) DO UPDATE SET state='PENDING', category='', summary='', suggestion='', error='', updated_at=excluded.updated_at`,
+		ON CONFLICT(test_id) DO UPDATE SET state='PENDING', category='', summary='', suggestion='', error='', provider='', rule='',
+			updated_at=excluded.updated_at`,
 		testID, NowMs())
 	return err
 }
@@ -886,12 +896,13 @@ func (s *Store) TestResultRev(testID int64) (int64, error) {
 }
 
 // SaveTriageAt is SaveTriage for the analysis of result version rev: if the result changed in
-// the meantime, or is no longer a failure, nothing is saved (saved=false).
-func (s *Store) SaveTriageAt(testID, rev int64, category, summary, suggestion, locatorPick, locatorReason string) (saved bool, err error) {
+// the meantime, or is no longer a failure, nothing is saved (saved=false). provider and rule say
+// who wrote it (see Triage).
+func (s *Store) SaveTriageAt(testID, rev int64, category, summary, suggestion, locatorPick, locatorReason, provider, rule string) (saved bool, err error) {
 	res, err := s.db.Exec(`UPDATE ai_triage SET state='DONE', category=?, summary=?, suggestion=?, error='', updated_at=?,
-		locator_pick=?, locator_reason=? WHERE test_id=?
+		locator_pick=?, locator_reason=?, provider=?, rule=? WHERE test_id=?
 		AND (SELECT result_rev FROM tests WHERE id=? AND status='FAIL') = ?`,
-		category, summary, suggestion, NowMs(), locatorPick, locatorReason, testID, testID, rev)
+		category, summary, suggestion, NowMs(), locatorPick, locatorReason, provider, rule, testID, testID, rev)
 	if err != nil {
 		return false, err
 	}
@@ -965,7 +976,8 @@ func (s *Store) ReserveTriage(testID int64, max int) (outcome string, runID int6
 		}
 	}
 	if _, err = tx.Exec(`INSERT INTO ai_triage(test_id, state, updated_at) VALUES(?, 'PENDING', ?)
-		ON CONFLICT(test_id) DO UPDATE SET state='PENDING', category='', summary='', suggestion='', error='', updated_at=excluded.updated_at`,
+		ON CONFLICT(test_id) DO UPDATE SET state='PENDING', category='', summary='', suggestion='', error='', provider='', rule='',
+			updated_at=excluded.updated_at`,
 		testID, NowMs()); err != nil {
 		return "", runID, err
 	}

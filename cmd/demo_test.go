@@ -127,15 +127,38 @@ func TestDemoEndToEnd(t *testing.T) {
 	}
 }
 
+// Cada escenario declara qué debe concluir el motor local: los de backend, backend; los de
+// selector, locator; los que pasan, ningún diagnóstico. Un escenario nuevo sin expectativa falla.
+func TestEveryScenarioHasABuiltinExpectation(t *testing.T) {
+	for _, sc := range demo.Scenarios {
+		want := sc.Expect.Builtin
+		switch {
+		case want == "":
+			t.Errorf("%s: falta Expect.Builtin", sc.ID)
+		case sc.Expect.RunStatus == "PASS" && want != "none":
+			t.Errorf("%s: una ejecución verde no tiene diagnóstico (%s)", sc.ID, want)
+		case sc.Expect.Incident == "backend" && want != "BACKEND_TIMEOUT":
+			t.Errorf("%s: incidente de backend diagnosticado como %s", sc.ID, want)
+		case sc.Expect.Locator != "" && want != "LOCATOR_CHANGED":
+			t.Errorf("%s: selector cambiado diagnosticado como %s", sc.ID, want)
+		}
+	}
+}
+
 // selftest plays every scenario against a temporary server and passes.
 func TestSelftest(t *testing.T) {
 	restoreEnv(t)
 	var out strings.Builder
-	if err := selftest(context.Background(), selftestOptions{out: &out}); err != nil {
+	var local builtinStats
+	if err := selftest(context.Background(), selftestOptions{out: &out, stats: &local}); err != nil {
 		t.Fatalf("%v\n%s", err, out.String())
 	}
 	if !strings.Contains(out.String(), fmt.Sprintf("All %d scenarios pass", len(demo.Scenarios))) {
 		t.Fatalf("output:\n%s", out.String())
+	}
+	// sin configuración diagnostica el motor local, y acierta en todos los escenarios grabados
+	if local.Total != len(demo.Scenarios) || local.Hits != local.Total {
+		t.Fatalf("local rules engine: %d/%d\n%s", local.Hits, local.Total, out.String())
 	}
 	if err := selftest(context.Background(), selftestOptions{only: "nope", out: &out}); err == nil || !strings.Contains(err.Error(), "unknown scenario") {
 		t.Fatalf("unknown scenario: %v", err)
