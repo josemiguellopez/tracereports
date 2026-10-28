@@ -70,6 +70,11 @@ warning, and anyone who reached the port could read and change the reports. Now 
   only sent to the API URL it was configured for. Changing the URL (when saving or in "Test connection")
   requires typing the key again, otherwise 409. At startup, a saved URL that differs from the
   environment's no longer takes the environment key.
+- **Private files outside the server**: `tracereports report` and the offline recordings and mirror of
+  the four clients (Python, JavaScript, Java, Go) now create their folders with `0700` and files with
+  `0600` on Linux and macOS (before: readable by every user of the machine). A recording holds the
+  evidence before server-side redaction. To publish a static report with a web server, grant read access
+  on purpose (`chmod -R a+rX`).
 
 - **`tracereports doctor --security`**: the hardening checklist as checks (tokens, UI login, network
   exposure and CIDR allowlist, AI provider and allowlist, Settings lock, retention, encryption at rest,

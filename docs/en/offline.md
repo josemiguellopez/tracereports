@@ -162,6 +162,11 @@ Without `--ai`, `report` makes no network call.
   with: { name: tracereports, path: report/ }
 ```
 
+**Permissions**: the recording holds the evidence **before** redaction (the server does it), so the
+clients create its folders with `0700` and its files with `0600` on Linux and macOS: other users of the
+same machine or runner cannot read it. A folder that already existed is left as it was. Keep it as a
+private CI artifact and delete it once uploaded.
+
 ## Recording format
 
 A folder with `tracereports-offline.json` (`{"format": "tracereports-offline", "version": 1,

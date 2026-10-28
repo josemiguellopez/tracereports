@@ -42,10 +42,11 @@ export class Recorder {
     this.nextId = 0;
     this.block = 0;
     this.tag = randomUUID().slice(0, 8);
-    fs.mkdirSync(path.join(directory, "bodies"), { recursive: true });
+    // la grabación lleva la evidencia sin redactar (eso lo hace el servidor): solo para el usuario
+    fs.mkdirSync(path.join(directory, "bodies"), { recursive: true, mode: 0o700 });
     try {
       fs.writeFileSync(path.join(directory, MARKER),
-        JSON.stringify({ format: "tracereports-offline", version: FORMAT_VERSION, id: randomUUID().replace(/-/g, "") }), { flag: "wx" });
+        JSON.stringify({ format: "tracereports-offline", version: FORMAT_VERSION, id: randomUUID().replace(/-/g, "") }), { flag: "wx", mode: 0o600 });
     } catch (err) {
       if (err.code !== "EEXIST") throw err; // otro proceso ya lo creó
     }
@@ -64,11 +65,11 @@ export class Recorder {
 
   reserveBlock() {
     const ids = path.join(this.directory, "ids");
-    fs.mkdirSync(ids, { recursive: true });
+    fs.mkdirSync(ids, { recursive: true, mode: 0o700 });
     for (let i = 0; i < 100; i++) {
       const block = randomInt(MIN_BLOCK, MAX_BLOCK);
       try {
-        fs.writeFileSync(path.join(ids, String(block)), "", { flag: "wx" });
+        fs.writeFileSync(path.join(ids, String(block)), "", { flag: "wx", mode: 0o600 });
         return block;
       } catch (err) {
         if (err.code !== "EEXIST") throw err; // ya es de otro grabador: se prueba otro
@@ -91,7 +92,7 @@ export class Recorder {
     if (parsed !== undefined) event.body = parsed;
     else {
       const name = `bodies/${process.pid}-${this.tag}-${this.seq}.bin`;
-      fs.writeFileSync(path.join(this.directory, name), body ?? "");
+      fs.writeFileSync(path.join(this.directory, name), body ?? "", { mode: 0o600 });
       event.body_file = name;
     }
     let res = {};
@@ -99,7 +100,7 @@ export class Recorder {
     else if (method === "POST" && apiPath.startsWith("/api/v1/runs/") && apiPath.endsWith("/tests")) res = { test_id: this.localId() };
     const id = res.run_id ?? res.test_id;
     if (id) event.local_id = id;
-    fs.appendFileSync(this.file, JSON.stringify(event) + "\n"); // síncrono: si el proceso muere, lo escrito queda
+    fs.appendFileSync(this.file, JSON.stringify(event) + "\n", { mode: 0o600 }); // síncrono: si el proceso muere, lo escrito queda
     this.stats.recorded++;
     return res;
   }

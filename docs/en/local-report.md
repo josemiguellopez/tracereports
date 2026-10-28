@@ -141,6 +141,10 @@ masking.** The `index.html` is masked. Do not share the raw recording and add th
 At the end, the console (the pytest summary, the Playwright reporter or the Java and Go log) shows
 both locations: the URL of the report on the server and the path of the local `index.html`.
 
+The report carries the screenshots and the network evidence: `tracereports report` writes it for your
+user only (`0700`/`0600` on Linux and macOS). To publish it with a web server, grant read access on
+purpose (`chmod -R a+rX folder`).
+
 ## 4. What the local report includes
 
 | Includes | Does not include (needs the server) |

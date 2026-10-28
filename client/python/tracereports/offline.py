@@ -49,12 +49,36 @@ def new_session_dir(base: str, name: str = "") -> str:
     return os.path.join(base, f"{session_slug(name)}-{time.strftime('%Y%m%d-%H%M%S')}-{uuid.uuid4().hex[:6]}")
 
 
+
+def private_opener(path, flags):
+    """Abre (o crea) un archivo de la grabación legible solo por el usuario (0600)."""
+    return os.open(path, flags, 0o600)
+
+
+def private_dirs(path):
+    """Crea la carpeta (y las que falten) solo para el usuario (0700); una que ya existía no se toca."""
+    missing = []
+    p = os.path.abspath(path)
+    while not os.path.isdir(p):
+        missing.append(p)
+        parent = os.path.dirname(p)
+        if parent == p:
+            break
+        p = parent
+    for d in reversed(missing):
+        try:
+            os.mkdir(d, 0o700)
+        except FileExistsError:
+            pass
+
 class Recorder:
     """Reemplaza al Sender: graba cada llamada en vez de enviarla y responde con ids locales.
     Tiene la misma interfaz que usa TraceReports (send_now, enqueue, flush, stats...)."""
 
     def __init__(self, directory: str) -> None:
         self.directory = directory
+        # la grabación lleva la evidencia sin redactar (eso lo hace el servidor): solo para el usuario
+        private_dirs(os.path.join(directory, "bodies"))
         self.spool_dir = None  # nada que reenviar: todo queda en la grabación
         self.stats = {"sent": 0, "retried": 0, "rejected": 0, "dropped": 0, "spooled": 0, "lost": 0, "recorded": 0}
         self._lock = threading.Lock()
@@ -63,16 +87,16 @@ class Recorder:
         self._block = 0
         self._pid = os.getpid()
         self._tag = uuid.uuid4().hex[:8]
-        os.makedirs(os.path.join(directory, "bodies"), exist_ok=True)
         marker = os.path.join(directory, MARKER)
         if not os.path.exists(marker):
             try:
-                with open(marker, "x", encoding="utf-8") as f:  # el primer proceso lo crea
+                with open(marker, "x", encoding="utf-8", opener=private_opener) as f:  # el primer proceso lo crea
                     json.dump({"format": "tracereports-offline", "version": FORMAT_VERSION,
                                "id": uuid.uuid4().hex}, f)
             except FileExistsError:
                 pass
-        self._events = open(os.path.join(directory, f"events-{self._pid}-{self._tag}.jsonl"), "a", encoding="utf-8")
+        self._events = open(os.path.join(directory, f"events-{self._pid}-{self._tag}.jsonl"), "a", encoding="utf-8",
+                            opener=private_opener)
 
     # ids locales negativos, únicos entre los grabadores que graban en la misma carpeta
     def _local_id(self) -> int:
@@ -84,11 +108,11 @@ class Recorder:
 
     def _reserve_block(self) -> int:
         ids = os.path.join(self.directory, "ids")
-        os.makedirs(ids, exist_ok=True)
+        private_dirs(ids)
         for _ in range(100):
             block = MIN_BLOCK + secrets.randbelow(MAX_BLOCK - MIN_BLOCK)
             try:
-                with open(os.path.join(ids, str(block)), "x"):
+                with open(os.path.join(ids, str(block)), "x", opener=private_opener):
                     return block
             except FileExistsError:
                 continue  # ya es de otro grabador: se prueba otro
@@ -109,7 +133,7 @@ class Recorder:
                 event["body"] = parsed
             else:
                 name = f"bodies/{self._pid}-{self._tag}-{self._seq}.bin"
-                with open(os.path.join(self.directory, name), "wb") as f:
+                with open(os.path.join(self.directory, name), "wb", opener=private_opener) as f:
                     f.write(body)
                 event["body_file"] = name
             res: dict = {}
