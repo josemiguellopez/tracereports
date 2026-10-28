@@ -179,6 +179,13 @@ Por defecto TraceReports no envía nada fuera del servidor. Lo que **tú** confi
 | Tickets (GitHub, Jira, Azure DevOps) | El escalamiento que se crea a mano | Solo con trackers internos |
 | `TRACEREPORTS_AI_STATUS_URL` | Una consulta a la página de estado del proveedor | Desactívalo si no usas un LLM en la nube |
 
+- **`TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama`** deja solo los proveedores que tu política permite:
+  uno fuera de la lista no se usa aunque haya una key en el entorno ni aunque alguien lo elija en Ajustes.
+  Valida el proveedor, no su URL: en un servidor compartido usa también `TRACEREPORTS_SETTINGS_LOCKED=1`.
+- **`NOTIFY_DETAIL=minimal`** deja los mensajes de Teams y Slack en conteos, estado y un link.
+- Al arrancar, el servidor registra cada destino de salida configurado y su alcance (loopback, red privada,
+  pública); `tracereports doctor --security` los lista.
+
 ## Verificar lo que instalas
 
 Comprueba la firma, el SBOM y la provenance del binario o la imagen antes de instalarlos:

@@ -179,6 +179,13 @@ By default TraceReports sends nothing outside the server. What **you** configure
 | Tickets (GitHub, Jira, Azure DevOps) | The escalation created by hand | Internal trackers only |
 | `TRACEREPORTS_AI_STATUS_URL` | A request to the provider's status page | Turn it off if you do not use a cloud LLM |
 
+- **`TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama`** keeps only the providers your policy allows: one
+  outside the list is not used even with a key in the environment or chosen in Settings. It checks the
+  provider, not its URL: on a shared server also set `TRACEREPORTS_SETTINGS_LOCKED=1`.
+- **`NOTIFY_DETAIL=minimal`** leaves Teams and Slack messages with counts, status and a link.
+- At startup the server logs every configured outbound destination and its scope (loopback, private
+  network, public); `tracereports doctor --security` lists them.
+
 ## Verify what you install
 
 Check the signature, SBOM and provenance of the binary or image before installing them:
