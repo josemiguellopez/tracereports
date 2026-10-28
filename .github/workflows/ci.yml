@@ -87,6 +87,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -o "$RUNNER_TEMP/tracereports" ./cmd && echo "TRACEREPORTS_BIN=$RUNNER_TEMP/tracereports" >> "$GITHUB_ENV"
+      # navegador real: las capturas enmascaradas se verifican en los píxeles (test/mask.test.js)
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: test/e2e
       - run: npm test
         working-directory: client/js
       # los tipos publicados (index.d.ts) aceptan lo que acepta el runtime
