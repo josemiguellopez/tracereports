@@ -3212,20 +3212,22 @@
 	/** Ayuda cuando los ajustes son de solo lectura: por qué, pasos según cómo corre el servidor y un .env completo. */
 	function readOnlyHelp(d) {
 		const docker = d.runtime === "docker";
-		const reason = ["locked", "login", "remote"].includes(d.edit_reason) ? d.edit_reason : "remote";
+		const reason = ["locked", "login", "remote", "viewer"].includes(d.edit_reason) ? d.edit_reason : "remote";
 		const env = envExample(d);
 		S.settings.envText = env;
 		const title = {
 			locked: "El administrador bloqueó estos ajustes",
 			login: "Inicia sesión para cambiar los ajustes",
+			viewer: "Tu usuario es de solo lectura",
 			remote: "Los ajustes están en solo lectura desde este navegador",
 		}[reason];
 		const why = {
 			locked: "El servidor tiene TRACEREPORTS_SETTINGS_LOCKED=1: la IA se configura solo con el archivo .env, no desde esta pantalla.",
 			login: "El servidor pide usuario y clave para cambiar los ajustes. Recarga la página e ingresa los de TRACEREPORTS_UI_USER y TRACEREPORTS_UI_PASSWORD.",
+			viewer: "Entraste con el login de solo lectura (TRACEREPORTS_UI_VIEWER_USER): puedes ver todos los reportes, pero no cambiar ajustes ni usar acciones. Pídele el cambio a quien administra el servidor.",
 			remote: "Por seguridad, sin un usuario y clave configurados nadie puede cambiar la IA desde la red: solo desde el mismo equipo donde corre el servidor. Así nadie más puede ver el uso de tu API key ni cambiarla.",
 		}[reason];
-		const steps = reason === "login" ? "" : `<ol class="ro-steps">
+		const steps = reason === "login" || reason === "viewer" ? "" : `<ol class="ro-steps">
 			<li>${tr(docker ? "Abre (o crea) el archivo <code>.env</code> que está junto a <code>docker-compose.yml</code>." : "Crea (o abre) el archivo <code>.env</code> en la carpeta desde donde ejecutas el servidor.")}</li>
 			<li>${tr(reason === "locked" ? "Cambia la sección de inteligencia artificial: deja activa una sola opción." : "Copia el ejemplo y reemplaza los datos de prueba: sobre todo <code>TRACEREPORTS_UI_USER</code>, <code>TRACEREPORTS_UI_PASSWORD</code> y tu API key.")}</li>
 			<li>${tr(docker ? "Aplica los cambios: <code>docker compose up -d</code> (recrea el contenedor con el .env nuevo)." : "Reinicia el servidor: detenlo (Ctrl+C) y vuelve a ejecutar <code>./tracereports</code> o <code>go run ./cmd</code>.")}</li>

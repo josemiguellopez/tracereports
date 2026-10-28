@@ -324,6 +324,9 @@
 		"Ejemplo de <code>.env</code> completo (datos de prueba)": "Complete <code>.env</code> example (test data)",
 		"Las variables ya definidas en el sistema mandan sobre el archivo. Todo lo demás es opcional. Detalle de cada variable: <code>{doc}</code> en el repositorio.": "Variables already set in the system take precedence over the file. Everything else is optional. Details for each variable: <code>{doc}</code> in the repository.",
 		"Copia el ejemplo completo para pegarlo en tu archivo .env": "Copies the whole example to paste into your .env file",
+		"Tu usuario es de solo lectura": "Your user is read-only",
+		"Entraste con el login de solo lectura (TRACEREPORTS_UI_VIEWER_USER): puedes ver todos los reportes, pero no cambiar ajustes ni usar acciones. Pídele el cambio a quien administra el servidor.":
+			"You signed in with the read-only login (TRACEREPORTS_UI_VIEWER_USER): you can see every report, but not change settings nor use actions. Ask whoever administers the server.",
 		// ── postura de seguridad ──
 		"Postura de seguridad": "Security posture", "Sin acceso": "No access", "{n} críticos": "{n} critical",
 		"{n} por revisar": "{n} to review", "Todo en orden": "All good", "Revisar": "Review", "Crítico": "Critical",

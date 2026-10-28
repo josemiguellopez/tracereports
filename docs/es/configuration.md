@@ -24,6 +24,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Su clave (32 bytes en base64 o hex), o un archivo que la contiene; nunca dentro de `DATA_DIR` |
 | `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | La clave anterior, solo mientras la rotas (`tracereports evidence rekey`) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
+| `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | Login de **solo lectura** para el resto del equipo: ve todo, no escribe resultados, no cambia Ajustes ni usa acciones. Usuario distinto del de administración |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (todas) | Solo estas redes entran (`10.0.0.0/8,fd00::/8`, o IPs sueltas); el resto recibe `403`, también con token. Este equipo siempre entra. Ver [Restringir por red](#restringir-por-red-de-origen) |
 | `TRACEREPORTS_TRUSTED_PROXIES` | — | Proxies cuyo `X-Forwarded-For` / `X-Real-IP` se cree para saber la IP del cliente. Sin esto esos headers se ignoran |
@@ -131,8 +132,15 @@ TRACEREPORTS_TRUSTED_PROXIES=10.0.0.5        # el reverse proxy, si lo hay
 | `TRACEREPORTS_TOKEN` | Sí | Sí | **Sí** (se mantiene así por compatibilidad) |
 | `TRACEREPORTS_INGEST_TOKEN` | Sí | Sí | No, ni desde el mismo equipo |
 | Login de UI (`TRACEREPORTS_UI_USER`/`_PASSWORD`) | No | Sí | Sí |
+| Login de solo lectura (`TRACEREPORTS_UI_VIEWER_USER`/`_PASSWORD`) | No | Sí | No, ni desde el mismo equipo |
 | Sin credenciales | Solo sin ningún token configurado | Solo sin login de UI (y por un host permitido) | Solo en modo local, desde el mismo equipo |
 
+- **Dos logins**: `TRACEREPORTS_UI_USER` administra (Ajustes, escalamientos, tickets, Lab);
+  `TRACEREPORTS_UI_VIEWER_USER` es para el resto del equipo y solo lee. Así no hace falta dar a todos el
+  login que puede cambiar la IA.
+- **La key de IA no se puede redirigir**: una key guardada o del entorno solo se envía a la URL con que se
+  configuró. Para cambiar la URL de la API en Ajustes hay que escribir la key de nuevo; si no, se
+  rechaza (409). Así nadie que administre puede apuntar la URL a su servidor y llevarse la key.
 - **Solo con un token no se protegen las lecturas**: sin login de UI, cualquiera que llegue al
   servidor por un host permitido (`localhost`, `PUBLIC_URL` o `TRACEREPORTS_ALLOWED_HOSTS`) ve los
   reportes. En un servidor compartido configura también el login.

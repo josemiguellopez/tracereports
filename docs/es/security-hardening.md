@@ -32,6 +32,8 @@ TRACEREPORTS_TOKEN=            # openssl rand -hex 32: el token de administraci√
 TRACEREPORTS_INGEST_TOKEN=     # otro distinto, restringido, para los clientes y CI
 TRACEREPORTS_UI_USER=qa
 TRACEREPORTS_UI_PASSWORD=      # una clave larga
+TRACEREPORTS_UI_VIEWER_USER=equipo # login de solo lectura para el resto del equipo
+TRACEREPORTS_UI_VIEWER_PASSWORD=   # otra clave larga
 TRACEREPORTS_SETTINGS_LOCKED=1 # la configuraci√≥n solo desde el entorno, nunca desde la UI
 
 # red

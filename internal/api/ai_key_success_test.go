@@ -74,6 +74,8 @@ func TestTestConnectionAfterHTTP200NeverCarriesTheKey(t *testing.T) {
 			logs := captureLogs(t)
 			srv, _ := newTestServer(t)
 			p := healthProvider(t, prefix, nil)
+			// la key del entorno está configurada para esa URL (una key sin reescribir no va a otra)
+			t.Setenv("OPENAI_BASE_URL", p.URL)
 			body := `{"provider":"openai","base_url":"` + p.URL + `","model":"m"}`
 			var opts []reqOpt
 			if idem != "" {

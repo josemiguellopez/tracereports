@@ -24,6 +24,7 @@ steps to apply it.
 | `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Its key (32 bytes, base64 or hex), or a file holding it; never inside `DATA_DIR` |
 | `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | The previous key, only while rotating it (`tracereports evidence rekey`) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
+| `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | **Read-only** login for the rest of the team: sees everything, never sends results, changes Settings nor uses actions. A different user from the admin one |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (all) | Only these networks get in (`10.0.0.0/8,fd00::/8`, or single IPs); the rest gets `403`, even with a token. This machine always gets in. See [Restrict by source network](#restrict-by-source-network) |
 | `TRACEREPORTS_TRUSTED_PROXIES` | — | Proxies whose `X-Forwarded-For` / `X-Real-IP` is trusted to know the client IP. Without it those headers are ignored |
@@ -131,8 +132,15 @@ TRACEREPORTS_TRUSTED_PROXIES=10.0.0.5        # the reverse proxy, if there is on
 | `TRACEREPORTS_TOKEN` | Yes | Yes | **Yes** (kept like that for compatibility) |
 | `TRACEREPORTS_INGEST_TOKEN` | Yes | Yes | No, not even from the same machine |
 | UI login (`TRACEREPORTS_UI_USER`/`_PASSWORD`) | No | Yes | Yes |
+| Read-only login (`TRACEREPORTS_UI_VIEWER_USER`/`_PASSWORD`) | No | Yes | No, not even from the same machine |
 | No credentials | Only with no token configured | Only without UI login (and through an allowed host) | Only in local mode, from the same machine |
 
+- **Two logins**: `TRACEREPORTS_UI_USER` administers (Settings, escalations, tickets, Lab);
+  `TRACEREPORTS_UI_VIEWER_USER` is for the rest of the team and only reads. Nobody needs the login that
+  can change the AI just to see reports.
+- **The AI key cannot be redirected**: a saved or environment key is only sent to the URL it was
+  configured for. Changing the API URL in Settings requires typing the key again; otherwise it is
+  rejected (409), so an admin cannot point the URL to their own server and receive the key.
 - **A token alone does not protect reads**: without UI login, anyone reaching the server through an
   allowed host (`localhost`, `PUBLIC_URL` or `TRACEREPORTS_ALLOWED_HOSTS`) sees the reports. On a
   shared server configure the login too.

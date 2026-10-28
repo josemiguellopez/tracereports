@@ -19,7 +19,7 @@ import (
 )
 
 // postureVars son todas las variables que mira doctor: cada test parte de cero.
-var postureVars = []string{"BIND", "RUNTIME", "TOKEN", "INGEST_TOKEN", "UI_USER", "UI_PASSWORD", "INSECURE",
+var postureVars = []string{"BIND", "RUNTIME", "TOKEN", "INGEST_TOKEN", "UI_USER", "UI_PASSWORD", "UI_VIEWER_USER", "UI_VIEWER_PASSWORD", "INSECURE",
 	"ALLOWED_HOSTS", "ALLOWED_CIDRS", "TRUSTED_PROXIES", "SETTINGS_LOCKED", "RETENTION_DAYS", "SCREENSHOTS",
 	"SCREENSHOT_MASK", "ENCRYPT_AT_REST", "DB_KEY", "DB_KEY_FILE", "DB_KEY_PREVIOUS", "DB_KEY_PREVIOUS_FILE",
 	"REDACT", "AI_ALLOWED_PROVIDERS", "LAB_HOSTS", "GITHUB_REPO", "GITHUB_TOKEN", "JIRA_PROJECT", "AZURE_PROJECT"}
@@ -56,6 +56,7 @@ func guideProfile(t *testing.T, dir string) map[string]string {
 	fill := map[string]string{
 		"TRACEREPORTS_TOKEN": "admin-" + strings.Repeat("a", 32), "TRACEREPORTS_INGEST_TOKEN": "ingest-" + strings.Repeat("b", 32),
 		"TRACEREPORTS_UI_PASSWORD": "una-clave-larga-de-prueba", "TRACEREPORTS_DB_KEY_FILE": keyFile,
+		"TRACEREPORTS_UI_VIEWER_PASSWORD": "otra-clave-de-lectura",
 	}
 	vars := map[string]string{}
 	line := regexp.MustCompile(`^([A-Z_]+)=(\S*)`)
@@ -99,7 +100,7 @@ func TestDoctorGuideProfileIsAllOK(t *testing.T) {
 	if err != nil || strings.Contains(out, "WARN") || strings.Contains(out, "FAIL") || !strings.Contains(out, "12 ok, 0 warn, 0 fail") {
 		t.Fatalf("perfil de la guía: %v\n%s", err, out)
 	}
-	for _, secret := range []string{strings.Repeat("a", 32), strings.Repeat("b", 32), "una-clave-larga", strings.Repeat("ab", 32)} {
+	for _, secret := range []string{strings.Repeat("a", 32), strings.Repeat("b", 32), "una-clave-larga", "otra-clave-de-lectura", strings.Repeat("ab", 32)} {
 		if strings.Contains(out, secret) {
 			t.Fatal("un secreto apareció en la salida")
 		}

@@ -81,8 +81,43 @@ func (s *Server) savedSettings() (saved map[string]string, stored string, keyErr
 
 // keyProblem is the message for a saved AI key that cannot be used (without revealing it).
 func keyProblem(err error) string {
+	if errors.Is(err, errKeyOtherURL) {
+		return err.Error()
+	}
 	return "the AI key saved from Settings cannot be decrypted: " + err.Error() +
 		". Set the TRACEREPORTS_SECRET_KEY it was saved with (it was not deleted), or type the key again"
+}
+
+// errKeyOtherURL: a key that was not typed again would go to another host than the one it was
+// configured for. Without this, whoever can change Settings could point the API URL to their own
+// server and receive the stored key and the prompts.
+var errKeyOtherURL = errors.New("the API URL changed: type the API key again to use it with the new URL " +
+	"(a saved or environment key is only sent to the URL it was configured for)")
+
+// keyHost is the host a key may be sent to: the host of raw, or of the provider's default URL.
+func keyHost(raw, provider string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		if p := ai.ProviderByID(provider); p != nil {
+			raw = p.DefaultBaseURL
+		}
+	}
+	if raw != "" && !strings.Contains(raw, "://") {
+		raw = "http://" + raw // OLLAMA_HOST suele venir sin esquema
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(u.Host)
+}
+
+// envBaseURL is the API URL the environment configures for provider ("" = its default).
+func envBaseURL(provider string) string {
+	if c := ai.ConfigFromEnv(); c.Provider == provider {
+		return c.BaseURL
+	}
+	return ""
 }
 
 type peerKey struct{}
@@ -119,6 +154,8 @@ func (s *Server) adminAccess(r *http.Request) (bool, string) {
 	switch {
 	case s.Auth.tokenOK(r):
 		return true, ""
+	case s.Auth.viewerOK(r):
+		return false, "viewer" // solo lectura, también desde el mismo equipo
 	case s.Auth.UIUser != "" && s.Auth.UIPass != "":
 		if s.Auth.basicOK(r) {
 			return true, ""
@@ -207,7 +244,8 @@ func savedAIConfig(saved map[string]string) ai.Config {
 		return ai.Config{}
 	}
 	key := saved[setAPIKey]
-	if key == "" {
+	// la key del entorno solo viaja a la URL del entorno: una URL guardada distinta la pierde
+	if key == "" && keyHost(saved[setBaseURL], p) == keyHost(envBaseURL(p), p) {
 		key = ai.EnvKey(p)
 	}
 	return ai.Config{Provider: p, Model: saved[setModel], BaseURL: saved[setBaseURL], APIKey: key}
@@ -263,7 +301,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"edit_reason": reason,
 		"runtime":     runtimeKind(),
 		"token_set":   s.Auth.Token != "",                         // el servidor exige TRACEREPORTS_TOKEN para escribir
-		"ui_login":    s.Auth.UIUser != "" && s.Auth.UIPass != "", // la UI pide usuario y clave
+		"ui_login":    s.Auth.uiLogin(), // la UI pide usuario y clave
 		"language":    saved[setLanguage],
 		"ai_language": aiLang,
 		"ai_source":   source,
@@ -296,10 +334,17 @@ func (s *Server) resolveAI(in aiInput, saved map[string]string, keyErr error) (a
 	if saved[setProvider] == p && keyErr != nil {
 		return c, false, keyErr // no se cambia en silencio por la key del .env
 	}
+	want := keyHost(in.BaseURL, p)
 	if saved[setProvider] == p && saved[setAPIKey] != "" {
+		if want != keyHost(saved[setBaseURL], p) {
+			return c, false, errKeyOtherURL
+		}
 		c.APIKey = saved[setAPIKey]
-	} else {
-		c.APIKey = ai.EnvKey(p)
+	} else if k := ai.EnvKey(p); k != "" {
+		if want != keyHost(envBaseURL(p), p) {
+			return c, false, errKeyOtherURL
+		}
+		c.APIKey = k
 	}
 	return c, false, nil
 }

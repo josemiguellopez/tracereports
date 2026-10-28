@@ -63,6 +63,13 @@ warning, and anyone who reached the port could read and change the reports. Now 
   and CI are not affected. **Failed logins are throttled**: 10 wrong passwords or tokens from an address in
   15 minutes give 429 for the rest of the window. The live stream accepts at most 500 connections, and the
   server now has read (15 min) and idle (2 min) timeouts against slow clients.
+- **Read-only UI login** (`TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD`): the rest of
+  the team sees every report but never sends results, changes Settings nor uses the UI actions, not even
+  from the same machine. The production profile of the hardening guide includes it.
+- **The AI key can no longer be redirected**: a key saved from Settings or given by the environment is
+  only sent to the API URL it was configured for. Changing the URL (when saving or in "Test connection")
+  requires typing the key again, otherwise 409. At startup, a saved URL that differs from the
+  environment's no longer takes the environment key.
 
 - **`tracereports doctor --security`**: the hardening checklist as checks (tokens, UI login, network
   exposure and CIDR allowlist, AI provider and allowlist, Settings lock, retention, encryption at rest,
