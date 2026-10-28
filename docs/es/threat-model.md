@@ -22,13 +22,14 @@ Donde un control es parcial, la tabla lo dice: una brecha honesta sirve más que
 
 ## Actores y qué puede hacer cada credencial
 
-No hay roles más allá de estas tres credenciales. Planifica el acceso con esta tabla.
+No hay roles más finos que estas credenciales. Planifica el acceso con esta tabla.
 
 | Credencial | Envía resultados | Lee todo | Administra (Ajustes, acciones de la UI, tickets, Lab) |
 | --- | --- | --- | --- |
 | Token de ingesta (`TRACEREPORTS_INGEST_TOKEN`) — clientes de tests y CI | sí | **sí** | no |
 | Token de administración (`TRACEREPORTS_TOKEN`) | sí | sí | sí |
-| Login de la UI (`TRACEREPORTS_UI_USER`) — **toda** persona que entra | — | sí | **sí** |
+| Login de la UI (`TRACEREPORTS_UI_USER`) — quien administra | — | sí | **sí** |
+| Login de solo lectura (`TRACEREPORTS_UI_VIEWER_USER`) — el resto del equipo | no | sí | no |
 | Sin credencial, mismo equipo, servidor sin credenciales (modo local) | sí | sí | sí |
 
 Otros actores: un **atacante en la red** que llega al puerto sin credenciales; un **usuario interno
@@ -44,6 +45,11 @@ de chat, tracker, una dependencia del build); quien **roba el host o un backup**
 | **Ajustes y acciones de la UI** | Cambiar el proveedor o la key de IA para sacar evidencia | Exigen el token de administración, el login de la UI o el modo local — nunca el token de ingesta; JSON + chequeo de `Origin` (CSRF); `TRACEREPORTS_SETTINGS_LOCKED=1` deja Ajustes de solo lectura; `AI_ALLOWED_PROVIDERS` se valida al guardar (#39); la key de IA se guarda cifrada | Todo usuario de la UI administra. La allowlist valida el **id del proveedor, no su URL**: un administrador puede apuntar `base_url` a otro lado y la key guardada se reutiliza. Usa `SETTINGS_LOCKED=1` en servidores compartidos |
 | **Escrituras de ingesta desde un navegador** (CSRF) | Una página web hace que el navegador de un desarrollador envíe ejecuciones falsas a un servidor local | Toda escritura que el navegador marca como de otro sitio (`Origin` de otro host, `Origin: null`, `Sec-Fetch-Site: cross-site`) se rechaza con 403; los clientes de tests no envían esos headers | |
 | **UI web** | XSS almacenado desde nombres de tests y errores; framing | Los valores se escapan antes de insertar HTML; **Content-Security-Policy** (solo scripts de este servidor, los inline por hash, sin handlers inline), `X-Frame-Options: DENY` y `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy: same-origin`; las vistas previas de HTML capturado van en un iframe `sandbox` y se sirven con `CSP: sandbox` | Los estilos admiten atributos inline |
+| **API de ingesta** (`POST /api/v1/...`) | Escrituras sin credenciales; subidas maliciosas (zip bombs, imágenes falsas) | Con credenciales configuradas se exige token; el servidor **se niega a escuchar en la red sin ninguna credencial** (#37); límites de tamaño por endpoint; imagen/trace/video verificados por contenido; límites de archivos y tamaño descomprimido del ZIP de Allure (50/200 MiB); claves de idempotencia | Sin límite de tasa, sin cuota de disco, solo timeout de lectura de headers |
+| **Lecturas** (UI, API de lectura, `/screenshots/*`, export, SSE `/api/v1/stream`) | Leer reportes sin login; DNS rebinding | Login de la UI; cualquier token válido también lee; **allowlist de IP de origen** `TRACEREPORTS_ALLOWED_CIDRS` aplicada antes de confiar en headers de proxy (#38); sin login, solo `Host` locales o permitidos (anti DNS rebinding); CORS de `/screenshots/*` solo para el Trace Viewer de Playwright en `.zip`; `GET /healthz` no devuelve datos | **Con token y sin login de UI, las lecturas quedan abiertas** a quien llegue al puerto (el chequeo de `Host` no es control de acceso: el cliente elige el header). Sin límite de suscriptores SSE. Sin freno a fuerza bruta en el login |
+| **Ajustes y acciones de la UI** | Cambiar el proveedor o la key de IA para sacar evidencia | Exigen el token de administración, el login de la UI o el modo local — nunca el token de ingesta; JSON + chequeo de `Origin` (CSRF); `TRACEREPORTS_SETTINGS_LOCKED=1` deja Ajustes de solo lectura; `AI_ALLOWED_PROVIDERS` se valida al guardar (#39); la key de IA se guarda cifrada | Una key guardada o del entorno solo se envía a la URL con que se configuró: cambiar la URL exige escribir la key de nuevo (409 si no), también en "Probar conexión". El login de solo lectura nunca administra. Un administrador que escribe una key aún puede enviarla a donde quiera: usa `SETTINGS_LOCKED=1` en servidores compartidos |
+| **Escrituras de ingesta desde un navegador** (CSRF) | Una página web hace que el navegador de un desarrollador envíe ejecuciones falsas a un servidor local | Chequeo de `Host` (solo nombres locales en modo local) | Los endpoints de ingesta no validan `Origin` ni exigen JSON: en modo local sin token, un formulario de otro sitio puede crear ejecuciones |
+| **UI web** | XSS almacenado desde nombres de tests y errores; framing | Los valores se escapan antes de insertar HTML; las vistas previas de HTML capturado van en un iframe `sandbox` y se sirven con `CSP: sandbox` y `nosniff` | Sin Content-Security-Policy ni `X-Frame-Options` en las páginas de la UI |
 | **Evidencia en reposo** | Robo del host o de un backup; restos tras borrar | Permisos solo del dueño (`0700`/`0600`); retención con `secure_delete`, `VACUUM` y checkpoint del WAL (#35); **cifrado opcional en la aplicación** de capturas, traces, videos y DOM (AES-256-GCM, #42); cifrado del volumen (operador) | La base en sí no la cifra la aplicación (ver riesgos residuales) |
 | **Contenido de las capturas** | Campos sensibles capturados | Enmascarado en los cuatro clientes antes de la captura; política del servidor `TRACEREPORTS_SCREENSHOTS=failures/off` (#45) | El enmascarado depende de selectores |
 | **Secretos dentro de la evidencia** | Tokens y claves guardados o reenviados | Redacción en el servidor antes de guardar (headers, claves, patrones), activa por defecto | Atrapa formas conocidas, no todo dato personal |
@@ -71,6 +77,16 @@ Conocidos y aceptados, o en manos del operador. La guía de hardening y `doctor 
    tiene tope, pero un cliente con un token válido todavía puede inundar el servidor: pon un proxy con
    límites delante de un servidor compartido.
 5. **Los estilos de la UI admiten atributos inline** (`style-src 'unsafe-inline'`); los scripts no.
+2. **Roles gruesos.** El token de ingesta lee todo (el CI descarga el ZIP con él): un token de CI
+   filtrado es una lectura completa de la evidencia. Dale al equipo el login de solo lectura, no el de
+   administración.
+3. **Quien administra elige el endpoint de IA.** La key guardada no se puede redirigir, pero un
+   administrador puede configurar una URL nueva con una key que escribe. Bloquea Ajustes
+   (`TRACEREPORTS_SETTINGS_LOCKED=1`) en servidores compartidos.
+4. **Sin límite de tasa ni protección contra fuerza bruta**, sin cuota de disco ni límite de suscriptores
+   SSE: pon un proxy con límites delante de un servidor compartido.
+5. **Sin Content-Security-Policy en la UI**, y los endpoints de ingesta aceptan envíos de otros sitios en
+   modo local.
 6. **La base SQLite no la cifra la aplicación.** Las capturas de red, errores y pasos dependen del cifrado
    del volumen. El spike #41 midió un SQLite cifrado en Go puro (`ncruces/go-sqlite3` con los VFS `xts` o
    `adiantum`): `xts` costó +57 % al ingerir en Linux y consultas 3-4 veces más lentas, más que el 30 %

@@ -19,6 +19,9 @@ import (
 //	            every read. A valid token (either) also grants read access (CI downloading the ZIP).
 //	            Without it, reads are open to whoever reaches the server through an allowed host
 //	            (localhost or TRACEREPORTS_ALLOWED_HOSTS): a token alone does not protect reads.
+//	Viewer      TRACEREPORTS_UI_VIEWER_USER / TRACEREPORTS_UI_VIEWER_PASSWORD: a read-only UI login
+//	            for the rest of the team. It reads every report but never writes results, changes
+//	            Settings nor uses the UI actions (escalations, tickets, Lab).
 //	LocalAdmin  TRACEREPORTS_LOCAL_ADMIN: with a token but no UI login, lets the same machine
 //	            (direct connection, not through a proxy) change settings and use UI actions.
 type Auth struct {
@@ -26,7 +29,22 @@ type Auth struct {
 	IngestToken string
 	UIUser      string
 	UIPass      string
+	ViewerUser  string
+	ViewerPass  string
 	LocalAdmin  bool
+}
+
+// uiLogin reports whether the UI asks for a login (admin or read-only).
+func (a Auth) uiLogin() bool {
+	return (a.UIUser != "" && a.UIPass != "") || (a.ViewerUser != "" && a.ViewerPass != "")
+}
+
+// viewerOK reports whether the request carries the read-only login.
+func (a Auth) viewerOK(r *http.Request) bool {
+	user, pass, ok := r.BasicAuth()
+	return ok && a.ViewerUser != "" && a.ViewerPass != "" &&
+		subtle.ConstantTimeCompare([]byte(user), []byte(a.ViewerUser)) == 1 &&
+		subtle.ConstantTimeCompare([]byte(pass), []byte(a.ViewerPass)) == 1
 }
 
 // tokensSet reports whether writes require a token (the server counts as deployed).
@@ -58,14 +76,14 @@ func tokenHeader(r *http.Request) string {
 
 func (a Auth) basicOK(r *http.Request) bool {
 	user, pass, ok := r.BasicAuth()
-	return ok &&
+	return ok && a.UIUser != "" && a.UIPass != "" &&
 		subtle.ConstantTimeCompare([]byte(user), []byte(a.UIUser)) == 1 &&
 		subtle.ConstantTimeCompare([]byte(pass), []byte(a.UIPass)) == 1
 }
 
 // middleware enforces the configured rules; with nothing configured everything is open.
 func (a Auth) middleware(next http.Handler) http.Handler {
-	uiAuth := a.UIUser != "" && a.UIPass != ""
+	uiAuth := a.uiLogin()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		isWrite := r.Method != http.MethodGet && r.Method != http.MethodHead
 		// cualquiera de los dos tokens escribe resultados y lee; administrar es aparte
@@ -76,9 +94,15 @@ func (a Auth) middleware(next http.Handler) http.Handler {
 			writeError(w, http.StatusUnauthorized, "missing or invalid API token (Authorization: Bearer <TRACEREPORTS_TOKEN>)")
 			return
 		}
-		if uiAuth && !token && !a.basicOK(r) {
+		viewer := !token && a.viewerOK(r)
+		if uiAuth && !token && !viewer && !a.basicOK(r) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="TraceReports", charset="UTF-8"`)
 			writeError(w, http.StatusUnauthorized, "authentication required")
+			return
+		}
+		// el login de solo lectura nunca escribe: ni resultados, ni Ajustes, ni acciones de la UI
+		if viewer && isWrite {
+			writeError(w, http.StatusForbidden, "read-only login (TRACEREPORTS_UI_VIEWER_USER): it cannot change anything")
 			return
 		}
 		next.ServeHTTP(w, r)

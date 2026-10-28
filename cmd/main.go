@@ -17,6 +17,7 @@
 //	TRACEREPORTS_TOKEN   token required to write to the API (optional, recommended); it may also change settings
 //	TRACEREPORTS_INGEST_TOKEN  restricted token for test clients/CI: writes results and reads, never administers
 //	TRACEREPORTS_UI_USER / TRACEREPORTS_UI_PASSWORD  HTTP Basic login for the UI (optional)
+//	TRACEREPORTS_UI_VIEWER_USER / TRACEREPORTS_UI_VIEWER_PASSWORD  read-only UI login: reads, never changes anything
 //	TRACEREPORTS_ALLOWED_HOSTS  hosts served without login besides localhost (comma separated; * = any)
 //	TRACEREPORTS_ALLOWED_CIDRS  only these source networks get in (403 otherwise, even with a token; loopback always)
 //	TRACEREPORTS_TRUSTED_PROXIES  proxies whose X-Forwarded-For / X-Real-IP is trusted (default: none)
@@ -237,6 +238,9 @@ func runServer(parent context.Context) error {
 		IngestToken: env.Get("INGEST_TOKEN"),
 		UIUser:      env.Get("UI_USER"),
 		UIPass:      env.Get("UI_PASSWORD"),
+		// opcional: login de solo lectura para el resto del equipo
+		ViewerUser: env.Get("UI_VIEWER_USER"),
+		ViewerPass: env.Get("UI_VIEWER_PASSWORD"),
 		// con token = despliegue: el mismo equipo también necesita credenciales, salvo que se diga
 		LocalAdmin: env.Bool("LOCAL_ADMIN"),
 	}
@@ -246,7 +250,10 @@ func runServer(parent context.Context) error {
 	if auth.Token != "" && auth.Token == auth.IngestToken {
 		return errors.New("TRACEREPORTS_INGEST_TOKEN must be different from TRACEREPORTS_TOKEN (it has fewer permissions)")
 	}
-	if auth.UIUser == "" || auth.UIPass == "" {
+	if auth.ViewerUser != "" && auth.ViewerUser == auth.UIUser {
+		return errors.New("TRACEREPORTS_UI_VIEWER_USER must be different from TRACEREPORTS_UI_USER (one reads, the other administers)")
+	}
+	if (auth.UIUser == "" || auth.UIPass == "") && (auth.ViewerUser == "" || auth.ViewerPass == "") {
 		slog.Warn("TRACEREPORTS_UI_USER/TRACEREPORTS_UI_PASSWORD not set: the reports are readable without login")
 	}
 
@@ -314,7 +321,7 @@ func runServer(parent context.Context) error {
 		// solo la red interna (TRACEREPORTS_ALLOWED_CIDRS), con proxies confiables
 		Net: netPolicy,
 	}
-	if auth.UIUser == "" || auth.UIPass == "" {
+	if (auth.UIUser == "" || auth.UIPass == "") && (auth.ViewerUser == "" || auth.ViewerPass == "") {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())
 	}
 	// lo guardado desde la pantalla de Ajustes manda sobre el .env

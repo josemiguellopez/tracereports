@@ -30,10 +30,11 @@ type exposure struct {
 
 func exposureFromEnv() exposure {
 	return exposure{
-		bind:     strings.TrimSpace(env.Get("BIND")),
-		docker:   env.Get("RUNTIME") == "docker",
-		token:    env.Get("TOKEN") != "" || env.Get("INGEST_TOKEN") != "",
-		uiLogin:  env.Get("UI_USER") != "" && env.Get("UI_PASSWORD") != "",
+		bind:   strings.TrimSpace(env.Get("BIND")),
+		docker: env.Get("RUNTIME") == "docker",
+		token:  env.Get("TOKEN") != "" || env.Get("INGEST_TOKEN") != "",
+		uiLogin: (env.Get("UI_USER") != "" && env.Get("UI_PASSWORD") != "") ||
+			(env.Get("UI_VIEWER_USER") != "" && env.Get("UI_VIEWER_PASSWORD") != ""),
 		insecure: env.Bool("INSECURE"),
 	}
 }
