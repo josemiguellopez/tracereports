@@ -1,0 +1,51 @@
+name: CodeQL
+
+# Análisis estático (SAST) del servidor, la UI y los clientes. Los hallazgos aparecen en
+# Security → Code scanning.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+  schedule:
+    - cron: "23 4 * * 1" # los lunes: reglas nuevas sobre código que no cambió
+
+permissions:
+  contents: read
+
+jobs:
+  analyze:
+    name: Analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write # subir los resultados
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: autobuild
+          - language: javascript-typescript # web/, client/js, test/e2e
+            build-mode: none
+          - language: python # client/python
+            build-mode: none
+          - language: java-kotlin # client/java (sin compilar: no hace falta Gradle aquí)
+            build-mode: none
+          - language: actions # los propios workflows
+            build-mode: none
+    steps:
+      - uses: actions/checkout@v7
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          queries: security-extended
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: /language:${{ matrix.language }}

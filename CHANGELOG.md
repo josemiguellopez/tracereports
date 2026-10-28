@@ -23,6 +23,18 @@ All notable changes to TraceReports. The format follows
 - **Without an AI key, failures are now diagnosed by the local engine** instead of not at all. To keep the
   previous behavior (no diagnosis), set `AI_PROVIDER=off`. Existing LLM setups do not change.
 - CI runs the Go tests with the race detector and checks that the server still builds without CGO.
+- The CI, the release binaries and CodeQL build with the latest patch release of Go 1.27 (like the Docker
+  image) instead of the minimum in `go.mod`: the binaries carry the standard library's security fixes.
+- A pre-release tag (`v0.6.0-rc1`) is published as a pre-release, takes its notes from `[Unreleased]` and
+  no longer moves the image's `latest` tag.
+
+### Security
+
+- **Signed releases**: binaries (through `checksums.txt`) and the Docker image are signed keyless with
+  cosign, carry an SPDX SBOM and a SLSA provenance attestation. How to verify them: `SECURITY.md`.
+- **govulncheck** fails CI when reachable code has a known vulnerability; **CodeQL** analyzes Go,
+  JavaScript/TypeScript, Python, Java and the workflows; **OpenSSF Scorecard** runs on `main` (badge in the
+  README); a release rehearsal builds, signs and verifies everything on the pull requests that change it.
 
 ## [0.5.0] - 2026-10-16
 

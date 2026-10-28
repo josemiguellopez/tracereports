@@ -27,6 +27,12 @@ docker run -d -p 8080:8080 -v tracereports-data:/data --env-file .env tracerepor
 
 The image runs as an unprivileged user on a *distroless* base (no shell).
 
+## Verify the download
+
+Releases are signed with cosign (keyless), and come with an SBOM and SLSA provenance. To check that a
+binary or the Docker image comes from this repository and was not modified, follow
+[Verifying a release](../../SECURITY.md#verifying-a-release).
+
 ## Option 2: binary with Go
 
 Requires Go 1.26 or later.

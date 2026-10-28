@@ -4,6 +4,7 @@
   <a href="https://tracereports.cl/"><img alt="Try it now" src="https://img.shields.io/badge/try%20it%20now-%E2%86%92-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&color=c9fa6b" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/josemiguellopez/tracereports/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/josemiguellopez/tracereports"><img alt="OpenSSF Scorecard" src="https://img.shields.io/ossf-scorecard/github.com/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&label=openssf%20scorecard" /></a>
   <a href="./LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <img alt="Single Go binary" src="https://img.shields.io/badge/single-go%20binary-fc9672.svg?style=for-the-badge&logo=go&logoColor=white&labelColor=000000" />
   <img alt="Self-hosted, no telemetry" src="https://img.shields.io/badge/self--hosted-no%20telemetry-eeeee2.svg?style=for-the-badge&labelColor=000000" />
