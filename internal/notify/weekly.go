@@ -131,7 +131,8 @@ func (n *Notifier) sendWeekly(ctx context.Context, e *Escalation, slotKey string
 		if slotKey == "" {
 			err = n.sendOnDemand(ctx, "weekly", ch.name, e)
 		} else {
-			payload := map[string]any{"teams": TeamsEscalation(e), "slack": SlackEscalation(e)}[ch.name]
+			out := n.forChannels("weekly", e)
+			payload := map[string]any{"teams": TeamsEscalation(out), "slack": SlackEscalation(out)}[ch.name]
 			err = n.deliver(ctx, "weekly", slotKey, ch.name, payload, false)
 		}
 		if err != nil {

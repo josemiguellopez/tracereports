@@ -1,0 +1,95 @@
+{
+  "attachments": [
+    {
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "actions": [
+          {
+            "title": "Ver métricas",
+            "type": "Action.OpenUrl",
+            "url": "https://reports.example.com/#view=metrics"
+          }
+        ],
+        "body": [
+          {
+            "color": "Warning",
+            "size": "Small",
+            "spacing": "None",
+            "text": "Últimos 7 días",
+            "type": "TextBlock",
+            "weight": "Bolder"
+          },
+          {
+            "size": "Large",
+            "spacing": "Small",
+            "text": "Resumen semanal de pruebas",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "text": "La tasa de éxito subió 3.5 puntos: 91.5%.",
+            "type": "TextBlock",
+            "wrap": true
+          },
+          {
+            "spacing": "Medium",
+            "text": "Ejecuciones",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "spacing": "None",
+            "text": "12 (semana anterior: 10)",
+            "type": "TextBlock",
+            "wrap": true
+          },
+          {
+            "spacing": "Medium",
+            "text": "Tasa de éxito",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "spacing": "None",
+            "text": "91.5% (semana anterior: 88%)",
+            "type": "TextBlock",
+            "wrap": true
+          },
+          {
+            "spacing": "Medium",
+            "text": "Tests que fallaron",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "spacing": "None",
+            "text": "3 (semana anterior: 0)",
+            "type": "TextBlock",
+            "wrap": true
+          },
+          {
+            "spacing": "Medium",
+            "text": "Tests inestables",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "spacing": "None",
+            "text": "1 (semana anterior: 0)",
+            "type": "TextBlock",
+            "wrap": true
+          }
+        ],
+        "type": "AdaptiveCard",
+        "version": "1.4"
+      },
+      "contentType": "application/vnd.microsoft.card.adaptive"
+    }
+  ],
+  "type": "message"
+}

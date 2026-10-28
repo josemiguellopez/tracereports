@@ -22,6 +22,7 @@
 //	TEAMS_WEBHOOK_URL / SLACK_WEBHOOK_URL  run summary notifications (optional)
 //	PUBLIC_URL      public base URL, used for links in notifications
 //	NOTIFY_ON       always (default) | failures
+//	NOTIFY_DETAIL   full (default) | minimal: only counts, status and the link (no test names, errors or AI text)
 //	NETWORK_MAX_BODY_KB  max stored size of each captured response body (default 256; 0 = no bodies)
 //	TRACEREPORTS_REDACT  off = store secrets as received (default: masked before storing)
 //	TRACEREPORTS_REDACT_HEADERS / TRACEREPORTS_REDACT_KEYS / TRACEREPORTS_REDACT_PATTERNS  extra masking rules

@@ -38,6 +38,7 @@ steps to apply it.
 | `TRACEREPORTS_BIND` | all interfaces; without credentials, only this machine | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows). See [Security](#security) |
 | `TRACEREPORTS_INSECURE` | — | `1`: start listening on the network **without** a token or login (only in a closed lab network). See [Security](#security) |
 | `NOTIFY_ON` | `always` | `always`, or `failures` to notify only when something failed |
+| `NOTIFY_DETAIL` | `full` | `minimal`: Teams and Slack get only counts, status and the link; no test names, errors, backend URLs or AI text. See [Notifications](#teams-and-slack-notifications) |
 | `NETWORK_MAX_BODY_KB` | `256` | Maximum stored size of each network *response body*; `0` = store no bodies |
 | `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
@@ -355,6 +356,12 @@ When each run is closed (`PATCH /runs/{id}/finish`), the server sends:
 - the diagnosis headline and the main causes with their suggested action;
 - the comparison with the previous run (new failures, fixed, flaky);
 - a **View report** button if `PUBLIC_URL` is set.
+
+**Shared channels (`NOTIFY_DETAIL=minimal`)**: if the channel must not see test names, errors or the
+diagnosis, with `NOTIFY_DETAIL=minimal` only the run name, the counts (OK, failed, skipped, changes since
+the previous run), the status and the **View report** button arrive. It applies to everything that is sent:
+the notice of each run, the weekly summary (its numbers, without the list of tests) and escalations (only the
+severity and the link; the details stay in the report).
 
 **Microsoft Teams** (Workflows webhook):
 1. In the channel: **⋯ → Workflows → "Post to a channel when a webhook request is received"**.

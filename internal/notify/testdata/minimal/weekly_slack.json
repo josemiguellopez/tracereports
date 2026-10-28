@@ -1,0 +1,69 @@
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "Resumen semanal de pruebas",
+        "type": "plain_text"
+      },
+      "type": "header"
+    },
+    {
+      "elements": [
+        {
+          "text": "*Últimos 7 días*",
+          "type": "mrkdwn"
+        }
+      ],
+      "type": "context"
+    },
+    {
+      "text": {
+        "text": "La tasa de éxito subió 3.5 puntos: 91.5%.",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "text": {
+        "text": "*Ejecuciones*\n12 (semana anterior: 10)",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "text": {
+        "text": "*Tasa de éxito*\n91.5% (semana anterior: 88%)",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "text": {
+        "text": "*Tests que fallaron*\n3 (semana anterior: 0)",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "text": {
+        "text": "*Tests inestables*\n1 (semana anterior: 0)",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "elements": [
+        {
+          "text": {
+            "text": "Ver métricas",
+            "type": "plain_text"
+          },
+          "type": "button",
+          "url": "https://reports.example.com/#view=metrics"
+        }
+      ],
+      "type": "actions"
+    }
+  ],
+  "text": "Resumen semanal de pruebas — La tasa de éxito subió 3.5 puntos: 91.5%."
+}
