@@ -17,6 +17,7 @@ terminal o tu pipeline. `tracereports help` lista los comandos, y cada uno expli
 | [`mcp`](#mcp) | Servidor MCP (stdio) para Claude Code y otros agentes | sí |
 | [`selftest`](#selftest) | Reproduce los escenarios grabados con los clientes reales y comprueba el resultado | no (levanta el suyo) |
 | [`secrets`](#secrets) | Estado y migración de las credenciales guardadas desde Ajustes | no (la carpeta de datos) |
+| [`doctor`](#doctor) | Postura de seguridad: OK / WARN / FAIL, código 1 si falla algo crítico | no (o `-url`) |
 | [`evidence`](#evidence) | Estado, cifrado y rotación de clave de la evidencia cifrada en reposo | no (la carpeta de datos) |
 | [`version`](#version) | Muestra la versión | no |
 
@@ -231,6 +232,23 @@ cifradas y con qué clave (su id, nunca la clave ni el contenido). `encrypt` cif
 `TRACEREPORTS_DB_KEY_PREVIOUS`; `rekey` hace lo mismo tras rotar la clave. Detén el servidor y respalda la
 carpeta de datos antes. Ver [cifrado de la evidencia](security-hardening.md#cifrado-de-la-evidencia-en-la-aplicación-opcional).
 
+## doctor
+
+```bash
+tracereports doctor --security                      # la configuración de este equipo (entorno y .env)
+tracereports doctor --security -url https://reportes.interno   # un servidor en marcha (TRACEREPORTS_TOKEN)
+tracereports doctor --security -json                # JSON con contrato estable (campo "version")
+```
+
+Revisa la postura de seguridad contra la [guía de hardening](security-hardening.md): tokens, login de la
+UI, exposición en la red y `TRACEREPORTS_ALLOWED_CIDRS`, proveedor de IA y su allowlist,
+`TRACEREPORTS_SETTINGS_LOCKED`, retención, cifrado en reposo y clave fuera de `DATA_DIR`, usuario del
+proceso, permisos de `DATA_DIR`, destinos de salida, redacción y política de capturas. Imprime OK / WARN /
+FAIL con qué hacer en cada uno y **sale con código 1 si falla uno crítico**: sirve de gate en CI o en el
+despliegue. Nunca muestra valores de credenciales, solo si están. Con `-url` también ve el proveedor de IA
+elegido en Ajustes; la misma postura está en **Ajustes → Postura de seguridad** y en
+`GET /api/v1/security/posture` (requiere `TRACEREPORTS_TOKEN`, el login de la UI o el mismo equipo).
+
 ## health
 
 ```bash
@@ -256,6 +274,7 @@ tracereports version        # también -version, --version
 | `report -ai` | el proveedor de IA | solo el proveedor de IA |
 | `secrets` | `DATA_DIR`, `TRACEREPORTS_SECRET_KEY…` | todo |
 | `evidence` | `DATA_DIR`, `TRACEREPORTS_DB_KEY…` | todo |
+| `doctor` | todo lo de seguridad del servidor | todo |
 | `push`, `pr-comment`, `repro`, `verify`, `mcp`, `selftest` | `TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`, `TRACEREPORTS_LAB_<NOMBRE>`… | no |
 
 Los clientes de tests (pytest, Playwright, Java, Go) tienen sus propias variables: ver sus guías

@@ -56,6 +56,14 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 ### Security
 
+- **`tracereports doctor --security`**: the hardening checklist as checks (tokens, UI login, network
+  exposure and CIDR allowlist, AI provider and allowlist, Settings lock, retention, encryption at rest,
+  process user, `DATA_DIR` permissions, outbound destinations, redaction, screenshot policy) with OK / WARN /
+  FAIL and what to do; exit code 1 when a critical check fails, `-json` with a stable contract, `-url` to
+  ask a running server. Also at `GET /api/v1/security/posture` (admin only) and in **Settings → Security
+  posture**. The production profile of the hardening guide now includes `TRACEREPORTS_ALLOWED_CIDRS`,
+  `NOTIFY_DETAIL=minimal` and encryption at rest, and passes every check.
+
 - `tracereports selftest` checks that the screenshots recorded with the Python (Playwright) and Java (Selenium)
   clients show the demo shop's member card (`data-tracereports-mask`) covered.
 - **Evidence encrypted at rest, opt-in** (`TRACEREPORTS_ENCRYPT_AT_REST=1` with `TRACEREPORTS_DB_KEY` or

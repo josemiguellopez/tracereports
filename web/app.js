@@ -3405,6 +3405,7 @@
 		if (!STATIC && !st.data && !st.error && !st.loading) { st.loading = true; loadSettings().finally(() => { st.loading = false; }); }
 		if (!STATIC && !st.usage && !st.usageError && !st.usageLoading) loadUsage();
 		if (!STATIC && st.tab === "usage" && !st.status && !st.statusLoading) loadStatus(false);
+		if (!STATIC && !st.posture && !st.postureLoading) loadPosture();
 		const head = `<div class="page-head"><div><h4 class="page-title">Ajustes</h4>
 				<p class="page-sub">${STATIC ? "Reporte exportado: el idioma y el tema se guardan en este navegador." : "El idioma y el tema son de cada navegador. La IA es del servidor: aplica a todos."}</p></div></div>`;
 		let html;
@@ -3417,7 +3418,8 @@
 			const body = cur.id === "look" ? appearanceCard()
 				: st.error ? `<div class="card placeholder">No se pudieron cargar los ajustes: ${esc(st.error)}</div>`
 				: !st.data ? `<div class="card placeholder">Cargando…</div>`
-				: cur.id === "ai" ? aiCardSettings() : cur.id === "usage" ? usageCard() : connectCard(st.data);
+				: cur.id === "ai" ? aiCardSettings() : cur.id === "usage" ? usageCard()
+				: cur.id === "security" ? postureCard() : connectCard(st.data);
 			html = `${head}<div class="set-layout">
 				<nav class="card set-nav" role="tablist" aria-label="Secciones de Ajustes" aria-orientation="vertical">
 					${tabs.map((t) => `<button role="tab" id="set-tab-${t.id}" aria-selected="${t.id === cur.id}" aria-controls="set-panel" tabindex="${t.id === cur.id ? 0 : -1}" data-set-tab="${t.id}">
@@ -3444,7 +3446,49 @@
 				sub: S.settings.usage ? tr("{n} llamadas hoy", { n: fmtNum(S.settings.usage.usage.today.calls) }) : "…" },
 			{ id: "conn", icon: "i-plug", title: "Conectar tus tests",
 				sub: !d ? "…" : d.token_set ? "Token de API activo" : "Sin token de API", tone: d && !d.token_set ? "warn" : "ok" },
+			{ id: "security", icon: "i-check", title: "Postura de seguridad", ...postureSummary(S.settings.posture) },
 		];
+	}
+
+	/** Línea de estado de la postura en el índice de Ajustes. */
+	function postureSummary(p) {
+		if (!p) return { sub: "…" };
+		if (p.error) return { sub: tr("Sin acceso"), tone: "muted" };
+		if (p.fail) return { sub: tr("{n} críticos", { n: p.fail }), tone: "warn" };
+		if (p.warn) return { sub: tr("{n} por revisar", { n: p.warn }), tone: "warn" };
+		return { sub: tr("Todo en orden"), tone: "ok" };
+	}
+
+	async function loadPosture() {
+		const st = S.settings;
+		st.postureLoading = true;
+		try {
+			st.posture = await api("/api/v1/security/posture");
+		} catch (err) {
+			st.posture = { error: err.message, checks: [] };
+		}
+		st.postureLoading = false;
+		if (S.view === "settings") renderSettings(true);
+	}
+
+	const POSTURE_TONE = { ok: "ok", warn: "warn", fail: "bad" };
+	const POSTURE_LABEL = { ok: "OK", warn: "Revisar", fail: "Crítico" };
+
+	/** La postura de seguridad del servidor: los chequeos de doctor --security, con qué hacer en cada uno. */
+	function postureCard() {
+		const p = S.settings.posture;
+		if (!p) return `<div class="card placeholder">${tr("Revisando la configuración…")}</div>`;
+		if (p.error) return `<div class="card placeholder">${tr("No se pudo leer la postura de seguridad")}: ${esc(p.error)}</div>`;
+		const rows = p.checks.map((c) => `<div class="prov-status ${POSTURE_TONE[c.level] || "muted"} posture-row" data-check="${esc(c.id)}">
+				<span class="prov-dot"></span>
+				<div><b>${esc(tr(POSTURE_LABEL[c.level] || c.level))} · <span data-no-i18n>${esc(c.title)}</span></b>
+				<p class="m-hint" data-no-i18n>${esc(c.detail)}</p>
+				${c.fix ? `<p class="m-hint posture-fix" data-no-i18n>→ ${esc(c.fix)}</p>` : ""}</div></div>`).join("");
+		return `<section class="card set-card" aria-labelledby="set-posture">
+			<div class="set-head"><h5 id="set-posture">${icon("i-check")}${tr("Postura de seguridad")}</h5></div>
+			<p class="field-help">${tr("Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.")}</p>
+			<p class="field-help"><b>${tr("{ok} OK · {warn} por revisar · {fail} críticos", { ok: p.ok, warn: p.warn, fail: p.fail })}</b></p>
+			<div class="posture-list">${rows}</div></section>`;
 	}
 
 	async function loadUsage() {

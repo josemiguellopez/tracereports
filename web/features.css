@@ -420,6 +420,8 @@ body[data-theme="pixel"] .cf-tooltip b { font-family: var(--font-head); font-siz
 .prov-status.bad .prov-dot { background: var(--color-danger); }
 .prov-status.info .prov-dot { background: var(--color-info); }
 .prov-status.bad { border-color: var(--color-danger); }
+.posture-list { display: grid; gap: 8px; margin-top: 10px; }
+.posture-fix { font-weight: 600; }
 .prov-status-list { margin: 4px 0 0; padding-left: 18px; font-size: 13px; }
 .prov-status-sub { font-size: 12px; font-weight: 600; color: var(--color-heading); }
 .set-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
