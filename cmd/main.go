@@ -3,7 +3,9 @@
 // Environment variables:
 //
 //	PORT            HTTP port (default 8080)
-//	TRACEREPORTS_BIND  address to listen on (default: all interfaces; 127.0.0.1 = only this machine)
+//	TRACEREPORTS_BIND  address to listen on (default: all interfaces with credentials, only this
+//	                machine without them; 127.0.0.1 = only this machine)
+//	TRACEREPORTS_INSECURE  1 = listen on the network without a token or login (default: refuse to start)
 //	DATA_DIR        data directory for SQLite + screenshots (default ./data)
 //	AI_PROVIDER     builtin | gemini | anthropic | openai | openai_compatible | ollama | off (optional;
 //	                inferred from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST;
@@ -40,7 +42,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -134,6 +135,11 @@ func runServer(parent context.Context) error {
 		return err
 	} else if n > 0 {
 		slog.Info("configuration loaded from file", "file", envFile, "variables", n)
+	}
+	// fail-closed: sin credenciales no se escucha en la red (se decide antes de tocar los datos)
+	binds, err := checkExposure(exposureFromEnv())
+	if err != nil {
+		return err
 	}
 	port := envOr("PORT", "8080")
 	dataDir := envOr("DATA_DIR", "./data")
@@ -270,8 +276,6 @@ func runServer(parent context.Context) error {
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
 
 	srv := &http.Server{
-		// TRACEREPORTS_BIND=127.0.0.1 atiende solo a este equipo (vacío: todas las interfaces)
-		Addr:              net.JoinHostPort(strings.TrimSpace(env.Get("BIND")), port),
 		Handler:           apiServer.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
 	}
@@ -284,11 +288,17 @@ func runServer(parent context.Context) error {
 		return err
 	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("TraceReports listening", "url", "http://localhost:"+port)
-		errCh <- srv.ListenAndServe()
-	}()
+	// TRACEREPORTS_BIND=127.0.0.1 atiende solo a este equipo (vacío: todas las interfaces, si hay
+	// credenciales; ver exposure.go)
+	lns, err := listen(binds, port)
+	if err != nil {
+		return err
+	}
+	errCh := make(chan error, len(lns))
+	slog.Info("TraceReports listening", "url", "http://localhost:"+port, "bind", strings.Join(binds, ","))
+	for _, ln := range lns {
+		go func() { errCh <- srv.Serve(ln) }()
+	}
 
 	select {
 	case err := <-errCh:

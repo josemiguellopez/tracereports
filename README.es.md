@@ -36,7 +36,8 @@ llamada HTTP que hizo el navegador y un diagnóstico con IA que convierte una pa
 puñado de incidentes.
 
 ```bash
-docker run -d -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # servidor + UI en http://localhost:8080
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # lo comparten el servidor y tus tests
+docker run -d -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # servidor + UI en http://localhost:8080
 pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # listo, sin cambiar tu código
 ```
@@ -248,8 +249,12 @@ secretos antes de guardar nada, y la IA, los webhooks y los trackers son opciona
 **Con Docker** (recomendado, sin clonar nada):
 
 ```bash
-docker run -d --name tracereports -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # guárdalo: tus tests lo envían
+docker run -d --name tracereports -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
 ```
+
+El contenedor no arranca sin un token o el login de la UI: quedaría abierto a la red.
+Ver [Seguridad](docs/es/configuration.md#seguridad).
 
 **Sin Docker:** descarga el binario para tu sistema desde la [última versión](https://github.com/josemiguellopez/tracereports/releases/latest) (Linux, macOS y
 Windows, amd64 y arm64), descomprímelo y ejecuta `./tracereports` (`tracereports.exe` en Windows).

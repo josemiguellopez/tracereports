@@ -34,7 +34,8 @@ steps to apply it.
 | `TEAMS_WEBHOOK_URL` | — | Sends each run's summary to Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Sends each run's summary to Slack |
 | `PUBLIC_URL` | — | Public URL of the server, for the *View report* button in notifications |
-| `TRACEREPORTS_BIND` | all interfaces | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows) |
+| `TRACEREPORTS_BIND` | all interfaces; without credentials, only this machine | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows). See [Security](#security) |
+| `TRACEREPORTS_INSECURE` | — | `1`: start listening on the network **without** a token or login (only in a closed lab network). See [Security](#security) |
 | `NOTIFY_ON` | `always` | `always`, or `failures` to notify only when something failed |
 | `NETWORK_MAX_BODY_KB` | `256` | Maximum stored size of each network *response body*; `0` = store no bodies |
 | `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |
@@ -51,8 +52,19 @@ steps to apply it.
 
 ## Security
 
-With no configuration the server is **open**: anyone who reaches the port can read and write
-reports. That is fine on your machine, not on a shared server.
+**The server is never left open to the network without credentials** (*fail-closed*):
+
+| Credentials (`TRACEREPORTS_TOKEN`, `TRACEREPORTS_INGEST_TOKEN` or the UI login) | `TRACEREPORTS_BIND` | Result |
+|---|---|---|
+| Yes | any | Listens where `TRACEREPORTS_BIND` says (empty: every interface) |
+| No | empty | Listens **only on this machine** (`127.0.0.1` and `::1`), with a warning |
+| No | `127.0.0.1`, `::1` or `localhost` | Listens only on this machine |
+| No | `0.0.0.0`, `::` or a network IP | **Does not start** and explains what to set |
+| No | Docker (official image) | **Does not start**: inside the container it always listens on every interface, even when the port is published only on `127.0.0.1` |
+
+`TRACEREPORTS_INSECURE=1` accepts the risk knowingly (a closed lab network): it starts as before,
+with a warning in the log. Without credentials, anyone who reaches the port can read and write
+reports.
 
 ```bash
 TRACEREPORTS_TOKEN=a-long-random-token      # generate it with: python -c "import secrets; print(secrets.token_hex(24))"

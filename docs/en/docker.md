@@ -46,7 +46,8 @@ docker compose up -d
 
 ### Minimum `.env`
 
-Configure **token and login on your PC too**. The local-only port keeps people on your network
+The container **does not start without `TRACEREPORTS_TOKEN` or the UI login**: in Docker the server
+listens on every interface of the container and would be open. Configure **token and login on your PC too**. The local-only port keeps people on your network
 out, but does not protect you from what runs on your own machine (other programs, a malicious page
 open in the browser), and your reports may hold sensitive evidence:
 
@@ -220,6 +221,7 @@ It uses the same `tracereports-data` volume as compose: the data is the same wit
 |---|---|
 | `docker` is not recognized | Docker Desktop was just installed: open a new terminal (or VS Code). |
 | `docker version` shows no `Server` / error 500 | The engine did not start. Open Docker Desktop and wait for *Engine running*. On Windows, if WSL or virtualization is missing: `wsl --install --no-distribution` as administrator and reboot. |
+| The container restarts and the log says `refusing to start` | The `.env` has no `TRACEREPORTS_TOKEN` nor UI login: without credentials the server does not start in Docker. Add them (see [Minimum `.env`](#minimum-env)) and `docker compose up -d`. |
 | `port is already allocated` / the container does not start | Port 8080 is taken, for example by a `go run` of the server. Stop it or change the port (`"8081:8080"`). |
 | Settings are "read-only" | With Docker the UI login is needed (see above). |
 | Tests do not arrive | Check `TRACEREPORTS_URL` and the token. `docker compose logs -f` shows every rejected request. |
