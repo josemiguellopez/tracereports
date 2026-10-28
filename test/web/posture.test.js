@@ -59,7 +59,7 @@ test("nada del servidor entra al HTML sin escapar, aunque el chequeo sea descono
 		check("x.<img>", "warn", "<img src=x onerror=alert(1)>", "<script>alert(2)</script>", "<b>fix</b>"),
 		check("auth.tokens", "ok", "API tokens", "only from <svg onload=alert(3)>"),
 	] });
-	assert.ok(!/<img|<script|<b>fix|<svg onload/.test(html), html);
+	assert.ok(!/<img|<script|<b>fix|<svg onload/i.test(html), html);
 	assert.ok(html.includes("&lt;img src=x onerror=alert(1)&gt;"));
 	assert.ok(html.includes("solo desde &lt;svg onload=alert(3)&gt;"), "el valor capturado también va escapado");
 });
