@@ -433,6 +433,7 @@
 		}
 		ensureHistory(t);
 		ensureLocator(t);
+		ensureSimilar(t);
 		updateAutoScrollToggle();
 	}
 
@@ -474,6 +475,7 @@
 				${isLocal(tr) ? localBadge(tr.rule) : `<span class="ai-model">${esc(S.config.ai_model)}</span>`}</div>
 			<h6>Resumen</h6><p>${esc(tr.summary)}</p>
 			<h6>Sugerencia</h6><p class="suggestion">${esc(tr.suggestion)}</p>
+			${similarBlock(t)}
 			${loc}
 		</div>`;
 	}
@@ -1037,6 +1039,31 @@
 		} catch (err) {
 			slot.innerHTML = `<div class="placeholder">No se pudo cargar: ${esc(err.message)}</div>`;
 		}
+	}
+
+	// ---- Incidentes parecidos (veredictos del equipo) ----
+	S.sim = S.sim || {};
+
+	function ensureSimilar(t) {
+		if (t.status !== "FAIL" || STATIC || S.sim[t.id] !== undefined) return;
+		S.sim[t.id] = null; // cargando
+		fetch(`/api/v1/tests/${t.id}/similar`).then((r) => (r.ok ? r.json() : []))
+			.then((list) => { S.sim[t.id] = list; if (S.test?.id === t.id) renderTestDetail(); })
+			.catch(() => { S.sim[t.id] = []; });
+	}
+
+	/** Fallos ya clasificados por el equipo que se parecen a este (sin IA: TF-IDF sobre su firma). */
+	function similarBlock(t) {
+		const list = S.sim[t.id];
+		if (!list?.length) return "";
+		const tr = window.TraceReportsI18n.t;
+		const items = list.map((s) => `<li class="similar-item"><span class="similar-score">${s.score}%</span>
+			<a href="#run=${s.run_id}&view=tests&test=${s.test_id}" data-no-i18n>${esc(s.test_name || "#" + s.test_id)}</a>
+			<span class="verdict-chip sm v-${esc(s.verdict)}">${esc(verdictName(s.verdict))}</span>
+			${s.comment ? `<span class="verdict-comment" data-no-i18n>${esc(s.comment)}</span>` : ""}
+			<small>${esc(fmtDateTime(s.created_at))}</small></li>`).join("");
+		return `<h6 tabindex="0" data-tip="${esc(tr("Fallos que el equipo ya clasificó y se parecen a este por su firma (la llamada que falló o el error). El porcentaje es el parecido, no una probabilidad."))}">${tr("Incidentes parecidos")}</h6>
+			<ul class="similar-list">${items}</ul>`;
 	}
 
 	// ---- AI Locator Recommender ----

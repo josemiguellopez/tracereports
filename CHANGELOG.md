@@ -28,6 +28,12 @@ warning, and anyone who reached the port could read and change the reports. Now 
 4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
 ### Added
 
+- **Similar incidents**: each classified failure is indexed by its signature (TF-IDF in pure Go, no AI), and the
+  diagnosis of a new failure shows up to three already classified failures of the same project that look at
+  least 60 % like it, with their verdict and comment (`GET /api/v1/tests/{id}/similar`).
+- **Local LLM without Ollama**: optional `docker compose --profile llm` with llama.cpp server (no published
+  port, model mounted read-only, nothing downloaded at runtime) and a guide for llama.cpp, llamafile, LM Studio,
+  vLLM and LocalAI (`docs/en/local-ai.md`).
 - **Local diagnosis engine, no LLM** (`AI_PROVIDER=builtin`, the new default): a versioned catalog of
   deterministic rules inside the binary explains why each test failed (backend 5xx, 429 or no answer,
   DNS/refused/TLS, 401/403, changed selector, assertion with expected and actual values, uncaught JavaScript

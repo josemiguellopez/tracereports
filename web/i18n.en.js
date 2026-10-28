@@ -81,6 +81,8 @@
 		// ── IA ──
 		"AI Failure Triage": "AI Failure Triage", "Resumen": "Summary", "Sugerencia": "Suggestion",
 		"Motor local": "Local engine", "Conclusión": "Conclusion",
+		"Incidentes parecidos": "Similar incidents",
+		"Fallos que el equipo ya clasificó y se parecen a este por su firma (la llamada que falló o el error). El porcentaje es el parecido, no una probabilidad.": "Failures the team already classified that look like this one by their signature (the failing call or the error). The percentage is the similarity, not a probability.",
 		"Diagnosticando con el motor local…": "Diagnosing with the local engine…",
 		"Motor local de reglas: sin LLM y sin red. Los datos no salen del servidor.": "Local rules engine: no LLM and no network. The data never leaves the server.",
 		"El motor local no encontró una regla concluyente.": "The local engine found no conclusive rule.",

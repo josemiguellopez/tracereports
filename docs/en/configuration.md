@@ -202,6 +202,8 @@ when almost everything failed, points at the environment.
 
 ### Local engine, local LLM or cloud LLM
 
+How to run a local LLM (Docker Compose `llm` profile, llama.cpp, LM Studio, vLLM…): [Local LLM](local-ai.md).
+
 | | Local engine (`builtin`) | Local LLM (Ollama, llama.cpp, LM Studio…) | Cloud LLM |
 |---|---|---|---|
 | Data leaving the server | Never | Stays in your network | Yes (redacted) |
@@ -523,6 +525,13 @@ On a failed test, **Classify this failure** saves a verdict (*product bug*, *bro
 browser). The next time that test fails in the same project, its detail shows *In run #N it was
 classified as…* with **Same verdict** to apply it in one click: nobody investigates the same
 failure twice. Through the API: `POST /api/v1/ui/tests/{id}/verdict` (see the [API](api.md)).
+
+**Similar incidents**: each classified failure goes into an index with its signature (the backend call
+that caused it or the normalized error, the category and the local engine's rule). When another test fails,
+its diagnosis shows up to three already classified failures **of the same project** that look at least 60 %
+like it, with their verdict and comment: *"92 % · pays an order · Environment · connection pool exhausted"*.
+It is TF-IDF over the signature, no AI and no network; the percentage is similarity, not probability.
+Retention deletes the entry with the evidence. Through the API: `GET /api/v1/tests/{id}/similar`.
 
 ## Playwright trace and video
 

@@ -1062,3 +1062,8 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .lab-verified svg { width: 13px; height: 13px; }
 .lab-verified.ok { color: var(--color-success); }
 .lab-verified.bad { color: var(--color-danger); }
+
+/* incidentes parecidos (veredictos del equipo) */
+.similar-list { list-style: none; margin: 4px 0 8px; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.similar-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: 13px; }
+.similar-score { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 3.2em; color: var(--text-muted); }

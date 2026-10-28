@@ -62,6 +62,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - run: docker compose config --quiet
+      # el perfil opcional del LLM local (llama.cpp server)
+      - run: docker compose --profile llm config --quiet
       # sin credenciales el contenedor no arranca (fail-closed): con un token, sí
       - name: Start the hardened container
         run: |

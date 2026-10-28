@@ -35,6 +35,24 @@ services:
       start_period: 20s
       retries: 3
 
+  # LLM local opcional (docker compose --profile llm up -d): llama.cpp server con un modelo GGUF que
+  # descargas antes en ./models (ver docs: local-ai). Sin puertos publicados: solo TraceReports lo
+  # alcanza (AI_PROVIDER=openai_compatible, AI_BASE_URL=http://llm:8080/v1). No descarga nada al
+  # correr: el modelo se monta de solo lectura.
+  llm:
+    profiles: [llm]
+    image: ghcr.io/ggml-org/llama.cpp:server@sha256:8052c13edd987de8858f8150031e025ac3d66823f09cf3ec8220899c4abce220
+    command: ["-m", "/models/${LLM_MODEL_FILE:-model.gguf}", "--host", "0.0.0.0", "--port", "8080", "-c", "8192", "--jinja"]
+    volumes:
+      - ./models:/models:ro
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+
 volumes:
   tracereports-data:
     name: tracereports-data         # nombre fijo, sin prefijo de carpeta (el mismo que con docker run)

@@ -79,6 +79,7 @@ func (s *Server) setVerdict(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	s.indexVerdict(v, run.Project) // incidentes parecidos: este fallo ya está clasificado
 	s.publish("test", run.ID, t.ID, map[string]string{"action": "verdict"})
 }
 
