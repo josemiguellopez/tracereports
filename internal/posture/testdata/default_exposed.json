@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "auth.tokens",
+      "level": "fail",
+      "title": "API tokens",
+      "detail": "listening on the network without any token: anyone who reaches the port writes and reads",
+      "fix": "set TRACEREPORTS_TOKEN and TRACEREPORTS_INGEST_TOKEN (openssl rand -hex 32), or listen only on 127.0.0.1"
+    },
+    {
+      "id": "auth.ui_login",
+      "level": "warn",
+      "title": "UI login",
+      "detail": "no UI login: a token does not protect reads, and the Host check is not access control",
+      "fix": "set TRACEREPORTS_UI_USER and TRACEREPORTS_UI_PASSWORD (and HTTPS on the proxy)"
+    },
+    {
+      "id": "network.exposure",
+      "level": "fail",
+      "title": "Network exposure",
+      "detail": "TRACEREPORTS_INSECURE=1: the server listens on the network even without credentials",
+      "fix": "remove TRACEREPORTS_INSECURE and set the tokens and the UI login"
+    },
+    {
+      "id": "ai.provider",
+      "level": "ok",
+      "title": "AI provider",
+      "detail": "local rules engine or off: no evidence leaves the server"
+    },
+    {
+      "id": "settings.locked",
+      "level": "warn",
+      "title": "Settings locked",
+      "detail": "any admin (and every UI user) can change the AI provider, its URL and key from the screen",
+      "fix": "set TRACEREPORTS_SETTINGS_LOCKED=1"
+    },
+    {
+      "id": "data.retention",
+      "level": "warn",
+      "title": "Retention",
+      "detail": "evidence is kept forever",
+      "fix": "set TRACEREPORTS_RETENTION_DAYS to what your data policy allows"
+    },
+    {
+      "id": "data.encryption",
+      "level": "warn",
+      "title": "Evidence encryption at rest",
+      "detail": "off: the evidence is as safe as the disk of DATA_DIR",
+      "fix": "set TRACEREPORTS_ENCRYPT_AT_REST=1 with TRACEREPORTS_DB_KEY_FILE, and keep DATA_DIR on an encrypted volume"
+    },
+    {
+      "id": "process.user",
+      "level": "warn",
+      "title": "Process user",
+      "detail": "running as root",
+      "fix": "run as an unprivileged user (the official image already is nonroot)"
+    },
+    {
+      "id": "data.permissions",
+      "level": "warn",
+      "title": "DATA_DIR permissions",
+      "detail": "/data is 0755: other users of the host can read the evidence",
+      "fix": "chmod 700 /data"
+    },
+    {
+      "id": "egress.destinations",
+      "level": "ok",
+      "title": "Outbound destinations",
+      "detail": "none: no data leaves the server"
+    },
+    {
+      "id": "evidence.redaction",
+      "level": "ok",
+      "title": "Secret redaction",
+      "detail": "secrets in headers, bodies and logs are masked before storing"
+    },
+    {
+      "id": "evidence.screenshots",
+      "level": "warn",
+      "title": "Screenshot policy",
+      "detail": "every screenshot, trace and video is kept",
+      "fix": "set TRACEREPORTS_SCREENSHOTS=failures (or off) and mask sensitive fields in the clients"
+    }
+  ],
+  "ok": 3,
+  "warn": 7,
+  "fail": 2
+}

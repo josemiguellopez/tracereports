@@ -1,0 +1,80 @@
+{
+  "version": 1,
+  "checks": [
+    {
+      "id": "auth.tokens",
+      "level": "ok",
+      "title": "API tokens",
+      "detail": "admin and ingest tokens set and different"
+    },
+    {
+      "id": "auth.ui_login",
+      "level": "ok",
+      "title": "UI login",
+      "detail": "reads require the UI login or a token"
+    },
+    {
+      "id": "network.exposure",
+      "level": "ok",
+      "title": "Network exposure",
+      "detail": "only from 10.20.0.0/16"
+    },
+    {
+      "id": "ai.provider",
+      "level": "ok",
+      "title": "AI provider",
+      "detail": "local rules engine or off: no evidence leaves the server"
+    },
+    {
+      "id": "settings.locked",
+      "level": "ok",
+      "title": "Settings locked",
+      "detail": "Settings is read-only: the configuration comes only from the environment"
+    },
+    {
+      "id": "data.retention",
+      "level": "ok",
+      "title": "Retention",
+      "detail": "runs older than 90 days are deleted (secure_delete, VACUUM)"
+    },
+    {
+      "id": "data.encryption",
+      "level": "ok",
+      "title": "Evidence encryption at rest",
+      "detail": "screenshots, traces, videos and DOM encrypted (AES-256-GCM), key outside DATA_DIR"
+    },
+    {
+      "id": "process.user",
+      "level": "ok",
+      "title": "Process user",
+      "detail": "unprivileged user (uid 65532)"
+    },
+    {
+      "id": "data.permissions",
+      "level": "ok",
+      "title": "DATA_DIR permissions",
+      "detail": "0700: only the server user"
+    },
+    {
+      "id": "egress.destinations",
+      "level": "ok",
+      "title": "Outbound destinations",
+      "detail": "none: no data leaves the server"
+    },
+    {
+      "id": "evidence.redaction",
+      "level": "ok",
+      "title": "Secret redaction",
+      "detail": "secrets in headers, bodies and logs are masked before storing"
+    },
+    {
+      "id": "evidence.screenshots",
+      "level": "ok",
+      "title": "Screenshot policy",
+      "detail": "TRACEREPORTS_SCREENSHOTS=failures"
+    }
+  ],
+  "ok": 12,
+  "warn": 0,
+  "fail": 0
+}
