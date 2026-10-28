@@ -217,6 +217,16 @@ key the ones encrypted with `TRACEREPORTS_SECRET_KEY_PREVIOUS`. `-data-dir` defa
 `./data`; `-dry-run` only says what would change. Back up the data folder first. See
 [configuration · security](configuration.md#security).
 
+## health
+
+```bash
+tracereports health                       # GET /healthz of the server of this machine (PORT, TRACEREPORTS_BIND)
+tracereports health -url http://host:8080
+```
+
+Exit code 0 if the server answers, 1 if not. It is the healthcheck of the Docker image (which has no shell
+or curl). `GET /healthz` answers `{"status":"ok"}` without credentials and without data.
+
 ## version
 
 ```bash

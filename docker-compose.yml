@@ -20,6 +20,20 @@ services:
       # siempre en el volumen, aunque el .env traiga el DATA_DIR de go run (environment manda sobre env_file)
       DATA_DIR: /data
     restart: unless-stopped
+    # endurecido: el sistema de archivos es de solo lectura (se escribe solo en /data y en /tmp), sin
+    # capabilities de Linux y sin poder ganar privilegios (setuid). Ver docs: security-hardening
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m,mode=1777
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "/tracereports", "health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
 
 volumes:
   tracereports-data:

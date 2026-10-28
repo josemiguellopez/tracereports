@@ -53,6 +53,13 @@ warning, and anyone who reached the port could read and change the reports. Now 
 - **Go client**: `MaskSelector()`, `MaskColor` and the `CoverScript`/`UncoverScript` scripts to take screenshots
   with sensitive data covered (the playwright-go example uses them), and `Test.Screenshot` follows
   `TRACEREPORTS_SCREENSHOTS=all|failures|off`.
+- **Hardening**: SQLite `secure_delete` plus `VACUUM` and a WAL checkpoint after each retention purge, so
+  purged evidence is not left in the database file; `DATA_DIR` is `0700` (an older, wider folder is
+  tightened) and screenshots and artifacts are written `0600`; the server warns at startup when
+  `TRACEREPORTS_RETENTION_DAYS` is not set. `docker-compose.yml` runs read-only with a `tmpfs` `/tmp`,
+  `cap_drop: [ALL]`, `no-new-privileges` and a healthcheck (`tracereports health`, new, asks the new
+  unauthenticated `GET /healthz`); the image has the same `HEALTHCHECK`. New
+  [security hardening guide](docs/en/security-hardening.md).
 - **Screenshot policy on the server** (`TRACEREPORTS_SCREENSHOTS=all|failures|off`): with `failures` only the
   screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
   trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.

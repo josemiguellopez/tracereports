@@ -56,6 +56,34 @@ jobs:
       - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
         working-directory: client/go
 
+  compose:
+    name: Docker (hardened compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose config --quiet
+      # sin credenciales el contenedor no arranca (fail-closed): con un token, sí
+      - name: Start the hardened container
+        run: |
+          echo "TRACEREPORTS_TOKEN=$(openssl rand -hex 32)" > .env
+          docker compose up -d --build --wait --wait-timeout 240
+      - name: Read-only, no capabilities, no new privileges
+        run: |
+          id=$(docker compose ps -q tracereports)
+          test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$id")" = true
+          docker inspect -f '{{.HostConfig.CapDrop}}' "$id" | grep -q ALL
+          docker inspect -f '{{.HostConfig.SecurityOpt}}' "$id" | grep -q no-new-privileges
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$id")" = healthy
+      - name: It receives a run (writes only in /data and /tmp)
+        run: |
+          token=$(sed -n 's/^TRACEREPORTS_TOKEN=//p' .env)
+          curl -fsS -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"name":"compose hardened"}' http://127.0.0.1:8080/api/v1/runs
+          curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8080/api/v1/runs | grep -q 'compose hardened'
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v
+
   client-python:
     name: Client (Python)
     runs-on: ubuntu-latest

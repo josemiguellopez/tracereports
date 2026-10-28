@@ -162,7 +162,18 @@ func (s *Server) Router() http.Handler {
 
 	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))
 	r.Handle("/*", http.FileServer(http.FS(s.Web)))
-	return r
+	// /healthz va antes de la autenticación: el healthcheck de Docker o de un balanceador no tiene
+	// credenciales, y la respuesta no dice nada de los datos
+	root := http.NewServeMux()
+	root.HandleFunc("GET /healthz", healthz)
+	root.Handle("/", r)
+	return root
+}
+
+// healthz answers that the server is up (it does not touch the data).
+func healthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ---------- Handlers: runs ----------
@@ -615,7 +626,8 @@ func (s *Server) saveScreenshotFile(testID int64, data []byte) (string, error) {
 		return "", errNotImage
 	}
 	name := fmt.Sprintf("t%d_%d%s", testID, time.Now().UnixNano(), ext)
-	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o644); err != nil {
+	// solo el usuario del servidor la lee: puede mostrar datos de los tests
+	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o600); err != nil {
 		return "", err
 	}
 	return "/screenshots/" + name, nil

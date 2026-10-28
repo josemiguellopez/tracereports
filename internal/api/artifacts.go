@@ -78,7 +78,7 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request) {
 	}
 	name := fmt.Sprintf("a%d_%d%s", id, time.Now().UnixNano(), ext)
 	path := filepath.Join(s.ScreenshotsDir, name)
-	out, err := os.Create(path)
+	out, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o600) // como las capturas: solo el servidor
 	if err != nil {
 		serverError(w, err)
 		return

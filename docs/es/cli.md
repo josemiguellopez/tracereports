@@ -218,6 +218,16 @@ clave nueva las cifradas con `TRACEREPORTS_SECRET_KEY_PREVIOUS`. `-data-dir` es 
 `./data`; `-dry-run` solo dice qué cambiaría. Respalda antes la carpeta de datos. Ver
 [configuración · seguridad](configuration.md#seguridad).
 
+## health
+
+```bash
+tracereports health                       # GET /healthz del servidor de este equipo (PORT, TRACEREPORTS_BIND)
+tracereports health -url http://host:8080
+```
+
+Sale con código 0 si el servidor responde y 1 si no. Es el healthcheck de la imagen de Docker (que no tiene
+shell ni curl). `GET /healthz` responde `{"status":"ok"}` sin credenciales y sin datos.
+
 ## version
 
 ```bash

@@ -73,14 +73,16 @@ CREATE TABLE IF NOT EXISTS ai_triage (
 
 // Open opens (or creates) the database at path and applies the schema.
 func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
 	uri, err := pathURI(path) // exactamente esa ruta, aunque tenga # ? % (open_existing.go)
 	if err != nil {
 		return nil, err
 	}
-	sqldb, err := sql.Open("sqlite", uri+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)")
+	sqldb, err := sql.Open("sqlite", uri+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(1)"+
+		// lo borrado (retención, un test reemplazado) se sobrescribe con ceros, no queda en páginas libres
+		"&_pragma=secure_delete(1)")
 	if err != nil {
 		return nil, err
 	}
