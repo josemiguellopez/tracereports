@@ -213,13 +213,21 @@
 
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
-		if (!S.run && !global) return;
+		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
+		if (!S.run && !global) {
+			// sin ejecución cargada no hay qué mostrar: se oculta la vista anterior (Ajustes, Métricas…)
+			// y, si el servidor no tiene ejecuciones, vuelve el estado vacío
+			$$(".view").forEach((v) => (v.hidden = true));
+			$("#empty-state").hidden = S.runs.length > 0;
+			document.body.classList.remove("view-global", "view-dashboard");
+			$("#run-banner").hidden = true;
+			return;
+		}
 		$$(".view").forEach((v) => (v.hidden = v.id !== `view-${S.view}`));
 		$("#empty-state").hidden = global || S.runs.length > 0;
 		document.body.classList.toggle("view-global", global);
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
-		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
 		({ search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
 			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
 	}
@@ -3545,7 +3553,7 @@
 		return `<div class="prov-status ${tone}" role="status">
 			<span class="prov-dot" aria-hidden="true"></span>
 			<div>
-				<b>${head}</b>${s.description && s.source === "statuspage" ? ` <span class="m-hint" data-no-i18n>(${esc(s.description)})</span>` : ""}${s.source === "local" ? ` <span class="m-hint">${esc(s.indicator === "none" ? tr("Ollama responde (versión {v})", { v: s.description }) : tr("Ollama no responde en {u}", { u: s.description }))}</span>` : ""}
+				<b>${head}</b>${s.description && s.source === "statuspage" ? ` <span class="m-hint" data-no-i18n>(${esc(s.description)})</span>` : ""}${s.source === "local" ? ` <span class="m-hint">${esc(s.provider === "builtin" ? tr("Funciona dentro del servidor (reglas {v})", { v: s.description }) : s.indicator === "none" ? tr("Ollama responde (versión {v})", { v: s.description }) : tr("Ollama no responde en {u}", { u: s.description }))}</span>` : ""}
 				${s.error ? `<p class="m-hint">${esc(tr("No se pudo consultar la página de estado: {e}", { e: s.error }))}</p>` : ""}
 				${comps ? `<ul class="prov-status-list">${comps}</ul>` : ""}
 				${incs ? `<p class="prov-status-sub">${tr("Incidentes abiertos")}</p><ul class="prov-status-list">${incs}</ul>` : ""}
