@@ -18,7 +18,13 @@ Treat it like any system that stores data from your test environments.
 | Masked secrets | Headers, cookies, tokens, passwords and sensitive keys in JSON, forms, URLs and the DOM are masked **before** they are stored. See [Sensitive data](configuration.md#sensitive-data-and-retention) |
 | Covered screenshots | The clients cover `input[type=password]` and `[data-tracereports-mask]` before capturing |
 | Secure deletion | SQLite `secure_delete` and `VACUUM` after each purge: deleted data is not left in the file |
-| Private files | `DATA_DIR` with `0700` permissions; screenshots and artifacts `0600` |
+| Private files | `DATA_DIR` with `0700` permissions; screenshots and artifacts `0600`. Also the static report (`tracereports report`) and the clients' offline recordings (Linux and macOS) |
+| Browser protections | Content-Security-Policy (only this server's scripts), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` on every response |
+| No cross-site CSRF | A write the browser marks as coming from another site (`Origin`, `Sec-Fetch-Site`) gets `403`: a web page cannot post fake runs to your local server |
+| Brute-force throttling | 10 failed logins or tokens from an IP in 15 minutes → `429` for the rest of the window |
+| Connection limits | Read (15 min) and idle (2 min) timeouts; the live stream accepts up to 500 connections |
+| AI key bound to its URL | A saved or environment key is only sent to the URL it was configured for: changing the URL requires typing it again |
+| Lab on your hosts | `repro`, `verify` and the MCP only resend to the hosts the test called (plus `TRACEREPORTS_LAB_HOSTS`) |
 | Minimal image | `distroless/static:nonroot`: no shell, no packages, unprivileged user |
 | Verifiable releases | cosign signature, SBOM and provenance. See [Verifying a release](../../SECURITY.md#verifying-a-release) |
 
@@ -57,7 +63,9 @@ TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64
   never administers). `TRACEREPORTS_TOKEN` stays with whoever administers. See
   [Permissions of each credential](configuration.md#permissions-of-each-credential).
 - **UI login**: protects the reads. Without it, reads are only accepted with a local `Host` or one from
-  `TRACEREPORTS_ALLOWED_HOSTS`.
+  `TRACEREPORTS_ALLOWED_HOSTS` (which is not access control: the client chooses that header).
+- **Two logins**: `TRACEREPORTS_UI_USER` for whoever administers and `TRACEREPORTS_UI_VIEWER_USER` for the
+  rest of the team, which only reads (never sends results, changes Settings nor uses actions).
 - **`TRACEREPORTS_SETTINGS_LOCKED=1`**: nobody changes the AI provider or its key from the screen.
 - **HTTPS**: put the server behind a TLS proxy (Caddy, nginx, Traefik). HTTP Basic login without TLS
   travels in clear text. See [Docker → Deploy on a server](docker.md#deploy-on-a-server).
@@ -70,6 +78,13 @@ TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64
   network the tests run from and the report is viewed from.
 - Without a UI login, `TRACEREPORTS_ALLOWED_HOSTS` lists the names it is reached by; an unknown `Host`
   gets `403` (DNS rebinding protection).
+- `TRACEREPORTS_ALLOWED_CIDRS` only lets the listed networks in (`403` to any other, even with a token);
+  `TRACEREPORTS_TRUSTED_PROXIES` says which proxies are trusted for the client's real IP.
+- **Rate limits on the proxy**: the server throttles credential brute force, but does not limit the requests
+  of a client with a valid token. On a shared server set limits on the proxy (`limit_req` in nginx,
+  `rate_limit` in Caddy or Traefik) and a maximum body size.
+- If the proxy rewrites the `Host` header, writes from the UI may get `403 cross-site`: make the proxy pass
+  the original `Host` (`proxy_set_header Host $host` in nginx).
 
 ## Hardened Docker
 
@@ -169,6 +184,10 @@ content may survive in free disk blocks: one more reason for the encrypted volum
   network, DOM and artifacts. Without the variable nothing is deleted, and the server warns at startup.
 - Deleted data is overwritten (`secure_delete`), the database is compacted (`VACUUM`) and the WAL emptied:
   the purged content is not left in the `.db` file.
+- **Outside the server**: the clients' offline recordings hold the evidence **before** redaction, and the
+  static report carries it whole. Both are created for your user only; keep them as private CI artifacts
+  and delete them when no longer needed. To publish a report with a web server, grant read access on
+  purpose (`chmod -R a+rX`).
 
 ## Data leaving the server
 
@@ -197,6 +216,8 @@ Check the signature, SBOM and provenance of the binary or image before installin
 
 - [ ] `TRACEREPORTS_TOKEN` and `TRACEREPORTS_INGEST_TOKEN` generated with `openssl rand -hex 32`, different.
 - [ ] UI login (`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`) and HTTPS on the proxy.
+- [ ] The rest of the team signs in with the read-only login (`TRACEREPORTS_UI_VIEWER_USER`).
+- [ ] `TRACEREPORTS_ALLOWED_CIDRS` with the networks that need it, and rate limits on the proxy.
 - [ ] `TRACEREPORTS_SETTINGS_LOCKED=1`.
 - [ ] Network access limited by firewall to the right internal network.
 - [ ] Container with `read_only`, `cap_drop: [ALL]`, `no-new-privileges` and an unprivileged user (the
@@ -208,6 +229,8 @@ Check the signature, SBOM and provenance of the binary or image before installin
 - [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` or `off`) and `TRACEREPORTS_SCREENSHOT_MASK` with the
       application's sensitive fields.
 - [ ] Test environments with synthetic data; no E2E against production with real data.
+- [ ] Offline recordings and static reports as private CI artifacts, with their own retention.
+- [ ] `TRACEREPORTS_LAB_HOSTS` only with the hosts the Lab must reach (or `TRACEREPORTS_LAB=off`).
 - [ ] Teams/Slack webhooks only in channels where test names and errors may be.
 - [ ] Release signature and SBOM verified.
 - [ ] `tracereports doctor --security` with no FAIL (and the WARN reviewed).

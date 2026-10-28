@@ -18,7 +18,13 @@ errores. Trátalo como cualquier sistema que guarda datos de tus ambientes de pr
 | Secretos enmascarados | Headers, cookies, tokens, contraseñas y claves sensibles en JSON, formularios, URLs y el DOM se enmascaran **antes** de guardarse. Ver [Datos sensibles](configuration.md#datos-sensibles-y-retención) |
 | Capturas tapadas | Los clientes tapan `input[type=password]` y `[data-tracereports-mask]` antes de capturar |
 | Borrado seguro | `secure_delete` en SQLite y `VACUUM` después de cada purga: lo borrado no queda en el archivo |
-| Archivos privados | `DATA_DIR` con permisos `0700`; capturas y artefactos `0600` |
+| Archivos privados | `DATA_DIR` con permisos `0700`; capturas y artefactos `0600`. También el reporte estático (`tracereports report`) y las grabaciones offline de los clientes (Linux y macOS) |
+| Protecciones del navegador | Content-Security-Policy (solo scripts propios), `X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy: same-origin` en cada respuesta |
+| Sin CSRF de otros sitios | Una escritura que el navegador marca como de otro sitio (`Origin`, `Sec-Fetch-Site`) recibe `403`: una página web no puede enviar ejecuciones falsas a tu servidor local |
+| Freno a la fuerza bruta | 10 logins o tokens fallidos desde una IP en 15 minutos → `429` el resto de la ventana |
+| Límites de conexión | Timeouts de lectura (15 min) e inactividad (2 min); el stream en vivo acepta hasta 500 conexiones |
+| Key de IA ligada a su URL | Una key guardada o del entorno solo se envía a la URL con que se configuró: cambiar la URL exige escribirla de nuevo |
+| Lab en tus hosts | `repro`, `verify` y el MCP solo reenvían a los hosts que llamó el test (más `TRACEREPORTS_LAB_HOSTS`) |
 | Imagen mínima | `distroless/static:nonroot`: sin shell, sin paquetes, usuario sin privilegios |
 | Releases verificables | Firma cosign, SBOM y provenance. Ver [Verifying a release](../../SECURITY.md#verifying-a-release) |
 
@@ -57,7 +63,9 @@ TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64
   nunca administra). `TRACEREPORTS_TOKEN` queda para quien administra. Ver
   [Permisos de cada credencial](configuration.md#permisos-de-cada-credencial).
 - **Login de la UI**: protege las lecturas. Sin login, las lecturas solo se aceptan con un `Host` local o
-  de `TRACEREPORTS_ALLOWED_HOSTS`.
+  de `TRACEREPORTS_ALLOWED_HOSTS` (que no es control de acceso: el cliente elige ese header).
+- **Dos logins**: `TRACEREPORTS_UI_USER` para quien administra y `TRACEREPORTS_UI_VIEWER_USER` para el
+  resto del equipo, que solo lee (no envía resultados, no cambia Ajustes ni usa acciones).
 - **`TRACEREPORTS_SETTINGS_LOCKED=1`**: nadie cambia el proveedor de IA ni su key desde la pantalla.
 - **HTTPS**: pon el servidor detrás de un proxy con TLS (Caddy, nginx, Traefik). El login HTTP Basic sin
   TLS viaja en claro. Ver [Docker → Desplegar en un servidor](docker.md#desplegar-en-un-servidor).
@@ -70,6 +78,13 @@ TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64
   desde la que corren los tests y desde la que se mira el reporte.
 - Sin login de UI, `TRACEREPORTS_ALLOWED_HOSTS` lista los nombres por los que se entra; un `Host`
   desconocido recibe `403` (protección contra DNS rebinding).
+- `TRACEREPORTS_ALLOWED_CIDRS` deja entrar solo a las redes indicadas (`403` a cualquier otra, incluso con
+  token); `TRACEREPORTS_TRUSTED_PROXIES` dice de qué proxies se confía la IP real del cliente.
+- **Límite de tasa en el proxy**: el servidor frena la fuerza bruta de credenciales, pero no limita las
+  peticiones de un cliente con un token válido. En un servidor compartido configura límites en el proxy
+  (`limit_req` en nginx, `rate_limit` en Caddy o Traefik) y un tamaño máximo de cuerpo.
+- Si el proxy reescribe el header `Host`, las escrituras desde la UI pueden recibir `403 cross-site`:
+  configura el proxy para que pase el `Host` original (`proxy_set_header Host $host` en nginx).
 
 ## Docker endurecido
 
@@ -169,6 +184,10 @@ claro, su contenido viejo puede quedar en bloques libres del disco: otra razón 
   capturas, red, DOM y artefactos. Sin la variable no se borra nada, y el servidor lo avisa al arrancar.
 - Lo borrado se sobrescribe (`secure_delete`), la base se compacta (`VACUUM`) y la WAL se vacía: el
   contenido purgado no queda en el archivo `.db`.
+- **Fuera del servidor**: las grabaciones offline de los clientes llevan la evidencia **antes** de la
+  redacción, y el reporte estático la trae completa. Ambos se crean solo para tu usuario; guárdalos como
+  artefactos privados del CI y bórralos cuando ya no hagan falta. Para publicar un reporte con un
+  servidor web, dale lectura a propósito (`chmod -R a+rX`).
 
 ## Salida de datos
 
@@ -197,6 +216,8 @@ Comprueba la firma, el SBOM y la provenance del binario o la imagen antes de ins
 
 - [ ] `TRACEREPORTS_TOKEN` y `TRACEREPORTS_INGEST_TOKEN` generados con `openssl rand -hex 32`, distintos.
 - [ ] Login de la UI (`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`) y HTTPS en el proxy.
+- [ ] El resto del equipo entra con el login de solo lectura (`TRACEREPORTS_UI_VIEWER_USER`).
+- [ ] `TRACEREPORTS_ALLOWED_CIDRS` con las redes que lo necesitan, y límite de tasa en el proxy.
 - [ ] `TRACEREPORTS_SETTINGS_LOCKED=1`.
 - [ ] Acceso a la red limitado por firewall a la red interna que corresponde.
 - [ ] Contenedor con `read_only`, `cap_drop: [ALL]`, `no-new-privileges` y usuario sin privilegios (la imagen
@@ -208,6 +229,8 @@ Comprueba la firma, el SBOM y la provenance del binario o la imagen antes de ins
 - [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` u `off`) y `TRACEREPORTS_SCREENSHOT_MASK` con los campos
       sensibles de la aplicación.
 - [ ] Ambientes de prueba con datos sintéticos; nada de E2E contra producción con datos reales.
+- [ ] Grabaciones offline y reportes estáticos como artefactos privados del CI, con su propia retención.
+- [ ] `TRACEREPORTS_LAB_HOSTS` solo con los hosts a los que el Lab debe llegar (o `TRACEREPORTS_LAB=off`).
 - [ ] Webhooks de Teams/Slack solo en canales donde los nombres de tests y errores pueden estar.
 - [ ] Firma y SBOM del release verificados.
 - [ ] `tracereports doctor --security` sin FAIL (y los WARN revisados).
