@@ -30,21 +30,25 @@ Comprueba que funciona con `docker version`: debe mostrar `Client` y `Server`.
 
 ## Primer arranque
 
-En la carpeta del proyecto:
+> **¿Primera vez con Docker o con la terminal?** Sigue
+> [Instalar con Docker, paso a paso](docker-paso-a-paso.md): cada comando, qué deberías ver y qué hacer
+> si algo falla, con capturas.
+
+Son dos pasos, **en este orden**: primero el `.env` con un token y el login, después arrancar el
+contenedor. Sin token ni login el contenedor se niega a arrancar.
+
+### Configuración mínima del `.env`
+
+En la carpeta del proyecto, crea el `.env` a partir del ejemplo:
 
 ```bash
 cp -n .env.example .env   # PowerShell: if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-docker compose up -d
 ```
 
 > ⚠️ Copia `.env.example` **solo si todavía no tienes un `.env`**: un `cp` sin `-n` reemplaza el
-> tuyo y pierdes tus claves. Los comandos de arriba no lo pisan si ya existe.
+> tuyo y pierdes tus claves. El comando de arriba no lo pisa si ya existe.
 
-- La primera vez construye la imagen (menos de un minuto); después arranca al instante.
-- Abre **<http://localhost:8080>**.
-- `docker compose ps` debe mostrar el contenedor `Up`.
-
-### Configuración mínima del `.env`
+Ábrelo con un editor de texto y completa **antes de arrancar** al menos el token y el login.
 
 El contenedor **no arranca sin `TRACEREPORTS_TOKEN` o el login de la UI**: en Docker el servidor
 escucha en todas las interfaces del contenedor y quedaría abierto. Configura **token y login también en tu PC**. El puerto solo local evita que entre alguien de tu
@@ -68,6 +72,20 @@ también queda editable.
 > **Ajustes con Docker:** aunque abras `localhost`, la conexión llega desde la red de Docker y no
 > cuenta como «el mismo equipo». Para cambiar la IA o el idioma desde la pantalla de Ajustes,
 > configura `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` e inicia sesión.
+
+### Arrancar
+
+Con el `.env` completo:
+
+```bash
+docker compose up -d
+```
+
+- La primera vez construye la imagen (1 a 3 minutos); después arranca al instante.
+- Abre **<http://localhost:8080>** y entra con el login del `.env`.
+- `docker compose ps` debe mostrar el contenedor `Up (healthy)`. Si se reinicia una y otra vez,
+  `docker compose logs tracereports` dice por qué (por ejemplo `refusing to start`: falta el token o el
+  login).
 
 ## Conectar tus tests
 

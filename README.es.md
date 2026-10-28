@@ -254,7 +254,9 @@ docker run -d --name tracereports -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracerep
 ```
 
 El contenedor no arranca sin un token o el login de la UI: quedaría abierto a la red.
-Ver [Seguridad](docs/es/configuration.md#seguridad).
+Ver [Seguridad](docs/es/configuration.md#seguridad). **¿Primera vez con Docker o con la terminal?** Sigue
+[Instalar con Docker, paso a paso](docs/es/docker-paso-a-paso.md) (desde instalar Docker hasta tu primer
+reporte, con capturas).
 Para un servidor compartido, sigue la [guía de hardening](docs/es/security-hardening.md); el
 [modelo de amenazas](docs/es/threat-model.md) dice qué protege y qué queda en tus manos.
 
@@ -415,7 +417,7 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 ## Documentación
 
 - [Guía completa](GUIA-COMPLETA.md)
-- [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Configuración](docs/es/configuration.md) · [Línea de comandos](docs/es/cli.md)
+- [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Docker, paso a paso](docs/es/docker-paso-a-paso.md) · [Configuración](docs/es/configuration.md) · [Línea de comandos](docs/es/cli.md)
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md) · [Demo, playground y selftest](docs/es/demo.md): pruébalo en un minuto y comprueba un despliegue
 - [Allure](docs/es/allure.md): tus resultados de Allure, diagnosticados con IA
 - [Selenium](docs/es/selenium.md): red, consola y selectores sugeridos con Selenium en Python, JavaScript y Java

@@ -28,6 +28,12 @@ warning, and anyone who reached the port could read and change the reports. Now 
 4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
 ### Added
 
+- **Install with Docker, step by step** (`docs/en/docker-step-by-step.md`, `docs/es/docker-paso-a-paso.md`): a
+  guide for people new to Docker or the terminal, from installing Docker to the first report, with what to
+  expect at every step, screenshots, real outputs and the fixes for common errors; linked from the READMEs
+  and the Docker guide. The Docker guide's "First start" now creates the `.env` with the token and login
+  before `docker compose up -d` (before, the container refused to start on the first try).
+
 - **Similar incidents**: each classified failure is indexed by its signature (TF-IDF in pure Go, no AI), and the
   diagnosis of a new failure shows up to three already classified failures of the same project that look at
   least 60 % like it, with their verdict and comment (`GET /api/v1/tests/{id}/similar`).

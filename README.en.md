@@ -132,6 +132,7 @@ The example test code and its messages are in Spanish; the report UI can be swit
 
 - [Installation](docs/en/installation.md): binary, Docker, first run.
 - [Docker](docs/en/docker.md): day to day, data, backup and deploying on a server with HTTPS.
+- [Install with Docker, step by step](docs/en/docker-step-by-step.md): from installing Docker to your first report, for people new to Docker or the terminal, with screenshots.
 - [Configuration](docs/en/configuration.md): environment variables, security, AI, language, Teams/Slack.
 - [Command line](docs/en/cli.md): every `tracereports` command (server, demo, report, push, pr-comment, repro, verify, mcp, selftest, secrets, version).
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md): start the report and the demo shop step by step.
