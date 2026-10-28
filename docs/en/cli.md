@@ -18,7 +18,7 @@ with `-h`.
 | [`mcp`](#mcp) | MCP server (stdio) for Claude Code and other agents | yes |
 | [`selftest`](#selftest) | Plays the scenarios recorded with the real clients and checks the results | no (starts its own) |
 | [`secrets`](#secrets) | Status and migration of the credentials saved from Settings | no (the data folder) |
-| [`doctor`](#doctor) | Security posture: OK / WARN / FAIL, exit code 1 on a critical failure | no (or `-url`) |
+| [`doctor`](#doctor) | Security check: OK / WARN / FAIL, exit code 1 on a critical failure | no (or `-url`) |
 | [`evidence`](#evidence) | Status, encryption and key rotation of the evidence encrypted at rest | no (the data folder) |
 | [`version`](#version) | Prints the version | no |
 
@@ -239,13 +239,13 @@ tracereports doctor --security -url https://reports.internal   # a running serve
 tracereports doctor --security -json                # JSON with a stable contract ("version" field)
 ```
 
-Checks the security posture against the [hardening guide](security-hardening.md): tokens, UI login,
+Checks the installation's security against the [hardening guide](security-hardening.md): tokens, UI login,
 network exposure and `TRACEREPORTS_ALLOWED_CIDRS`, the AI provider and its allowlist,
 `TRACEREPORTS_SETTINGS_LOCKED`, retention, encryption at rest with the key outside `DATA_DIR`, the process
 user, `DATA_DIR` permissions, outbound destinations, redaction and the screenshot policy. Prints OK / WARN /
 FAIL with what to do for each, and **exits with code 1 when a critical check fails**: use it as a CI or
 deployment gate. It never shows credential values, only whether they are set. With `-url` it also sees the
-AI provider chosen in Settings; the same posture is in **Settings → Security posture** and at
+AI provider chosen in Settings; the same check is in **Settings → Security check** and at
 `GET /api/v1/security/posture` (needs `TRACEREPORTS_TOKEN`, the UI login or the same machine).
 
 ## health

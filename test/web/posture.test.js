@@ -5,9 +5,9 @@ const { load, read } = require("./load.js");
 const en = load(["i18n.js", "i18n.en.js"], { lang: "en" }).TraceReportsI18n;
 const src = read("app.js");
 
-test("Ajustes tiene la sección de postura de seguridad con el endpoint autenticado", () => {
+test("Ajustes tiene la sección de revisión de seguridad con el endpoint autenticado", () => {
 	for (const token of [
-		'{ id: "security", icon: "i-check", title: "Postura de seguridad", ...postureSummary(S.settings.posture) }',
+		'{ id: "security", icon: "i-check", title: "Revisión de seguridad", ...postureSummary(S.settings.posture) }',
 		'api("/api/v1/security/posture")',
 		'cur.id === "security" ? postureCard()',
 	]) {
@@ -34,8 +34,8 @@ test("el índice resume la postura: críticos, por revisar o todo en orden", () 
 });
 
 test("los textos de la postura tienen traducción", () => {
-	for (const phrase of ["Postura de seguridad", "Sin acceso", "{n} críticos", "{n} por revisar", "Todo en orden", "Revisar", "Crítico",
-		"Revisando la configuración…", "No se pudo leer la postura de seguridad",
+	for (const phrase of ["Revisión de seguridad", "Sin acceso", "{n} críticos", "{n} por revisar", "Todo en orden", "Revisar", "Crítico",
+		"Revisando la configuración…", "No se pudo leer la revisión de seguridad",
 		"{ok} OK · {warn} por revisar · {fail} críticos"]) {
 		assert.notEqual(en.t(phrase), phrase, `sin traducción: ${phrase}`);
 	}

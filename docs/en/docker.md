@@ -30,21 +30,26 @@ Check it works with `docker version`: it must show `Client` and `Server`.
 
 ## First start
 
-In the project folder:
+> **First time with Docker or the terminal?** Follow
+> [Install with Docker, step by step](docker-step-by-step.md): every command, what you should see and
+> what to do if something fails, with screenshots. Already have TraceReports and want to try another
+> version without touching yours? [Try without touching your installation](docker-isolated-trial.md).
+
+Two steps, **in this order**: first the `.env` with a token and the login, then start the container.
+Without a token or a login the container refuses to start.
+
+### Minimum `.env`
+
+In the project folder, create the `.env` from the example:
 
 ```bash
 cp -n .env.example .env   # PowerShell: if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-docker compose up -d
 ```
 
 > ⚠️ Copy `.env.example` **only if you do not have a `.env` yet**: a `cp` without `-n` replaces
-> yours and you lose your keys. The commands above do not overwrite an existing one.
+> yours and you lose your keys. The command above does not overwrite an existing one.
 
-- The first time it builds the image (under a minute); afterwards it starts instantly.
-- Open **<http://localhost:8080>**.
-- `docker compose ps` must show the container `Up`.
-
-### Minimum `.env`
+Open it with a text editor and fill in at least the token and the login **before starting**.
 
 The container **does not start without `TRACEREPORTS_TOKEN` or the UI login**: in Docker the server
 listens on every interface of the container and would be open. Configure **token and login on your PC too**. The local-only port keeps people on your network
@@ -68,6 +73,20 @@ Settings screen is editable too.
 > **Settings with Docker:** even if you open `localhost`, the connection comes from Docker's
 > network and does not count as "the same machine". To change the AI or the language from the
 > Settings screen, configure `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` and log in.
+
+### Start
+
+With the `.env` filled in:
+
+```bash
+docker compose up -d
+```
+
+- The first time it builds the image (1 to 3 minutes); afterwards it starts instantly.
+- Open **<http://localhost:8080>** and sign in with the login from the `.env`.
+- `docker compose ps` must show the container `Up (healthy)`. If it keeps restarting,
+  `docker compose logs tracereports` says why (for example `refusing to start`: the token or the login
+  is missing).
 
 ## Connect your tests
 

@@ -327,11 +327,11 @@
 		"Tu usuario es de solo lectura": "Your user is read-only",
 		"Entraste con el login de solo lectura (TRACEREPORTS_UI_VIEWER_USER): puedes ver todos los reportes, pero no cambiar ajustes ni usar acciones. Pídele el cambio a quien administra el servidor.":
 			"You signed in with the read-only login (TRACEREPORTS_UI_VIEWER_USER): you can see every report, but not change settings nor use actions. Ask whoever administers the server.",
-		// ── postura de seguridad ──
-		"Postura de seguridad": "Security posture", "Sin acceso": "No access", "{n} críticos": "{n} critical",
+		// ── revisión de seguridad ──
+		"Revisión de seguridad": "Security check", "Sin acceso": "No access", "{n} críticos": "{n} critical",
 		"{n} por revisar": "{n} to review", "Todo en orden": "All good", "Revisar": "Review", "Crítico": "Critical",
 		"Revisando la configuración…": "Checking the configuration…",
-		"No se pudo leer la postura de seguridad": "Could not read the security posture",
+		"No se pudo leer la revisión de seguridad": "Could not read the security check",
 		"Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.":
 			"The same checks as tracereports doctor --security, on the configuration this server runs with. It never shows credential values.",
 		"{ok} OK · {warn} por revisar · {fail} críticos": "{ok} OK · {warn} to review · {fail} critical",

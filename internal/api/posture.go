@@ -7,11 +7,11 @@ import "net/http"
 // it never carries a credential value, only whether each one is set.
 func (s *Server) securityPosture(w http.ResponseWriter, r *http.Request) {
 	if ok, reason := s.adminAccess(r); !ok {
-		writeError(w, http.StatusForbidden, "the security posture needs TRACEREPORTS_TOKEN or the UI login ("+reason+")")
+		writeError(w, http.StatusForbidden, "the security check needs TRACEREPORTS_TOKEN or the UI login ("+reason+")")
 		return
 	}
 	if s.Posture == nil {
-		writeError(w, http.StatusNotFound, "security posture not available")
+		writeError(w, http.StatusNotFound, "security check not available")
 		return
 	}
 	writeJSON(w, http.StatusOK, s.Posture())

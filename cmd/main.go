@@ -120,7 +120,7 @@ func main() {
 				"       tracereports demo         try it in a minute: sample data and a demo shop, only on this machine\n" +
 				"       tracereports selftest     play the scenarios recorded with the real clients and check the results\n" +
 				"       tracereports health       check that the server of this machine answers (Docker healthcheck)\n" +
-				"       tracereports doctor --security  check the security posture (exit code 1 if a check fails)\n" +
+				"       tracereports doctor --security  run the security check (exit code 1 if a check fails)\n" +
 				"       tracereports version      print the version\n" +
 				"Each command explains its flags with -h. Guide: docs/en/cli.md")
 			return

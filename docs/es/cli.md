@@ -17,7 +17,7 @@ terminal o tu pipeline. `tracereports help` lista los comandos, y cada uno expli
 | [`mcp`](#mcp) | Servidor MCP (stdio) para Claude Code y otros agentes | sí |
 | [`selftest`](#selftest) | Reproduce los escenarios grabados con los clientes reales y comprueba el resultado | no (levanta el suyo) |
 | [`secrets`](#secrets) | Estado y migración de las credenciales guardadas desde Ajustes | no (la carpeta de datos) |
-| [`doctor`](#doctor) | Postura de seguridad: OK / WARN / FAIL, código 1 si falla algo crítico | no (o `-url`) |
+| [`doctor`](#doctor) | Revisión de seguridad: OK / WARN / FAIL, código 1 si falla algo crítico | no (o `-url`) |
 | [`evidence`](#evidence) | Estado, cifrado y rotación de clave de la evidencia cifrada en reposo | no (la carpeta de datos) |
 | [`version`](#version) | Muestra la versión | no |
 
@@ -240,13 +240,13 @@ tracereports doctor --security -url https://reportes.interno   # un servidor en 
 tracereports doctor --security -json                # JSON con contrato estable (campo "version")
 ```
 
-Revisa la postura de seguridad contra la [guía de hardening](security-hardening.md): tokens, login de la
+Revisa la seguridad de la instalación contra la [guía de hardening](security-hardening.md): tokens, login de la
 UI, exposición en la red y `TRACEREPORTS_ALLOWED_CIDRS`, proveedor de IA y su allowlist,
 `TRACEREPORTS_SETTINGS_LOCKED`, retención, cifrado en reposo y clave fuera de `DATA_DIR`, usuario del
 proceso, permisos de `DATA_DIR`, destinos de salida, redacción y política de capturas. Imprime OK / WARN /
 FAIL con qué hacer en cada uno y **sale con código 1 si falla uno crítico**: sirve de gate en CI o en el
 despliegue. Nunca muestra valores de credenciales, solo si están. Con `-url` también ve el proveedor de IA
-elegido en Ajustes; la misma postura está en **Ajustes → Postura de seguridad** y en
+elegido en Ajustes; la misma revisión está en **Ajustes → Revisión de seguridad** y en
 `GET /api/v1/security/posture` (requiere `TRACEREPORTS_TOKEN`, el login de la UI o el mismo equipo).
 
 ## health
