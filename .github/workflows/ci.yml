@@ -58,6 +58,8 @@ jobs:
 
   compose:
     name: Docker (hardened compose)
+  compose-config:
+    name: Docker compose files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -83,6 +85,8 @@ jobs:
         run: docker compose logs
       - if: always()
         run: docker compose down -v
+      # el perfil opcional del LLM local (llama.cpp server)
+      - run: docker compose --profile llm config --quiet
 
   client-python:
     name: Client (Python)

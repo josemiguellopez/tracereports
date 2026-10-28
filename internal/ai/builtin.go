@@ -162,3 +162,22 @@ func builtinPromptSection(d builtin.Diagnosis) string {
 	return fmt.Sprintf("\n\nDeterministic pre-diagnosis by TraceReports' local rules engine (rule %s, category %s). It was built\n"+
 		"only from the evidence above; confirm it or correct it with that evidence:\n%s %s", d.Rule, d.Category, d.Summary, d.Suggestion)
 }
+
+// Signature is what identifies a failed test for the similar incidents index (#44): its incident
+// key (the backend call that caused it, or the normalized error and the innermost frame), its
+// category and the rule of the local engine. Two failures with the same cause share most of it.
+func (a *Analyzer) Signature(testID int64) (string, error) {
+	t, err := a.store.GetTest(testID)
+	if err != nil {
+		return "", err
+	}
+	in, err := a.incidentFor(t)
+	if err != nil {
+		return "", err
+	}
+	sig := in.Key + " " + in.Exception
+	if tr := t.Triage; tr != nil && tr.State == "DONE" {
+		sig += " " + tr.Category + " " + tr.Rule
+	}
+	return sig, nil
+}

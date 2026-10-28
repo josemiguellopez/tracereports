@@ -200,6 +200,8 @@ incidentes por tipo y, si falló casi todo, apunta al ambiente.
 
 ### Motor local, LLM local o LLM en la nube
 
+Cómo levantar un LLM local (perfil `llm` de Docker Compose, llama.cpp, LM Studio, vLLM…): [LLM local](local-ai.md).
+
 | | Motor local (`builtin`) | LLM local (Ollama, llama.cpp, LM Studio…) | LLM en la nube |
 |---|---|---|---|
 | Datos fuera del servidor | Nunca | No salen de tu red | Sí (redactados) |
@@ -523,6 +525,13 @@ clasificó (se recuerda en el navegador). La próxima vez que ese test falle en 
 su detalle muestra *En la ejecución #N lo clasificaron como…* con **Mismo veredicto** para
 aplicarlo en un clic: nadie investiga dos veces el mismo fallo. Por API:
 `POST /api/v1/ui/tests/{id}/verdict` (ver la [API](api.md)).
+
+**Incidentes parecidos**: cada fallo clasificado entra a un índice con su firma (la llamada al backend que
+lo causó o el error normalizado, la categoría y la regla del motor local). Cuando otro test falla, su
+diagnóstico muestra hasta tres fallos ya clasificados **del mismo proyecto** que se le parecen al menos un
+60 %, con su veredicto y comentario: *"92 % · pays an order · Ambiente · pool de conexiones agotado"*. Es
+TF-IDF sobre la firma, sin IA y sin red; el porcentaje es parecido, no probabilidad. La retención borra
+la entrada junto con la evidencia. Por API: `GET /api/v1/tests/{id}/similar`.
 
 ## Trace y video de Playwright
 

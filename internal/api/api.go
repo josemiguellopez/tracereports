@@ -121,6 +121,7 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/ui/quarantine/{test_id}", s.removeQuarantine)
 		r.Get("/quarantine", s.listQuarantine)
 		r.Post("/ui/tests/{test_id}/verdict", s.setVerdict)
+		r.Get("/tests/{test_id}/similar", s.similarIncidents)
 		r.Post("/ui/lab/send", s.labSend)
 		r.Post("/ui/lab/checks", s.labSaveCheck)
 		r.Delete("/ui/lab/checks/{check_id}", s.labDeleteCheck)
