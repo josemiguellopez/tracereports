@@ -93,6 +93,19 @@ void newPage(TraceTest t) {
 browser, not the backend logs) and sends it when the test closes; on failure it adds the screenshot
 and the DOM snapshot. Declare expected negatives with `t.expectResponse(401, "*/auth/*")`.
 
+## Screenshots without sensitive data
+
+`SeleniumEvidence.screenshot(driver)` and `PlaywrightEvidence.screenshot(page)` (the ones `attach` uses on
+failure) **cover** with a magenta box, before the screenshot, `input[type=password]`, the elements with the
+`data-tracereports-mask` attribute and the CSS selectors of `TRACEREPORTS_SCREENSHOT_MASK`
+(`"input[name=ssn], .card-number"`). Playwright uses its `mask` option; Selenium puts boxes and removes them
+afterwards, also when the screenshot fails. If they cannot be covered, no screenshot is taken.
+`TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS=off` stops covering the default ones.
+
+`TRACEREPORTS_SCREENSHOTS` decides which screenshots `t.screenshot(...)` sends: `all` (default), `failures`
+(only those of a `FAIL` step) or `off` (none). The server applies the same variable on its own (see
+[Configuration → Screenshots](configuration.md#screenshots)).
+
 ## Without JUnit
 
 ```java

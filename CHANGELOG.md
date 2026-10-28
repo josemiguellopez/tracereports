@@ -59,6 +59,10 @@ warning, and anyone who reached the port could read and change the reports. Now 
   `TRACEREPORTS_SCREENSHOT_MASK` (Playwright: native `mask`; Selenium: temporary boxes removed afterwards, even
   when the screenshot fails; no screenshot if it cannot cover). `TRACEREPORTS_SCREENSHOTS=all|failures|off`
   decides which screenshots are sent. New helpers `playwright_screenshot(page)` and `selenium_screenshot(driver)`.
+- **Java client: screenshots with sensitive data covered.** `SeleniumEvidence.screenshot` and
+  `PlaywrightEvidence.screenshot` cover `input[type=password]`, `data-tracereports-mask` and
+  `TRACEREPORTS_SCREENSHOT_MASK` before capturing (Playwright `mask`; Selenium temporary boxes, always removed),
+  and `TraceTest.screenshot` follows `TRACEREPORTS_SCREENSHOTS=all|failures|off`.
 - **Signed releases**: binaries (through `checksums.txt`) and the Docker image are signed keyless with
   cosign, carry an SPDX SBOM and a SLSA provenance attestation. How to verify them: `SECURITY.md`.
 - **govulncheck** fails CI when reachable code has a known vulnerability; **CodeQL** analyzes Go,
