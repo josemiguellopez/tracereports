@@ -1,0 +1,39 @@
+name: Criteria for 1.0
+
+# Reporta los criterios de salida a 1.0 (docs/en/release-1.0.md) en el resumen del job. No bloquea
+# nada: es la medición pública de cuánto falta.
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - scripts/release_criteria.py
+      - scripts/test_release_criteria.py
+      - .github/workflows/release-criteria.yml
+
+permissions:
+  contents: read
+  issues: read
+
+jobs:
+  criteria:
+    name: Criteria for 1.0
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m unittest discover -s scripts -v
+      - run: go test ./... -coverprofile=cover.out
+      - name: Report
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python scripts/release_criteria.py --coverprofile cover.out --markdown | tee -a "$GITHUB_STEP_SUMMARY"

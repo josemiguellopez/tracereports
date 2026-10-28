@@ -20,6 +20,23 @@ Include what you can: the affected version, steps to reproduce, the impact and, 
 proof of concept. You will get an answer within **7 days**. Once a fix is released, you will be
 credited in the release notes unless you prefer to stay anonymous.
 
+## Response times
+
+Severity follows [CVSS v3.1/v4](https://www.first.org/cvss/). Times count from the confirmation of the
+report; they are targets of a single-maintainer project (see [GOVERNANCE.md](GOVERNANCE.md)), and the
+reporter is told if one cannot be met.
+
+| Severity | Patched release |
+| --- | --- |
+| Critical (9.0–10.0) | 7 days |
+| High (7.0–8.9) | 30 days |
+| Medium (4.0–6.9) | 90 days, or the next minor release if sooner |
+| Low (0.1–3.9) | The next minor release |
+
+Coordinated disclosure: the advisory is published together with the fixed release, or after **90 days**
+from the report if no fix exists by then (earlier if the issue is already being exploited), agreeing the
+date with the reporter. Each release lists its fixes in the **Security** section of the CHANGELOG.
+
 ## Scope
 
 Especially relevant:
@@ -30,7 +47,8 @@ Especially relevant:
 
 ## Running it securely
 
-The [security hardening guide](docs/en/security-hardening.md) ([español](docs/es/security-hardening.md))
+The [threat model](docs/en/threat-model.md) ([español](docs/es/threat-model.md)) says what is
+protected, from whom and what is left to the operator. The [security hardening guide](docs/en/security-hardening.md) ([español](docs/es/security-hardening.md))
 covers the production profile, the network, the hardened container, volume encryption, test data,
 retention and a checklist.
 

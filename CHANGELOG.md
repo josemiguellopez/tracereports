@@ -63,6 +63,12 @@ warning, and anyone who reached the port could read and change the reports. Now 
   ask a running server. Also at `GET /api/v1/security/posture` (admin only) and in **Settings → Security
   posture**. The production profile of the hardening guide now includes `TRACEREPORTS_ALLOWED_CIDRS`,
   `NOTIFY_DETAIL=minimal` and encryption at rest, and passes every check.
+- **Threat model** (`docs/*/threat-model.md`): assets, actors, surfaces, mitigations and residual risks,
+  including the caveats of encrypted SQLite VFS (#41). **API stability policy** (`docs/*/api-stability.md`):
+  stable, experimental and internal levels, deprecation with `Deprecation`/`Sunset` headers from 1.0.
+  **Criteria for 1.0** (`docs/*/release-1.0.md`) measured by `scripts/release_criteria.py` and a weekly
+  workflow. `SECURITY.md` now has patch times by severity and a coordinated disclosure window;
+  `GOVERNANCE.md` and `MAINTAINERS.md` describe decisions and how to become a maintainer.
 
 - `tracereports selftest` checks that the screenshots recorded with the Python (Playwright) and Java (Selenium)
   clients show the demo shop's member card (`data-tracereports-mask`) covered.
