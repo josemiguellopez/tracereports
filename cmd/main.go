@@ -18,6 +18,8 @@
 //	TRACEREPORTS_INGEST_TOKEN  restricted token for test clients/CI: writes results and reads, never administers
 //	TRACEREPORTS_UI_USER / TRACEREPORTS_UI_PASSWORD  HTTP Basic login for the UI (optional)
 //	TRACEREPORTS_ALLOWED_HOSTS  hosts served without login besides localhost (comma separated; * = any)
+//	TRACEREPORTS_ALLOWED_CIDRS  only these source networks get in (403 otherwise, even with a token; loopback always)
+//	TRACEREPORTS_TRUSTED_PROXIES  proxies whose X-Forwarded-For / X-Real-IP is trusted (default: none)
 //	TRACEREPORTS_LOCAL_ADMIN  1 = with a token and no UI login, the same machine (no proxy) may change settings
 //	TEAMS_WEBHOOK_URL / SLACK_WEBHOOK_URL  run summary notifications (optional)
 //	PUBLIC_URL      public base URL, used for links in notifications
@@ -186,6 +188,14 @@ func runServer(parent context.Context) error {
 	if err != nil {
 		return err
 	}
+	netPolicy, err := api.NewNetPolicy(env.Get("ALLOWED_CIDRS"), env.Get("TRUSTED_PROXIES"))
+	if err != nil {
+		return err // un filtro de red mal escrito no se ignora
+	}
+	if netPolicy.Enabled() {
+		slog.Info("source IP allowlist enabled (loopback is always allowed)", "allowed_cidrs", fmt.Sprint(netPolicy.Allowed()),
+			"trusted_proxies", fmt.Sprint(netPolicy.Trusted()))
+	}
 	if screenshots != api.ScreenshotsAll {
 		slog.Info("screenshot policy", "screenshots", screenshots)
 	}
@@ -275,6 +285,8 @@ func runServer(parent context.Context) error {
 		Demo: env.Bool("DEMO"),
 		// qué capturas se guardan: all, failures u off (TRACEREPORTS_SCREENSHOTS)
 		Screenshots: screenshots,
+		// solo la red interna (TRACEREPORTS_ALLOWED_CIDRS), con proxies confiables
+		Net: netPolicy,
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())

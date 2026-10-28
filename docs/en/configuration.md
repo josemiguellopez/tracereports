@@ -22,6 +22,8 @@ steps to apply it.
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | The previous master key, only while you change it (rotation) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
+| `TRACEREPORTS_ALLOWED_CIDRS` | — (all) | Only these networks get in (`10.0.0.0/8,fd00::/8`, or single IPs); the rest gets `403`, even with a token. This machine always gets in. See [Restrict by source network](#restrict-by-source-network) |
+| `TRACEREPORTS_TRUSTED_PROXIES` | — | Proxies whose `X-Forwarded-For` / `X-Real-IP` is trusted to know the client IP. Without it those headers are ignored |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: with a token and no login, the same machine (no proxy) may change Settings and use the UI actions |
 | `AI_PROVIDER` | inferred from the key; without a key, `builtin` | `builtin` (local engine, no LLM), `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` or `off` (no diagnosis). See [Local engine](#local-diagnosis-engine-no-llm) |
 | `AI_MODEL` | the provider's default | Model (see the provider table) |
@@ -102,6 +104,22 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
   says what is missing.
 - Put the server behind HTTPS (a reverse proxy such as Caddy, nginx or Traefik). HTTP Basic
   without TLS travels in plain text.
+
+### Restrict by source network
+
+Besides the firewall, the server can enforce on its own which networks get in:
+
+```ini
+TRACEREPORTS_ALLOWED_CIDRS=10.0.0.0/8,192.168.10.0/24,fd00::/8
+TRACEREPORTS_TRUSTED_PROXIES=10.0.0.5        # the reverse proxy, if there is one
+```
+
+- Every request whose source IP is not in the list gets `403` (UI, API and `/screenshots/*`), **even with a
+  valid token**. This machine (`127.0.0.1`, `::1`) always gets in.
+- The source IP is the connection's. `X-Forwarded-For` and `X-Real-IP` are only trusted when the connection
+  comes from a proxy of `TRACEREPORTS_TRUSTED_PROXIES`, and then the last hop that is not a trusted proxy is
+  taken: a client that sends its own `X-Forwarded-For` does not get around the filter.
+- An invalid value stops the server from starting. Each refused IP is logged once.
 
 ### Permissions of each credential
 

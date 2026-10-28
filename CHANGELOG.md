@@ -70,6 +70,10 @@ warning, and anyone who reached the port could read and change the reports. Now 
 - **Minimal notifications** (`NOTIFY_DETAIL=minimal`): Teams and Slack get only the run name, counts, status
   and the report link, without test names, errors, backend URLs or AI text. It also applies to the weekly
   summary (numbers only) and escalations (severity and link).
+- **Source IP allowlist** (`TRACEREPORTS_ALLOWED_CIDRS`, IPv4 and IPv6): requests from other networks get `403`
+  on the UI, the API and the screenshots, even with a valid token; loopback is always allowed.
+  `X-Forwarded-For` / `X-Real-IP` are only trusted from `TRACEREPORTS_TRUSTED_PROXIES`, so a spoofed header does
+  not get around it. An invalid value stops the server.
 - **Screenshot policy on the server** (`TRACEREPORTS_SCREENSHOTS=all|failures|off`): with `failures` only the
   screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
   trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.
