@@ -51,7 +51,13 @@ func TestExportStreamsFilesInsteadOfLoadingThem(t *testing.T) {
 	if out.n < size {
 		t.Fatalf("the artifact must be in the ZIP: %d bytes written", out.n)
 	}
-	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > size/2 {
+	// cargar el archivo entero asigna al menos su tamaño; en streaming se asigna una fracción. Con
+	// -race (sync.Pool descarta buffers al azar) el límite es el tamaño, que sigue separando los dos
+	limit := uint64(size / 2)
+	if raceEnabled {
+		limit = size
+	}
+	if alloc := after.TotalAlloc - before.TotalAlloc; alloc > limit {
 		t.Fatalf("export allocated %d MiB for a %d MiB file: it must stream it", alloc>>20, size>>20)
 	}
 }
