@@ -9,6 +9,7 @@ Con pytest no hace falta código: `pytest --tracereports` (ver tracereports.pyte
 
 from .client import TraceReports, __version__
 from .dom import capturar_dom
+from .mask import playwright_screenshot, selenium_screenshot
 from .network import (
     attach_listeners,
     conexiones_del_test,
@@ -25,7 +26,9 @@ __all__ = [
     "conexiones_del_test",
     "esperar_conexion",
     "guardar_red_local",
+    "playwright_screenshot",
     "reportar_red",
     "resumir_red",
+    "selenium_screenshot",
     "__version__",
 ]

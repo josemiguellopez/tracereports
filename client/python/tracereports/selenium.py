@@ -27,6 +27,7 @@ import base64
 import json
 
 from .dom import DOM_SCRIPT, _mask_dom
+from .mask import selenium_screenshot
 from .network import _mask_headers, _mask_sensitive
 
 _LOG_PREFS = {"performance": "ALL", "browser": "ALL"}
@@ -216,11 +217,9 @@ def capture_dom(driver):
 
 
 def screenshot(driver):
-    """Captura de pantalla en PNG, o None si el navegador ya no responde."""
-    try:
-        return driver.get_screenshot_as_png()
-    except Exception:
-        return None
+    """Captura de pantalla en PNG con los datos sensibles tapados (ver mask.py), o None si el
+    navegador ya no responde."""
+    return selenium_screenshot(driver)
 
 
 def is_webdriver(obj):

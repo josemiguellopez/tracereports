@@ -42,7 +42,8 @@ python -m pytest --tracereports
 ```
 
 Listo. El plugin encuentra el driver en tus fixtures (se llame como se llame: `driver`, `browser`…) y en
-cada test envía su red y su consola, y si falla la captura y el DOM. Tus tests no cambian.
+cada test envía su red y su consola, y si falla la captura y el DOM. Tus tests no cambian. La captura
+sale con los datos sensibles tapados: ver [Capturas sin datos sensibles](python.md#capturas-sin-datos-sensibles).
 
 ¿Ya usas Allure? Ver [examples/python-selenium-allure](../../examples/python-selenium-allure/README.es.md):
 Allure y TraceReports en la misma corrida.
