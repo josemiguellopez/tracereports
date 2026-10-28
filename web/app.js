@@ -3462,10 +3462,12 @@
 	}
 
 	/** Línea de estado de la postura en el índice de Ajustes. */
+	const postureFails = (n) => (n === 1 ? tr("1 crítico") : tr("{n} críticos", { n }));
+
 	function postureSummary(p) {
 		if (!p) return { sub: "…" };
 		if (p.error) return { sub: tr("Sin acceso"), tone: "muted" };
-		if (p.fail) return { sub: tr("{n} críticos", { n: p.fail }), tone: "warn" };
+		if (p.fail) return { sub: postureFails(p.fail), tone: "warn" };
 		if (p.warn) return { sub: tr("{n} por revisar", { n: p.warn }), tone: "warn" };
 		return { sub: tr("Todo en orden"), tone: "ok" };
 	}
@@ -3484,22 +3486,128 @@
 
 	const POSTURE_TONE = { ok: "ok", warn: "warn", fail: "bad" };
 	const POSTURE_LABEL = { ok: "OK", warn: "Revisar", fail: "Crítico" };
+	// por id estable del chequeo (el mismo de doctor --security -json): tema, ícono y título en el idioma de la interfaz
+	const POSTURE_GROUPS = [
+		["Acceso", ["auth.tokens", "auth.ui_login"]],
+		["Red y salida de datos", ["network.exposure", "egress.destinations"]],
+		["Datos y evidencia", ["data.encryption", "data.retention", "data.permissions", "evidence.redaction", "evidence.screenshots"]],
+		["IA y servidor", ["ai.provider", "settings.locked", "process.user"]],
+	];
+	const POSTURE_CHECK = {
+		"auth.tokens": ["i-key", "Tokens de la API"], "auth.ui_login": ["i-user", "Login de la interfaz"],
+		"network.exposure": ["i-globe", "Exposición en la red"], "egress.destinations": ["i-send", "Destinos externos"],
+		"data.encryption": ["i-lock", "Cifrado de la evidencia"], "data.retention": ["i-calendar", "Retención"],
+		"data.permissions": ["i-folder", "Permisos de DATA_DIR"], "evidence.redaction": ["i-eye-off", "Ocultar secretos"],
+		"evidence.screenshots": ["i-camera", "Política de capturas"], "ai.provider": ["i-spark", "Proveedor de IA"],
+		"settings.locked": ["i-gear", "Ajustes bloqueados"], "process.user": ["i-server", "Usuario del proceso"],
+	};
+	// el detalle y el arreglo llegan en inglés, como en doctor --security: en español se traducen los conocidos
+	// (con sus valores) y lo que no se reconozca se muestra tal cual
+	const POSTURE_ES = [
+		[/^admin and ingest tokens set and different$/, "tokens de administración y de ingesta definidos y distintos"],
+		[/^TRACEREPORTS_INGEST_TOKEN is the same as TRACEREPORTS_TOKEN$/, "TRACEREPORTS_INGEST_TOKEN es igual a TRACEREPORTS_TOKEN"],
+		[/^generate a different ingest token: (.+)$/, "genera un token de ingesta distinto: $1"],
+		[/^listening on the network without any token: anyone who reaches the port writes and reads$/, "escucha en la red sin ningún token: cualquiera que llegue al puerto escribe y lee"],
+		[/^set TRACEREPORTS_TOKEN and TRACEREPORTS_INGEST_TOKEN \((.+)\), or listen only on 127\.0\.0\.1$/, "define TRACEREPORTS_TOKEN y TRACEREPORTS_INGEST_TOKEN ($1), o escucha solo en 127.0.0.1"],
+		[/^no token: fine on a laptop \(only this machine\), not on a shared server$/, "sin token: sirve en un notebook (solo este equipo), no en un servidor compartido"],
+		[/^set TRACEREPORTS_TOKEN and TRACEREPORTS_INGEST_TOKEN before sharing the server$/, "define TRACEREPORTS_TOKEN y TRACEREPORTS_INGEST_TOKEN antes de compartir el servidor"],
+		[/^only the admin token: test clients and CI use a credential that can change Settings$/, "solo el token de administración: los clientes de test y la CI usan una credencial que puede cambiar Ajustes"],
+		[/^set TRACEREPORTS_INGEST_TOKEN for clients and CI, and keep TRACEREPORTS_TOKEN for admins$/, "define TRACEREPORTS_INGEST_TOKEN para los clientes y la CI, y deja TRACEREPORTS_TOKEN para administrar"],
+		[/^reads require the UI login or a token$/, "para leer hace falta el login o un token"],
+		[/^no UI login and TRACEREPORTS_ALLOWED_HOSTS=\*: anyone who reaches the port reads every report$/, "sin login y con TRACEREPORTS_ALLOWED_HOSTS=*: cualquiera que llegue al puerto lee todos los reportes"],
+		[/^set TRACEREPORTS_UI_USER and TRACEREPORTS_UI_PASSWORD$/, "define TRACEREPORTS_UI_USER y TRACEREPORTS_UI_PASSWORD"],
+		[/^no UI login: a token does not protect reads, and the Host check is not access control$/, "sin login: un token no protege la lectura, y revisar el Host no es control de acceso"],
+		[/^set TRACEREPORTS_UI_USER and TRACEREPORTS_UI_PASSWORD \(and HTTPS on the proxy\)$/, "define TRACEREPORTS_UI_USER y TRACEREPORTS_UI_PASSWORD (y HTTPS en el proxy)"],
+		[/^no UI login, but the server only listens on this machine$/, "sin login, pero el servidor solo escucha en este equipo"],
+		[/^TRACEREPORTS_INSECURE=1: the server listens on the network even without credentials$/, "TRACEREPORTS_INSECURE=1: el servidor escucha en la red aunque no tenga credenciales"],
+		[/^remove TRACEREPORTS_INSECURE and set the tokens and the UI login$/, "quita TRACEREPORTS_INSECURE y define los tokens y el login"],
+		[/^listening only on this machine$/, "escucha solo en este equipo"],
+		[/^only from (.+)$/, "solo desde $1"],
+		[/^listening on the network for any source address$/, "escucha en la red para cualquier dirección de origen"],
+		[/^limit TRACEREPORTS_ALLOWED_CIDRS to the networks that need it \(or a firewall\)$/, "limita TRACEREPORTS_ALLOWED_CIDRS a las redes que lo necesitan (o usa un firewall)"],
+		[/^local rules engine or off: no evidence leaves the server$/, "motor local de reglas o apagada: ninguna evidencia sale del servidor"],
+		[/^provider (.+) is not in TRACEREPORTS_AI_ALLOWED_PROVIDERS$/, "el proveedor $1 no está en TRACEREPORTS_AI_ALLOWED_PROVIDERS"],
+		[/^use an allowed provider, or add it to TRACEREPORTS_AI_ALLOWED_PROVIDERS if the policy permits$/, "usa un proveedor permitido, o agrégalo a TRACEREPORTS_AI_ALLOWED_PROVIDERS si la política lo permite"],
+		[/^(.+) inside the network \((.+)\)$/, "$1 dentro de la red ($2)"],
+		[/^(.+), explicitly allowed in TRACEREPORTS_AI_ALLOWED_PROVIDERS: redacted prompts leave the network$/, "$1, permitido explícitamente en TRACEREPORTS_AI_ALLOWED_PROVIDERS: los prompts salen de la red sin secretos"],
+		[/^(.+): redacted prompts leave the network, and no TRACEREPORTS_AI_ALLOWED_PROVIDERS limits it$/, "$1: los prompts salen de la red sin secretos, y ningún TRACEREPORTS_AI_ALLOWED_PROVIDERS lo limita"],
+		[/^use AI_PROVIDER=builtin or a local LLM, or set TRACEREPORTS_AI_ALLOWED_PROVIDERS to make the decision explicit$/, "usa AI_PROVIDER=builtin o un LLM local, o define TRACEREPORTS_AI_ALLOWED_PROVIDERS para dejar la decisión explícita"],
+		[/^Settings is read-only: the configuration comes only from the environment$/, "Ajustes es de solo lectura: la configuración viene solo del entorno"],
+		[/^any admin \(and every UI user\) can change the AI provider, its URL and key from the screen$/, "cualquier administrador (y cada usuario con login) puede cambiar desde la pantalla el proveedor de IA, su URL y su clave"],
+		[/^set TRACEREPORTS_SETTINGS_LOCKED=1$/, "define TRACEREPORTS_SETTINGS_LOCKED=1"],
+		[/^Settings editable, only from this machine$/, "Ajustes editable, solo desde este equipo"],
+		[/^runs older than (\d+) days are deleted \(secure_delete, VACUUM\)$/, "las ejecuciones de más de $1 días se borran (secure_delete, VACUUM)"],
+		[/^evidence is kept forever$/, "la evidencia se guarda para siempre"],
+		[/^set TRACEREPORTS_RETENTION_DAYS to what your data policy allows$/, "define TRACEREPORTS_RETENTION_DAYS según lo que permita tu política de datos"],
+		[/^give a valid TRACEREPORTS_DB_KEY or TRACEREPORTS_DB_KEY_FILE outside DATA_DIR \(the server will not start\)$/, "entrega un TRACEREPORTS_DB_KEY o TRACEREPORTS_DB_KEY_FILE válido fuera de DATA_DIR (el servidor no arrancará)"],
+		[/^screenshots, traces, videos and DOM encrypted \(AES-256-GCM\), key outside DATA_DIR$/, "capturas, trazas, videos y DOM cifrados (AES-256-GCM), clave fuera de DATA_DIR"],
+		[/^off: the evidence is as safe as the disk of DATA_DIR$/, "apagado: la evidencia está tan protegida como el disco de DATA_DIR"],
+		[/^set TRACEREPORTS_ENCRYPT_AT_REST=1 with TRACEREPORTS_DB_KEY_FILE, and keep DATA_DIR on an encrypted volume$/, "define TRACEREPORTS_ENCRYPT_AT_REST=1 con TRACEREPORTS_DB_KEY_FILE, y deja DATA_DIR en un volumen cifrado"],
+		[/^not applicable on this system \(ACLs\)$/, "no aplica en este sistema (ACL)"],
+		[/^not applicable on this system$/, "no aplica en este sistema"],
+		[/^running as root$/, "corre como root"],
+		[/^run as an unprivileged user \(the official image already is nonroot\)$/, "córrelo con un usuario sin privilegios (la imagen oficial ya es nonroot)"],
+		[/^unprivileged user \(uid (\d+)\)$/, "usuario sin privilegios (uid $1)"],
+		[/^created with 0700 when the server starts$/, "se crea con 0700 al arrancar el servidor"],
+		[/^(.+) is (0\d+): other users of the host can read the evidence$/, "$1 tiene $2: otros usuarios del equipo pueden leer la evidencia"],
+		[/^(0\d+): only the server user$/, "$1: solo el usuario del servidor"],
+		[/^none: no data leaves the server$/, "ninguno: ningún dato sale del servidor"],
+		[/^(.+) — chat notifications carry test names and errors$/, "$1 — las notificaciones al chat llevan nombres de tests y errores"],
+		[/^set NOTIFY_DETAIL=minimal \(counts and a link only\)$/, "define NOTIFY_DETAIL=minimal (solo conteos y un link)"],
+		[/^secrets in headers, bodies and logs are masked before storing$/, "los secretos en headers, cuerpos y logs se ocultan antes de guardarse"],
+		[/^TRACEREPORTS_REDACT=off: secrets are stored as received$/, "TRACEREPORTS_REDACT=off: los secretos se guardan tal como llegan"],
+		[/^remove TRACEREPORTS_REDACT=off$/, "quita TRACEREPORTS_REDACT=off"],
+		[/^every screenshot, trace and video is kept$/, "se guardan todas las capturas, trazas y videos"],
+		[/^set TRACEREPORTS_SCREENSHOTS=failures \(or off\) and mask sensitive fields in the clients$/, "define TRACEREPORTS_SCREENSHOTS=failures (u off) y oculta los campos sensibles en los clientes"],
+	];
+	function postureText(s) {
+		if (!s || window.TraceReportsI18n.lang === "en") return s || "";
+		for (const [re, es] of POSTURE_ES) {
+			const m = s.match(re);
+			if (m) return es.replace(/\$(\d)/g, (_, i) => m[i]);
+		}
+		return s;
+	}
+	const postureTitle = (c) => (POSTURE_CHECK[c.id] ? tr(POSTURE_CHECK[c.id][1]) : c.title);
+	const postureIcon = (c) => icon(POSTURE_CHECK[c.id]?.[0] || "i-shield");
 
-	/** La revisión de seguridad del servidor: los chequeos de doctor --security, con qué hacer en cada uno. */
+	/** La revisión de seguridad del servidor: arriba el resumen, después lo que hay que arreglar con qué hacer,
+	 * y lo que está en orden, compacto y por tema (el detalle se abre con un clic). */
 	function postureCard() {
 		const p = S.settings.posture;
 		if (!p) return `<div class="card placeholder">${tr("Revisando la configuración…")}</div>`;
 		if (p.error) return `<div class="card placeholder">${tr("No se pudo leer la revisión de seguridad")}: ${esc(p.error)}</div>`;
-		const rows = p.checks.map((c) => `<div class="prov-status ${POSTURE_TONE[c.level] || "muted"} posture-row" data-check="${esc(c.id)}">
-				<span class="prov-dot"></span>
-				<div><b>${esc(tr(POSTURE_LABEL[c.level] || c.level))} · <span data-no-i18n>${esc(c.title)}</span></b>
-				<p class="m-hint" data-no-i18n>${esc(c.detail)}</p>
-				${c.fix ? `<p class="m-hint posture-fix" data-no-i18n>→ ${esc(c.fix)}</p>` : ""}</div></div>`).join("");
-		return `<section class="card set-card" aria-labelledby="set-posture">
-			<div class="set-head"><h5 id="set-posture">${icon("i-check")}${tr("Revisión de seguridad")}</h5></div>
-			<p class="field-help">${tr("Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.")}</p>
-			<p class="field-help"><b>${tr("{ok} OK · {warn} por revisar · {fail} críticos", { ok: p.ok, warn: p.warn, fail: p.fail })}</b></p>
-			<div class="posture-list">${rows}</div></section>`;
+		const total = p.checks.length, tone = p.fail ? "bad" : p.warn ? "warn" : "ok";
+		const pct = total ? Math.round((p.ok / total) * 100) : 0;
+		const verdict = p.fail ? postureFails(p.fail) + (p.warn ? ` · ${tr("{n} por revisar", { n: p.warn })}` : "")
+			: p.warn ? tr("{n} por revisar", { n: p.warn }) : tr("Todo en orden");
+		// lo crítico primero; dentro de cada nivel, el orden del servidor
+		const issues = p.checks.filter((c) => c.level !== "ok").sort((a, b) => (a.level === "fail" ? 0 : 1) - (b.level === "fail" ? 0 : 1));
+		const issueRows = issues.map((c) => `<div class="posture-issue ${POSTURE_TONE[c.level] || "muted"}" data-check="${esc(c.id)}">
+				<span class="posture-ico">${postureIcon(c)}</span>
+				<div><b><span class="posture-level">${esc(tr(POSTURE_LABEL[c.level] || c.level))}</span> ${esc(postureTitle(c))}</b>
+				<p class="m-hint" data-no-i18n>${esc(postureText(c.detail))}</p>
+				${c.fix ? `<p class="posture-fix" data-no-i18n>→ ${esc(postureText(c.fix))}</p>` : ""}</div></div>`).join("");
+		const ok = p.checks.filter((c) => c.level === "ok");
+		const known = new Set(POSTURE_GROUPS.flatMap(([, ids]) => ids));
+		const groups = [...POSTURE_GROUPS, ["Otros", ok.filter((c) => !known.has(c.id)).map((c) => c.id)]].map(([name, ids]) => {
+			const items = ids.map((id) => ok.find((c) => c.id === id)).filter(Boolean);
+			if (!items.length) return "";
+			return `<div class="posture-group"><h6>${tr(name)}</h6><div class="posture-grid">${items.map((c) => `<details class="posture-item" data-check="${esc(c.id)}">
+					<summary><span class="posture-ico">${postureIcon(c)}</span><span class="posture-name">${esc(postureTitle(c))}</span>${icon("i-check")}</summary>
+					<p class="m-hint" data-no-i18n>${esc(postureText(c.detail))}</p></details>`).join("")}</div></div>`;
+		}).join("");
+		return `<section class="card set-card posture" aria-labelledby="set-posture">
+			<div class="set-card-head"><h5 id="set-posture">${icon("i-shield")}${tr("Revisión de seguridad")}</h5>
+				<button class="cf-btn cf-btn-sm" data-posture-refresh ${S.settings.postureLoading ? "disabled" : ""}>${tr("Volver a revisar")}</button></div>
+			<div class="posture-hero ${tone}" role="status">
+				<svg class="posture-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15.9" pathLength="100"/><circle class="posture-ring-val" cx="18" cy="18" r="15.9" pathLength="100" stroke-dasharray="${pct} 100"/></svg>
+				<div><b class="posture-verdict">${esc(verdict)}</b>
+				<p class="posture-count">${tr("{ok} de {n} chequeos en orden", { ok: p.ok, n: total })}</p>
+				<p class="field-help">${tr("Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.")}</p></div></div>
+			${issues.length ? `<h6 class="posture-sub">${tr("Para revisar")}</h6><div class="posture-issues">${issueRows}</div>` : ""}
+			${ok.length ? `<h6 class="posture-sub">${tr("En orden")}</h6><div class="posture-groups">${groups}</div>` : ""}
+		</section>`;
 	}
 
 	async function loadUsage() {
@@ -3784,6 +3892,7 @@
 		root.addEventListener("click", async (e) => {
 			const setTab = e.target.closest("[data-set-tab]");
 			if (setTab) { openSettingsTab(setTab.dataset.setTab, true); if (setTab.dataset.setTab === "usage") { loadUsage(); loadStatus(false); } return; }
+			if (e.target.closest("[data-posture-refresh]")) { loadPosture(); renderSettings(true); return; }
 			if (e.target.closest("[data-usage-refresh]")) { loadUsage(); loadStatus(true); renderSettings(true); return; }
 			const lang = e.target.closest("[data-set-lang]");
 			if (lang) { I18N.setLang(lang.dataset.setLang); renderSettings(true); return; }
