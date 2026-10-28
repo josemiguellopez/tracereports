@@ -328,10 +328,17 @@
 		"Entraste con el login de solo lectura (TRACEREPORTS_UI_VIEWER_USER): puedes ver todos los reportes, pero no cambiar ajustes ni usar acciones. Pídele el cambio a quien administra el servidor.":
 			"You signed in with the read-only login (TRACEREPORTS_UI_VIEWER_USER): you can see every report, but not change settings nor use actions. Ask whoever administers the server.",
 		// ── revisión de seguridad ──
-		"Revisión de seguridad": "Security check", "Sin acceso": "No access", "{n} críticos": "{n} critical",
+		"Revisión de seguridad": "Security check", "Sin acceso": "No access", "{n} críticos": "{n} critical", "1 crítico": "1 critical",
 		"{n} por revisar": "{n} to review", "Todo en orden": "All good", "Revisar": "Review", "Crítico": "Critical",
 		"Revisando la configuración…": "Checking the configuration…",
 		"No se pudo leer la revisión de seguridad": "Could not read the security check",
+		"Volver a revisar": "Check again", "{ok} de {n} chequeos en orden": "{ok} of {n} checks in order",
+		"Para revisar": "To review", "En orden": "In order", "Acceso": "Access", "Red y salida de datos": "Network and outbound data",
+		"Datos y evidencia": "Data and evidence", "IA y servidor": "AI and server", "Otros": "Other",
+		"Tokens de la API": "API tokens", "Login de la interfaz": "UI login", "Exposición en la red": "Network exposure",
+		"Destinos externos": "Outbound destinations", "Cifrado de la evidencia": "Evidence encryption at rest", "Retención": "Retention",
+		"Permisos de DATA_DIR": "DATA_DIR permissions", "Ocultar secretos": "Secret redaction", "Política de capturas": "Screenshot policy",
+		"Proveedor de IA": "AI provider", "Ajustes bloqueados": "Settings locked", "Usuario del proceso": "Process user",
 		"Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.":
 			"The same checks as tracereports doctor --security, on the configuration this server runs with. It never shows credential values.",
 		"{ok} OK · {warn} por revisar · {fail} críticos": "{ok} OK · {warn} to review · {fail} critical",

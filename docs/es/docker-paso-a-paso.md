@@ -365,8 +365,8 @@ En el navegador: **Ajustes** (abajo a la izquierda) → **Revisión de seguridad
 
 ![Ajustes, Revisión de seguridad con los chequeos en verde](../img/docker-guide/postura.webp)
 
-✅ La mayoría en verde (**OK**). Con Docker en tu equipo es normal que **"Network exposure"** aparezca como
-**Revisar**: dentro del contenedor TraceReports escucha en la red *del contenedor*, aunque el puerto solo
+✅ La mayoría en verde (**OK**). Con Docker en tu equipo es normal que **"Exposición en la red"** aparezca
+arriba, en **Para revisar**: dentro del contenedor TraceReports escucha en la red *del contenedor*, aunque el puerto solo
 esté publicado para tu equipo. En un servidor se resuelve con `TRACEREPORTS_ALLOWED_CIDRS` (ver la
 [guía de hardening](security-hardening.md)).
 

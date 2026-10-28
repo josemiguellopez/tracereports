@@ -62,6 +62,10 @@ warning, and anyone who reached the port could read and change the reports. Now 
   image) instead of the minimum in `go.mod`: the binaries carry the standard library's security fixes.
 - A pre-release tag (`v0.6.0-rc1`) is published as a pre-release, takes its notes from `[Unreleased]` and
   no longer moves the image's `latest` tag.
+- **Settings → Security check** has a new layout: a summary ring with the verdict, what needs fixing first
+  (critical before warnings, with the fix in view), and the checks in order grouped by topic in a compact grid
+  with an icon each; click one to see its detail. Titles and details follow the interface language (the API
+  and `doctor --security` keep their English output), and **Check again** re-runs the checks.
 
 ### Fixed
 

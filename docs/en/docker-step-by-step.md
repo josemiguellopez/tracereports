@@ -367,7 +367,7 @@ In the browser: **Settings** (bottom left) → **Security check**.
 ![Settings, Security check with the checks in green](../img/docker-guide/postura.webp)
 
 ✅ Most of them green (**OK**). With Docker on your computer it is normal for **"Network exposure"** to show
-as **Review**: inside the container TraceReports listens on the *container's* network, even though the port
+at the top, under **To review**: inside the container TraceReports listens on the *container's* network, even though the port
 is only published for your computer. On a server it is solved with `TRACEREPORTS_ALLOWED_CIDRS` (see the
 [security hardening guide](security-hardening.md)).
 
