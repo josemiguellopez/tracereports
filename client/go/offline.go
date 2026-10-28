@@ -55,10 +55,10 @@ func randomHex(n int) string {
 }
 
 func newRecorder(dir string) (*recorder, error) {
-	if err := os.MkdirAll(filepath.Join(dir, "bodies"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(dir, "bodies"), 0o700); err != nil {
 		return nil, err
 	}
-	marker, err := os.OpenFile(filepath.Join(dir, offlineMarker), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+	marker, err := os.OpenFile(filepath.Join(dir, offlineMarker), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err == nil { // el primer proceso lo crea
 		_ = json.NewEncoder(marker).Encode(map[string]any{"format": "tracereports-offline", "version": 1, "id": randomHex(16)})
 		marker.Close()
@@ -66,7 +66,7 @@ func newRecorder(dir string) (*recorder, error) {
 		return nil, err
 	}
 	r := &recorder{dir: dir, tag: randomHex(4), pid: int64(os.Getpid())}
-	r.file, err = os.OpenFile(filepath.Join(dir, fmt.Sprintf("events-%d-%s.jsonl", r.pid, r.tag)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	r.file, err = os.OpenFile(filepath.Join(dir, fmt.Sprintf("events-%d-%s.jsonl", r.pid, r.tag)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -83,7 +83,7 @@ func (r *recorder) record(method, path string, body []byte, contentType string) 
 		event["body"] = json.RawMessage(body)
 	} else {
 		name := fmt.Sprintf("bodies/%d-%s-%d.bin", r.pid, r.tag, r.seq)
-		if err := os.WriteFile(filepath.Join(r.dir, filepath.FromSlash(name)), body, 0o644); err != nil {
+		if err := os.WriteFile(filepath.Join(r.dir, filepath.FromSlash(name)), body, 0o600); err != nil {
 			return nil, err
 		}
 		event["body_file"] = name
@@ -130,14 +130,14 @@ func (r *recorder) localID() (int64, error) {
 
 func (r *recorder) reserveBlock() (int64, error) {
 	ids := filepath.Join(r.dir, "ids")
-	if err := os.MkdirAll(ids, 0o755); err != nil {
+	if err := os.MkdirAll(ids, 0o700); err != nil {
 		return 0, err
 	}
 	for range 100 {
 		var b [8]byte
 		_, _ = rand.Read(b[:])
 		block := minBlock + int64(binary.BigEndian.Uint64(b[:])%(maxBlock-minBlock))
-		f, err := os.OpenFile(filepath.Join(ids, fmt.Sprint(block)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(filepath.Join(ids, fmt.Sprint(block)), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 		if err == nil {
 			f.Close()
 			return block, nil

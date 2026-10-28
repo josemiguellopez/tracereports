@@ -49,7 +49,7 @@ const staleLock = 30 * time.Second
 func (m *mirror) locked(fn func() error) error {
 	lock := filepath.Join(m.dir, ".mirror-lock")
 	for n := 0; ; n++ {
-		if err := os.Mkdir(lock, 0o755); err != nil {
+		if err := os.Mkdir(lock, 0o700); err != nil {
 			if !errors.Is(err, os.ErrExist) {
 				return err
 			}
@@ -76,7 +76,7 @@ func (m *mirror) write(name string, v any) error {
 	}
 	dest := filepath.Join(m.dir, name)
 	tmp := dest + "." + randomHex(8) + ".tmp"
-	if err = os.WriteFile(tmp, raw, 0o644); err != nil {
+	if err = os.WriteFile(tmp, raw, 0o600); err != nil {
 		return err
 	}
 	defer os.Remove(tmp)
@@ -85,7 +85,7 @@ func (m *mirror) write(name string, v any) error {
 	}
 	// Windows can reject a replacement rename even while this process owns the lock.
 	if errors.Is(err, os.ErrPermission) {
-		return os.WriteFile(dest, raw, 0o644)
+		return os.WriteFile(dest, raw, 0o600)
 	}
 	return err
 }
@@ -99,7 +99,7 @@ func (m *mirror) marker() (mirrorMarker, error) {
 }
 func newMirror(dir, server string, runID int64, payload any) (*mirror, error) {
 	m := &mirror{dir: dir, runs: map[int64]int64{}, tests: map[int64]int64{}}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
 	err := m.locked(func() error {
@@ -150,7 +150,7 @@ func newMirror(dir, server string, runID int64, payload any) (*mirror, error) {
 				return err
 			}
 			local = out.ID
-			file, err := os.OpenFile(mapping, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o644)
+			file, err := os.OpenFile(mapping, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 			if err != nil {
 				return err
 			}

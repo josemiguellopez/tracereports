@@ -12,7 +12,7 @@ import threading
 import time
 import uuid
 
-from .offline import Recorder
+from .offline import Recorder, private_dirs, private_opener
 
 MARKER = "tracereports-offline.json"
 # Un proceso tiene el bloqueo unos milisegundos: uno más viejo quedó de un proceso que murió.
@@ -28,7 +28,7 @@ class Mirror:
         self.failed = self.disabled = self.closed = False
         self._lock = threading.RLock()
         self._active = 0
-        self.directory.mkdir(parents=True, exist_ok=True)
+        private_dirs(self.directory)
         try:
             with self.locked():
                 marker = self.directory / MARKER
@@ -50,7 +50,7 @@ class Mirror:
                 mapping = self.directory / "ids" / f"server-{run_id}"
                 if payload is not None:
                     local = self.recorder.send_now("POST", "/api/v1/runs", json.dumps(payload).encode(), "application/json", 0)["run_id"]
-                    with mapping.open("x") as f:
+                    with open(mapping, "x", opener=private_opener) as f:
                         f.write(str(local))
                     mirror["runs"].append({"local": local, "server": run_id})
                     self.write(MARKER, m)
@@ -84,7 +84,7 @@ class Mirror:
         n = 0
         while True:
             try:
-                lock.mkdir()
+                lock.mkdir(0o700)
                 break
             except FileExistsError:
                 n += 1
@@ -107,7 +107,8 @@ class Mirror:
     def write(self, name, value):
         dest = self.directory / name
         tmp = self.directory / (name + "." + uuid.uuid4().hex + ".tmp")
-        tmp.write_text(json.dumps(value), encoding="utf-8")
+        with open(tmp, "w", encoding="utf-8", opener=private_opener) as f:
+            f.write(json.dumps(value))
         os.replace(tmp, dest)
 
     def disk_error(self, err):

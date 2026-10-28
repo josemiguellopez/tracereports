@@ -58,8 +58,8 @@ a build dependency); a **host or backup thief** with a copy of `DATA_DIR`.
 | **Trackers** (GitHub, Jira, Azure DevOps) | Evidence copied into another system | Created only by an explicit admin action (which includes any UI user), never automatically | The failure screenshot is attached: the tracker inherits it |
 | **FixLab Request Lab** (UI, `repro`, MCP) | The server or a laptop used to reach internal hosts (SSRF) | From the UI on a shared server, only hosts recorded for the test plus `TRACEREPORTS_LAB_HOSTS`; link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it | The recorded hosts come from ingested data (anyone with the ingest token decides them); from the server's own machine, `repro` and the MCP tools there is no host restriction |
 | **MCP server** (`tracereports mcp`) | An agent with too much power | Local over stdio, no network listener | It authenticates with the admin token, also for read-only calls |
-| **Exports and static reports** (ZIP, `tracereports report`) | Evidence leaving the server | Exports require read access; the ZIP is **decrypted** by design (whoever exports could already see it) | `tracereports report` writes its files world-readable (`0644`/`0755`): treat its output folder as the evidence itself |
-| **Client offline recordings and mirror** | Evidence on the CI disk | Replay is limited to ingest endpoints | Recordings are written world-readable and **before** server-side redaction |
+| **Exports and static reports** (ZIP, `tracereports report`) | Evidence leaving the server | Exports require read access; the ZIP is **decrypted** by design (whoever exports could already see it) | `tracereports report` writes its files for the user only (`0700`/`0600`); once copied or published, treat its output as the evidence itself |
+| **Client offline recordings and mirror** | Evidence on the CI disk | Replay is limited to ingest endpoints; folders `0700` and files `0600` (Linux, macOS) in the four clients | Recordings are written **before** server-side redaction |
 | **Supply chain** | Tampered binary or image; vulnerable dependency | Signed releases (cosign keyless), SBOM and SLSA provenance (#36); govulncheck and CodeQL on every pull request; Scorecard weekly and on `main`; third-party actions pinned by commit SHA (GitHub's own `actions/*` by version tag); single static binary, no CGO | |
 | **Container** | Escape or persistence after a compromise | Non-root distroless image, read-only root filesystem, `cap_drop: ALL`, `no-new-privileges` (hardened compose) | |
 
@@ -92,8 +92,9 @@ Known and accepted, or left to the operator. The hardening guide and `doctor --s
    version adopts one, this caveat applies.
 7. **Plaintext left on disk.** Rewriting evidence (`tracereports evidence encrypt`) or deleting it cannot
    guarantee that old blocks are wiped on SSDs or copy-on-write filesystems. Mitigation: encrypted volume.
-8. **Files outside the server.** Static reports and client recordings are world-readable, and recordings
-   are not redacted yet. Keep them in private CI workspaces and artifacts.
+8. **Files outside the server.** Static reports and client recordings are private to their user, but
+   recordings are not redacted yet and CI artifacts follow the CI's own access rules. Keep them in private
+   workspaces and artifacts.
 9. **Lab and MCP targets come from ingested data**, and are unrestricted from the server's own machine.
 10. **Key management is the operator's.** Losing `TRACEREPORTS_DB_KEY` loses the encrypted evidence;
     leaking it with a backup exposes it. The server refuses a key file inside `DATA_DIR`, nothing more.

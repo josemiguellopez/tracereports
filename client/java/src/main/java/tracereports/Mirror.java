@@ -21,7 +21,7 @@ final class Mirror {
 
     Mirror(Path dir, String server, long runId, Map<String, Object> payload) throws IOException {
         this.dir = dir;
-        Files.createDirectories(dir);
+        PrivateFiles.dirs(dir);
         try {
             locked(() -> {
                 Path marker = dir.resolve(Recorder.MARKER);
@@ -39,7 +39,7 @@ final class Mirror {
                     String response = recorder.record("POST", "/api/v1/runs", Json.write(payload).getBytes(StandardCharsets.UTF_8), "application/json");
                     if (response == null) throw new IOException("no se pudo grabar la ejecución");
                     local = Json.number(response, "run_id");
-                    Files.writeString(mapping, Long.toString(local), StandardOpenOption.CREATE_NEW);
+                    PrivateFiles.writeString(mapping, Long.toString(local), StandardOpenOption.CREATE_NEW);
                     List<Object> list = new ArrayList<>((List<?>) mirror.get("runs"));
                     list.add(Map.of("local", local, "server", runId)); mirror.put("runs", list);
                     write(Recorder.MARKER, m);
@@ -66,7 +66,7 @@ final class Mirror {
     private void write(String name, Object value) throws IOException {
         Path dest = dir.resolve(name), tmp = dir.resolve(".mirror-" + UUID.randomUUID().toString().substring(0, 8) + ".tmp");
         try {
-            Files.writeString(tmp, Json.write(value));
+            PrivateFiles.writeString(tmp, Json.write(value));
             try { Files.move(tmp, dest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING); }
             catch (AtomicMoveNotSupportedException | AccessDeniedException e) {
                 Files.copy(tmp, dest, StandardCopyOption.REPLACE_EXISTING);

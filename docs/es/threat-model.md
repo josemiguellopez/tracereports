@@ -58,8 +58,8 @@ de chat, tracker, una dependencia del build); quien **roba el host o un backup**
 | **Trackers** (GitHub, Jira, Azure DevOps) | Evidencia copiada a otro sistema | Solo por una acción explícita de administración (que incluye a cualquier usuario de la UI), nunca automática | La captura del fallo va adjunta: el tracker la hereda |
 | **FixLab Request Lab** (UI, `repro`, MCP) | El servidor o un portátil usado para llegar a hosts internos (SSRF) | Desde la UI en un servidor compartido, solo los hosts registrados del test más `TRACEREPORTS_LAB_HOSTS`; direcciones link-local siempre bloqueadas; `TRACEREPORTS_LAB=off` lo desactiva | Los hosts registrados vienen de datos ingeridos (quien tiene el token de ingesta los decide); desde el propio equipo del servidor, `repro` y las herramientas MCP no hay restricción de hosts |
 | **Servidor MCP** (`tracereports mcp`) | Un agente con demasiado poder | Local por stdio, no escucha en la red | Se autentica con el token de administración, también para llamadas de solo lectura |
-| **Exportaciones y reportes estáticos** (ZIP, `tracereports report`) | Evidencia que sale del servidor | Exportar requiere acceso de lectura; el ZIP va **descifrado** a propósito (quien exporta ya la veía) | `tracereports report` escribe sus archivos legibles por todos (`0644`/`0755`): trata su carpeta de salida como la evidencia misma |
-| **Grabaciones offline y mirror de los clientes** | Evidencia en el disco del CI | El replay se limita a endpoints de ingesta | Las grabaciones quedan legibles por todos y **antes** de la redacción del servidor |
+| **Exportaciones y reportes estáticos** (ZIP, `tracereports report`) | Evidencia que sale del servidor | Exportar requiere acceso de lectura; el ZIP va **descifrado** a propósito (quien exporta ya la veía) | `tracereports report` escribe sus archivos solo para el usuario (`0700`/`0600`); una vez copiado o publicado, trata su salida como la evidencia misma |
+| **Grabaciones offline y mirror de los clientes** | Evidencia en el disco del CI | El replay se limita a endpoints de ingesta; carpetas `0700` y archivos `0600` (Linux, macOS) en los cuatro clientes | Las grabaciones quedan **antes** de la redacción del servidor |
 | **Cadena de suministro** | Binario o imagen alterados; dependencia vulnerable | Releases firmados (cosign sin llaves), SBOM y procedencia SLSA (#36); govulncheck y CodeQL en cada pull request; Scorecard semanal y en `main`; actions de terceros fijadas por SHA (las `actions/*` de GitHub por tag de versión); un solo binario estático, sin CGO | |
 | **Contenedor** | Escape o persistencia tras un compromiso | Imagen distroless sin root, sistema de archivos de solo lectura, `cap_drop: ALL`, `no-new-privileges` (compose endurecido) | |
 
@@ -96,9 +96,9 @@ Conocidos y aceptados, o en manos del operador. La guía de hardening y `doctor 
 7. **Texto en claro que queda en el disco.** Reescribir la evidencia (`tracereports evidence encrypt`) o
    borrarla no garantiza que los bloques viejos se borren en SSD o sistemas copy-on-write. Mitigación:
    volumen cifrado.
-8. **Archivos fuera del servidor.** Los reportes estáticos y las grabaciones de los clientes quedan
-   legibles por todos, y las grabaciones todavía no se redactan. Mantenlos en workspaces y artefactos
-   privados del CI.
+8. **Archivos fuera del servidor.** Los reportes estáticos y las grabaciones de los clientes son
+   privados de su usuario, pero las grabaciones todavía no se redactan y los artefactos del CI siguen las
+   reglas de acceso del CI. Mantenlos en workspaces y artefactos privados.
 9. **Los destinos del Lab y de MCP vienen de datos ingeridos**, y no tienen restricción desde el propio
    equipo del servidor.
 10. **La gestión de claves es del operador.** Perder `TRACEREPORTS_DB_KEY` pierde la evidencia cifrada;

@@ -17,7 +17,7 @@ export class Mirror {
     this.closed = false;
     this.disabled = false;
     this.active = 0;
-    fs.mkdirSync(directory, { recursive: true });
+    fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.locked(() => {
       const marker = path.join(directory, MARKER);
       if (fs.existsSync(marker) && JSON.parse(fs.readFileSync(marker)).raw_removed) throw new Error("la carpeta solo contiene el reporte; usa otra carpeta");
@@ -33,7 +33,7 @@ export class Mirror {
       const mapping = path.join(directory, "ids", `server-${runId}`);
       if (payload) {
         local = this.recorder.record("POST", "/api/v1/runs", JSON.stringify(payload), "application/json").run_id;
-        fs.writeFileSync(mapping, String(local), { flag: "wx" });
+        fs.writeFileSync(mapping, String(local), { flag: "wx", mode: 0o600 });
         m.mirror.runs.push({ local, server: runId });
         this.write(MARKER, m);
       } else {
@@ -52,7 +52,7 @@ export class Mirror {
   locked(fn) {
     const lock = path.join(this.directory, ".mirror-lock");
     for (let n = 0; ; n++) {
-      try { fs.mkdirSync(lock); break; } catch (err) {
+      try { fs.mkdirSync(lock, { mode: 0o700 }); break; } catch (err) {
         if (err.code !== "EEXIST") throw err;
         if (n >= 50) {
           let stale = false;
@@ -70,7 +70,7 @@ export class Mirror {
   write(name, value) {
     const dest = path.join(this.directory, name), tmp = `${dest}.${randomUUID()}.tmp`;
     try {
-      fs.writeFileSync(tmp, JSON.stringify(value));
+      fs.writeFileSync(tmp, JSON.stringify(value), { mode: 0o600 });
       try { fs.renameSync(tmp, dest); }
       catch (err) {
         // Windows can reject a replacement rename even while this process owns the lock.

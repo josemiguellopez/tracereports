@@ -164,6 +164,11 @@ docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/w" -w /w ghcr.io/josemiguel
   with: { name: tracereports, path: reporte/ }
 ```
 
+**Permisos**: la grabación lleva la evidencia **antes** de la redacción (la hace el servidor), así que
+los clientes crean sus carpetas con `0700` y sus archivos con `0600` en Linux y macOS: otros usuarios del
+mismo equipo o runner no la leen. Una carpeta que ya existía no se cambia. Guárdala como artefacto
+privado del CI y bórrala cuando ya la subiste.
+
 ## Formato de la grabación
 
 Una carpeta con `tracereports-offline.json` (`{"format": "tracereports-offline", "version": 1,

@@ -131,7 +131,7 @@ func runReport(args []string) error {
 			return err
 		}
 		if zipPath != "" {
-			if err := os.WriteFile(zipPath, data, 0o644); err != nil {
+			if err := os.WriteFile(zipPath, data, 0o600); err != nil {
 				return err
 			}
 		}
@@ -164,7 +164,7 @@ func newLocalServer(useAI bool) (*localServer, error) {
 	}
 	cleanup := func() { store.Close(); os.RemoveAll(tmp) }
 	shots := filepath.Join(tmp, "screenshots")
-	if err := os.MkdirAll(shots, 0o755); err != nil {
+	if err := os.MkdirAll(shots, 0o700); err != nil {
 		cleanup()
 		return nil, err
 	}
@@ -403,12 +403,12 @@ func unzipTo(data []byte, dir string) error {
 		}
 		dest := filepath.Join(dir, name)
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(dest, 0o755); err != nil {
+			if err := os.MkdirAll(dest, 0o700); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 			return err
 		}
 		rc, err := f.Open()
@@ -420,7 +420,7 @@ func unzipTo(data []byte, dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(dest, content, 0o644); err != nil {
+		if err := os.WriteFile(dest, content, 0o600); err != nil {
 			return err
 		}
 	}
