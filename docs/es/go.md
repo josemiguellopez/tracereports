@@ -72,6 +72,30 @@ fmt.Println(c.ReportURL())
 | `Test.FinishAttempts(status, msg, trace, attempts)` | Cierra un test que se reintentó: un `PASS` con `attempts` > 1 se muestra como *pasó tras reintento* |
 | `Conn.Expected` | Marca una respuesta negativa esperada por el test (no cuenta como error ni como causa) |
 
+## Capturas sin datos sensibles
+
+El cliente de Go no toma capturas: las toma tu código. Te da **qué tapar** y respeta la política:
+
+- `tracereports.MaskSelector()`: `input[type=password]`, los elementos con `data-tracereports-mask` y los
+  selectores CSS de `TRACEREPORTS_SCREENSHOT_MASK` (`TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS=off` quita los de
+  siempre).
+- Con **playwright-go**, pásalo como máscara:
+
+```go
+png, err := page.Screenshot(playwright.PageScreenshotOptions{
+	Mask:      []playwright.Locator{page.Locator(tracereports.MaskSelector())},
+	MaskColor: playwright.String(tracereports.MaskColor),
+})
+```
+
+- Sin opción de máscara (chromedp, Selenium): ejecuta `tracereports.CoverScript` con
+  `(MaskSelector(), MaskColor, MaskOverlayAttr)` antes de capturar y `tracereports.UncoverScript` con
+  `(MaskOverlayAttr)` después, también si la captura falla (son los mismos scripts de los otros clientes).
+
+`TRACEREPORTS_SCREENSHOTS` decide qué envía `Test.Screenshot`: `all` (por defecto), `failures` (solo las de
+un paso `Fail`) u `off` (ninguna). El servidor aplica la misma variable por su cuenta (ver
+[Configuración → Capturas de pantalla](configuration.md#capturas-de-pantalla)).
+
 ## Ejemplo con playwright-go
 
 [`examples/playwright-go`](../../examples/playwright-go) contiene tests idiomáticos (`go test`) contra

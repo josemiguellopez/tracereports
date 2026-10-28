@@ -50,6 +50,9 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 ### Security
 
+- **Go client**: `MaskSelector()`, `MaskColor` and the `CoverScript`/`UncoverScript` scripts to take screenshots
+  with sensitive data covered (the playwright-go example uses them), and `Test.Screenshot` follows
+  `TRACEREPORTS_SCREENSHOTS=all|failures|off`.
 - **Screenshot policy on the server** (`TRACEREPORTS_SCREENSHOTS=all|failures|off`): with `failures` only the
   screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
   trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.
