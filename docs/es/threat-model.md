@@ -1,11 +1,12 @@
 # Modelo de amenazas
 
 [English](../en/threat-model.md) · Se revisa en cada versión menor. Última revisión: el epic de
-hardening de seguridad (#34).
+hardening de seguridad (#34), contrastada con el código.
 
 TraceReports recibe evidencia de ejecuciones reales de tests y la muestra a un equipo. Este documento dice
 qué protege, de quién, por qué puertas, qué frena hoy cada amenaza y qué queda en manos de quien lo opera.
 Es la referencia de la [guía de hardening](security-hardening.md) y de `tracereports doctor --security`.
+Donde un control es parcial, la tabla lo dice: una brecha honesta sirve más que una mitigación exagerada.
 
 ## Activos
 
@@ -19,62 +20,80 @@ Es la referencia de la [guía de hardening](security-hardening.md) y de `tracere
 | **Claves** — `TRACEREPORTS_SECRET_KEY`, `TRACEREPORTS_DB_KEY` | Entorno o un archivo secreto, nunca en `DATA_DIR` | Quien las tiene lee lo que protegen |
 | **Prompts y respuestas de la IA** | Se envían al proveedor configurado; los diagnósticos quedan en SQLite | El prompt se arma con la evidencia |
 
-## Actores
+## Actores y qué puede hacer cada credencial
 
-- **Clientes de tests y CI** (de confianza para escribir): envían resultados con el token de ingesta.
-- **Integrantes del equipo** (de confianza para leer): ven los reportes con el login de la UI.
-- **Administrador**: tiene `TRACEREPORTS_TOKEN`, cambia Ajustes y usa la CLI en el host.
-- **Atacante en la red**: cualquiera que llegue al puerto sin credenciales (otro usuario de la red, un
-  equipo comprometido, internet si se publicó por error).
-- **Usuario interno malicioso o descuidado**: alguien válido que exporta o reenvía más de lo debido.
-- **Tercero comprometido**: el proveedor de IA, un espacio de chat, un tracker o una dependencia del build.
-- **Robo del host o de un backup**: obtiene una copia de `DATA_DIR` o de un respaldo, sin el proceso.
+No hay roles más allá de estas tres credenciales. Planifica el acceso con esta tabla.
+
+| Credencial | Envía resultados | Lee todo | Administra (Ajustes, acciones de la UI, tickets, Lab) |
+| --- | --- | --- | --- |
+| Token de ingesta (`TRACEREPORTS_INGEST_TOKEN`) — clientes de tests y CI | sí | **sí** | no |
+| Token de administración (`TRACEREPORTS_TOKEN`) | sí | sí | sí |
+| Login de la UI (`TRACEREPORTS_UI_USER`) — **toda** persona que entra | — | sí | **sí** |
+| Sin credencial, mismo equipo, servidor sin credenciales (modo local) | sí | sí | sí |
+
+Otros actores: un **atacante en la red** que llega al puerto sin credenciales; un **usuario interno
+malicioso o descuidado** con una credencial válida; un **tercero comprometido** (proveedor de IA, espacio
+de chat, tracker, una dependencia del build); quien **roba el host o un backup** con una copia de `DATA_DIR`.
 
 ## Superficies y mitigaciones
 
-| Superficie | Amenazas | Mitigaciones vigentes |
-| --- | --- | --- |
-| **API de ingesta** (`POST /api/v1/...`) | Escrituras sin credenciales; inundación; subidas maliciosas (zip bombs, imágenes falsas) | Token o token de ingesta obligatorio; **fail-closed** al escuchar en la red sin credenciales (#37); límites de tamaño por endpoint; tipo de imagen/trace/video verificado por contenido; límites de archivos y de tamaño descomprimido en el ZIP de Allure; claves de idempotencia |
-| **UI y API de lectura** | Leer reportes sin login; DNS rebinding; llegar desde la red equivocada | Login HTTP Basic; sin login solo `Host` locales o permitidos; **allowlist de IP de origen** `TRACEREPORTS_ALLOWED_CIDRS` con proxies de confianza (#38); `GET /healthz` no devuelve datos |
-| **Ajustes** | Cambiar el proveedor o la key de IA para sacar evidencia | Solo con `TRACEREPORTS_TOKEN` (nunca el de ingesta); `TRACEREPORTS_SETTINGS_LOCKED=1`; `AI_ALLOWED_PROVIDERS` se valida también al guardar (#39); la key de IA se guarda cifrada |
-| **Evidencia en reposo** | Robo del host o de un backup; restos tras borrar | Permisos solo del dueño (`0700`/`0600`); retención con `secure_delete`, `VACUUM` y checkpoint del WAL (#35); **cifrado opcional en la aplicación** de capturas, traces, videos y DOM (AES-256-GCM, #42); cifrado del volumen (operador) |
-| **Contenido de las capturas** | Campos sensibles capturados | Enmascarado en los cuatro clientes antes de la captura; política del servidor `TRACEREPORTS_SCREENSHOTS=failures/off` (#45) |
-| **Secretos dentro de la evidencia** | Tokens y claves guardados o reenviados | Redacción antes de guardar (headers, claves, patrones), activa por defecto; los secretos nunca van a los logs |
-| **Proveedores de IA** | Evidencia que sale de la red; inyección de prompts desde la salida de los tests | Por defecto el **motor local de reglas, sin red** (#43); perfil de LLM local (#44); allowlist de proveedores; destinos de salida registrados al arrancar; el diagnóstico es texto de apoyo, nunca ejecuta acciones |
-| **Notificaciones** (Teams, Slack) | Nombres de tests y errores en un chat con más audiencia | `NOTIFY_DETAIL=minimal`: solo conteos y un link (#40) |
-| **Trackers** (GitHub, Jira, Azure DevOps) | Evidencia copiada a otro sistema | Solo por una acción explícita de un administrador (token de administración o acciones de la UI), nunca automática; la captura del fallo va adjunta, así que el tracker la hereda |
-| **FixLab Request Lab** | El servidor usado como proxy hacia hosts internos (SSRF) | En un servidor compartido solo envía a los hosts con que habló el test más `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off` lo desactiva; los secretos del Lab quedan en el equipo que corre `repro` |
-| **Servidor MCP** (`tracereports mcp`) | Un agente con herramientas demasiado poderosas | Corre local por stdio con las credenciales del propio usuario; no escucha en la red |
-| **Exportaciones** (ZIP, reporte estático) | Evidencia que sale del servidor | Requiere acceso de lectura; el ZIP va **descifrado** a propósito (quien exporta ya la veía): trátalo como la evidencia misma |
-| **Cadena de suministro** | Binario o imagen alterados; dependencia vulnerable | Releases firmados (cosign sin llaves), SBOM y procedencia SLSA (#36); govulncheck, CodeQL y Scorecard en cada cambio; actions fijadas por SHA; un solo binario estático, sin CGO |
-| **Contenedor** | Escape o persistencia tras un compromiso | Imagen sin root, sistema de archivos de solo lectura, `cap_drop: ALL`, `no-new-privileges` (compose endurecido) |
+| Superficie | Amenazas | Mitigaciones vigentes | Brechas |
+| --- | --- | --- | --- |
+| **API de ingesta** (`POST /api/v1/...`) | Escrituras sin credenciales; subidas maliciosas (zip bombs, imágenes falsas) | Con credenciales configuradas se exige token; el servidor **se niega a escuchar en la red sin ninguna credencial** (#37); límites de tamaño por endpoint; imagen/trace/video verificados por contenido; límites de archivos y tamaño descomprimido del ZIP de Allure (50/200 MiB); claves de idempotencia | Sin límite de tasa, sin cuota de disco, solo timeout de lectura de headers |
+| **Lecturas** (UI, API de lectura, `/screenshots/*`, export, SSE `/api/v1/stream`) | Leer reportes sin login; DNS rebinding | Login de la UI; cualquier token válido también lee; **allowlist de IP de origen** `TRACEREPORTS_ALLOWED_CIDRS` aplicada antes de confiar en headers de proxy (#38); sin login, solo `Host` locales o permitidos (anti DNS rebinding); CORS de `/screenshots/*` solo para el Trace Viewer de Playwright en `.zip`; `GET /healthz` no devuelve datos | **Con token y sin login de UI, las lecturas quedan abiertas** a quien llegue al puerto (el chequeo de `Host` no es control de acceso: el cliente elige el header). Sin límite de suscriptores SSE. Sin freno a fuerza bruta en el login |
+| **Ajustes y acciones de la UI** | Cambiar el proveedor o la key de IA para sacar evidencia | Exigen el token de administración, el login de la UI o el modo local — nunca el token de ingesta; JSON + chequeo de `Origin` (CSRF); `TRACEREPORTS_SETTINGS_LOCKED=1` deja Ajustes de solo lectura; `AI_ALLOWED_PROVIDERS` se valida al guardar (#39); la key de IA se guarda cifrada | Todo usuario de la UI administra. La allowlist valida el **id del proveedor, no su URL**: un administrador puede apuntar `base_url` a otro lado y la key guardada se reutiliza. Usa `SETTINGS_LOCKED=1` en servidores compartidos |
+| **Escrituras de ingesta desde un navegador** (CSRF) | Una página web hace que el navegador de un desarrollador envíe ejecuciones falsas a un servidor local | Chequeo de `Host` (solo nombres locales en modo local) | Los endpoints de ingesta no validan `Origin` ni exigen JSON: en modo local sin token, un formulario de otro sitio puede crear ejecuciones |
+| **UI web** | XSS almacenado desde nombres de tests y errores; framing | Los valores se escapan antes de insertar HTML; las vistas previas de HTML capturado van en un iframe `sandbox` y se sirven con `CSP: sandbox` y `nosniff` | Sin Content-Security-Policy ni `X-Frame-Options` en las páginas de la UI |
+| **Evidencia en reposo** | Robo del host o de un backup; restos tras borrar | Permisos solo del dueño (`0700`/`0600`); retención con `secure_delete`, `VACUUM` y checkpoint del WAL (#35); **cifrado opcional en la aplicación** de capturas, traces, videos y DOM (AES-256-GCM, #42); cifrado del volumen (operador) | La base en sí no la cifra la aplicación (ver riesgos residuales) |
+| **Contenido de las capturas** | Campos sensibles capturados | Enmascarado en los cuatro clientes antes de la captura; política del servidor `TRACEREPORTS_SCREENSHOTS=failures/off` (#45) | El enmascarado depende de selectores |
+| **Secretos dentro de la evidencia** | Tokens y claves guardados o reenviados | Redacción en el servidor antes de guardar (headers, claves, patrones), activa por defecto | Atrapa formas conocidas, no todo dato personal |
+| **Proveedores de IA** | Evidencia que sale de la red; inyección de prompts desde la salida de los tests | Por defecto el **motor local de reglas, sin red** (#43); perfil de LLM local (#44); allowlist de proveedores; destinos de salida registrados al arrancar; el diagnóstico es texto de apoyo y nunca ejecuta acciones | Los proveedores en la nube reciben la evidencia redactada; ver la brecha de Ajustes |
+| **Notificaciones** (Teams, Slack) | Nombres de tests y errores en un chat con más audiencia | `NOTIFY_DETAIL=minimal`: solo conteos y un link (#40) | Detalle completo por defecto |
+| **Trackers** (GitHub, Jira, Azure DevOps) | Evidencia copiada a otro sistema | Solo por una acción explícita de administración (que incluye a cualquier usuario de la UI), nunca automática | La captura del fallo va adjunta: el tracker la hereda |
+| **FixLab Request Lab** (UI, `repro`, MCP) | El servidor o un portátil usado para llegar a hosts internos (SSRF) | Desde la UI en un servidor compartido, solo los hosts registrados del test más `TRACEREPORTS_LAB_HOSTS`; direcciones link-local siempre bloqueadas; `TRACEREPORTS_LAB=off` lo desactiva | Los hosts registrados vienen de datos ingeridos (quien tiene el token de ingesta los decide); desde el propio equipo del servidor, `repro` y las herramientas MCP no hay restricción de hosts |
+| **Servidor MCP** (`tracereports mcp`) | Un agente con demasiado poder | Local por stdio, no escucha en la red | Se autentica con el token de administración, también para llamadas de solo lectura |
+| **Exportaciones y reportes estáticos** (ZIP, `tracereports report`) | Evidencia que sale del servidor | Exportar requiere acceso de lectura; el ZIP va **descifrado** a propósito (quien exporta ya la veía) | `tracereports report` escribe sus archivos legibles por todos (`0644`/`0755`): trata su carpeta de salida como la evidencia misma |
+| **Grabaciones offline y mirror de los clientes** | Evidencia en el disco del CI | El replay se limita a endpoints de ingesta | Las grabaciones quedan legibles por todos y **antes** de la redacción del servidor |
+| **Cadena de suministro** | Binario o imagen alterados; dependencia vulnerable | Releases firmados (cosign sin llaves), SBOM y procedencia SLSA (#36); govulncheck y CodeQL en cada pull request; Scorecard semanal y en `main`; actions de terceros fijadas por SHA (las `actions/*` de GitHub por tag de versión); un solo binario estático, sin CGO | |
+| **Contenedor** | Escape o persistencia tras un compromiso | Imagen distroless sin root, sistema de archivos de solo lectura, `cap_drop: ALL`, `no-new-privileges` (compose endurecido) | |
 
 ## Riesgos residuales
 
-Conocidos y aceptados, o en manos del operador. Cada uno se menciona en la guía de hardening.
+Conocidos y aceptados, o en manos del operador. La guía de hardening y `doctor --security` los señalan.
 
-1. **La base SQLite no la cifra la aplicación.** Las capturas de red, errores y pasos dependen del cifrado
+1. **Un token sin login de UI deja las lecturas abiertas.** Configura el login, o restringe la red con
+   `TRACEREPORTS_ALLOWED_CIDRS` / un firewall.
+2. **Sin roles.** El token de ingesta lee todo; todo usuario de la UI administra. Un token de CI filtrado
+   es una lectura completa de la evidencia.
+3. **Redirección del endpoint de IA.** Un administrador puede cambiar el `base_url` de la IA y reutilizar
+   la key guardada. Bloquea Ajustes (`TRACEREPORTS_SETTINGS_LOCKED=1`) en servidores compartidos.
+4. **Sin límite de tasa ni protección contra fuerza bruta**, sin cuota de disco ni límite de suscriptores
+   SSE: pon un proxy con límites delante de un servidor compartido.
+5. **Sin Content-Security-Policy en la UI**, y los endpoints de ingesta aceptan envíos de otros sitios en
+   modo local.
+6. **La base SQLite no la cifra la aplicación.** Las capturas de red, errores y pasos dependen del cifrado
    del volumen. El spike #41 midió un SQLite cifrado en Go puro (`ncruces/go-sqlite3` con los VFS `xts` o
    `adiantum`): `xts` costó +57 % al ingerir en Linux y consultas 3-4 veces más lentas, más que el 30 %
    aceptado. Esos VFS además **no autentican las páginas** (XTS y Adiantum preservan el largo: una página
    alterada se descifra a basura en vez de fallar) y no son implementaciones certificadas. Si una versión
    futura adopta uno, este aviso aplica.
-2. **Texto en claro que queda en el disco.** Reescribir la evidencia (`tracereports evidence encrypt`) o
-   borrarla no garantiza que los bloques viejos se borren en SSD o sistemas de archivos copy-on-write.
-   Mitigación: volumen cifrado.
-3. **La gestión de claves es del operador.** Perder `TRACEREPORTS_DB_KEY` pierde la evidencia cifrada;
-   filtrarla junto con un backup la expone. El servidor rechaza una clave dentro de `DATA_DIR`, nada más.
-4. **HTTP Basic sin TLS.** El servidor no termina TLS; debe hacerlo un proxy. Sin él, la clave de la UI
-   viaja en claro.
-5. **El enmascarado en los clientes depende de selectores.** Un campo sensible sin selector se captura.
-   La política de capturas es el respaldo.
-6. **Los proveedores de IA en la nube ven la evidencia redactada.** La redacción atrapa formas conocidas de
-   secretos, no todo dato personal. Usa el motor local o un LLM local cuando la evidencia no puede salir.
-7. **Un solo mantenedor.** Los tiempos de respuesta dependen de una persona; ver [GOVERNANCE.md](../../GOVERNANCE.md).
-8. **Pre-1.0.** La API REST todavía puede cambiar; ver la [política de estabilidad de la API](api-stability.md).
+7. **Texto en claro que queda en el disco.** Reescribir la evidencia (`tracereports evidence encrypt`) o
+   borrarla no garantiza que los bloques viejos se borren en SSD o sistemas copy-on-write. Mitigación:
+   volumen cifrado.
+8. **Archivos fuera del servidor.** Los reportes estáticos y las grabaciones de los clientes quedan
+   legibles por todos, y las grabaciones todavía no se redactan. Mantenlos en workspaces y artefactos
+   privados del CI.
+9. **Los destinos del Lab y de MCP vienen de datos ingeridos**, y no tienen restricción desde el propio
+   equipo del servidor.
+10. **La gestión de claves es del operador.** Perder `TRACEREPORTS_DB_KEY` pierde la evidencia cifrada;
+    filtrarla con un backup la expone. El servidor rechaza una clave dentro de `DATA_DIR`, nada más.
+11. **HTTP Basic sin TLS.** El servidor no termina TLS; debe hacerlo un proxy.
+12. **El enmascarado en los clientes depende de selectores**; la política de capturas es el respaldo.
+13. **Un solo mantenedor.** Los tiempos de respuesta dependen de una persona; ver [GOVERNANCE.md](../../GOVERNANCE.md).
+14. **Pre-1.0.** La API REST todavía puede cambiar; ver la [política de estabilidad de la API](api-stability.md).
 
 ## Revisión
 
 Los cambios que agregan una superficie (un endpoint, un destino de salida, un tipo nuevo de evidencia
-guardada) actualizan este documento en el mismo pull request. Un revisor distinto del autor lo revisa
-antes de cada versión menor.
+guardada) actualizan este documento en el mismo pull request. Un revisor distinto del autor lo contrasta
+con el código antes de cada versión menor.
