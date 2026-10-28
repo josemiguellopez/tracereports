@@ -238,6 +238,7 @@ o, en modo local, el mismo equipo del servidor.
 
 | Método | Ruta | Body | Respuesta |
 |---|---|---|---|
+| POST | `/ui/ai/probe` | `{}` (`?force=1` se salta la caché de 20 s) | Si la IA configurada ahora responde (Trace Buddy): `{ok, state, provider, model, ms}`, `state` = `llm`, `local` (motor de reglas, nada que llamar) u `off`; con error `{ok: false, error, hint, suggest}`. Usa la configuración activa, así que funciona también con Ajustes bloqueado; una sola petición pequeña y fija, que queda en Uso de la IA |
 | POST | `/ui/tests/{test_id}/analyze` | — | `202 {queued}`: vuelve a diagnosticar un test fallido |
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnostica los fallos sin diagnóstico (o todos con `all`) y el resumen de la ejecución |
 | POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché y trae `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (cuánto esperó al proveedor, las pausas entre reintentos y lo que tardó TraceReports; `attempts`: cada llamada con `ms`, `ok`, `status`, `reason` y la espera siguiente `wait_ms`/`wait_asked`). Ante un 429/5xx se espera lo que pide el proveedor (`Retry-After`, `retry-after-ms` o el `RetryInfo` de Gemini), hasta 90 s |

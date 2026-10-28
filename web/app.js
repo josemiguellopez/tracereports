@@ -179,6 +179,7 @@
 		}
 		S.test = test;
 		renderTestDetail();
+		buddyTestLoaded(test);
 	}
 
 	// ---------- header ----------
@@ -3457,7 +3458,7 @@
 				sub: S.settings.usage ? tr("{n} llamadas hoy", { n: fmtNum(S.settings.usage.usage.today.calls) }) : "…" },
 			{ id: "conn", icon: "i-plug", title: "Conectar tus tests",
 				sub: !d ? "…" : d.token_set ? "Token de API activo" : "Sin token de API", tone: d && !d.token_set ? "warn" : "ok" },
-			{ id: "security", icon: "i-check", title: "Revisión de seguridad", ...postureSummary(S.settings.posture) },
+			{ id: "security", icon: "i-shield", title: "Revisión de seguridad", ...postureSummary(S.settings.posture) },
 		];
 	}
 
@@ -3741,6 +3742,14 @@
 						<span><b data-no-i18n>${esc(t.name)}</b><small>${esc(t.desc)}</small></span></button>`).join("")}
 				</div>
 			</div>
+			${buddyAvailable() ? `<div class="field">
+				<span class="field-label" data-no-i18n>Trace Buddy</span>
+				<div class="seg" role="group" aria-label="Trace Buddy">
+					<button data-buddy-show="1" aria-pressed="${!buddyHidden()}">Mostrar</button>
+					<button data-buddy-show="0" aria-pressed="${buddyHidden()}">Ocultar</button>
+				</div>
+				<p class="field-help">El asistente de QA del botón de abajo a la derecha. Se guarda en este navegador.</p>
+			</div>` : ""}
 		</section>`;
 	}
 
@@ -3892,6 +3901,8 @@
 		root.addEventListener("click", async (e) => {
 			const setTab = e.target.closest("[data-set-tab]");
 			if (setTab) { openSettingsTab(setTab.dataset.setTab, true); if (setTab.dataset.setTab === "usage") { loadUsage(); loadStatus(false); } return; }
+			const buddyShow = e.target.closest("[data-buddy-show]");
+			if (buddyShow) { buddySetHidden(buddyShow.dataset.buddyShow !== "1"); return; }
 			if (e.target.closest("[data-posture-refresh]")) { loadPosture(); renderSettings(true); return; }
 			if (e.target.closest("[data-usage-refresh]")) { loadUsage(); loadStatus(true); renderSettings(true); return; }
 			const lang = e.target.closest("[data-set-lang]");
@@ -3996,6 +4007,285 @@
 		}, true);
 	}
 
+	// ---------- Trace Buddy: asistente de QA ----------
+	// Solo se abre cuando se le llama; ocultarlo se recuerda en este navegador (Ajustes → Apariencia lo
+	// vuelve a mostrar). Sin LLM responde con lo que TraceReports ya sabe (diagnósticos, la ejecución, la
+	// revisión de seguridad); la primera burbuja dice si la IA configurada responde. Solo administración:
+	// probar la IA gasta la key del equipo.
+	const BUDDY_KEY = "tracereports-buddy";
+	// Tty, el personaje: una terminal retro con patitas. Su cara está en la pantalla (ojos que pestañean y
+	// el cursor de boca) y cambia con el ánimo de #buddy (data-mood: idle, thinking, success, error).
+	// La pantalla es un <svg> anidado: recorta el "código" que cae sin ids repetidos entre el botón y el panel.
+	const BUDDY_LOGO = `<svg class="buddy-logo tty" viewBox="16 14 170 180" aria-hidden="true">
+		<path d="M140 34 q22 -18 30 4" stroke="#18200d" stroke-width="7" fill="none" stroke-linecap="round"/>
+		<circle class="bl-dot" cx="170" cy="40" r="9"/>
+		<g class="tty-leg"><rect x="66" y="158" width="14" height="24" rx="6" fill="#18200d"/><rect x="58" y="176" width="30" height="12" rx="6" fill="#18200d"/></g>
+		<g class="tty-leg r"><rect x="120" y="158" width="14" height="24" rx="6" fill="#18200d"/><rect x="112" y="176" width="30" height="12" rx="6" fill="#18200d"/></g>
+		<rect x="28" y="30" width="144" height="134" rx="26" fill="#c9fa6b" stroke="#18200d" stroke-width="8"/>
+		<rect x="42" y="146" width="116" height="8" rx="4" fill="#6c9736"/>
+		<g class="tty-crt"><rect class="tty-screen" x="44" y="44" width="112" height="94" rx="16"/>
+			<svg x="44" y="44" width="112" height="94" viewBox="44 44 112 94">
+				<rect class="tty-scan" x="44" y="88" width="112" height="7" fill="#c9fa6b" opacity=".1"/>
+				<g class="tty-rain" font-family="JetBrains Mono, Consolas, monospace" font-size="14" font-weight="700" fill="#c9fa6b">
+					<text x="52" y="76">01</text><text x="80" y="98">{}</text><text x="106" y="72">&lt;/&gt;</text><text x="132" y="104">ok</text></g>
+				<g class="tty-face"><g class="tty-eyes"><rect x="68" y="70" width="16" height="22" rx="3"/><rect x="116" y="70" width="16" height="22" rx="3"/></g>
+					<rect class="tty-mouth" x="89" y="108" width="22" height="7" rx="2"/></g>
+				<text class="tty-happy" x="100" y="103" text-anchor="middle">^_^</text>
+				<text class="tty-sad" x="100" y="103" text-anchor="middle">x_x</text>
+			</svg></g>
+	</svg>`;
+	const BUDDY_PROVIDERS = { gemini: "Google Gemini", anthropic: "Anthropic Claude", openai: "OpenAI", openai_compatible: "Compatible con OpenAI", ollama: "Ollama" };
+	const BUDDY_HINTS = {
+		model_unavailable: "El modelo no está disponible para esta cuenta.",
+		no_credits: "La cuenta del proveedor no tiene saldo: agrega créditos o cambia de proveedor.",
+		quota_daily: "Se agotó la cuota diaria de este modelo.",
+		rate_limit: "Hubo demasiadas llamadas seguidas: espera un momento y vuelve a probar.",
+		overloaded: "El modelo está saturado en este momento.",
+	};
+	const BUDDY_ASKS = [
+		["explain", "Explícame este fallo"], ["first", "¿Qué reviso primero?"], ["probe", "¿Funciona la IA?"],
+		["connect", "¿Cómo conecto mis tests?"], ["security", "¿Está segura mi instalación?"],
+	];
+	// waitTest: el test cuyo diagnóstico se está esperando para explicarlo apenas llegue
+	const buddy = { open: false, msgs: [], probing: false, greeted: false, closeTimer: 0, waitTest: null, waitEl: null };
+	const buddyHidden = () => { try { return localStorage.getItem(BUDDY_KEY) === "hidden"; } catch { return false; } };
+	const buddyAvailable = () => canAct() && !!S.config.ai_enabled;
+
+	function buddyMount() {
+		if (STATIC || $("#buddy")) return;
+		const root = document.createElement("div");
+		root.id = "buddy";
+		root.className = "buddy";
+		root.dataset.mood = "idle";
+		root.innerHTML = `<button class="buddy-fab" id="buddy-fab" type="button" aria-expanded="false" aria-controls="buddy-panel" aria-label="Abrir Trace Buddy">${BUDDY_LOGO}</button>
+			<section class="buddy-panel" id="buddy-panel" role="dialog" aria-labelledby="buddy-title" hidden>
+				<header class="buddy-head"><span class="buddy-avatar">${BUDDY_LOGO}</span>
+					<div><b id="buddy-title" data-no-i18n>Trace Buddy</b><small>Tu asistente de QA</small></div>
+					<button class="link-btn" type="button" data-buddy-hide>Ocultar</button>
+					<button class="buddy-close" type="button" data-buddy-close aria-label="Cerrar">${icon("i-close")}</button></header>
+				<div class="buddy-log" id="buddy-log" aria-live="polite"></div>
+				<div class="buddy-asks" id="buddy-asks" role="group" aria-label="Preguntas">${BUDDY_ASKS.map(([id, label]) => `<button class="buddy-ask" type="button" data-buddy-ask="${id}">${label}</button>`).join("")}</div>
+			</section>`;
+		document.body.appendChild(root);
+		root.addEventListener("click", (e) => {
+			if (e.target.closest("#buddy-fab")) { buddyToggle(!buddy.open); return; }
+			if (e.target.closest("[data-buddy-close]")) { buddyToggle(false); return; }
+			if (e.target.closest("[data-buddy-hide]")) { buddySetHidden(true); return; }
+			const ask = e.target.closest("[data-buddy-ask]");
+			if (ask) { buddyAsk(ask.dataset.buddyAsk, ask.textContent); return; }
+			const open = e.target.closest("[data-buddy-test]");
+			if (open) { e.preventDefault(); buddyOpenTest(Number(open.dataset.buddyTest)); return; }
+			if (e.target.closest("[data-view-link]")) buddyToggle(false); // el link lleva a otra vista
+		});
+		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && buddy.open) { buddyToggle(false); $("#buddy-fab").focus(); } });
+		buddyRefresh();
+	}
+
+	/** Muestra u oculta el botón según el permiso, la IA y la preferencia del navegador. */
+	function buddyRefresh() {
+		const root = $("#buddy");
+		if (!root) return;
+		const show = buddyAvailable() && !buddyHidden();
+		if (!show && buddy.open) buddyToggle(false);
+		root.hidden = !show;
+	}
+
+	function buddyMood(mood, ms = 0) {
+		const root = $("#buddy");
+		if (!root) return;
+		clearTimeout(buddy.moodTimer);
+		root.dataset.mood = mood;
+		if (ms) buddy.moodTimer = setTimeout(() => { root.dataset.mood = buddy.probing || buddy.waitTest ? "thinking" : "idle"; }, ms);
+	}
+
+	function buddySetHidden(hidden) {
+		try { localStorage.setItem(BUDDY_KEY, hidden ? "hidden" : "shown"); } catch { /* sin almacenamiento: solo esta sesión */ }
+		if (hidden) {
+			buddyToggle(false);
+			const root = $("#buddy");
+			root.classList.add("leaving"); // se despide encogiéndose antes de ocultarse
+			setTimeout(() => { root.classList.remove("leaving"); buddyRefresh(); }, 260);
+		} else buddyRefresh();
+		if (S.view === "settings") renderSettings(true);
+	}
+
+	function buddyToggle(open) {
+		const panel = $("#buddy-panel"), fab = $("#buddy-fab");
+		if (!panel || buddy.open === open) return;
+		buddy.open = open;
+		fab.setAttribute("aria-expanded", String(open));
+		fab.classList.toggle("active", open);
+		clearTimeout(buddy.closeTimer);
+		if (open) {
+			fab.classList.remove("news");
+			panel.hidden = false;
+			requestAnimationFrame(() => panel.classList.add("open")); // un cuadro después, para que la transición corra
+			if (!buddy.greeted) {
+				buddy.greeted = true;
+				buddySay(tr("¡Hola! Soy Trace Buddy. Te ayudo a entender los fallos de tus tests y a revisar tu instalación. Primero veo si la IA responde…"));
+				buddyProbe(false);
+			}
+			setTimeout(() => panel.querySelector(".buddy-ask")?.focus(), 60);
+		} else {
+			panel.classList.remove("open");
+			buddy.closeTimer = setTimeout(() => { panel.hidden = true; }, 240);
+		}
+	}
+
+	const BUDDY_TYPING = `<span class="buddy-typing" aria-hidden="true"><i></i><i></i><i></i></span>`;
+
+	/** Agrega una burbuja y la devuelve (para completarla después con buddyFill). */
+	function buddySay(html, from = "bot") {
+		buddy.msgs.push({ html, from });
+		const log = $("#buddy-log");
+		if (!log) return null;
+		const el = document.createElement("div");
+		el.className = `buddy-msg ${from}`;
+		el.innerHTML = html;
+		log.appendChild(el);
+		log.scrollTop = log.scrollHeight;
+		return el;
+	}
+
+	/** Completa una burbuja que estaba "escribiendo…"; con el panel cerrado, el botón avisa que hay respuesta. */
+	function buddyFill(el, html) {
+		if (el && el === el.parentNode?.lastElementChild) { el.innerHTML = html; el.classList.remove("waiting"); }
+		else { el?.remove(); buddySay(html); } // si hubo mensajes después, la respuesta va al final, donde se está mirando
+		const log = $("#buddy-log");
+		if (log) log.scrollTop = log.scrollHeight;
+		if (!buddy.open) $("#buddy-fab")?.classList.add("news");
+	}
+
+	function buddyAsk(id, label) {
+		buddySay(esc(label), "me");
+		({ explain: buddyExplain, first: buddyFirst, probe: () => buddyProbe(true), connect: buddyConnect, security: buddySecurity }[id] || (() => {}))();
+	}
+
+	async function buddyProbe(force) {
+		if (buddy.probing) return;
+		buddy.probing = true;
+		$$("[data-buddy-ask=probe]").forEach((b) => (b.disabled = true));
+		const el = buddySay(BUDDY_TYPING);
+		el?.classList.add("waiting");
+		buddyMood("thinking");
+		let r;
+		try {
+			r = await apiSend("POST", `/api/v1/ui/ai/probe${force ? "?force=1" : ""}`, {});
+		} catch (err) {
+			r = { ok: false, state: "error", error: err.message };
+		}
+		buddy.probing = false;
+		$$("[data-buddy-ask=probe]").forEach((b) => (b.disabled = false));
+		buddyFill(el, buddyProbeText(r));
+		buddyMood(r.ok ? "success" : r.state === "off" ? "idle" : "error", 2600);
+	}
+
+	/** La respuesta de /ui/ai/probe en palabras simples. */
+	function buddyProbeText(r) {
+		const aiLink = `<a href="#" data-view-link="settings" data-set-tab="ai">${tr("Ajustes → Inteligencia artificial")}</a>`;
+		if (r.state === "off") return tr("La IA está apagada en este servidor.") + ` ${aiLink}`;
+		if (r.state === "local") {
+			return `<b>${tr("Uso el motor local de reglas")}</b> <span data-no-i18n>(${esc(r.model)})</span>. `
+				+ tr("Diagnostico los fallos sin que nada salga del servidor, pero todavía no puedo conversar libremente. Para chatear conmigo, configura Ollama (un modelo en tu red) en")
+				+ ` ${aiLink}.`;
+		}
+		const name = esc(tr(BUDDY_PROVIDERS[r.provider] || r.provider || ""));
+		if (r.ok) {
+			return `<span class="buddy-ok">✓</span> ${tr("La IA responde:")} <b data-no-i18n>${name}</b> · <span data-no-i18n>${esc(r.model)}</span> · `
+				+ tr("respondió en {t}", { t: fmtDur(r.ms) });
+		}
+		const why = BUDDY_HINTS[r.hint] ? tr(BUDDY_HINTS[r.hint]) : `<span data-no-i18n>${esc(r.error || "")}</span>`;
+		const tryModel = r.suggest ? ` ${tr("Prueba con el modelo {m}.", { m: r.suggest })}` : "";
+		return `<span class="buddy-bad">✗</span> ${tr("No pude conectar con")} <b data-no-i18n>${name}</b>${r.model ? ` <span data-no-i18n>(${esc(r.model)})</span>` : ""}: ${why}${esc(tryModel)} ${tr("Revisa")} ${aiLink}.`;
+	}
+
+	function buddyExplain() {
+		const t = S.view === "tests" ? S.test : null;
+		if (t && t.status === "FAIL" && t.triage?.state === "PENDING") { buddyWait(t); return; }
+		if (!t || t.status !== "FAIL") {
+			const first = S.run?.tests.find((x) => x.status === "FAIL");
+			buddySay(first
+				? `${tr("Este test no falló.")} <a href="#" data-buddy-test="${first.id}">${tr("Abrir el primer test fallido y explicarlo")}</a>`
+				: tr("Abre un test fallido (en rojo) en Tests y vuelve a preguntarme: te explico qué pasó y qué revisar."));
+			return;
+		}
+		buddySay(buddyExplainText(t));
+	}
+
+	/** Un diagnóstico en curso: se responde solo cuando llega (loadTest avisa con buddyTestLoaded). */
+	function buddyWait(t) {
+		if (buddy.waitTest === t.id) { buddySay(tr("Sigo en eso: te respondo aquí apenas termine.")); return; }
+		buddy.waitTest = t.id;
+		buddy.waitEl = buddySay(`${tr("Lo estoy analizando… te respondo aquí apenas termine.")} ${BUDDY_TYPING}`);
+		buddy.waitEl?.classList.add("waiting");
+		buddyMood("thinking");
+	}
+
+	function buddyTestLoaded(t) {
+		if (buddy.waitTest !== t.id || t.triage?.state === "PENDING") return;
+		const el = buddy.waitEl;
+		buddy.waitTest = buddy.waitEl = null;
+		buddyFill(el, buddyExplainText(t));
+		buddyMood(t.triage?.state === "DONE" ? "success" : "error", 2600);
+	}
+
+	function buddyExplainText(t) {
+		const tri = t.triage;
+		if (!tri || tri.state !== "DONE") {
+			return tr("Este fallo no tiene diagnóstico automático.") + (tri?.error ? ` <span data-no-i18n>${esc(tri.error)}</span>` : "")
+				+ ` ${tr("Mira el error y los pasos del test, o usa Re-analizar en la vista IA.")}`;
+		}
+		const who = tri.provider === "builtin" ? tr("Según el motor local de reglas") : tr("Según la IA");
+		return `<b data-no-i18n>${esc(t.name)}</b> <span class="ai-cat ${esc(tri.category)}">${esc(tri.category)}</span>
+			<p data-no-i18n>${esc(tri.summary)}</p>${tri.suggestion ? `<p class="buddy-next" data-no-i18n>→ ${esc(tri.suggestion)}</p>` : ""}
+			<small>${who}${tri.rule ? ` · <span data-no-i18n>${esc(tri.rule)}</span>` : ""}</small>`;
+	}
+
+	async function buddyOpenTest(id) {
+		S.testId = id;
+		setView("tests");
+		await loadTest();
+		buddyExplain();
+	}
+
+	function buddyFirst() {
+		const r = S.run;
+		if (!r) {
+			buddySay(tr("Todavía no hay ejecuciones. Empieza conectando tus tests:") + ` <a href="#" data-view-link="settings" data-set-tab="conn">${tr("Conectar tus tests")}</a>.`);
+			return;
+		}
+		const failed = r.tests.filter((t) => t.status === "FAIL");
+		if (!failed.length) { buddySay(tr("En esta ejecución no falló ningún test. Nada urgente que revisar.")); return; }
+		const inc = r.summary?.incidents || [];
+		const top = inc.slice(0, 3).map((i) => `<li><span data-no-i18n>${esc(i.title)}</span> · ${plural(i.test_ids.length, "test", "tests")}</li>`).join("");
+		// el titular del diagnóstico ya dice cuántos fallaron; sin él, el conteo
+		const head = r.summary?.headline ? `<b data-no-i18n>${esc(r.summary.headline)}</b>`
+			: failed.length === 1 ? tr("Falló 1 test en esta ejecución.") : tr("Fallaron {n} tests en esta ejecución.", { n: failed.length });
+		buddySay(`${head}
+			${top ? `<p>${tr("Empieza por las causas que rompen más tests:")}</p><ol class="buddy-list">${top}</ol>` : ""}
+			<p><a href="#" data-view-link="exceptions">${tr("Ver Errores")}</a> · <a href="#" data-view-link="dashboard">${tr("Ver Análisis")}</a></p>`);
+	}
+
+	function buddyConnect() {
+		buddySay(tr("Tus tests envían sus resultados a este servidor con un cliente (pytest, Playwright, Selenium, Java…) y un token de ingesta. Los pasos para cada framework están en")
+			+ ` <a href="#" data-view-link="settings" data-set-tab="conn">${tr("Ajustes → Conectar tus tests")}</a>.`);
+	}
+
+	async function buddySecurity() {
+		let p = S.settings.posture;
+		if (!p || p.error) {
+			try { p = S.settings.posture = await api("/api/v1/security/posture"); } catch (err) { p = { error: err.message }; }
+		}
+		const link = `<a href="#" data-view-link="settings" data-set-tab="security">${tr("Revisión de seguridad")}</a>`;
+		if (p.error) { buddySay(tr("No pude leer la revisión de seguridad.") + ` <span data-no-i18n>${esc(p.error)}</span>`); return; }
+		const issues = p.checks.filter((c) => c.level !== "ok");
+		if (!issues.length) { buddySay(`<span class="buddy-ok">✓</span> ${tr("Los {n} chequeos de seguridad están en orden.", { n: p.checks.length })} ${link}`); buddyMood("success", 2600); return; }
+		buddyMood("error", 2600);
+		const first = issues.sort((a, b) => (a.level === "fail" ? 0 : 1) - (b.level === "fail" ? 0 : 1))[0];
+		buddySay(`${tr("Hay {n} cosas por revisar.", { n: issues.length })} ${tr("La más importante:")} <b>${esc(postureTitle(first))}</b>
+			<p data-no-i18n>${esc(postureText(first.detail))}</p>${first.fix ? `<p class="buddy-next" data-no-i18n>→ ${esc(postureText(first.fix))}</p>` : ""}<p>${link}</p>`);
+	}
+
 	// ---------- polling (live updates) ----------
 	function needsPolling() {
 		if (!S.run || S.liveState === "live") return false; // con SSE no hace falta consultar
@@ -4044,6 +4334,7 @@
 			console.error(err);
 		}
 		if (GLOBAL_VIEWS.has(S.view)) renderView(); // métricas y ajustes funcionan aunque no haya ejecuciones
+		buddyMount();
 		if (S.view === "search" && !STATIC) await loadRunSearch();
 		if (STATIC) return; // exported snapshot: nothing to poll
 		try { S.autoScroll = localStorage.getItem("tracereports-autoscroll") !== "off"; } catch { /* ignore */ }
