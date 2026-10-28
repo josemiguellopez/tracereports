@@ -488,6 +488,7 @@
 		"Errores en 30 días: {list}.": "Errors in 30 days: {list}.",
 		"La respuesta media es de las llamadas con tiempo medido ({m} de {n}); las anteriores a esta versión no lo tienen.": "The average response covers the calls with a measured time ({m} of {n}); calls before this version have none.",
 		"Ollama responde (versión {v})": "Ollama answers (version {v})",
+		"Funciona dentro del servidor (reglas {v})": "Runs inside the server (rules {v})",
 		"Ollama no responde en {u}": "Ollama does not answer at {u}",
 		"Funcionando con normalidad": "Working normally",
 		"Degradación parcial": "Partially degraded",

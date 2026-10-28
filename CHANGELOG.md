@@ -63,6 +63,13 @@ warning, and anyone who reached the port could read and change the reports. Now 
 - A pre-release tag (`v0.6.0-rc1`) is published as a pre-release, takes its notes from `[Unreleased]` and
   no longer moves the image's `latest` tag.
 
+### Fixed
+
+- With no runs yet, going from Settings, Metrics or Search to Tests, Categories or any other run view
+  left the previous screen showing: the "No runs yet" message is back.
+- Settings → AI usage said "Ollama answers" for the local rules engine, which does not use Ollama: it now
+  says that it runs inside the server.
+
 ### Security
 
 - **Docs fixes**: `TRACEREPORTS_SCREENSHOT_MASK` is read by the test clients, not the server (removed from
