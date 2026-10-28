@@ -20,6 +20,9 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_INGEST_TOKEN` | — | Token **restringido** para clientes y CI: envía resultados y lee, pero nunca cambia Ajustes ni usa acciones de la UI. Ver [Permisos](#permisos-de-cada-credencial) |
 | `TRACEREPORTS_SECRET_KEY` | — | Clave maestra (32 bytes en base64 o hex) para guardar **cifrada** la API key de IA escrita en Ajustes. Sin ella, la key solo se puede dar por el entorno. Ver [Credenciales cifradas](#credenciales-guardadas-desde-ajustes-cifradas) |
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | La clave maestra anterior, solo mientras la cambias (rotación) |
+| `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = cifra las capturas, traces, videos e instantáneas del DOM nuevas (AES-256-GCM). Exige `TRACEREPORTS_DB_KEY`. Ver [Cifrado de la evidencia](security-hardening.md#cifrado-de-la-evidencia-en-la-aplicación-opcional) |
+| `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Su clave (32 bytes en base64 o hex), o un archivo que la contiene; nunca dentro de `DATA_DIR` |
+| `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | La clave anterior, solo mientras la rotas (`tracereports evidence rekey`) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (todas) | Solo estas redes entran (`10.0.0.0/8,fd00::/8`, o IPs sueltas); el resto recibe `403`, también con token. Este equipo siempre entra. Ver [Restringir por red](#restringir-por-red-de-origen) |

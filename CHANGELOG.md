@@ -52,6 +52,15 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 - `tracereports selftest` checks that the screenshots recorded with the Python (Playwright) and Java (Selenium)
   clients show the demo shop's member card (`data-tracereports-mask`) covered.
+- **Evidence encrypted at rest, opt-in** (`TRACEREPORTS_ENCRYPT_AT_REST=1` with `TRACEREPORTS_DB_KEY` or
+  `TRACEREPORTS_DB_KEY_FILE`): new screenshots, Playwright traces, videos and DOM snapshots are stored with
+  authenticated AES-256-GCM (64 KiB chunks, HKDF subkeys per use). The UI, ZIP export and tickets read them
+  as before (videos keep Range requests). Fail-closed: turned on without a valid key, or with the key file
+  inside `DATA_DIR`, the server does not start. `tracereports evidence status|encrypt|rekey` encrypts the
+  evidence kept before and rotates the key (`TRACEREPORTS_DB_KEY_PREVIOUS`). Off by default: nothing changes.
+  The SQLite database itself is not encrypted (a pure-Go encrypted SQLite cost too much in the spike):
+  keep `DATA_DIR` on an encrypted volume.
+
 - **Go client**: `MaskSelector()`, `MaskColor` and the `CoverScript`/`UncoverScript` scripts to take screenshots
   with sensitive data covered (the playwright-go example uses them), and `Test.Screenshot` follows
   `TRACEREPORTS_SCREENSHOTS=all|failures|off`.

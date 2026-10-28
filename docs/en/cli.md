@@ -18,6 +18,7 @@ with `-h`.
 | [`mcp`](#mcp) | MCP server (stdio) for Claude Code and other agents | yes |
 | [`selftest`](#selftest) | Plays the scenarios recorded with the real clients and checks the results | no (starts its own) |
 | [`secrets`](#secrets) | Status and migration of the credentials saved from Settings | no (the data folder) |
+| [`evidence`](#evidence) | Status, encryption and key rotation of the evidence encrypted at rest | no (the data folder) |
 | [`version`](#version) | Prints the version | no |
 
 **Getting it:** download the binary for your OS from the
@@ -217,6 +218,18 @@ key the ones encrypted with `TRACEREPORTS_SECRET_KEY_PREVIOUS`. `-data-dir` defa
 `./data`; `-dry-run` only says what would change. Back up the data folder first. See
 [configuration · security](configuration.md#security).
 
+## evidence
+
+```bash
+tracereports evidence status|encrypt|rekey [-data-dir DIR] [-dry-run]
+```
+
+`status` says how the screenshots, traces, videos and DOM snapshots are stored: in clear, or encrypted and
+with which key (its id, never the key or the content). `encrypt` encrypts with `TRACEREPORTS_DB_KEY` what
+was kept in clear and re-encrypts what `TRACEREPORTS_DB_KEY_PREVIOUS` encrypted; `rekey` does the same
+after rotating the key. Stop the server and back up the data folder first. See
+[evidence encryption](security-hardening.md#application-level-evidence-encryption-optional).
+
 ## health
 
 ```bash
@@ -241,6 +254,7 @@ tracereports version        # also -version, --version
 | `demo` | only the AI provider | only the AI provider |
 | `report -ai` | the AI provider | only the AI provider |
 | `secrets` | `DATA_DIR`, `TRACEREPORTS_SECRET_KEY…` | all |
+| `evidence` | `DATA_DIR`, `TRACEREPORTS_DB_KEY…` | all |
 | `push`, `pr-comment`, `repro`, `verify`, `mcp`, `selftest` | `TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`, `TRACEREPORTS_LAB_<NAME>`… | no |
 
 The test clients (pytest, Playwright, Java, Go) have their own variables: see their guides

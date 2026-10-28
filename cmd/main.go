@@ -30,6 +30,9 @@
 //	TRACEREPORTS_REDACT_HEADERS / TRACEREPORTS_REDACT_KEYS / TRACEREPORTS_REDACT_PATTERNS  extra masking rules
 //	TRACEREPORTS_RETENTION_DAYS  delete runs (and screenshots) older than N days (default: keep all)
 //	TRACEREPORTS_SCREENSHOTS  all (default) | failures | off: which screenshots, traces and videos are kept
+//	TRACEREPORTS_ENCRYPT_AT_REST  1 = encrypt new screenshots, traces, videos and DOM snapshots (AES-256-GCM)
+//	TRACEREPORTS_DB_KEY / TRACEREPORTS_DB_KEY_FILE  its key (32 bytes, base64/hex), never inside DATA_DIR
+//	TRACEREPORTS_DB_KEY_PREVIOUS / _FILE  the previous key, only while rotating it (tracereports db rekey)
 //	TRACEREPORTS_STALE_RUN_HOURS  close as incomplete the runs without activity for N hours (default 24; 0 = never)
 //	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit; not for builtin)
 //	TRACEREPORTS_AI_BUILTIN_HINT  0 = LLM prompts without the local engine's conclusion (default: included)
@@ -58,6 +61,7 @@ import (
 	"github.com/josemiguellopez/tracereports"
 	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/api"
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/live"
@@ -82,6 +86,8 @@ func main() {
 			err = runPRComment(os.Args[2:])
 		case "secrets":
 			err = runSecrets(os.Args[2:], os.Stdout)
+		case "evidence":
+			err = runEvidence(os.Args[2:], os.Stdout)
 		case "repro":
 			err = runRepro(os.Args[2:])
 		case "verify":
@@ -103,6 +109,7 @@ func main() {
 				"       tracereports push ...     upload a recording, allure-results or JUnit XML to a server\n" +
 				"       tracereports pr-comment   comment the run summary on the pull request\n" +
 				"       tracereports secrets ...  status / migrate of the credentials saved from Settings\n" +
+				"       tracereports evidence ... status / encrypt / rekey of the evidence encrypted at rest\n" +
 				"       tracereports repro ...    resend the calls of a FixLab capsule with a fresh session\n" +
 				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)\n" +
 				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code\n" +
@@ -113,7 +120,7 @@ func main() {
 				"Each command explains its flags with -h. Guide: docs/en/cli.md")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest, health, version; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, evidence, repro, verify, mcp, demo, selftest, health, version; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
@@ -167,6 +174,11 @@ func runServer(parent context.Context) error {
 	}
 	restrictDir(dataDir)
 	restrictDir(shotsDir)
+	// cifrado en reposo (opt-in, fail-closed): activado sin una clave válida no se arranca
+	vault, err := atrest.FromEnv(dataDir)
+	if err != nil {
+		return err
+	}
 
 	if err := checkLegacyDB(filepath.Join(dataDir, "tracereports.db")); err != nil {
 		return err
@@ -176,6 +188,13 @@ func runServer(parent context.Context) error {
 		return err
 	}
 	defer store.Close()
+	store.SetVault(vault)
+	switch {
+	case vault.Encrypting():
+		slog.Info("evidence encrypted at rest (screenshots, traces, videos, DOM)", "key_id", vault.KeyID())
+	case vault != nil:
+		slog.Warn("TRACEREPORTS_DB_KEY set but TRACEREPORTS_ENCRYPT_AT_REST is off: encrypted evidence is readable, new evidence is stored in clear")
+	}
 	if err := settleAIBudget(store); err != nil {
 		return err
 	}
@@ -265,6 +284,7 @@ func runServer(parent context.Context) error {
 		Live:           hub,
 		Auth:           auth,
 		ScreenshotsDir: shotsDir,
+		Vault:          vault,
 		Web:            webRoot,
 		SettingsLocked: env.Bool("SETTINGS_LOCKED"),
 		Redact:         redaction,

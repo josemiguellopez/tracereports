@@ -3,7 +3,10 @@ package db
 import (
 	"database/sql"
 	"errors"
+	"fmt"
 	"sort"
+
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 )
 
 const domSchema = `
@@ -23,6 +26,14 @@ func (s *Store) SaveDOM(testID int64, snapshotJSON string) error {
 	if exists == 0 {
 		return ErrNotFound
 	}
+	// el DOM muestra lo que había en la pantalla: se sella como las capturas
+	if s.vault.Encrypting() {
+		sealed, err := s.vault.Seal(domName(testID), snapshotJSON)
+		if err != nil {
+			return err
+		}
+		snapshotJSON = sealed
+	}
 	_, err := s.db.Exec(`INSERT INTO test_dom(test_id, snapshot, created_at) VALUES(?,?,?)
 		ON CONFLICT(test_id) DO UPDATE SET snapshot=excluded.snapshot, created_at=excluded.created_at`,
 		testID, snapshotJSON, NowMs())
@@ -36,8 +47,14 @@ func (s *Store) GetDOM(testID int64) (string, error) {
 	if errors.Is(err, sql.ErrNoRows) {
 		return "", nil
 	}
-	return snap, err
+	if err != nil {
+		return "", err
+	}
+	return s.vault.Open(domName(testID), snap)
 }
+
+// domName binds a sealed snapshot to its test: it cannot be moved to another row.
+func domName(testID int64) string { return fmt.Sprintf("test_dom:%d", testID) }
 
 // TestRunID returns the run of a test (used to route live events).
 func (s *Store) TestRunID(testID int64) (int64, error) {
@@ -222,4 +239,72 @@ func (s *Store) TestDrift(testID int64) ([]EndpointDrift, error) {
 	}
 	sort.SliceStable(out, func(i, j int) bool { return out[i].DeltaMs > out[j].DeltaMs })
 	return out, nil
+}
+
+// DOMKeys counts the DOM snapshots by how they are stored: "" = in clear, otherwise the id of the
+// key that sealed them (tracereports evidence status; never their content).
+func (s *Store) DOMKeys() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT snapshot FROM test_dom`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]int{}
+	for rows.Next() {
+		var snap string
+		if err := rows.Scan(&snap); err != nil {
+			return nil, err
+		}
+		out[atrest.SealedKeyID(snap)]++
+	}
+	return out, rows.Err()
+}
+
+// ResealDOM seals with the current key of v the snapshots stored in clear or sealed with another
+// key it can open (encryption turned on later, or a key rotation), one row at a time. It returns
+// how many changed and how many it cannot open (sealed with a key that is not configured).
+func (s *Store) ResealDOM(v *atrest.Vault) (changed, unreadable int, err error) {
+	var ids []int64
+	rows, err := s.db.Query(`SELECT test_id FROM test_dom ORDER BY test_id`)
+	if err != nil {
+		return 0, 0, err
+	}
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		ids = append(ids, id)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	for _, id := range ids {
+		var snap string
+		if err := s.db.QueryRow(`SELECT snapshot FROM test_dom WHERE test_id=?`, id).Scan(&snap); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // la borró la retención mientras tanto
+			}
+			return changed, unreadable, err
+		}
+		if atrest.Sealed(snap) && atrest.SealedKeyID(snap) == v.KeyID() {
+			continue
+		}
+		plain, err := v.Open(domName(id), snap)
+		if err != nil {
+			unreadable++
+			continue
+		}
+		sealed, err := v.Seal(domName(id), plain)
+		if err != nil {
+			return changed, unreadable, err
+		}
+		if _, err := s.db.Exec(`UPDATE test_dom SET snapshot=? WHERE test_id=?`, sealed, id); err != nil {
+			return changed, unreadable, err
+		}
+		changed++
+	}
+	return changed, unreadable, nil
 }

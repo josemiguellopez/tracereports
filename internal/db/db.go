@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	_ "modernc.org/sqlite" // pure-Go SQLite driver (no CGO)
 )
 
@@ -18,8 +19,13 @@ var ErrNotFound = errors.New("not found")
 
 // Store wraps the SQLite database.
 type Store struct {
-	db handle // la base, o una transacción dentro de Atomic
+	db    handle        // la base, o una transacción dentro de Atomic
+	vault *atrest.Vault // sella las instantáneas del DOM (TRACEREPORTS_ENCRYPT_AT_REST); nil = en claro
 }
+
+// SetVault makes the store seal the DOM snapshots it writes and open the sealed ones it reads.
+// Call it once, before serving.
+func (s *Store) SetVault(v *atrest.Vault) { s.vault = v }
 
 const schema = `
 CREATE TABLE IF NOT EXISTS runs (

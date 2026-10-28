@@ -95,7 +95,7 @@ func (s *Store) Atomic(fn func(tx *Store) (*Idem, error)) error {
 		return err
 	}
 	defer tx.Rollback()
-	idem, err := fn(&Store{db: inTx{tx}})
+	idem, err := fn(&Store{db: inTx{tx}, vault: s.vault})
 	if err != nil {
 		return err
 	}

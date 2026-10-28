@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 )
 
 // key ficticia con caracteres que cambian al codificarla (URL, base64)
@@ -99,7 +101,7 @@ func TestProviderErrorsNeverCarryTheAPIKey(t *testing.T) {
 			}
 			assertNoKey(t, "test connection error", err.Error())
 			// escalamiento con IA: ai_error
-			facts, _ := BuildFacts(store, t.TempDir(), runID, id)
+			facts, _ := BuildFacts(store, atrest.Dir{Path: t.TempDir()}, runID, id)
 			e := a.Escalate(context.Background(), facts, runID, id, "dev", "es")
 			assertNoKey(t, "escalation ai_error", e.AIError)
 			// resumen de la ejecución

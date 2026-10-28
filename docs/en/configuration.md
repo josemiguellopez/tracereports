@@ -20,6 +20,9 @@ steps to apply it.
 | `TRACEREPORTS_INGEST_TOKEN` | — | **Restricted** token for clients and CI: sends results and reads, never changes Settings nor uses UI actions. See [Permissions](#permissions-of-each-credential) |
 | `TRACEREPORTS_SECRET_KEY` | — | Master key (32 bytes, base64 or hex) to store **encrypted** the AI API key typed in Settings. Without it, the key can only be given through the environment. See [Encrypted credentials](#credentials-saved-from-settings-encrypted) |
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | The previous master key, only while you change it (rotation) |
+| `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = encrypts new screenshots, traces, videos and DOM snapshots (AES-256-GCM). Needs `TRACEREPORTS_DB_KEY`. See [Evidence encryption](security-hardening.md#application-level-evidence-encryption-optional) |
+| `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Its key (32 bytes, base64 or hex), or a file holding it; never inside `DATA_DIR` |
+| `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | The previous key, only while rotating it (`tracereports evidence rekey`) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (all) | Only these networks get in (`10.0.0.0/8,fd00::/8`, or single IPs); the rest gets `403`, even with a token. This machine always gets in. See [Restrict by source network](#restrict-by-source-network) |
