@@ -149,7 +149,9 @@ document.getElementById("login").addEventListener("submit", async (e) => {
   location.href = "/products";
 });`)
 	case r.URL.Path == "/products":
-		storePage(w, "Products", `<h1>Products</h1><p class="sub">Trail-tested gear, shipped free.</p><div class="grid" id="products"></div>`, `
+		// la tarjeta de socio es un dato sensible de mentira: data-tracereports-mask la tapa en toda captura
+		storePage(w, "Products", `<h1>Products</h1><p class="sub">Trail-tested gear, shipped free. `+
+			`<span class="member" data-tracereports-mask>Member card `+ShopMemberCard+`</span></p><div class="grid" id="products"></div>`, `
 api("/api/products").then((r) => r.json()).then(({ products }) => {
   document.getElementById("products").innerHTML = products.map((p) => '<article class="card product-card"><div class="art" style="background:' + ART[p.id].bg + '">' + ART[p.id].svg + '</div><span class="tag">New season</span><h3>' + p.name + '</h3><div class="row"><span class="price">$' + p.price.toFixed(2) + '</span><a class="btn btn-sm" href="/product/' + p.id + '">View</a></div></article>').join("");
 });`)

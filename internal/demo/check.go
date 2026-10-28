@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/png"
 	"io"
 	"net/http"
 	"sort"
@@ -142,6 +143,10 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 			}
 		}
 		add("screenshot", shots > 0, "%d screenshots", shots)
+	}
+	if e.MaskedShot {
+		n := v.maskedPixels(watched)
+		add("member card covered in the screenshot", n >= minMaskedPixels, "%d magenta pixels (data-tracereports-mask)", n)
 	}
 	if e.Locator != "" && failed != nil {
 		var rep struct {
@@ -289,6 +294,49 @@ func (v verifier) builtin(run db.RunDetail, focus *db.Test, want string) (Check,
 	}
 	c.Detail = "no diagnosis after 20 s"
 	return c, true
+}
+
+// minMaskedPixels: the covered member card is a box of a few thousand pixels; the shop has no magenta.
+const minMaskedPixels = 500
+
+// maskedPixels counts, in the biggest screenshot of the tests, the pixels of the clients' mask
+// color (#FF00FF): the member card of the products page is covered there.
+func (v verifier) maskedPixels(tests []*db.Test) int {
+	best := 0
+	for _, t := range tests {
+		var full db.Test
+		_, _ = v.get(fmt.Sprintf("/api/v1/tests/%d", t.ID), &full)
+		for _, l := range full.Logs {
+			if l.Screenshot == "" {
+				continue
+			}
+			req, err := http.NewRequestWithContext(v.ctx, http.MethodGet, v.base+l.Screenshot, nil)
+			if err != nil {
+				continue
+			}
+			authorize(v.ctx, req)
+			res, err := v.client.Do(req)
+			if err != nil {
+				continue
+			}
+			img, err := png.Decode(res.Body)
+			res.Body.Close()
+			if err != nil {
+				continue
+			}
+			n := 0
+			b := img.Bounds()
+			for y := b.Min.Y; y < b.Max.Y; y++ {
+				for x := b.Min.X; x < b.Max.X; x++ {
+					if r, g, bl, _ := img.At(x, y).RGBA(); r>>8 == 0xFF && g>>8 == 0 && bl>>8 == 0xFF {
+						n++
+					}
+				}
+			}
+			best = max(best, n)
+		}
+	}
+	return best
 }
 
 // lab resends the failed backend call from its capsule, like `tracereports repro`.

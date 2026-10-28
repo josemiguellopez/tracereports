@@ -6,6 +6,7 @@ uno a uno con TRACEREPORTS_OFFLINE=always y guarda cada grabación en internal/d
 import os
 
 from playwright.sync_api import Page, expect
+from tracereports import playwright_screenshot
 
 SHOP = os.environ.get("SHOP_URL", "http://127.0.0.1:18180")
 PASSWORD = os.environ.get("SHOP_PASSWORD", "demo")
@@ -24,7 +25,8 @@ def test_sign_in_shows_the_catalog(page: Page, tracereports):
     """A customer signs in and sees the three products of the catalog."""
     sign_in(page, tracereports)
     expect(page.locator(".product-card")).to_have_count(3)
-    tracereports.attach_screenshot(page.screenshot(), "Catalog with 3 products")
+    # con la tarjeta de socio (data-tracereports-mask) tapada
+    tracereports.attach_screenshot(playwright_screenshot(page), "Catalog with 3 products")
     tracereports.log_pass("3 products listed")
 
 
