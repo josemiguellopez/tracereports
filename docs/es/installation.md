@@ -25,6 +25,9 @@ docker build -t tracereports .
 docker run -d -p 8080:8080 -v tracereports-data:/data --env-file .env tracereports
 ```
 
+El `.env` debe traer `TRACEREPORTS_TOKEN` o el login de la UI (`TRACEREPORTS_UI_USER` y
+`TRACEREPORTS_UI_PASSWORD`): sin credenciales el contenedor no arranca. Ver [Seguridad](configuration.md#seguridad).
+
 La imagen corre como usuario sin privilegios sobre una base *distroless* (sin shell).
 
 ## Verificar la descarga

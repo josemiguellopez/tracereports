@@ -46,7 +46,8 @@ docker compose up -d
 
 ### Configuración mínima del `.env`
 
-Configura **token y login también en tu PC**. El puerto solo local evita que entre alguien de tu
+El contenedor **no arranca sin `TRACEREPORTS_TOKEN` o el login de la UI**: en Docker el servidor
+escucha en todas las interfaces del contenedor y quedaría abierto. Configura **token y login también en tu PC**. El puerto solo local evita que entre alguien de tu
 red, pero no protege de lo que corre en tu propio equipo (otros programas, una página maliciosa
 abierta en el navegador), y tus reportes pueden tener evidencia sensible:
 
@@ -220,6 +221,7 @@ Usa el mismo volumen `tracereports-data` que compose: los datos son los mismos c
 |---|---|
 | `docker` no se reconoce | Docker Desktop recién instalado: abre una terminal (o VS Code) nueva. |
 | `docker version` no muestra `Server` / error 500 | El motor no arrancó. Abre Docker Desktop y espera *Engine running*. En Windows, si falta WSL o la virtualización: `wsl --install --no-distribution` como administrador y reinicia. |
+| El contenedor se reinicia y el log dice `refusing to start` | Falta `TRACEREPORTS_TOKEN` o el login de la UI en el `.env`: sin credenciales el servidor no arranca en Docker. Agrégalos (ver [Configuración mínima del `.env`](#configuración-mínima-del-env)) y `docker compose up -d`. |
 | `port is already allocated` / el contenedor no arranca | El 8080 está ocupado, por ejemplo por un `go run` del servidor. Detenlo o cambia el puerto (`"8081:8080"`). |
 | Ajustes en «solo lectura» | Con Docker hace falta el login de la UI (ver arriba). |
 | Los tests no llegan | Revisa `TRACEREPORTS_URL` y el token. `docker compose logs -f` muestra cada petición rechazada. |

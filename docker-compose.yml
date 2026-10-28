@@ -1,5 +1,6 @@
 # docker compose up -d   →   http://localhost:8080
-# La configuración se lee de un archivo .env junto a este (ver .env.example).
+# La configuración se lee de un archivo .env junto a este (ver .env.example). Sin TRACEREPORTS_TOKEN
+# o el login de la UI en el .env, el servidor no arranca (quedaría abierto: ver docs, Seguridad).
 services:
   tracereports:
     build: .

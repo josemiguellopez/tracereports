@@ -34,7 +34,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TEAMS_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Slack |
 | `PUBLIC_URL` | — | URL pública del servidor, para el botón *Ver reporte* de las notificaciones |
-| `TRACEREPORTS_BIND` | todas las interfaces | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows) |
+| `TRACEREPORTS_BIND` | todas las interfaces; sin credenciales, solo este equipo | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows). Ver [Seguridad](#seguridad) |
+| `TRACEREPORTS_INSECURE` | — | `1`: arranca escuchando en la red **sin** token ni login (solo en una red cerrada de laboratorio). Ver [Seguridad](#seguridad) |
 | `NOTIFY_ON` | `always` | `always`, o `failures` para avisar solo si hubo fallos |
 | `NETWORK_MAX_BODY_KB` | `256` | Máximo guardado por cada *response body* de red; `0` = no guardar bodies |
 | `TRACEREPORTS_REDACT` | activo | `off` guarda los secretos tal como llegan (no recomendado) |
@@ -51,8 +52,19 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 
 ## Seguridad
 
-Sin configuración, el servidor está **abierto**: cualquiera que llegue al puerto puede ver y
-escribir reportes. Esto sirve en tu máquina, pero no en un servidor compartido.
+**El servidor no queda abierto a la red sin credenciales** (*fail-closed*):
+
+| Credenciales (`TRACEREPORTS_TOKEN`, `TRACEREPORTS_INGEST_TOKEN` o el login de la UI) | `TRACEREPORTS_BIND` | Resultado |
+|---|---|---|
+| Sí | cualquiera | Escucha donde diga `TRACEREPORTS_BIND` (vacío: todas las interfaces) |
+| No | vacío | Escucha **solo en este equipo** (`127.0.0.1` y `::1`), con un aviso |
+| No | `127.0.0.1`, `::1` o `localhost` | Escucha solo en este equipo |
+| No | `0.0.0.0`, `::` o una IP de la red | **No arranca** y explica qué configurar |
+| No | Docker (imagen oficial) | **No arranca**: dentro del contenedor siempre escucha en todas las interfaces, aunque publiques el puerto solo en `127.0.0.1` |
+
+`TRACEREPORTS_INSECURE=1` acepta el riesgo a sabiendas (una red de laboratorio cerrada): arranca
+como antes, con un aviso en el log. Sin credenciales, cualquiera que llegue al puerto puede ver y
+escribir reportes.
 
 ```bash
 TRACEREPORTS_TOKEN=un-token-largo-y-aleatorio      # genéralo con: python -c "import secrets; print(secrets.token_hex(24))"

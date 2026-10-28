@@ -6,6 +6,27 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### ⚠️ Breaking: the server no longer listens on the network without credentials
+
+Before, a server with no `TRACEREPORTS_TOKEN`, `TRACEREPORTS_INGEST_TOKEN` nor UI login only logged a
+warning, and anyone who reached the port could read and change the reports. Now (*fail-closed*):
+
+- without credentials and without `TRACEREPORTS_BIND`, it listens **only on this machine** (`127.0.0.1` and
+  `::1`): `go run ./cmd`, the binary on a laptop, `tracereports demo` and `selftest` work as before;
+- without credentials and with `TRACEREPORTS_BIND` on the network (`0.0.0.0`, `::`, an IP), it **does not
+  start** and says what to set;
+- in **Docker** (official image), without credentials it **does not start**: inside the container it always
+  listens on every interface, even when the port is published only on `127.0.0.1`.
+
+**Migration:**
+
+1. Generate a token: `openssl rand -hex 32` (or `python -c "import secrets; print(secrets.token_hex(32))"`).
+2. Put it in the server's `.env` (`TRACEREPORTS_TOKEN=...`), or pass it with `docker run -e TRACEREPORTS_TOKEN=...`;
+   optionally add `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` to protect the reports too.
+3. Give the same token to your test clients and CI (`TRACEREPORTS_TOKEN`, or the restricted
+   `TRACEREPORTS_INGEST_TOKEN`).
+4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
+
 ### Added
 
 - **Local diagnosis engine, no LLM** (`AI_PROVIDER=builtin`, the new default): a versioned catalog of

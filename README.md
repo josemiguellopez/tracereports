@@ -35,7 +35,8 @@ TraceReports is a self-hosted test report server. Every step with its screenshot
 the browser made, and an AI diagnosis that turns a wall of red into a handful of incidents.
 
 ```bash
-docker run -d -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # server + UI on http://localhost:8080
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # the server and your tests share it
+docker run -d -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # server + UI on http://localhost:8080
 pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # that's it, no code changes
 ```
@@ -242,8 +243,12 @@ storing anything, and the AI, webhooks and trackers are optional.
 **With Docker** (recommended, nothing to clone):
 
 ```bash
-docker run -d --name tracereports -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # keep it: your tests send it
+docker run -d --name tracereports -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
 ```
+
+The container does not start without a token or the UI login: it would be open to the network.
+See [Security](docs/en/configuration.md#security).
 
 **Without Docker:** download the binary for your OS from the [latest release](https://github.com/josemiguellopez/tracereports/releases/latest) (Linux, macOS and
 Windows, amd64 and arm64), unzip it and run `./tracereports` (`tracereports.exe` on Windows).
