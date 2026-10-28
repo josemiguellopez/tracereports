@@ -93,6 +93,11 @@ Details in [UI tokens → Language](docs/en/ui-tokens.md#language-i18n).
 4. If you change docs, update **both** `docs/en` and `docs/es` (a rough translation is fine: we
    will polish it in review).
 5. Open the PR **against `dev`** and fill in the template.
+6. Add a line to `CHANGELOG.md` under `[Unreleased]`. Security-relevant changes (a new control, a fixed
+   vulnerability, a default that changes exposure) go under **`### Security`**: every release has that
+   section, even if it says "No security changes".
+7. If the change adds a surface (an endpoint, an outbound destination, a new kind of stored evidence),
+   update the [threat model](docs/en/threat-model.md), and respect the [API stability policy](docs/en/api-stability.md).
 
 `main` only receives `dev` once it is stable, so the README on the front page always matches a
 working version.
