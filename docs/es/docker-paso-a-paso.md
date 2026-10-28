@@ -16,10 +16,8 @@ comprobar que la seguridad está bien configurada.
 Los comandos están pensados para **Windows (PowerShell)**. Donde cambian en macOS o Linux, hay un bloque
 desplegable **"macOS / Linux"** debajo.
 
-> **¿Ya tienes TraceReports instalado con Docker en este equipo?** Haz también el
-> [paso 3b](#paso-3b--opcional-si-ya-tienes-tracereports-instalado) para no reemplazar tu instalación ni
-> sus datos. Si solo quieres **probar** una versión y al final volver a la tuya, sigue en cambio
-> [Probar sin tocar tu instalación](docker-prueba-aislada.md): el paso a paso completo, con limpieza al final.
+> **¿Ya tienes TraceReports instalado con Docker en este equipo?** Lee primero el aviso del final del
+> [paso 3](#paso-3--descargar-tracereports).
 >
 > **Tiempo:** unos 30 minutos. La primera vez Docker descarga y construye la imagen (1 a 3 minutos).
 >
@@ -30,7 +28,7 @@ desplegable **"macOS / Linux"** debajo.
 
 ## Índice
 
-- [Parte A — Preparar](#parte-a--preparar) (pasos 1 a 3, y el 3b opcional)
+- [Parte A — Preparar](#parte-a--preparar) (pasos 1 a 3)
 - [Parte B — Configurar](#parte-b--configurar) (paso 4)
 - [Parte C — Arrancar](#parte-c--arrancar) (pasos 5 a 7)
 - [Parte D — Entrar y revisar](#parte-d--entrar-y-revisar) (pasos 8 a 10)
@@ -139,109 +137,17 @@ ls docker-compose.yml .env.example
 > `tracereports`** (donde está el `docker-compose.yml`). Si estás en otra carpeta responden
 > `no configuration file provided: not found`. Si cierras la terminal, vuelve con `cd $HOME\tracereports`.
 
----
+<details>
+<summary><b>¿Ya tienes TraceReports instalado con Docker en este equipo?</b> (caso poco común: ábrelo solo si es el tuyo)</summary>
 
-### Paso 3b — (Opcional) Si ya tienes TraceReports instalado
-
-🎯 **Haz este paso solo si en este equipo ya tienes otra instalación de TraceReports con Docker** (por
-ejemplo, quieres probar una versión nueva sin perder la que usas). Si es tu primera instalación, sáltalo y
-ve al paso 4.
-
-> ¿Quieres **probar** una versión nueva y al final volver a tu instalación, dejando todo como
-> estaba? Sigue [Probar sin tocar tu instalación](docker-prueba-aislada.md): es este mismo caso, de 0 a 100,
-> con las pruebas de seguridad y la limpieza final.
-
-**Por qué hace falta:** Docker identifica cada instalación por el **nombre de su carpeta**. Si tu
-instalación anterior también está en una carpeta llamada `tracereports`, Docker creería que la nueva es la
-misma: **reemplazaría su contenedor y usaría sus datos**. Además, las dos usan el puerto 8080.
-
-**1. Busca tu instalación anterior** (dónde está y si está encendida):
-
-💻
-
-```powershell
-docker ps -a --filter "label=com.docker.compose.service=tracereports" --format "{{.Names}}|{{.Status}}|{{.Labels}}" | ForEach-Object { $n, $s, $l = $_ -split '\|', 3; "$n  ($s)  carpeta: " + (($l -split ',' | Where-Object { $_ -like 'com.docker.compose.project.working_dir=*' }) -replace '^[^=]*=', '') }
-```
-
-✅ **Deberías ver** algo como:
-
-```
-tracereports-tracereports-1  (Up 14 minutes)  carpeta: C:\dev\tracereports
-```
-
-Si no aparece nada, no tienes otra instalación con Docker: sáltate el resto de este paso.
-
-**2. Detén la instalación anterior** (no se borra nada: sus datos quedan intactos). Usa la carpeta que te
-mostró el comando anterior:
-
-```powershell
-cd C:\ruta\que\te\mostro\el\comando
-```
-
-```powershell
-docker compose stop
-```
-
-✅ **Deberías ver** `Container tracereports-tracereports-1  Stopped`.
-
-**3. Vuelve a la carpeta nueva y sepárala.** Este archivo le da a la nueva instalación **su propio nombre,
-su propia imagen y su propio volumen de datos**:
-
-```powershell
-cd $HOME\tracereports
-```
-
-```powershell
-@"
-name: tracereports-nuevo
-services:
-  tracereports:
-    image: tracereports:nuevo
-volumes:
-  tracereports-data:
-    name: tracereports-nuevo-data
-"@ | Set-Content -Encoding ascii docker-compose.override.yml
-```
-
-**4. Comprueba** que quedó separada:
-
-```powershell
-docker compose config --format json | Select-String '"name": "tracereports-nuevo'
-```
-
-✅ **Deberías ver** tres líneas, **todas con `tracereports-nuevo`**:
-
-```
-  "name": "tracereports-nuevo",
-      "name": "tracereports-nuevo_default",
-      "name": "tracereports-nuevo-data"
-```
-
-⚠️ Si no aparecen esas líneas, **no sigas**: revisa que estás en `$HOME\tracereports` y repite el punto 3.
-
-> Desde ahora, en los pasos siguientes los nombres que veas dirán `tracereports-nuevo` en lugar de
-> `tracereports` (por ejemplo `tracereports-nuevo-tracereports-1`). Es lo correcto.
->
-> **Para volver a tu instalación anterior** cuando termines: en la carpeta nueva `docker compose stop`, y en
-> la carpeta anterior `docker compose start`.
-
-<details><summary>macOS / Linux</summary>
-
-```bash
-docker ps -a --filter label=com.docker.compose.service=tracereports --format '{{.Names}}  ({{.Status}})  {{.Label "com.docker.compose.project.working_dir"}}'
-cd /ruta/que/te/mostro/el/comando && docker compose stop
-cd ~/tracereports
-cat > docker-compose.override.yml <<'EOF'
-name: tracereports-nuevo
-services:
-  tracereports:
-    image: tracereports:nuevo
-volumes:
-  tracereports-data:
-    name: tracereports-nuevo-data
-EOF
-docker compose config --format json | grep '"name": "tracereports-nuevo'
-```
+- Si quieres **probar** esta versión y al final **volver a la tuya**, sigue
+  [Probar sin tocar tu instalación](docker-prueba-aislada.md) en lugar de esta guía.
+- Si quieres que **las dos convivan**: Docker identifica cada instalación por el nombre de su carpeta, así
+  que la nueva reemplazaría a la anterior y usaría sus datos. Antes del paso 4, detén la anterior y separa la
+  nueva con un `docker-compose.override.yml`, como en los pasos
+  [3](docker-prueba-aislada.md#paso-3--encontrar-y-detener-tu-instalación-actual-sin-borrar-nada) y
+  [5](docker-prueba-aislada.md#paso-5--separar-la-prueba-de-tu-instalación-muy-importante) de esa guía
+  (cambia `prueba` por el nombre que quieras). Desde ahí, los nombres que veas llevarán ese sufijo.
 
 </details>
 
@@ -373,7 +279,7 @@ docker compose up -d
 ⚠️ **Si ves esto:**
 
 - `port is already allocated` → otro programa usa el puerto 8080 (¿otra instalación de TraceReports?).
-  Mira el [paso 3b](#paso-3b--opcional-si-ya-tienes-tracereports-instalado).
+  Mira el aviso del final del [paso 3](#paso-3--descargar-tracereports).
 - Un error de red al descargar → revisa tu conexión y repite.
 
 ---
@@ -822,10 +728,8 @@ juntas, a veces dos se unen en una y el comando falla).
    docker image rm tracereports:latest
    ```
 
-   Si hiciste el **paso 3b**, la imagen se llama distinto: `docker image rm tracereports:nuevo`. En ese caso,
-   `docker compose down -v` del punto 2 borró solo los datos **de esta** instalación (`tracereports-nuevo-data`):
-   tu instalación anterior y sus datos siguen intactos. Para volver a encenderla, en su carpeta:
-   `docker compose start`.
+   Si separaste esta instalación de otra (aviso del paso 3), la imagen lleva el nombre que elegiste
+   (`tracereports:<nombre>`), y `down -v` borró solo los datos de esta: la otra sigue intacta.
 
 4. Cierra la otra terminal, el Bloc de notas y cualquier ventana del Explorador que esté en esas carpetas, y
    borra las carpetas:
@@ -849,7 +753,7 @@ terminal, abre una nueva y repite solo la última línea.
 | --- | --- |
 | `no configuration file provided: not found` | Estás fuera de la carpeta `tracereports`. Haz `cd $HOME\tracereports` |
 | `Cannot connect to the Docker daemon` | Docker está apagado: abre Docker Desktop y espera **Engine running** |
-| `port is already allocated` | Otra instalación usa el puerto 8080. Ver el [paso 3b](#paso-3b--opcional-si-ya-tienes-tracereports-instalado) |
+| `port is already allocated` | Otra instalación usa el puerto 8080. Ver el aviso del final del [paso 3](#paso-3--descargar-tracereports) |
 | El log dice `refusing to start` | Faltan las contraseñas en el `.env`: repite el paso 4 y `docker compose up -d` |
 | `missing or invalid API token` | El token no es el de ingesta del `.env`, o tiene un texto de ejemplo sin reemplazar |
 | El navegador pide la clave una y otra vez | La clave no coincide con el `.env` |
