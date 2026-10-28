@@ -60,7 +60,7 @@ type Config struct {
 
 	AIProvider     string   // builtin, off, ollama, openai...
 	AIScope        string   // alcance del host del proveedor (egress.Scope*); "" sin red
-	AIAllowlist    []string // AI_ALLOWED_PROVIDERS
+	AIAllowlist    []string // TRACEREPORTS_AI_ALLOWED_PROVIDERS
 	SettingsLocked bool
 
 	RetentionDays int
@@ -167,15 +167,15 @@ func checkAI(c Config) Check {
 	case p == "" || p == "builtin" || p == "off":
 		ch.Level, ch.Detail = OK, "local rules engine or off: no evidence leaves the server"
 	case len(c.AIAllowlist) > 0 && !allowed:
-		ch.Level, ch.Detail = Fail, fmt.Sprintf("provider %q is not in AI_ALLOWED_PROVIDERS", p)
-		ch.Fix = "use an allowed provider, or add it to AI_ALLOWED_PROVIDERS if the policy permits"
+		ch.Level, ch.Detail = Fail, fmt.Sprintf("provider %q is not in TRACEREPORTS_AI_ALLOWED_PROVIDERS", p)
+		ch.Fix = "use an allowed provider, or add it to TRACEREPORTS_AI_ALLOWED_PROVIDERS if the policy permits"
 	case c.AIScope == egress.ScopeLoopback || c.AIScope == egress.ScopePrivate:
 		ch.Level, ch.Detail = OK, fmt.Sprintf("%s inside the network (%s)", p, c.AIScope)
 	case allowed:
-		ch.Level, ch.Detail = OK, fmt.Sprintf("%s, explicitly allowed in AI_ALLOWED_PROVIDERS: redacted prompts leave the network", p)
+		ch.Level, ch.Detail = OK, fmt.Sprintf("%s, explicitly allowed in TRACEREPORTS_AI_ALLOWED_PROVIDERS: redacted prompts leave the network", p)
 	default:
-		ch.Level, ch.Detail = Warn, fmt.Sprintf("%s: redacted prompts leave the network, and no AI_ALLOWED_PROVIDERS limits it", p)
-		ch.Fix = "use AI_PROVIDER=builtin or a local LLM, or set AI_ALLOWED_PROVIDERS to make the decision explicit"
+		ch.Level, ch.Detail = Warn, fmt.Sprintf("%s: redacted prompts leave the network, and no TRACEREPORTS_AI_ALLOWED_PROVIDERS limits it", p)
+		ch.Fix = "use AI_PROVIDER=builtin or a local LLM, or set TRACEREPORTS_AI_ALLOWED_PROVIDERS to make the decision explicit"
 	}
 	return ch
 }

@@ -207,6 +207,23 @@ Every request that comes through a proxy (with `X-Forwarded-For`, `X-Real-IP` or
 counts as remote. That is why Settings and the UI actions ask for a token or the login even when
 the proxy is on the same machine, also with `TRACEREPORTS_LOCAL_ADMIN=1`.
 
+**With `TRACEREPORTS_ALLOWED_CIDRS` and the proxy on the same server.** The container does not see the
+proxy coming from `127.0.0.1`: it sees it from the Docker network's IP (the bridge gateway, usually
+`172.x.x.x`). That IP is not in the list, so **everything answers `403`**, even with the right login.
+To fix it:
+
+1. Find the refused IP in the log (it is logged once per IP):
+   ```
+   docker compose logs tracereports | grep "TRACEREPORTS_ALLOWED_CIDRS"
+   ```
+   The line says `request refused: source IP not in TRACEREPORTS_ALLOWED_CIDRS … ip=<the IP>`.
+2. Put that IP in `TRACEREPORTS_TRUSTED_PROXIES` in the `.env`: then the user's real IP is taken from
+   `X-Forwarded-For` (and checked against `TRACEREPORTS_ALLOWED_CIDRS`).
+3. Apply it with `docker compose up -d`.
+
+A user who forges `X-Forwarded-For` does not get past the filter: that header is only trusted when it
+comes from an IP in `TRACEREPORTS_TRUSTED_PROXIES`.
+
 ## Without docker compose
 
 ```bash
@@ -228,6 +245,7 @@ It uses the same `tracereports-data` volume as compose: the data is the same wit
 | Settings are "read-only" | With Docker the UI login is needed (see above). |
 | Tests do not arrive | Check `TRACEREPORTS_URL` and the token. `docker compose logs -f` shows every rejected request. |
 | `401 missing or invalid API token` in the tests | The server has a token and the tests cannot find it: run them from the project folder (so they read its `.env`) or set `TRACEREPORTS_TOKEN`. In CI, pass it as a *secret*. |
+| `403` on everything behind the proxy, even with the right login | With `TRACEREPORTS_ALLOWED_CIDRS`, the proxy's IP (as seen from the container) is not in the list. Put it in `TRACEREPORTS_TRUSTED_PROXIES`: see [Deploy on a server](#deploy-on-a-server). |
 | `403 host … is not allowed` | Without a UI login only `localhost` is served. If you come in through another name or IP, add it to `TRACEREPORTS_ALLOWED_HOSTS` or configure the login. |
 | Every request to `localhost` takes ~2 s, or tests end up "Interrupted" | On Windows, `localhost` is tried over IPv6 first. Publish the port on `[::1]` too (like the project's `docker-compose.yml`) or use `http://127.0.0.1:8080`. |
 | Cannot get in from another machine on the network | Expected: the port is local only. To share it, use an HTTPS proxy or switch to `"8080:8080"` with token and login. |
