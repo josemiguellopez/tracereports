@@ -34,10 +34,16 @@ TRACEREPORTS_UI_USER=qa
 TRACEREPORTS_UI_PASSWORD=      # a long password
 TRACEREPORTS_SETTINGS_LOCKED=1 # configuration only from the environment, never from the UI
 
+# network
+TRACEREPORTS_ALLOWED_CIDRS=10.0.0.0/8 # only the networks that need it
+NOTIFY_DETAIL=minimal                 # Teams/Slack: counts and a link, no test names nor errors
+
 # evidence
 TRACEREPORTS_RETENTION_DAYS=90    # what your data policy allows
 TRACEREPORTS_SCREENSHOTS=failures # or off if the screen shows data that cannot be shown
 TRACEREPORTS_SCREENSHOT_MASK=     # CSS selectors of your application with sensitive data
+TRACEREPORTS_ENCRYPT_AT_REST=1    # screenshots, traces, videos and DOM encrypted
+TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64 32, outside DATA_DIR
 
 # diagnosis with no data leaving: the local engine (default) or an LLM inside your network
 # AI_PROVIDER=builtin
@@ -89,6 +95,10 @@ docker run -d --name tracereports --read-only --tmpfs /tmp:size=256m,mode=1777 -
 `tracereports health` asks `GET /healthz`, which answers without credentials and without data (it also
 works for a load balancer). On Kubernetes: `readOnlyRootFilesystem: true`, `runAsNonRoot: true`,
 `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]` and an `emptyDir` on `/tmp`.
+
+Check it with `tracereports doctor --security` (on the server: `docker compose exec tracereports
+/tracereports doctor --security`, or from anywhere with `-url`): with this profile every check is OK, and it
+exits with code 1 when a critical one fails, so it can gate a deployment pipeline.
 
 ## Volume encryption
 
@@ -191,4 +201,5 @@ Check the signature, SBOM and provenance of the binary or image before installin
 - [ ] Test environments with synthetic data; no E2E against production with real data.
 - [ ] Teams/Slack webhooks only in channels where test names and errors may be.
 - [ ] Release signature and SBOM verified.
+- [ ] `tracereports doctor --security` with no FAIL (and the WARN reviewed).
 - [ ] TraceReports added to your organization's asset inventory, with its owner.

@@ -67,6 +67,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/owners"
+	"github.com/josemiguellopez/tracereports/internal/posture"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/release"
 	"github.com/josemiguellopez/tracereports/internal/secret"
@@ -100,6 +101,8 @@ func main() {
 			err = runSelftest(os.Args[2:])
 		case "health":
 			err = runHealth(os.Args[2:])
+		case "doctor":
+			err = runDoctor(os.Args[2:], os.Stdout)
 		case "version", "-version", "--version":
 			fmt.Println("tracereports " + buildVersion())
 			return
@@ -116,11 +119,12 @@ func main() {
 				"       tracereports demo         try it in a minute: sample data and a demo shop, only on this machine\n" +
 				"       tracereports selftest     play the scenarios recorded with the real clients and check the results\n" +
 				"       tracereports health       check that the server of this machine answers (Docker healthcheck)\n" +
+				"       tracereports doctor --security  check the security posture (exit code 1 if a check fails)\n" +
 				"       tracereports version      print the version\n" +
 				"Each command explains its flags with -h. Guide: docs/en/cli.md")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, evidence, repro, verify, mcp, demo, selftest, health, version; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, evidence, repro, verify, mcp, demo, selftest, health, doctor, version; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
@@ -285,6 +289,8 @@ func runServer(parent context.Context) error {
 		Auth:           auth,
 		ScreenshotsDir: shotsDir,
 		Vault:          vault,
+		// los chequeos de doctor --security sobre la configuración con que corre (IA activa incluida)
+		Posture:        func() posture.Report { return posture.Evaluate(postureFromEnv(analyzer.Config(), dataDir)) },
 		Web:            webRoot,
 		SettingsLocked: env.Bool("SETTINGS_LOCKED"),
 		Redact:         redaction,

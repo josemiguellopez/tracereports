@@ -27,6 +27,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/owners"
+	"github.com/josemiguellopez/tracereports/internal/posture"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/release"
 	"github.com/josemiguellopez/tracereports/internal/repro"
@@ -58,7 +59,9 @@ type Server struct {
 	// Vault encrypts the evidence at rest (TRACEREPORTS_ENCRYPT_AT_REST): the files of
 	// ScreenshotsDir and, through the Store, the DOM snapshots. nil = in clear, as before.
 	Vault *atrest.Vault
-	Web   fs.FS // root containing index.html, style.css, app.js
+	// Posture evaluates the security posture (GET /api/v1/security/posture); nil = not available.
+	Posture func() posture.Report
+	Web     fs.FS // root containing index.html, style.css, app.js
 	// SettingsLocked (TRACEREPORTS_SETTINGS_LOCKED) makes the Settings screen read-only: the
 	// configuration comes only from the environment.
 	SettingsLocked bool
@@ -112,6 +115,7 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/settings/ai", s.resetAISettings)
 		r.Get("/settings/ai/usage", s.aiUsage)
 		r.Get("/settings/ai/status", s.aiStatus)
+		r.Get("/security/posture", s.securityPosture)
 		r.Get("/metrics", s.getMetrics)
 		r.Get("/runs/{run_id}/recurrence", s.runRecurrence)
 		r.Get("/runs/{run_id}/escalation", s.getEscalation)

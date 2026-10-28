@@ -34,10 +34,16 @@ TRACEREPORTS_UI_USER=qa
 TRACEREPORTS_UI_PASSWORD=      # una clave larga
 TRACEREPORTS_SETTINGS_LOCKED=1 # la configuración solo desde el entorno, nunca desde la UI
 
+# red
+TRACEREPORTS_ALLOWED_CIDRS=10.0.0.0/8 # solo las redes que lo necesitan
+NOTIFY_DETAIL=minimal                 # Teams/Slack: conteos y un link, sin nombres de tests ni errores
+
 # evidencia
 TRACEREPORTS_RETENTION_DAYS=90    # lo que tu política de datos permita
 TRACEREPORTS_SCREENSHOTS=failures # o off si en pantalla hay datos que no se pueden mostrar
 TRACEREPORTS_SCREENSHOT_MASK=     # selectores CSS de tu aplicación con datos sensibles
+TRACEREPORTS_ENCRYPT_AT_REST=1    # capturas, traces, videos y DOM cifrados
+TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key # openssl rand -base64 32, fuera de DATA_DIR
 
 # diagnóstico sin salida de datos: el motor local (por defecto) o un LLM dentro de tu red
 # AI_PROVIDER=builtin
@@ -89,6 +95,10 @@ docker run -d --name tracereports --read-only --tmpfs /tmp:size=256m,mode=1777 -
 `tracereports health` consulta `GET /healthz`, que responde sin credenciales y sin datos (sirve también
 para un balanceador). En Kubernetes: `readOnlyRootFilesystem: true`, `runAsNonRoot: true`,
 `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]` y un `emptyDir` en `/tmp`.
+
+Compruébalo con `tracereports doctor --security` (en el servidor: `docker compose exec tracereports
+/tracereports doctor --security`, o desde cualquier lado con `-url`): con este perfil todos los chequeos dan
+OK, y sale con código 1 cuando falla uno crítico, así sirve de gate en un pipeline de despliegue.
 
 ## Cifrado del volumen
 
@@ -191,4 +201,5 @@ Comprueba la firma, el SBOM y la provenance del binario o la imagen antes de ins
 - [ ] Ambientes de prueba con datos sintéticos; nada de E2E contra producción con datos reales.
 - [ ] Webhooks de Teams/Slack solo en canales donde los nombres de tests y errores pueden estar.
 - [ ] Firma y SBOM del release verificados.
+- [ ] `tracereports doctor --security` sin FAIL (y los WARN revisados).
 - [ ] TraceReports agregado al inventario de activos de tu organización, con su dueño.

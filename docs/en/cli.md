@@ -18,6 +18,7 @@ with `-h`.
 | [`mcp`](#mcp) | MCP server (stdio) for Claude Code and other agents | yes |
 | [`selftest`](#selftest) | Plays the scenarios recorded with the real clients and checks the results | no (starts its own) |
 | [`secrets`](#secrets) | Status and migration of the credentials saved from Settings | no (the data folder) |
+| [`doctor`](#doctor) | Security posture: OK / WARN / FAIL, exit code 1 on a critical failure | no (or `-url`) |
 | [`evidence`](#evidence) | Status, encryption and key rotation of the evidence encrypted at rest | no (the data folder) |
 | [`version`](#version) | Prints the version | no |
 
@@ -230,6 +231,23 @@ was kept in clear and re-encrypts what `TRACEREPORTS_DB_KEY_PREVIOUS` encrypted;
 after rotating the key. Stop the server and back up the data folder first. See
 [evidence encryption](security-hardening.md#application-level-evidence-encryption-optional).
 
+## doctor
+
+```bash
+tracereports doctor --security                      # this machine's configuration (environment and .env)
+tracereports doctor --security -url https://reports.internal   # a running server (TRACEREPORTS_TOKEN)
+tracereports doctor --security -json                # JSON with a stable contract ("version" field)
+```
+
+Checks the security posture against the [hardening guide](security-hardening.md): tokens, UI login,
+network exposure and `TRACEREPORTS_ALLOWED_CIDRS`, the AI provider and its allowlist,
+`TRACEREPORTS_SETTINGS_LOCKED`, retention, encryption at rest with the key outside `DATA_DIR`, the process
+user, `DATA_DIR` permissions, outbound destinations, redaction and the screenshot policy. Prints OK / WARN /
+FAIL with what to do for each, and **exits with code 1 when a critical check fails**: use it as a CI or
+deployment gate. It never shows credential values, only whether they are set. With `-url` it also sees the
+AI provider chosen in Settings; the same posture is in **Settings → Security posture** and at
+`GET /api/v1/security/posture` (needs `TRACEREPORTS_TOKEN`, the UI login or the same machine).
+
 ## health
 
 ```bash
@@ -255,6 +273,7 @@ tracereports version        # also -version, --version
 | `report -ai` | the AI provider | only the AI provider |
 | `secrets` | `DATA_DIR`, `TRACEREPORTS_SECRET_KEY…` | all |
 | `evidence` | `DATA_DIR`, `TRACEREPORTS_DB_KEY…` | all |
+| `doctor` | every security setting of the server | all |
 | `push`, `pr-comment`, `repro`, `verify`, `mcp`, `selftest` | `TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`, `TRACEREPORTS_LAB_<NAME>`… | no |
 
 The test clients (pytest, Playwright, Java, Go) have their own variables: see their guides

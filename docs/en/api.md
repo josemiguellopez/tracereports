@@ -222,6 +222,13 @@ accepts the same filters and returns at most 20 values for each group.
   from the server's own machine, connected directly (not through a proxy). With `TRACEREPORTS_TOKEN`
   the same machine needs credentials too, unless `TRACEREPORTS_LOCAL_ADMIN=1`. `TRACEREPORTS_SETTINGS_LOCKED=1` always rejects them (`403`).
 
+### Security posture (experimental)
+
+`GET /security/posture` returns the checks of `tracereports doctor --security` on the configuration the
+server runs with: `{version, checks: [{id, level, title, detail, fix}], ok, warn, fail}` (`level`: `ok`,
+`warn` or `fail`). Needs `TRACEREPORTS_TOKEN`, the UI login or the same machine in local mode (the ingest
+token gets 403). It never includes credential values.
+
 ## Actions from the interface (AI and escalation)
 
 They require `Content-Type: application/json` and the same rule as Settings: token, UI login or,

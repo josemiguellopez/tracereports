@@ -3484,10 +3484,11 @@
 				<div><b>${esc(tr(POSTURE_LABEL[c.level] || c.level))} · <span data-no-i18n>${esc(c.title)}</span></b>
 				<p class="m-hint" data-no-i18n>${esc(c.detail)}</p>
 				${c.fix ? `<p class="m-hint posture-fix" data-no-i18n>→ ${esc(c.fix)}</p>` : ""}</div></div>`).join("");
-		return `<div class="card"><h5 class="card-title">${tr("Postura de seguridad")}</h5>
-			<p class="m-hint">${tr("Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.")}</p>
-			<p class="m-hint"><b>${tr("{ok} OK · {warn} por revisar · {fail} críticos", { ok: p.ok, warn: p.warn, fail: p.fail })}</b></p>
-			<div class="posture-list">${rows}</div></div>`;
+		return `<section class="card set-card" aria-labelledby="set-posture">
+			<div class="set-head"><h5 id="set-posture">${icon("i-check")}${tr("Postura de seguridad")}</h5></div>
+			<p class="field-help">${tr("Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.")}</p>
+			<p class="field-help"><b>${tr("{ok} OK · {warn} por revisar · {fail} críticos", { ok: p.ok, warn: p.warn, fail: p.fail })}</b></p>
+			<div class="posture-list">${rows}</div></section>`;
 	}
 
 	async function loadUsage() {
