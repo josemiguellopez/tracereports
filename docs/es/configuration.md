@@ -22,6 +22,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | La clave maestra anterior, solo mientras la cambias (rotación) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
+| `TRACEREPORTS_ALLOWED_CIDRS` | — (todas) | Solo estas redes entran (`10.0.0.0/8,fd00::/8`, o IPs sueltas); el resto recibe `403`, también con token. Este equipo siempre entra. Ver [Restringir por red](#restringir-por-red-de-origen) |
+| `TRACEREPORTS_TRUSTED_PROXIES` | — | Proxies cuyo `X-Forwarded-For` / `X-Real-IP` se cree para saber la IP del cliente. Sin esto esos headers se ignoran |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: con token y sin login, el mismo equipo (sin proxy) puede cambiar Ajustes y usar las acciones de la UI |
 | `AI_PROVIDER` | se deduce de la key; sin key, `builtin` | `builtin` (motor local, sin LLM), `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` u `off` (sin diagnóstico). Ver [Motor local](#motor-local-de-diagnóstico-sin-llm) |
 | `AI_MODEL` | el del proveedor | Modelo (ver la tabla de proveedores) |
@@ -102,6 +104,22 @@ TRACEREPORTS_UI_PASSWORD=una-clave-segura
   indica qué falta.
 - Expón el servidor detrás de HTTPS (reverse proxy como Caddy, nginx o Traefik). HTTP Basic sin
   TLS viaja en texto plano.
+
+### Restringir por red de origen
+
+Además del firewall, el servidor puede imponer él mismo qué redes entran:
+
+```ini
+TRACEREPORTS_ALLOWED_CIDRS=10.0.0.0/8,192.168.10.0/24,fd00::/8
+TRACEREPORTS_TRUSTED_PROXIES=10.0.0.5        # el reverse proxy, si lo hay
+```
+
+- Toda petición cuya IP de origen no esté en la lista recibe `403` (UI, API y `/screenshots/*`), **también
+  con un token válido**. Este equipo (`127.0.0.1`, `::1`) siempre entra.
+- La IP de origen es la de la conexión. `X-Forwarded-For` y `X-Real-IP` solo se creen si la conexión viene de
+  un proxy de `TRACEREPORTS_TRUSTED_PROXIES`, y entonces se toma el último salto que no es un proxy
+  confiable: un cliente que manda su propio `X-Forwarded-For` no evade el filtro.
+- Un valor inválido impide arrancar. Cada IP rechazada se anota una vez en el log.
 
 ### Permisos de cada credencial
 

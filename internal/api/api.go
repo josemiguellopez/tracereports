@@ -76,6 +76,8 @@ type Server struct {
 	ReleaseGate *release.Gate
 	// Lab configures FixLab's Request Lab (TRACEREPORTS_LAB, TRACEREPORTS_LAB_HOSTS).
 	Lab LabConfig
+	// Net filters requests by source IP (TRACEREPORTS_ALLOWED_CIDRS / TRUSTED_PROXIES); nil = no filter.
+	Net *NetPolicy
 	// Screenshots is the screenshot policy (TRACEREPORTS_SCREENSHOTS: all, failures or off;
 	// "" = all). See screenshot_policy.go.
 	Screenshots string
@@ -92,7 +94,8 @@ func (s *Server) redactor() *redact.Policy {
 // Router builds the chi router.
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
-	r.Use(peerAddr, middleware.RealIP, middleware.Recoverer, middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
+	// el filtro por IP va primero, con la dirección real de la conexión (RealIP la reescribe después)
+	r.Use(peerAddr, s.Net.middleware, middleware.RealIP, middleware.Recoverer, middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
 	r.Use(s.Auth.middleware, s.hostGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
