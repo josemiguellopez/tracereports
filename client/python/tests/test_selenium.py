@@ -68,7 +68,7 @@ class FakeDriver:
     def get_screenshot_as_png(self):
         return b"\x89PNG fake"
 
-    def execute_script(self, script):
+    def execute_script(self, script, *args):
         return {"url": "https://shop.test/cart?token=abc", "title": "Cart", "viewport": {"w": 1, "h": 1},
                 "elements": [{"tag": "button", "id": "pay", "text": "Pay", "label": "", "placeholder": ""}]}
 

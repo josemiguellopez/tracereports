@@ -101,11 +101,14 @@ def test_other(page, tracereports):
 To add your own steps and screenshots, use the `tracereports` fixture:
 
 ```python
+from tracereports import playwright_screenshot
+
+
 def test_login(page, tracereports):
     """The admin reaches the Dashboard."""
     tracereports.log_info("Open the login page")
     page.goto("https://my-app/login")
-    tracereports.attach_screenshot(page.screenshot(), "Login form")
+    tracereports.attach_screenshot(playwright_screenshot(page), "Login form")  # sensitive data covered
     ...
     tracereports.log_pass("Logged in")
 ```
@@ -125,15 +128,15 @@ all of them finish. If a worker crashes, its running tests are marked *Interrupt
 > [examples/python-selenium-allure](../../examples/python-selenium-allure).
 
 ```python
-from tracereports import TraceReports
+from tracereports import TraceReports, playwright_screenshot, selenium_screenshot
 
 cr = TraceReports()                     # or TraceReports("https://tracereports.mycompany.com", token="...")
 cr.start_run("Web regression", environment="staging")
 
 cr.start_test("Valid login", category="login, smoke", description="Valid credentials")
 cr.log_info("Open the login page")
-cr.attach_screenshot(driver.get_screenshot_as_png(), "Form")   # Selenium
-cr.attach_screenshot(page.screenshot(), "Form")                # Playwright
+cr.attach_screenshot(selenium_screenshot(driver), "Form")   # Selenium, sensitive data covered
+cr.attach_screenshot(playwright_screenshot(page), "Form")   # Playwright, same
 cr.attach_screenshot("screenshots/login.png", "From a file")
 cr.log_pass("User logged in")
 cr.end_test()                           # status derived from the steps, or end_test("FAIL", ...)
@@ -165,6 +168,36 @@ def test_login(self):
 with cr.test("Checkout", category="e2e", on_failure=page.screenshot):
     ...
 ```
+
+## Screenshots without sensitive data
+
+Before every screenshot, the client **covers** (a magenta box) the sensitive elements:
+
+- always `input[type=password]` and every element with the `data-tracereports-mask` attribute;
+- also those of `TRACEREPORTS_SCREENSHOT_MASK`, a CSS selector group:
+  `TRACEREPORTS_SCREENSHOT_MASK="input[name=ssn], .card-number, #balance"`.
+
+```html
+<span data-tracereports-mask>123-45-6789</span>   <!-- covered in every TraceReports screenshot -->
+```
+
+With Playwright it uses its native `mask` option. With Selenium it puts boxes over those elements, takes
+the screenshot and removes them, also when the screenshot fails: the DOM stays the same. If it cannot
+cover them (an invalid selector), no screenshot is sent. `TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS=off`
+stops covering the default ones.
+
+The failure screenshot of `pytest --tracereports` does it on its own. In your code, use the same helpers:
+
+```python
+from tracereports import playwright_screenshot, selenium_screenshot
+
+tracereports.attach_screenshot(playwright_screenshot(page), "Form")   # instead of page.screenshot()
+cr.attach_screenshot(selenium_screenshot(driver), "Form")             # instead of get_screenshot_as_png()
+```
+
+`TRACEREPORTS_SCREENSHOTS` decides which screenshots are sent: `all` (default), `failures` (only those of
+a `FAIL` step) or `off` (none). The server applies the same variable on its own (see
+[Configuration → Screenshots](configuration.md#screenshots)).
 
 ## Network capture with Playwright
 

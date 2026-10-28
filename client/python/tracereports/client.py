@@ -65,6 +65,7 @@ from typing import Any, Callable, Iterator, Optional, Union
 from ._env import env
 from .binary import resolve_binary
 from .context import detect_branch, detect_commit
+from .mask import screenshot_allowed
 from .offline import Recorder, new_session_dir
 from .transport import Sender
 from .mirror import Mirror
@@ -509,6 +510,9 @@ class TraceReports:
         """
         tid = test_id or self.current_test_id
         if not tid or not self.enabled:
+            return None
+        # TRACEREPORTS_SCREENSHOTS=off|failures: la captura ni se lee ni se envía (ver mask.py)
+        if not screenshot_allowed(status):
             return None
         try:
             if isinstance(bytes_or_path, (bytes, bytearray)):

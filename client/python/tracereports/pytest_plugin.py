@@ -50,6 +50,7 @@ import pytest
 from ._env import env
 from .client import TraceReports
 from .dom import capturar_dom
+from .mask import playwright_screenshot, screenshots_policy
 from .network import attach_listeners, reportar_red
 from .selenium import capture_dom as _selenium_dom
 from .selenium import discard_logs, is_webdriver, report_selenium
@@ -120,7 +121,8 @@ class TraceReportsPlugin:
         self.cr = TraceReports(config.getoption("--tracereports-url"), spool_dir=config.getoption("--tracereports-spool"),
                                offline_dir=offline_dir, offline="always" if offline_dir else None)
         self.capture_network = not config.getoption("--tracereports-no-network")
-        self.capture_screenshots = not config.getoption("--tracereports-no-screenshots")
+        # TRACEREPORTS_SCREENSHOTS=off: ni se captura (failures deja la del fallo, que es la única que toma)
+        self.capture_screenshots = not config.getoption("--tracereports-no-screenshots") and screenshots_policy() != "off"
         self.capture_dom = not config.getoption("--tracereports-no-dom")
         self.strict = config.getoption("--tracereports-strict") or _truthy(env("STRICT"))
         self.workerinput = getattr(config, "workerinput", None)  # presente en workers de xdist
@@ -318,7 +320,7 @@ class TraceReportsPlugin:
             return
         if self.capture_screenshots:
             try:
-                self.cr.attach_screenshot(page.screenshot(timeout=5000), "Captura al fallar", status="FAIL", test_id=test_id)
+                self.cr.attach_screenshot(playwright_screenshot(page, timeout=5000), "Captura al fallar", status="FAIL", test_id=test_id)
             except Exception:
                 pass  # la página puede estar cerrada: la evidencia nunca rompe el test
         if self.capture_dom:

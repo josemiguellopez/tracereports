@@ -69,7 +69,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -o "$RUNNER_TEMP/tracereports" ./cmd && echo "TRACEREPORTS_BIN=$RUNNER_TEMP/tracereports" >> "$GITHUB_ENV"
-      - run: pip install pytest pytest-xdist ./client/python
+      - run: pip install pytest pytest-xdist playwright selenium ./client/python
+      # navegadores reales: las capturas enmascaradas se verifican en los píxeles (test_mask.py)
+      - run: python -m playwright install --with-deps chromium
       - run: pytest client/python/tests
 
   client-js:

@@ -26,7 +26,6 @@ warning, and anyone who reached the port could read and change the reports. Now 
 3. Give the same token to your test clients and CI (`TRACEREPORTS_TOKEN`, or the restricted
    `TRACEREPORTS_INGEST_TOKEN`).
 4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
-
 ### Added
 
 - **Local diagnosis engine, no LLM** (`AI_PROVIDER=builtin`, the new default): a versioned catalog of
@@ -55,6 +54,11 @@ warning, and anyone who reached the port could read and change the reports. Now 
   screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
   trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.
   It also applies to Allure imports and `tracereports report`.
+- **Python client: screenshots with sensitive data covered.** Before each screenshot it covers
+  `input[type=password]`, every element with `data-tracereports-mask` and the CSS selectors of
+  `TRACEREPORTS_SCREENSHOT_MASK` (Playwright: native `mask`; Selenium: temporary boxes removed afterwards, even
+  when the screenshot fails; no screenshot if it cannot cover). `TRACEREPORTS_SCREENSHOTS=all|failures|off`
+  decides which screenshots are sent. New helpers `playwright_screenshot(page)` and `selenium_screenshot(driver)`.
 - **Signed releases**: binaries (through `checksums.txt`) and the Docker image are signed keyless with
   cosign, carry an SPDX SBOM and a SLSA provenance attestation. How to verify them: `SECURITY.md`.
 - **govulncheck** fails CI when reachable code has a known vulnerability; **CodeQL** analyzes Go,
