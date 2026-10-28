@@ -100,11 +100,8 @@ func (c *labCLI) load(src string) (*lab.Capsule, error) {
 		// las credenciales van solo al servidor de TRACEREPORTS_URL: una URL de cápsula ajena
 		// (pegada de otro lado) nunca recibe el token de CI ni el login
 		trusted := c.trustedHost(req.URL)
-		if tok := c.getenv("TRACEREPORTS_TOKEN"); tok != "" && trusted {
-			req.Header.Set("Authorization", "Bearer "+tok)
-		}
-		if u, p := c.getenv("TRACEREPORTS_UI_USER"), c.getenv("TRACEREPORTS_UI_PASSWORD"); u != "" && p != "" && trusted {
-			req.SetBasicAuth(u, p)
+		if trusted {
+			readCredentials(req, c.getenv)
 		}
 		res, rerr := c.client.Do(req)
 		if rerr != nil {
@@ -387,7 +384,7 @@ func (c *labCLI) repro(args []string) error {
 		if p.Original.Simulated {
 			fmt.Fprintln(c.out, "  note: the original answer has no date nor server headers: the test probably made it up (a mock)")
 		}
-		res, err := lab.Run(context.Background(), p, lab.Options{Values: vals, BaseURL: c.base})
+		res, err := lab.Run(context.Background(), p, lab.Options{Values: vals, BaseURL: c.base, Allow: c.allow(p)})
 		if err != nil {
 			return err
 		}
@@ -442,7 +439,7 @@ func (c *labCLI) verify(args []string) error {
 			if base == "" {
 				base = ch.BaseURL
 			}
-			res, err := lab.Run(context.Background(), call.Plan, lab.Options{Values: vals, BaseURL: base, Target: ch.Request})
+			res, err := lab.Run(context.Background(), call.Plan, lab.Options{Values: vals, BaseURL: base, Target: ch.Request, Allow: c.allow(call.Plan)})
 			var fails []lab.Failure
 			now := "no response"
 			if err != nil {
@@ -476,4 +473,37 @@ func (c *labCLI) verify(args []string) error {
 	}
 	fmt.Fprintf(c.out, "\nFixed and verified: all %d checks pass.\n", total)
 	return nil
+}
+
+// readCredentials signs a read to the TraceReports server with the least powerful credential
+// available: the ingest token before the admin one, the read-only login before the admin login.
+// Reading a capsule or a plan never needs to administer.
+func readCredentials(req *http.Request, getenv func(string) string) {
+	tok := getenv("TRACEREPORTS_INGEST_TOKEN")
+	if tok == "" {
+		tok = getenv("TRACEREPORTS_TOKEN")
+	}
+	u, p := getenv("TRACEREPORTS_UI_VIEWER_USER"), getenv("TRACEREPORTS_UI_VIEWER_PASSWORD")
+	if u == "" || p == "" {
+		u, p = getenv("TRACEREPORTS_UI_USER"), getenv("TRACEREPORTS_UI_PASSWORD")
+	}
+	switch {
+	case u != "" && p != "":
+		req.SetBasicAuth(u, p)
+		if tok != "" {
+			req.Header.Set("X-TraceReports-Token", tok) // Authorization ya lleva el login
+		}
+	case tok != "":
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
+}
+
+// allow is the host rule of a resend from this machine: the hosts the test called, the ones of
+// TRACEREPORTS_LAB_HOSTS and the base URL this person passed with -base.
+func (c *labCLI) allow(p *lab.Plan) func(*url.URL) error {
+	extra := lab.ParseHosts(c.getenv("TRACEREPORTS_LAB_HOSTS"))
+	if h := lab.HostOf(c.base); h != "" {
+		extra = append(extra, h)
+	}
+	return lab.HostRule(p, extra)
 }

@@ -56,8 +56,8 @@ a build dependency); a **host or backup thief** with a copy of `DATA_DIR`.
 | **AI providers** | Evidence leaving the network; prompt injection from test output | Default **local rules engine, no network** (#43); local LLM profile (#44); provider allowlist; outbound destinations logged at startup; the diagnosis is advisory text and never executes actions | Cloud providers receive the redacted evidence; see Settings gap |
 | **Notifications** (Teams, Slack) | Test names and errors in a chat with a wider audience | `NOTIFY_DETAIL=minimal`: counts and a link only (#40) | Full detail by default |
 | **Trackers** (GitHub, Jira, Azure DevOps) | Evidence copied into another system | Created only by an explicit admin action (which includes any UI user), never automatically | The failure screenshot is attached: the tracker inherits it |
-| **FixLab Request Lab** (UI, `repro`, MCP) | The server or a laptop used to reach internal hosts (SSRF) | From the UI on a shared server, only hosts recorded for the test plus `TRACEREPORTS_LAB_HOSTS`; link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it | The recorded hosts come from ingested data (anyone with the ingest token decides them); from the server's own machine, `repro` and the MCP tools there is no host restriction |
-| **MCP server** (`tracereports mcp`) | An agent with too much power | Local over stdio, no network listener | It authenticates with the admin token, also for read-only calls |
+| **FixLab Request Lab** (UI, `repro`, MCP) | The server or a laptop used to reach internal hosts (SSRF) | From the UI on a shared server, only hosts recorded for the test plus `TRACEREPORTS_LAB_HOSTS`; link-local addresses always blocked; `TRACEREPORTS_LAB=off` disables it | `repro`, `verify` and the MCP also stay on the hosts the test called plus `TRACEREPORTS_LAB_HOSTS` (and `-base` in the CLI); the agent's base URL never opens a host. The recorded hosts still come from ingested data, and the UI on the server's own machine has no host restriction (like the developer's terminal) |
+| **MCP server** (`tracereports mcp`) | An agent with too much power | Local over stdio, no network listener; reads with the ingest token or the read-only login when they exist, not the admin credentials | With only the admin token configured, it uses it |
 | **Exports and static reports** (ZIP, `tracereports report`) | Evidence leaving the server | Exports require read access; the ZIP is **decrypted** by design (whoever exports could already see it) | `tracereports report` writes its files for the user only (`0700`/`0600`); once copied or published, treat its output as the evidence itself |
 | **Client offline recordings and mirror** | Evidence on the CI disk | Replay is limited to ingest endpoints; folders `0700` and files `0600` (Linux, macOS) in the four clients | Recordings are written **before** server-side redaction |
 | **Supply chain** | Tampered binary or image; vulnerable dependency | Signed releases (cosign keyless), SBOM and SLSA provenance (#36); govulncheck and CodeQL on every pull request; Scorecard weekly and on `main`; third-party actions pinned by commit SHA (GitHub's own `actions/*` by version tag); single static binary, no CGO | |
@@ -95,7 +95,8 @@ Known and accepted, or left to the operator. The hardening guide and `doctor --s
 8. **Files outside the server.** Static reports and client recordings are private to their user, but
    recordings are not redacted yet and CI artifacts follow the CI's own access rules. Keep them in private
    workspaces and artifacts.
-9. **Lab and MCP targets come from ingested data**, and are unrestricted from the server's own machine.
+9. **Lab targets come from ingested data.** A resend stays on the hosts the test recorded, but those hosts
+   were sent by whoever has the ingest token; the UI on the server's own machine is unrestricted.
 10. **Key management is the operator's.** Losing `TRACEREPORTS_DB_KEY` loses the encrypted evidence;
     leaking it with a backup exposes it. The server refuses a key file inside `DATA_DIR`, nothing more.
 11. **HTTP Basic without TLS.** The server does not terminate TLS; a proxy must.
