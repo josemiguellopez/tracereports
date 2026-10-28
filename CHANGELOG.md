@@ -28,6 +28,15 @@ warning, and anyone who reached the port could read and change the reports. Now 
 4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
 ### Added
 
+- **Trace Buddy**, a QA assistant on a floating button (bottom right): **Tty**, a retro terminal with legs
+  whose face is on the screen. It turns on like an old monitor, code rains on its screen while the AI
+  works, and it shows `^_^` or glitches with `x_x` on the result. It only opens when you call it and
+  can be hidden (Settings → Appearance brings it back). Its first message tells whether the configured AI
+  answers (provider, model and how long it took, or why not in plain words), through the new
+  `POST /api/v1/ui/ai/probe`. Without an LLM it answers from what TraceReports already knows: explains the
+  failed test you are viewing (or opens the first one), what to check first in the run, how to connect your
+  tests and whether the installation is secure. Admin only (the read-only login does not see it), hidden
+  when AI is off; animations follow `prefers-reduced-motion`.
 - **Install with Docker, step by step** (`docs/en/docker-step-by-step.md`, `docs/es/docker-paso-a-paso.md`): a
   guide for people new to Docker or the terminal, from installing Docker to the first report, with what to
   expect at every step, screenshots, real outputs and the fixes for common errors; linked from the READMEs

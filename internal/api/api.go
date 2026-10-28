@@ -88,6 +88,8 @@ type Server struct {
 	// Screenshots is the screenshot policy (TRACEREPORTS_SCREENSHOTS: all, failures or off;
 	// "" = all). See screenshot_policy.go.
 	Screenshots string
+	// probe caches Trace Buddy's "does the AI answer?" check (see buddy.go).
+	probe probeCache
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -122,6 +124,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/metrics", s.getMetrics)
 		r.Get("/runs/{run_id}/recurrence", s.runRecurrence)
 		r.Get("/runs/{run_id}/escalation", s.getEscalation)
+		r.Post("/ui/ai/probe", s.aiProbe)
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/escalate", s.escalate)

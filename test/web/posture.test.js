@@ -7,7 +7,7 @@ const src = read("app.js");
 
 test("Ajustes tiene la sección de revisión de seguridad con el endpoint autenticado", () => {
 	for (const token of [
-		'{ id: "security", icon: "i-check", title: "Revisión de seguridad", ...postureSummary(S.settings.posture) }',
+		'{ id: "security", icon: "i-shield", title: "Revisión de seguridad", ...postureSummary(S.settings.posture) }',
 		'api("/api/v1/security/posture")',
 		'cur.id === "security" ? postureCard()',
 	]) {
