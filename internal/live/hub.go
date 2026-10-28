@@ -29,11 +29,17 @@ type Hub struct {
 	mu        sync.Mutex
 	subs      map[*subscriber]struct{}
 	heartbeat time.Duration
+	// Max limits the connected clients (each one holds a connection open): past it a new one gets
+	// 503 and retries later. 0 = no limit.
+	Max int
 }
+
+// DefaultMaxSubscribers is enough for a team with several tabs open each.
+const DefaultMaxSubscribers = 500
 
 // NewHub creates an empty hub.
 func NewHub() *Hub {
-	return &Hub{subs: map[*subscriber]struct{}{}, heartbeat: 20 * time.Second}
+	return &Hub{subs: map[*subscriber]struct{}{}, heartbeat: 20 * time.Second, Max: DefaultMaxSubscribers}
 }
 
 // Publish sends an event to every subscriber interested in its run.
@@ -61,11 +67,15 @@ func (h *Hub) Subscribers() int {
 	return len(h.subs)
 }
 
+// subscribe registers a client, or returns nil when the hub is full.
 func (h *Hub) subscribe(runID int64) *subscriber {
 	s := &subscriber{ch: make(chan Event, 64), runID: runID}
 	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.Max > 0 && len(h.subs) >= h.Max {
+		return nil
+	}
 	h.subs[s] = struct{}{}
-	h.mu.Unlock()
 	return s
 }
 
@@ -84,6 +94,12 @@ func (h *Hub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	runID, _ := strconv.ParseInt(r.URL.Query().Get("run"), 10, 64)
 	s := h.subscribe(runID)
+	if s == nil {
+		// lleno: el navegador reintenta solo (EventSource), sin tumbar al servidor
+		w.Header().Set("Retry-After", "30")
+		http.Error(w, "too many live connections", http.StatusServiceUnavailable)
+		return
+	}
 	defer h.unsubscribe(s)
 
 	w.Header().Set("Content-Type", "text/event-stream")

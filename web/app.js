@@ -290,7 +290,7 @@
 		else if (!x.items.length) list.innerHTML = `<div class="placeholder">${tr("Sin resultados: quita un filtro o prueba otra búsqueda.")}</div>`;
 		else list.innerHTML = x.items.map((r) => `<button class="search-row" data-search-run="${r.id}" role="option" aria-selected="${x.selected === r.id}">
 			<span class="search-state ${lower(r.status)}" style="--c:var(--${lower(r.status)})"></span><span class="search-main"><b>${esc(r.name)}</b><span>${[r.branch, r.environment, r.project].filter(Boolean).map(esc).join(" · ")}</span></span>
-			<span class="search-meta" title="${esc(fmtDateTime(r.started_at))}">${esc(relativeRun(r.started_at))}</span><span class="search-count">${r.passed}/${r.total} OK${r.failed ? ` · <b class="fail">${plural(r.failed, tr("fallo"), tr("fallos"))}</b>` : ""}${r.flaky_count ? ` · <b class="flaky">${r.flaky_count} flaky</b>` : ""}</span><label title="${tr("Marcar para comparar")}" onclick="event.stopPropagation()"><input type="checkbox" data-search-compare="${r.id}" ${x.compare.includes(r.id) ? "checked" : ""}></label></button>`).join("");
+			<span class="search-meta" title="${esc(fmtDateTime(r.started_at))}">${esc(relativeRun(r.started_at))}</span><span class="search-count">${r.passed}/${r.total} OK${r.failed ? ` · <b class="fail">${plural(r.failed, tr("fallo"), tr("fallos"))}</b>` : ""}${r.flaky_count ? ` · <b class="flaky">${r.flaky_count} flaky</b>` : ""}</span><label title="${tr("Marcar para comparar")}" data-search-compare-label><input type="checkbox" data-search-compare="${r.id}" ${x.compare.includes(r.id) ? "checked" : ""}></label></button>`).join("");
 		$("#search-more").hidden = !x.cursor || x.loading;
 		if (!x.selected) renderSearchPreview();
 	}
@@ -1936,7 +1936,8 @@
 			if (check) { const id = Number(check.dataset.searchCompare), x = S.runSearch; x.compare = check.checked ? [...x.compare.filter((n) => n !== id), id].slice(-2) : x.compare.filter((n) => n !== id); renderRunSearch(); if (x.preview && x.preview[0].id === x.selected) renderSearchPreview(...x.preview); /* su botón Comparar depende de la marca */ if (x.compare.length === 2) compareSearchRuns(x.compare[0], x.compare[1]).catch(() => {}); return; }
 		});
 		$("#run-search-results").addEventListener("click", (e) => {
-			if (e.target.closest("[data-search-compare]")) return;
+			// la casilla de comparar (o su etiqueta) no abre la ejecución; sin onclick inline: la CSP no lo permite
+			if (e.target.closest("[data-search-compare], [data-search-compare-label]")) return;
 			const row = e.target.closest("[data-search-run]"); if (row) selectSearchRun(Number(row.dataset.searchRun));
 		});
 		$("#run-search-preview").addEventListener("click", (e) => { const test = e.target.closest("[data-search-test]"); if (test) { S.testId = Number(test.dataset.searchTest); switchRun(Number(test.dataset.searchTestRun)).then(() => { S.testId = Number(test.dataset.searchTest); setView("tests"); return loadTest(); }).catch(() => {}); return; } const open = e.target.closest("[data-search-open]"); if (open) { switchRun(Number(open.dataset.searchOpen)).then(() => setView("dashboard")).catch(() => {}); return; } const cmp = e.target.closest("[data-search-compare-open]"); if (cmp) compareSearchRuns(Number(cmp.dataset.searchCompareBase), Number(cmp.dataset.searchCompareOpen)).catch(() => {}); });

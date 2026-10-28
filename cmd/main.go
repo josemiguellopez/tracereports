@@ -339,6 +339,12 @@ func runServer(parent context.Context) error {
 	srv := &http.Server{
 		Handler:           apiServer.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// un cliente que manda el cuerpo de a poco (slowloris) no retiene la conexión para siempre;
+		// holgado para subir un video de 100 MiB por una red lenta. Sin WriteTimeout: el stream en
+		// vivo (SSE) y los exports grandes escriben por minutos.
+		ReadTimeout:    15 * time.Minute,
+		IdleTimeout:    2 * time.Minute,
+		MaxHeaderBytes: 64 << 10,
 	}
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
