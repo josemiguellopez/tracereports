@@ -148,6 +148,8 @@ Docker are in [Installation](installation.md#backup-and-restore).
 
 ## Deploy on a server
 
+Full checklist for a shared server: [Security hardening guide](security-hardening.md).
+
 1. **Token and login are mandatory.** Set `TRACEREPORTS_TOKEN`, `TRACEREPORTS_UI_USER` and
    `TRACEREPORTS_UI_PASSWORD` in the `.env`.
 2. **Always behind HTTPS.** HTTP Basic and the token travel in plain text without TLS. Put a

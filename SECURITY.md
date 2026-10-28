@@ -28,6 +28,12 @@ Especially relevant:
 - Access to reports, settings or the API without the configured token or UI login.
 - Evidence or AI prompts leaking to places the user did not configure.
 
+## Running it securely
+
+The [security hardening guide](docs/en/security-hardening.md) ([español](docs/es/security-hardening.md))
+covers the production profile, the network, the hardened container, volume encryption, test data,
+retention and a checklist.
+
 ## Verifying a release
 
 Every release since this policy was added is **signed without keys** with

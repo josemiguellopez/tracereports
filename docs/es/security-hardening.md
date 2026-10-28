@@ -1,0 +1,153 @@
+# Guía de hardening
+
+🌐 [English](../en/security-hardening.md) · **Español**
+
+Cómo dejar TraceReports listo para un ambiente con evidencia sensible: qué configurar, qué hace la
+herramienta por su cuenta y qué queda del lado de tu infraestructura. Al final hay un
+[checklist](#checklist) para revisar antes de abrirlo a un equipo.
+
+TraceReports guarda evidencia de ejecuciones reales: pasos, capturas, llamadas de red, el DOM y los
+errores. Trátalo como cualquier sistema que guarda datos de tus ambientes de prueba.
+
+## Lo que ya viene por defecto
+
+| Control | Detalle |
+|---|---|
+| No queda abierto a la red | Sin token ni login escucha solo en este equipo; en Docker o con un `TRACEREPORTS_BIND` de red **no arranca**. Ver [Seguridad](configuration.md#seguridad) |
+| Diagnóstico sin salida de datos | Sin key de IA diagnostica el [motor local](configuration.md#motor-local-de-diagnóstico-sin-llm): sin red y sin LLM |
+| Secretos enmascarados | Headers, cookies, tokens, contraseñas y claves sensibles en JSON, formularios, URLs y el DOM se enmascaran **antes** de guardarse. Ver [Datos sensibles](configuration.md#datos-sensibles-y-retención) |
+| Capturas tapadas | Los clientes tapan `input[type=password]` y `[data-tracereports-mask]` antes de capturar |
+| Borrado seguro | `secure_delete` en SQLite y `VACUUM` después de cada purga: lo borrado no queda en el archivo |
+| Archivos privados | `DATA_DIR` con permisos `0700`; capturas y artefactos `0600` |
+| Imagen mínima | `distroless/static:nonroot`: sin shell, sin paquetes, usuario sin privilegios |
+| Releases verificables | Firma cosign, SBOM y provenance. Ver [Verifying a release](../../SECURITY.md#verifying-a-release) |
+
+## Perfil de producción
+
+Un `.env` de partida para un servidor compartido:
+
+```ini
+# acceso
+TRACEREPORTS_TOKEN=            # openssl rand -hex 32: el token de administración
+TRACEREPORTS_INGEST_TOKEN=     # otro distinto, restringido, para los clientes y CI
+TRACEREPORTS_UI_USER=qa
+TRACEREPORTS_UI_PASSWORD=      # una clave larga
+TRACEREPORTS_SETTINGS_LOCKED=1 # la configuración solo desde el entorno, nunca desde la UI
+
+# evidencia
+TRACEREPORTS_RETENTION_DAYS=90    # lo que tu política de datos permita
+TRACEREPORTS_SCREENSHOTS=failures # o off si en pantalla hay datos que no se pueden mostrar
+TRACEREPORTS_SCREENSHOT_MASK=     # selectores CSS de tu aplicación con datos sensibles
+
+# diagnóstico sin salida de datos: el motor local (por defecto) o un LLM dentro de tu red
+# AI_PROVIDER=builtin
+# AI_PROVIDER=ollama
+# AI_BASE_URL=http://ollama.interno:11434
+```
+
+- **Token e ingest token**: los clientes y el CI usan `TRACEREPORTS_INGEST_TOKEN` (envía resultados y lee,
+  nunca administra). `TRACEREPORTS_TOKEN` queda para quien administra. Ver
+  [Permisos de cada credencial](configuration.md#permisos-de-cada-credencial).
+- **Login de la UI**: protege las lecturas. Sin login, las lecturas solo se aceptan con un `Host` local o
+  de `TRACEREPORTS_ALLOWED_HOSTS`.
+- **`TRACEREPORTS_SETTINGS_LOCKED=1`**: nadie cambia el proveedor de IA ni su key desde la pantalla.
+- **HTTPS**: pon el servidor detrás de un proxy con TLS (Caddy, nginx, Traefik). El login HTTP Basic sin
+  TLS viaja en claro. Ver [Docker → Desplegar en un servidor](docker.md#desplegar-en-un-servidor).
+
+## Red
+
+- Publica el puerto solo donde haga falta. El `docker-compose.yml` del repositorio lo publica solo en
+  `127.0.0.1` y `::1`, pensado para un proxy en el mismo servidor.
+- Limita quién llega al puerto con el **firewall** del servidor, del cloud o del proxy: solo la red interna
+  desde la que corren los tests y desde la que se mira el reporte.
+- Sin login de UI, `TRACEREPORTS_ALLOWED_HOSTS` lista los nombres por los que se entra; un `Host`
+  desconocido recibe `403` (protección contra DNS rebinding).
+
+## Docker endurecido
+
+El `docker-compose.yml` del repositorio ya trae:
+
+```yaml
+read_only: true                 # solo se escribe en /data (el volumen) y /tmp
+tmpfs:
+  - /tmp:size=256m,mode=1777
+cap_drop: [ALL]                 # sin capabilities de Linux
+security_opt:
+  - no-new-privileges:true      # nada puede ganar privilegios (setuid)
+healthcheck:
+  test: ["CMD", "/tracereports", "health"]
+```
+
+Con `docker run`, lo mismo:
+
+```bash
+docker run -d --name tracereports --read-only --tmpfs /tmp:size=256m,mode=1777 --cap-drop ALL \
+  --security-opt no-new-privileges:true -p 127.0.0.1:8080:8080 -v tracereports-data:/data \
+  --env-file .env ghcr.io/josemiguellopez/tracereports
+```
+
+`tracereports health` consulta `GET /healthz`, que responde sin credenciales y sin datos (sirve también
+para un balanceador). En Kubernetes: `readOnlyRootFilesystem: true`, `runAsNonRoot: true`,
+`allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]` y un `emptyDir` en `/tmp`.
+
+## Cifrado del volumen
+
+La base (SQLite) y las capturas viven en `DATA_DIR`. Cífralo en el host:
+
+- **Linux**: el volumen o el disco sobre LUKS (`cryptsetup`).
+- **Windows**: BitLocker en el disco de `DATA_DIR`.
+- **Cloud**: el disco cifrado del proveedor (EBS, Azure Managed Disks, Persistent Disk), con claves
+  administradas por tu organización si la política lo pide.
+
+Los **backups** heredan lo que guardan: cífralos también, y aplica la misma retención.
+
+## Datos de prueba
+
+- Usa **datos sintéticos** en los ambientes donde corren los tests E2E. Ninguna redacción reemplaza a no
+  tener el dato.
+- No corras tests E2E contra **producción** con datos de personas reales.
+- Marca en tu aplicación lo sensible con `data-tracereports-mask` (o lístalo en
+  `TRACEREPORTS_SCREENSHOT_MASK`) para que ninguna captura lo muestre.
+- Si un dato llega como texto libre sin clave reconocible, agrega un patrón con
+  `TRACEREPORTS_REDACT_PATTERNS`.
+
+## Retención y borrado
+
+- `TRACEREPORTS_RETENTION_DAYS` borra cada 6 horas las ejecuciones más antiguas que N días, con sus
+  capturas, red, DOM y artefactos. Sin la variable no se borra nada, y el servidor lo avisa al arrancar.
+- Lo borrado se sobrescribe (`secure_delete`), la base se compacta (`VACUUM`) y la WAL se vacía: el
+  contenido purgado no queda en el archivo `.db`.
+
+## Salida de datos
+
+Por defecto TraceReports no envía nada fuera del servidor. Lo que **tú** configures sí sale:
+
+| Integración | Qué envía | Recomendación |
+|---|---|---|
+| LLM en la nube (Gemini, Claude, OpenAI) | El prompt del diagnóstico, redactado (nunca capturas) | Motor local u Ollama si la evidencia no puede salir |
+| Teams / Slack | Resumen de la ejecución: nombres de tests y errores | No los actives en canales donde esos datos no deben estar |
+| Tickets (GitHub, Jira, Azure DevOps) | El escalamiento que se crea a mano | Solo con trackers internos |
+| `TRACEREPORTS_AI_STATUS_URL` | Una consulta a la página de estado del proveedor | Desactívalo si no usas un LLM en la nube |
+
+## Verificar lo que instalas
+
+Comprueba la firma, el SBOM y la provenance del binario o la imagen antes de instalarlos:
+[Verifying a release](../../SECURITY.md#verifying-a-release).
+
+## Checklist
+
+- [ ] `TRACEREPORTS_TOKEN` y `TRACEREPORTS_INGEST_TOKEN` generados con `openssl rand -hex 32`, distintos.
+- [ ] Login de la UI (`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`) y HTTPS en el proxy.
+- [ ] `TRACEREPORTS_SETTINGS_LOCKED=1`.
+- [ ] Acceso a la red limitado por firewall a la red interna que corresponde.
+- [ ] Contenedor con `read_only`, `cap_drop: [ALL]`, `no-new-privileges` y usuario sin privilegios (la imagen
+      oficial ya es `nonroot`).
+- [ ] `DATA_DIR` sobre un volumen cifrado; backups cifrados.
+- [ ] `TRACEREPORTS_RETENTION_DAYS` según la política de datos.
+- [ ] Diagnóstico sin salida de datos: motor local u Ollama/LLM dentro de la red.
+- [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` u `off`) y `TRACEREPORTS_SCREENSHOT_MASK` con los campos
+      sensibles de la aplicación.
+- [ ] Ambientes de prueba con datos sintéticos; nada de E2E contra producción con datos reales.
+- [ ] Webhooks de Teams/Slack solo en canales donde los nombres de tests y errores pueden estar.
+- [ ] Firma y SBOM del release verificados.
+- [ ] TraceReports agregado al inventario de activos de tu organización, con su dueño.

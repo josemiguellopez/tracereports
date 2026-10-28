@@ -20,4 +20,6 @@ ENV PORT=8080 DATA_DIR=/data TRACEREPORTS_RUNTIME=docker
 VOLUME /data
 EXPOSE 8080
 USER nonroot:nonroot
+# sin shell ni curl en la imagen: el propio binario pregunta a /healthz
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 CMD ["/tracereports", "health"]
 ENTRYPOINT ["/tracereports"]

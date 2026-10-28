@@ -88,6 +88,8 @@ func main() {
 			err = runDemo(os.Args[2:])
 		case "selftest":
 			err = runSelftest(os.Args[2:])
+		case "health":
+			err = runHealth(os.Args[2:])
 		case "version", "-version", "--version":
 			fmt.Println("tracereports " + buildVersion())
 			return
@@ -102,11 +104,12 @@ func main() {
 				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code\n" +
 				"       tracereports demo         try it in a minute: sample data and a demo shop, only on this machine\n" +
 				"       tracereports selftest     play the scenarios recorded with the real clients and check the results\n" +
+				"       tracereports health       check that the server of this machine answers (Docker healthcheck)\n" +
 				"       tracereports version      print the version\n" +
 				"Each command explains its flags with -h. Guide: docs/en/cli.md")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest, version; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest, health, version; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
@@ -150,9 +153,12 @@ func runServer(parent context.Context) error {
 		slog.Warn("DATA_DIR is not the /data volume: the data will be lost when the container is recreated (remove DATA_DIR from the .env)", "data_dir", dataDir)
 	}
 	shotsDir := filepath.Join(dataDir, "screenshots")
-	if err := os.MkdirAll(shotsDir, 0o755); err != nil {
+	// DATA_DIR y las capturas: solo el usuario del servidor (pueden tener evidencia sensible)
+	if err := os.MkdirAll(shotsDir, 0o700); err != nil {
 		return err
 	}
+	restrictDir(dataDir)
+	restrictDir(shotsDir)
 
 	if err := checkLegacyDB(filepath.Join(dataDir, "tracereports.db")); err != nil {
 		return err

@@ -255,6 +255,7 @@ docker run -d --name tracereports -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracerep
 
 El contenedor no arranca sin un token o el login de la UI: quedaría abierto a la red.
 Ver [Seguridad](docs/es/configuration.md#seguridad).
+Para un servidor compartido, sigue la [guía de hardening](docs/es/security-hardening.md).
 
 **Sin Docker:** descarga el binario para tu sistema desde la [última versión](https://github.com/josemiguellopez/tracereports/releases/latest) (Linux, macOS y
 Windows, amd64 y arm64), descomprímelo y ejecuta `./tracereports` (`tracereports.exe` en Windows).
