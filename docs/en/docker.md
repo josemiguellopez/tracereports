@@ -32,7 +32,8 @@ Check it works with `docker version`: it must show `Client` and `Server`.
 
 > **First time with Docker or the terminal?** Follow
 > [Install with Docker, step by step](docker-step-by-step.md): every command, what you should see and
-> what to do if something fails, with screenshots.
+> what to do if something fails, with screenshots. Already have TraceReports and want to try another
+> version without touching yours? [Try without touching your installation](docker-isolated-trial.md).
 
 Two steps, **in this order**: first the `.env` with a token and the login, then start the container.
 Without a token or a login the container refuses to start.

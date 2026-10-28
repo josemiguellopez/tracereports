@@ -32,7 +32,8 @@ Comprueba que funciona con `docker version`: debe mostrar `Client` y `Server`.
 
 > **¿Primera vez con Docker o con la terminal?** Sigue
 > [Instalar con Docker, paso a paso](docker-paso-a-paso.md): cada comando, qué deberías ver y qué hacer
-> si algo falla, con capturas.
+> si algo falla, con capturas. ¿Ya tienes TraceReports y quieres probar otra versión sin tocar la tuya?
+> [Probar sin tocar tu instalación](docker-prueba-aislada.md).
 
 Son dos pasos, **en este orden**: primero el `.env` con un token y el login, después arrancar el
 contenedor. Sin token ni login el contenedor se niega a arrancar.

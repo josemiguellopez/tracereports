@@ -18,7 +18,8 @@ desplegable **"macOS / Linux"** debajo.
 
 > **¿Ya tienes TraceReports instalado con Docker en este equipo?** Haz también el
 > [paso 3b](#paso-3b--opcional-si-ya-tienes-tracereports-instalado) para no reemplazar tu instalación ni
-> sus datos.
+> sus datos. Si solo quieres **probar** una versión y al final volver a la tuya, sigue en cambio
+> [Probar sin tocar tu instalación](docker-prueba-aislada.md): el paso a paso completo, con limpieza al final.
 >
 > **Tiempo:** unos 30 minutos. La primera vez Docker descarga y construye la imagen (1 a 3 minutos).
 >
@@ -145,6 +146,10 @@ ls docker-compose.yml .env.example
 🎯 **Haz este paso solo si en este equipo ya tienes otra instalación de TraceReports con Docker** (por
 ejemplo, quieres probar una versión nueva sin perder la que usas). Si es tu primera instalación, sáltalo y
 ve al paso 4.
+
+> ¿Quieres **probar** una versión nueva y al final volver a tu instalación, dejando todo como
+> estaba? Sigue [Probar sin tocar tu instalación](docker-prueba-aislada.md): es este mismo caso, de 0 a 100,
+> con las pruebas de seguridad y la limpieza final.
 
 **Por qué hace falta:** Docker identifica cada instalación por el **nombre de su carpeta**. Si tu
 instalación anterior también está en una carpeta llamada `tracereports`, Docker creería que la nueva es la

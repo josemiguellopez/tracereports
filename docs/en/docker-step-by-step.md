@@ -18,7 +18,9 @@ collapsible **"macOS / Linux"** block below.
 
 > **Already have TraceReports installed with Docker on this computer?** Also do
 > [step 3b](#step-3b--optional-if-tracereports-is-already-installed) so you do not replace that
-> installation or its data.
+> installation or its data. If you only want to **try** a version and go back to yours at the end, follow
+> [Try without touching your installation](docker-isolated-trial.md) instead: the whole step by step, with a
+> clean-up at the end.
 >
 > **Time:** about 30 minutes. The first time, Docker downloads and builds the image (1 to 3 minutes).
 >
@@ -148,6 +150,10 @@ ls docker-compose.yml .env.example
 🎯 **Do this step only if this computer already has another TraceReports installation with Docker** (for
 example, you want to try a new version without losing the one you use). If this is your first installation,
 skip it and go to step 4.
+
+> Want to **try** a new version and go back to your installation at the end, leaving everything as it
+> was? Follow [Try without touching your installation](docker-isolated-trial.md): this same case, end to
+> end, with the security checks and the final clean-up.
 
 **Why it is needed:** Docker identifies each installation by the **name of its folder**. If your previous
 installation is also in a folder called `tracereports`, Docker would think the new one is the same: **it

@@ -31,7 +31,10 @@ warning, and anyone who reached the port could read and change the reports. Now 
 - **Install with Docker, step by step** (`docs/en/docker-step-by-step.md`, `docs/es/docker-paso-a-paso.md`): a
   guide for people new to Docker or the terminal, from installing Docker to the first report, with what to
   expect at every step, screenshots, real outputs and the fixes for common errors; linked from the READMEs
-  and the Docker guide. The Docker guide's "First start" now creates the `.env` with the token and login
+  and the Docker guide. A companion guide, **Try with Docker without touching your installation**
+  (`docs/en/docker-isolated-trial.md`, `docs/es/docker-prueba-aislada.md`), runs another version next to an
+  existing one (own project, image and volume), checks everything and puts the existing one back at the end.
+  The Docker guide's "First start" now creates the `.env` with the token and login
   before `docker compose up -d` (before, the container refused to start on the first try).
 
 - **Similar incidents**: each classified failure is indexed by its signature (TF-IDF in pure Go, no AI), and the

@@ -417,7 +417,7 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 ## Documentación
 
 - [Guía completa](GUIA-COMPLETA.md)
-- [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Docker, paso a paso](docs/es/docker-paso-a-paso.md) · [Configuración](docs/es/configuration.md) · [Línea de comandos](docs/es/cli.md)
+- [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Docker, paso a paso](docs/es/docker-paso-a-paso.md) · [Probar Docker sin tocar tu instalación](docs/es/docker-prueba-aislada.md) · [Configuración](docs/es/configuration.md) · [Línea de comandos](docs/es/cli.md)
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md) · [Demo, playground y selftest](docs/es/demo.md): pruébalo en un minuto y comprueba un despliegue
 - [Allure](docs/es/allure.md): tus resultados de Allure, diagnosticados con IA
 - [Selenium](docs/es/selenium.md): red, consola y selectores sugeridos con Selenium en Python, JavaScript y Java

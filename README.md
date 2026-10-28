@@ -411,7 +411,7 @@ its screenshot, network calls and diagnosis.
 ## Documentation
 
 - [Full feature tour](README.en.md)
-- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Docker, step by step](docs/en/docker-step-by-step.md) · [Configuration](docs/en/configuration.md) · [Command line](docs/en/cli.md)
+- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Docker, step by step](docs/en/docker-step-by-step.md) · [Docker isolated trial](docs/en/docker-isolated-trial.md) · [Configuration](docs/en/configuration.md) · [Command line](docs/en/cli.md)
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md) · [Demo, playground and selftest](docs/en/demo.md): try it in a minute and check a deployment
 - [Allure](docs/en/allure.md): your Allure results, diagnosed with AI
 - [Selenium](docs/en/selenium.md): network, console and suggested selectors with Selenium in Python, JavaScript and Java
