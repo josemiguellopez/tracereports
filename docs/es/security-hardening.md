@@ -101,6 +101,46 @@ La base (SQLite) y las capturas viven en `DATA_DIR`. Cífralo en el host:
 
 Los **backups** heredan lo que guardan: cífralos también, y aplica la misma retención.
 
+### Cifrado de la evidencia en la aplicación (opcional)
+
+Además del volumen, el servidor puede cifrar por su cuenta la evidencia que más muestra (lo que había en
+la pantalla): **capturas, traces, videos y las instantáneas del DOM**. Sirve cuando no controlas el
+cifrado del host, o como segunda capa sobre él.
+
+```ini
+TRACEREPORTS_ENCRYPT_AT_REST=1
+TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key   # o TRACEREPORTS_DB_KEY=<openssl rand -base64 32>
+```
+
+- **AES-256-GCM** autenticado, por bloques de 64 KiB: un archivo alterado, truncado o con bloques
+  movidos no se sirve. Cada uso tiene su subclave (HKDF-SHA256): archivos y DOM nunca comparten clave.
+- **La clave nunca va dentro de `DATA_DIR`**: el servidor no arranca si `TRACEREPORTS_DB_KEY_FILE` apunta
+  ahí (un volumen robado llevaría su propia clave). Usa un secret de Docker/Kubernetes, un Key Vault
+  montado como archivo o la variable de entorno.
+- **Fail-closed**: con `TRACEREPORTS_ENCRYPT_AT_REST=1` y sin una clave válida, el servidor no arranca.
+- **La UI, el export ZIP y los tickets** ven la evidencia como siempre (se descifra al leerla; los videos
+  se siguen pudiendo adelantar). El ZIP exportado va **descifrado**: quien exporta ya podía verla.
+- **Sin la clave la evidencia cifrada no se puede leer**: guárdala como guardas los backups, y por
+  separado de ellos.
+
+Las capturas guardadas **antes** de activarlo siguen en claro y se siguen viendo. Para cifrarlas (con el
+servidor detenido y un backup de `DATA_DIR`):
+
+```bash
+tracereports evidence status              # cuántas hay en claro y con qué clave (su id, nunca la clave)
+tracereports evidence encrypt -dry-run
+tracereports evidence encrypt
+```
+
+**Rotar la clave**: la nueva en `TRACEREPORTS_DB_KEY`, la anterior en `TRACEREPORTS_DB_KEY_PREVIOUS`,
+`tracereports evidence rekey`, y al terminar quita la anterior. Mientras tanto el servidor lee con las dos.
+
+**Lo que no cubre**: la base SQLite en sí (nombres de tests, errores, pasos, llamadas de red) sigue sin
+cifrar dentro de `DATA_DIR`: el cifrado del volumen sigue haciendo falta. Cifrar SQLite entero en Go
+puro (sin CGO) costaba más de lo aceptable en la prueba de concepto (VFS `xts`: +57 % al ingerir en
+Linux y consultas 3-4 veces más lentas; además no autentica las páginas). Al reescribir un archivo en
+claro, su contenido viejo puede quedar en bloques libres del disco: otra razón para el volumen cifrado.
+
 ## Datos de prueba
 
 - Usa **datos sintéticos** en los ambientes donde corren los tests E2E. Ninguna redacción reemplaza a no
@@ -143,6 +183,7 @@ Comprueba la firma, el SBOM y la provenance del binario o la imagen antes de ins
 - [ ] Contenedor con `read_only`, `cap_drop: [ALL]`, `no-new-privileges` y usuario sin privilegios (la imagen
       oficial ya es `nonroot`).
 - [ ] `DATA_DIR` sobre un volumen cifrado; backups cifrados.
+- [ ] Opcional: `TRACEREPORTS_ENCRYPT_AT_REST=1` con la clave fuera de `DATA_DIR` y respaldada aparte.
 - [ ] `TRACEREPORTS_RETENTION_DAYS` según la política de datos.
 - [ ] Diagnóstico sin salida de datos: motor local u Ollama/LLM dentro de la red.
 - [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` u `off`) y `TRACEREPORTS_SCREENSHOT_MASK` con los campos

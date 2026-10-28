@@ -101,6 +101,47 @@ The database (SQLite) and the screenshots live in `DATA_DIR`. Encrypt it on the 
 
 **Backups** inherit what they store: encrypt them too, and apply the same retention.
 
+### Application-level evidence encryption (optional)
+
+On top of the volume, the server can encrypt by itself the evidence that shows the most (what was on the
+screen): **screenshots, traces, videos and DOM snapshots**. Use it when you do not control the host's
+encryption, or as a second layer over it.
+
+```ini
+TRACEREPORTS_ENCRYPT_AT_REST=1
+TRACEREPORTS_DB_KEY_FILE=/run/secrets/tracereports_db_key   # or TRACEREPORTS_DB_KEY=<openssl rand -base64 32>
+```
+
+- **Authenticated AES-256-GCM** in 64 KiB chunks: a file that was altered, truncated or had chunks moved
+  is not served. Each use has its own subkey (HKDF-SHA256): files and DOM never share a key.
+- **The key never goes inside `DATA_DIR`**: the server does not start if `TRACEREPORTS_DB_KEY_FILE` points
+  there (a stolen volume would carry its own key). Use a Docker/Kubernetes secret, a Key Vault mounted as
+  a file, or the environment variable.
+- **Fail-closed**: with `TRACEREPORTS_ENCRYPT_AT_REST=1` and no valid key, the server does not start.
+- **The UI, the ZIP export and tickets** see the evidence as always (it is decrypted when read; videos can
+  still be scrubbed). The exported ZIP is **decrypted**: whoever exports could already see it.
+- **Without the key the encrypted evidence cannot be read**: keep it as you keep the backups, and apart
+  from them.
+
+Screenshots stored **before** turning it on stay in clear and are still shown. To encrypt them (server
+stopped, `DATA_DIR` backed up):
+
+```bash
+tracereports evidence status              # how many are in clear and with which key (its id, never the key)
+tracereports evidence encrypt -dry-run
+tracereports evidence encrypt
+```
+
+**Rotating the key**: the new one in `TRACEREPORTS_DB_KEY`, the previous one in
+`TRACEREPORTS_DB_KEY_PREVIOUS`, `tracereports evidence rekey`, and when it ends remove the previous one.
+Meanwhile the server reads with both.
+
+**What it does not cover**: the SQLite database itself (test names, errors, steps, network calls) stays
+unencrypted inside `DATA_DIR`: volume encryption is still needed. Encrypting the whole SQLite in pure Go
+(no CGO) cost more than acceptable in the proof of concept (`xts` VFS: +57 % ingest time on Linux and
+queries 3-4 times slower; it does not authenticate pages either). When a plain file is rewritten, its old
+content may survive in free disk blocks: one more reason for the encrypted volume.
+
 ## Test data
 
 - Use **synthetic data** in the environments where E2E tests run. No redaction replaces not having the data.
@@ -142,6 +183,7 @@ Check the signature, SBOM and provenance of the binary or image before installin
 - [ ] Container with `read_only`, `cap_drop: [ALL]`, `no-new-privileges` and an unprivileged user (the
       official image already is `nonroot`).
 - [ ] `DATA_DIR` on an encrypted volume; encrypted backups.
+- [ ] Optional: `TRACEREPORTS_ENCRYPT_AT_REST=1` with the key outside `DATA_DIR` and backed up apart.
 - [ ] `TRACEREPORTS_RETENTION_DAYS` per the data policy.
 - [ ] Diagnosis with no data leaving: local engine or Ollama/LLM inside the network.
 - [ ] `TRACEREPORTS_SCREENSHOTS` (`failures` or `off`) and `TRACEREPORTS_SCREENSHOT_MASK` with the

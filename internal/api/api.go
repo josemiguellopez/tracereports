@@ -22,6 +22,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
@@ -54,7 +55,10 @@ type Server struct {
 	Live           *live.Hub // eventos en vivo (SSE); nil = desactivado
 	Auth           Auth
 	ScreenshotsDir string
-	Web            fs.FS // root containing index.html, style.css, app.js
+	// Vault encrypts the evidence at rest (TRACEREPORTS_ENCRYPT_AT_REST): the files of
+	// ScreenshotsDir and, through the Store, the DOM snapshots. nil = in clear, as before.
+	Vault *atrest.Vault
+	Web   fs.FS // root containing index.html, style.css, app.js
 	// SettingsLocked (TRACEREPORTS_SETTINGS_LOCKED) makes the Settings screen read-only: the
 	// configuration comes only from the environment.
 	SettingsLocked bool
@@ -163,7 +167,8 @@ func (s *Server) Router() http.Handler {
 		r.Get("/network/{conn_id}/capsule", s.connCapsule)
 	})
 
-	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))
+	// la evidencia se descifra al servirla (TRACEREPORTS_ENCRYPT_AT_REST); en claro, se sirve tal cual
+	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(s.serveEvidence()))))
 	r.Handle("/*", http.FileServer(http.FS(s.Web)))
 	// /healthz va antes de la autenticación: el healthcheck de Docker o de un balanceador no tiene
 	// credenciales, y la respuesta no dice nada de los datos
@@ -629,8 +634,8 @@ func (s *Server) saveScreenshotFile(testID int64, data []byte) (string, error) {
 		return "", errNotImage
 	}
 	name := fmt.Sprintf("t%d_%d%s", testID, time.Now().UnixNano(), ext)
-	// solo el usuario del servidor la lee: puede mostrar datos de los tests
-	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o600); err != nil {
+	// solo el usuario del servidor la lee (0600): puede mostrar datos de los tests
+	if err := s.shots().WriteFile(name, data); err != nil {
 		return "", err
 	}
 	return "/screenshots/" + name, nil

@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -221,7 +220,7 @@ func (s *Server) issueFrom(e *ai.Escalation) *tracker.Issue {
 		devIssue(is, d, tl, s.publicURL(), len(f.Dev) > 1 || f.TestName == "")
 	}
 	if name := filepath.Base(f.Screenshot); strings.HasPrefix(f.Screenshot, "/screenshots/") && name != "." {
-		if img, err := os.ReadFile(filepath.Join(s.ScreenshotsDir, name)); err == nil && len(img) <= maxScreenshotBody {
+		if img, err := s.shots().ReadFile(name); err == nil && len(img) <= maxScreenshotBody {
 			is.Image = img
 		}
 	}
