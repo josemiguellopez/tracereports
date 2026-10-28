@@ -100,6 +100,11 @@ func (a *Analyzer) checkStatus(ctx context.Context, c Config, override string) *
 	if c.Provider == "" {
 		return s
 	}
+	if c.Provider == ProviderBuiltin {
+		// dentro del binario: siempre disponible, y su estado no se consulta en ningún sitio
+		s.Source, s.Indicator, s.Description = "local", "none", c.withDefaults().Model
+		return s
+	}
 	page := statusPages[c.Provider]
 	api, keep := page.api, page.component
 	s.PageURL = page.page

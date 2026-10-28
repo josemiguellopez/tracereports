@@ -18,7 +18,15 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go vet ./...
-      - run: go test ./...
+      # detector de carreras: necesita CGO solo para compilar los tests; el binario publicado
+      # sigue siendo estático (CGO_ENABLED=0 en .goreleaser.yaml y en el Dockerfile)
+      - run: go test -race ./...
+        env:
+          CGO_ENABLED: "1"
+      - name: El binario compila sin CGO
+        run: go build -o /dev/null ./cmd
+        env:
+          CGO_ENABLED: "0"
 
   client-python:
     name: Client (Python)

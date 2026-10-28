@@ -6,6 +6,24 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Local diagnosis engine, no LLM** (`AI_PROVIDER=builtin`, the new default): a versioned catalog of
+  deterministic rules inside the binary explains why each test failed (backend 5xx, 429 or no answer,
+  DNS/refused/TLS, 401/403, changed selector, assertion with expected and actual values, uncaught JavaScript
+  error, flaky test, environment down) and writes the run summary, in Spanish or English. It uses no network,
+  no model and no API key, so the diagnosis works from the first `docker run` and test data never leaves the
+  server. The UI labels it **Local engine** with the rule that concluded it. With an LLM configured, the engine
+  runs first and the model gets its (redacted) conclusion to confirm or correct it
+  (`TRACEREPORTS_AI_BUILTIN_HINT=0` turns that off). `tracereports report` uses it without `--ai`, and
+  `tracereports selftest` reports its hit rate over the recorded scenarios (minimum 90 %).
+
+### Changed
+
+- **Without an AI key, failures are now diagnosed by the local engine** instead of not at all. To keep the
+  previous behavior (no diagnosis), set `AI_PROVIDER=off`. Existing LLM setups do not change.
+- CI runs the Go tests with the race detector and checks that the server still builds without CGO.
+
 ## [0.5.0] - 2026-10-16
 
 Server only: the clients did not change (Python 0.4.0, JavaScript 0.3.0, Java 0.3.0 and Go stay as they are).

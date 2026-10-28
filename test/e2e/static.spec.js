@@ -60,7 +60,9 @@ test("Allure: pasos, captura y fallos en el reporte estático", async ({ page })
 	const img = detail.locator('img[src*="screenshots/"]').first();
 	await expect(img).toBeVisible();
 	expect(await img.evaluate((i) => i.naturalWidth)).toBeGreaterThan(0);
+	// con el diagnóstico del motor local, Errores agrupa por categoría: el ConnectionError es de infraestructura
 	await page.locator('[data-view="exceptions"]').first().click();
+	await page.locator("#exception-collection .collection-item", { hasText: "INFRA_ERROR" }).click();
 	await expect(page.locator("#view-exceptions")).toContainText("ConnectionError");
 });
 

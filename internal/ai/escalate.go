@@ -359,7 +359,7 @@ func EscalateTemplate(f *Facts, runID, testID int64, audience, lang string) *Esc
 
 func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, audience, lang string) *Escalation {
 	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
-	if a.Enabled() {
+	if a.UsesLLM() { // el motor local no redacta: la plantilla ya es lo suyo
 		start := time.Now()
 		ctx, calls := withCallTiming(ctx)
 		err := a.escalateAI(ctx, e)

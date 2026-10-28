@@ -59,9 +59,19 @@ func TestRecoverResumesPendingWork(t *testing.T) {
 		t.Fatal("the recovered run diagnosis must notify like a finished run")
 	}
 
-	// sin IA configurada: el pendiente se cierra con un error explicado, no queda colgado
+	// sin LLM: el motor local retoma el pendiente
 	store.SetTriagePending(id)
 	clearEnv(t)
+	local := New(store)
+	local.Recover(nil)
+	waitAll(t, local)
+	if got, _ := store.GetTest(id); got.Triage.State != "DONE" || got.Triage.Provider != ProviderBuiltin {
+		t.Fatalf("pending with the local engine must be diagnosed: %+v", got.Triage)
+	}
+
+	// diagnóstico apagado: el pendiente se cierra con un error explicado, no queda colgado
+	store.SetTriagePending(id)
+	t.Setenv("AI_PROVIDER", "off")
 	New(store).Recover(nil)
 	if got, _ := store.GetTest(id); got.Triage.State != "ERROR" || got.Triage.Error == "" {
 		t.Fatalf("pending without AI must become ERROR: %+v", got.Triage)

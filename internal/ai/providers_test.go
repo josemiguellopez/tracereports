@@ -136,9 +136,22 @@ func TestConfigFromEnvAndValidate(t *testing.T) {
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_HOST"} {
 		t.Setenv(k, "")
 	}
-	if c := ConfigFromEnv(); c.Provider != "" {
-		t.Fatalf("no env -> AI off, got %+v", c)
+	if c := ConfigFromEnv(); c.Provider != ProviderBuiltin || c.Model != "rules-v1" || c.BaseURL != "" || c.APIKey != "" || c.Validate() != nil {
+		t.Fatalf("no env -> local rules engine, got %+v", c)
 	}
+	t.Setenv("AI_PROVIDER", "off")
+	if c := ConfigFromEnv(); c.Provider != "" {
+		t.Fatalf("AI_PROVIDER=off -> off, got %+v", c)
+	}
+	t.Setenv("AI_PROVIDER", "builtin")
+	t.Setenv("AI_API_KEY", "must-not-be-kept")
+	t.Setenv("AI_BASE_URL", "https://example.invalid")
+	if c := ConfigFromEnv(); c.Provider != ProviderBuiltin || c.APIKey != "" || c.BaseURL != "" {
+		t.Fatalf("builtin never keeps a key or URL: %+v", c)
+	}
+	t.Setenv("AI_PROVIDER", "")
+	t.Setenv("AI_API_KEY", "")
+	t.Setenv("AI_BASE_URL", "")
 	t.Setenv("ANTHROPIC_API_KEY", "k")
 	if c := ConfigFromEnv(); c.Provider != "anthropic" || c.Model != "claude-opus-5-5" || c.BaseURL != "https://api.anthropic.com" {
 		t.Fatalf("anthropic inferred: %+v", c)
