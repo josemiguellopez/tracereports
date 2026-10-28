@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -28,7 +29,7 @@ type File interface {
 
 // path keeps name inside the folder (only a bare file name is accepted).
 func (d Dir) path(name string) (string, error) {
-	if name == "" || name == "." || name == ".." || name != filepath.Base(name) {
+	if name == "" || name == "." || strings.Contains(name, "..") || strings.ContainsAny(name, `/\`) || name != filepath.Base(name) {
 		return "", os.ErrNotExist
 	}
 	return filepath.Join(d.Path, name), nil

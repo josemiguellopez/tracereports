@@ -32,11 +32,16 @@ func (s *Server) serveEvidence() http.Handler {
 			return
 		case err != nil:
 			// sin la clave que la abre, o alterada: se registra sin contenido y no se sirve
-			slog.Error("evidence: cannot read", "file", name, "err", err)
+			slog.Error("evidence: cannot read", "file", oneLine(name), "err", oneLine(err.Error()))
 			writeError(w, http.StatusInternalServerError, "the evidence cannot be read with the configured key")
 			return
 		}
 		defer f.Close()
 		http.ServeContent(w, r, name, f.ModTime(), f)
 	})
+}
+
+// oneLine keeps a value that came in a URL on one log line (no forged log entries).
+func oneLine(s string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", " ")
 }
