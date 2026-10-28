@@ -51,6 +51,10 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 ### Security
 
+- **Screenshot policy on the server** (`TRACEREPORTS_SCREENSHOTS=all|failures|off`): with `failures` only the
+  screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
+  trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.
+  It also applies to Allure imports and `tracereports report`.
 - **Signed releases**: binaries (through `checksums.txt`) and the Docker image are signed keyless with
   cosign, carry an SPDX SBOM and a SLSA provenance attestation. How to verify them: `SECURITY.md`.
 - **govulncheck** fails CI when reachable code has a known vulnerability; **CodeQL** analyzes Go,

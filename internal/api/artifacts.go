@@ -67,7 +67,13 @@ func (s *Server) uploadArtifact(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusUnsupportedMediaType, "the file is not a "+kind+" ("+map[string]string{"trace": "ZIP", "video": "WebM or MP4"}[kind]+")")
 		return
 	}
-	if _, err := s.Store.GetTest(id); respondErr(w, err, "test") {
+	t, err := s.Store.GetTest(id)
+	if respondErr(w, err, "test") {
+		return
+	}
+	// el trace y el video muestran la pantalla: siguen la política de capturas
+	if !s.screenshotAllowed("", t.Status) {
+		s.screenshotRefused(w)
 		return
 	}
 	name := fmt.Sprintf("a%d_%d%s", id, time.Now().UnixNano(), ext)

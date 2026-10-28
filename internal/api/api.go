@@ -76,6 +76,9 @@ type Server struct {
 	ReleaseGate *release.Gate
 	// Lab configures FixLab's Request Lab (TRACEREPORTS_LAB, TRACEREPORTS_LAB_HOSTS).
 	Lab LabConfig
+	// Screenshots is the screenshot policy (TRACEREPORTS_SCREENSHOTS: all, failures or off;
+	// "" = all). See screenshot_policy.go.
+	Screenshots string
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -572,7 +575,12 @@ func (s *Server) uploadScreenshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "status must be one of INFO, PASS, FAIL, WARNING, SKIP")
 		return
 	}
-	if _, err := s.Store.GetTest(id); respondErr(w, err, "test") {
+	t, err := s.Store.GetTest(id)
+	if respondErr(w, err, "test") {
+		return
+	}
+	if !s.screenshotAllowed(status, t.Status) {
+		s.screenshotRefused(w)
 		return
 	}
 
@@ -622,8 +630,16 @@ func (s *Server) removeScreenshotFile(url string) {
 // errNotImage: the bytes are not a PNG, JPEG, GIF or WEBP image.
 var errNotImage = errors.New("only PNG, JPEG, GIF or WEBP images are accepted")
 
-// storeScreenshot saves an image of a test and records it as a step (ts 0 = now).
-func (s *Server) storeScreenshot(testID int64, data []byte, status, message string, ts int64) (*db.Log, error) {
+// errScreenshotPolicy: TRACEREPORTS_SCREENSHOTS does not allow keeping this image.
+var errScreenshotPolicy = errors.New("screenshot not kept (TRACEREPORTS_SCREENSHOTS)")
+
+// storeScreenshot saves an image of a test and records it as a step (ts 0 = now); testStatus is
+// the result of its test when known. When the policy does not allow it, nothing is stored and it
+// returns errScreenshotPolicy.
+func (s *Server) storeScreenshot(testID int64, data []byte, status, testStatus, message string, ts int64) (*db.Log, error) {
+	if !s.screenshotAllowed(status, testStatus) {
+		return nil, errScreenshotPolicy
+	}
 	url, err := s.saveScreenshotFile(testID, data)
 	if err != nil {
 		return nil, err
