@@ -23,6 +23,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { env } from "./env.js";
 import { TraceReports } from "./index.js";
+import { MASKED_SHOT, screenshotAllowed, screenshotsPolicy } from "./mask.js";
 
 const ANSI = /\u001b\[[0-9;]*m/g;
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
@@ -131,17 +132,25 @@ export default class TraceReportsReporter {
       }));
       for (const l of [...steps, ...logs].sort((a, b) => a.timestamp - b.timestamp)) ct.log(l.status, l.message, l.timestamp);
 
+      // la captura automática de Playwright no viene tapada: si los fixtures dejaron la suya, va esa
+      const masked = result.attachments.some((a) => a.name === MASKED_SHOT);
+      // trace y video muestran la pantalla: siguen TRACEREPORTS_SCREENSHOTS
+      const policy = screenshotsPolicy();
+      const artifacts = policy === "all" || (policy === "failures" && unexpected);
       for (const att of result.attachments) {
+        if (att.name === "screenshot" && masked) continue;
+        const isImage = att.contentType?.startsWith("image/");
+        if (isImage && !screenshotAllowed(unexpected ? "FAIL" : "INFO")) continue;
         const body = att.body ?? (att.path && fs.existsSync(att.path) ? fs.readFileSync(att.path) : null);
         if (!body) continue;
         if (att.name === "tracereports-network") ct.network(JSON.parse(body.toString()));
         else if (att.name === "tracereports-dom") ct.dom(JSON.parse(body.toString()));
         else if (att.name === "tracereports-console") ct.console(JSON.parse(body.toString()));
-        else if (att.contentType?.startsWith("image/")) ct.screenshot(body, att.name === "screenshot" ? "Captura al fallar" : att.name,
+        else if (isImage) ct.screenshot(body, att.name === "screenshot" || att.name === MASKED_SHOT ? "Captura al fallar" : att.name,
           unexpected ? "FAIL" : "INFO");
         // trace: "on" / "retain-on-failure" / "on-first-retry"; video: lo mismo en use.video
-        else if (att.name === "trace" && att.contentType === "application/zip") ct.artifact("trace", body, `trace-${result.retry + 1}.zip`);
-        else if (att.contentType?.startsWith("video/")) ct.artifact("video", body, att.name === "video" ? `video-${result.retry + 1}` : att.name);
+        else if (att.name === "trace" && att.contentType === "application/zip") { if (artifacts) ct.artifact("trace", body, `trace-${result.retry + 1}.zip`); }
+        else if (att.contentType?.startsWith("video/")) { if (artifacts) ct.artifact("video", body, att.name === "video" ? `video-${result.retry + 1}` : att.name); }
       }
       const final = asExpected || skipped || result.retry >= test.retries;
       if (!final) {

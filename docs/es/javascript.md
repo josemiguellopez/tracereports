@@ -66,7 +66,7 @@ Qué se reporta:
 - el resultado respeta a Playwright: con `test.fail()`, fallar es el resultado esperado (se reporta
   PASS, con el error como paso de aviso) y pasar es un fallo (*se esperaba que fallara*);
 - con los fixtures: **todas las llamadas HTTP del navegador** (pestaña Red) y, si falla, el
-  **snapshot del DOM** (recomendador de locators) y una captura si el proyecto no la toma ya;
+  **snapshot del DOM** (recomendador de locators) y una captura con los datos sensibles tapados;
 - `TRACEREPORTS_STRICT=1` (u opción `strict`) hace fallar la corrida si parte de la evidencia no llegó
   o si el servidor no confirmó el cierre de la ejecución (`delivery.runNotClosed`).
 
@@ -97,6 +97,25 @@ consola salen de los logs de Chrome y Edge, así que crea el driver con `seleniu
 Paso a paso: [Selenium](selenium.md).
 
 Ejemplo completo con `node:test`: [`examples/selenium-js`](../../examples/selenium-js).
+
+## Capturas sin datos sensibles
+
+Antes de cada captura, el cliente **tapa** (un recuadro magenta) los elementos sensibles: siempre
+`input[type=password]` y los que tienen el atributo `data-tracereports-mask`, más los selectores CSS de
+`TRACEREPORTS_SCREENSHOT_MASK` (`"input[name=rut], .numero-tarjeta"`).
+`TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS=off` deja de tapar los de siempre.
+
+- **Playwright Test** con los fixtures de `tracereports/playwright`: al fallar se toma una captura con la
+  opción `mask` de Playwright, y el reporter la sube **en vez de** la automática de
+  `screenshot: "only-on-failure"`, que Playwright toma sin máscara. Solo con el reporter (sin los
+  fixtures) la captura automática sube tal cual: usa los fixtures si en pantalla hay datos sensibles.
+- **Selenium**: `screenshot(driver)` y `withDriver` ponen recuadros sobre esos elementos, capturan y los
+  quitan, también si la captura falla (el DOM queda igual). Si no se puede tapar, no se captura.
+- En tu código: `playwrightScreenshot(page)` (de `tracereports/playwright`) en vez de `page.screenshot()`.
+
+`TRACEREPORTS_SCREENSHOTS` decide qué se envía: `all` (por defecto), `failures` (solo capturas de un paso
+`FAIL`, y trace y video solo de tests fallidos) u `off` (nada de eso). El servidor aplica la misma
+variable por su cuenta (ver [Configuración → Capturas de pantalla](configuration.md#capturas-de-pantalla)).
 
 ## API
 

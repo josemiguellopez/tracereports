@@ -65,7 +65,7 @@ What gets reported:
 - the outcome follows Playwright: with `test.fail()`, failing is the expected result (reported as
   PASS, with the error as a warning step) and passing is a failure (*expected to fail*);
 - with the fixtures: **every HTTP call the browser made** (Network tab) and, on failure, the **DOM
-  snapshot** (locator recommender) and a screenshot if the project does not take one;
+  snapshot** (locator recommender) and a screenshot with sensitive data covered;
 - `TRACEREPORTS_STRICT=1` (or the `strict` option) fails the run if part of the evidence did not arrive
   or the server did not confirm the run was closed (`delivery.runNotClosed`).
 
@@ -96,6 +96,26 @@ network and console come from Chrome's and Edge's logs, so create the driver wit
 `seleniumOptions(options)`. Step by step: [Selenium](selenium.md).
 
 Full example with `node:test`: [`examples/selenium-js`](../../examples/selenium-js).
+
+## Screenshots without sensitive data
+
+Before every screenshot, the client **covers** (a magenta box) the sensitive elements: always
+`input[type=password]` and those with the `data-tracereports-mask` attribute, plus the CSS selectors of
+`TRACEREPORTS_SCREENSHOT_MASK` (`"input[name=ssn], .card-number"`).
+`TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS=off` stops covering the default ones.
+
+- **Playwright Test** with the `tracereports/playwright` fixtures: on failure it takes a screenshot with
+  Playwright's `mask` option, and the reporter uploads it **instead of** the automatic one of
+  `screenshot: "only-on-failure"`, which Playwright takes without a mask. With the reporter alone (no
+  fixtures) the automatic screenshot is uploaded as is: use the fixtures if sensitive data is on screen.
+- **Selenium**: `screenshot(driver)` and `withDriver` put boxes over those elements, take the screenshot
+  and remove them, also when the screenshot fails (the DOM stays the same). If they cannot cover them, no
+  screenshot is taken.
+- In your code: `playwrightScreenshot(page)` (from `tracereports/playwright`) instead of `page.screenshot()`.
+
+`TRACEREPORTS_SCREENSHOTS` decides what is sent: `all` (default), `failures` (only screenshots of a `FAIL`
+step, and trace and video only of failed tests) or `off` (none of that). The server applies the same
+variable on its own (see [Configuration → Screenshots](configuration.md#screenshots)).
 
 ## API
 
