@@ -324,6 +324,14 @@
 		"Ejemplo de <code>.env</code> completo (datos de prueba)": "Complete <code>.env</code> example (test data)",
 		"Las variables ya definidas en el sistema mandan sobre el archivo. Todo lo demás es opcional. Detalle de cada variable: <code>{doc}</code> en el repositorio.": "Variables already set in the system take precedence over the file. Everything else is optional. Details for each variable: <code>{doc}</code> in the repository.",
 		"Copia el ejemplo completo para pegarlo en tu archivo .env": "Copies the whole example to paste into your .env file",
+		// ── postura de seguridad ──
+		"Postura de seguridad": "Security posture", "Sin acceso": "No access", "{n} críticos": "{n} critical",
+		"{n} por revisar": "{n} to review", "Todo en orden": "All good", "Revisar": "Review", "Crítico": "Critical",
+		"Revisando la configuración…": "Checking the configuration…",
+		"No se pudo leer la postura de seguridad": "Could not read the security posture",
+		"Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.":
+			"The same checks as tracereports doctor --security, on the configuration this server runs with. It never shows credential values.",
+		"{ok} OK · {warn} por revisar · {fail} críticos": "{ok} OK · {warn} to review · {fail} critical",
 		// ── conectar tus tests ──
 		"Conectar tus tests": "Connect your tests",
 		"Token de API activo": "API token on", "Sin token de API": "No API token",
