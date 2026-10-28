@@ -114,15 +114,16 @@ You need **git**. If `git --version` does not answer, install it from
 cd $HOME
 git clone https://github.com/josemiguellopez/tracereports.git
 cd tracereports
+git switch dev
 dir docker-compose.yml, .env.example
 ```
 
-> Until the next version is released, the features in this guide (read-only login, encryption,
-> `doctor --security`) are on the `dev` branch. If a later step does not work as described, run
-> `git switch dev` inside the `tracereports` folder and go back to step 4.
+> **`git switch dev` is required for now:** until the next version is released, the features in this guide
+> (read-only login, evidence encryption, `doctor --security`) are on the `dev` branch. Without that command you
+> would install the previous version and not see them.
 
 ✅ **You should see** `git clone` download the project (`Resolving deltas: 100% ... done.`) and, at the
-end, both files listed.
+end, both files listed. `git switch dev` replies `Switched to a new branch 'dev'`.
 
 <details><summary>macOS / Linux</summary>
 
@@ -194,7 +195,7 @@ $lines = @(
   "NOTIFY_DETAIL=minimal"
 )
 [IO.File]::WriteAllLines("$PWD\.env", $lines, (New-Object Text.UTF8Encoding($false)))
-Get-Content .env | Select-String "UI_USER|UI_VIEWER_USER|UI_PASSWORD"
+Get-Content .env | Select-String "_USER=|_PASSWORD="
 ```
 
 ✅ **You should see** your users and their passwords (64 letters and digits each):
@@ -235,7 +236,7 @@ TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin
 NOTIFY_DETAIL=minimal
 EOF
 chmod 600 .env
-grep -E "UI_USER|UI_VIEWER_USER|UI_PASSWORD" .env
+grep -E "_USER=|_PASSWORD=" .env
 ```
 
 </details>
@@ -361,9 +362,9 @@ trailing spaces.
 
 🎯 TraceReports checks its own security configuration.
 
-In the browser: **Settings** (bottom left) → **Security posture**.
+In the browser: **Settings** (bottom left) → **Security check**.
 
-![Settings, Security posture with the checks in green](../img/docker-guide/postura.webp)
+![Settings, Security check with the checks in green](../img/docker-guide/postura.webp)
 
 ✅ Most of them green (**OK**). With Docker on your computer it is normal for **"Network exposure"** to show
 as **Review**: inside the container TraceReports listens on the *container's* network, even though the port
@@ -416,9 +417,9 @@ is `TRACEREPORTS_SETTINGS_LOCKED=1`, as it should be.
 2. Go to **http://localhost:8080**.
 3. Username: `equipo`. Password: `TRACEREPORTS_UI_VIEWER_PASSWORD` from the `.env`.
 
-✅ It sees the same reports, but in **Settings** the **Security posture** says **"No access"**:
+✅ It sees the same reports, but in **Settings** the **Security check** says **"No access"**:
 
-![Settings with the read-only login: Security posture without access](../img/docker-guide/viewer.webp)
+![Settings with the read-only login: Security check without access](../img/docker-guide/viewer.webp)
 
 Close the private window.
 

@@ -132,14 +132,16 @@ mkdir C:\prueba-docker
 cd C:\prueba-docker
 git clone https://github.com/josemiguellopez/tracereports.git
 cd tracereports
+git switch dev
 dir docker-compose.yml, .env.example
 ```
 
-> Until the next version is released, the features in this guide are on the `dev` branch. To try them, also
-> run `git switch dev`.
+> **`git switch dev` is required for now:** until the next version is released, the features in this guide
+> (read-only login, evidence encryption, `doctor --security`) are on the `dev` branch. Without that command you
+> would install the previous version and not see them.
 
 ✅ **You should see** `git clone` download the project (`Resolving deltas: 100% ... done.`) and, at the end,
-both files listed.
+both files listed. `git switch dev` replies `Switched to a new branch 'dev'`.
 
 ⚠️ **If you see** that the item already exists: a folder from a previous trial is left. Delete it with
 `Remove-Item -Recurse -Force C:\prueba-docker` and repeat the step.
@@ -228,7 +230,7 @@ $lines = @(
   "NOTIFY_DETAIL=minimal"
 )
 [IO.File]::WriteAllLines("$PWD\.env", $lines, (New-Object Text.UTF8Encoding($false)))
-Get-Content .env | Select-String "UI_USER|UI_VIEWER_USER|UI_PASSWORD"
+Get-Content .env | Select-String "_USER=|_PASSWORD="
 ```
 
 ✅ **You should see** the users and their passwords (64 letters and digits each):
@@ -331,9 +333,9 @@ with data:
 
 ### Step 11 — Check security
 
-In the browser: **Settings → Security posture**.
+In the browser: **Settings → Security check**.
 
-![Settings, Security posture with the checks in green](../img/docker-guide/postura.webp)
+![Settings, Security check with the checks in green](../img/docker-guide/postura.webp)
 
 And from the command line (works from any folder):
 
@@ -365,7 +367,7 @@ In **Settings → Artificial intelligence** you will see **"An administrator loc
 2. Go to **http://localhost:8080**.
 3. Username: `equipo`. Password: `TRACEREPORTS_UI_VIEWER_PASSWORD` from the trial's `.env`.
 
-✅ It sees the reports, but in **Settings** the **Security posture** says **"No access"**:
+✅ It sees the reports, but in **Settings** the **Security check** says **"No access"**:
 
 ![Settings with the read-only login](../img/docker-guide/viewer.webp)
 

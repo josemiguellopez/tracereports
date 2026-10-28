@@ -131,14 +131,16 @@ mkdir C:\prueba-docker
 cd C:\prueba-docker
 git clone https://github.com/josemiguellopez/tracereports.git
 cd tracereports
+git switch dev
 dir docker-compose.yml, .env.example
 ```
 
-> Mientras la próxima versión no esté publicada, las funciones de esta guía están en la rama `dev`. Si
-> quieres probar esas novedades, ejecuta también `git switch dev`.
+> **`git switch dev` es obligatorio por ahora:** mientras la próxima versión no esté publicada, las funciones
+> de esta guía (login de solo lectura, cifrado de la evidencia, `doctor --security`) están en la rama `dev`.
+> Sin ese comando instalarías la versión anterior y no verías esas novedades.
 
 ✅ **Deberías ver** que `git clone` descarga el proyecto (`Resolving deltas: 100% ... done.`) y, al final,
-los dos archivos listados.
+los dos archivos listados. `git switch dev` responde `Switched to a new branch 'dev'`.
 
 ⚠️ **Si ves** `Ya existe un elemento con el nombre especificado`: quedó una carpeta de una prueba anterior.
 Bórrala con `Remove-Item -Recurse -Force C:\prueba-docker` y repite el paso.
@@ -227,7 +229,7 @@ $lines = @(
   "NOTIFY_DETAIL=minimal"
 )
 [IO.File]::WriteAllLines("$PWD\.env", $lines, (New-Object Text.UTF8Encoding($false)))
-Get-Content .env | Select-String "UI_USER|UI_VIEWER_USER|UI_PASSWORD"
+Get-Content .env | Select-String "_USER=|_PASSWORD="
 ```
 
 ✅ **Deberías ver** los usuarios y sus claves (64 letras y números cada una):
@@ -330,9 +332,9 @@ con datos:
 
 ### Paso 11 — Revisar la seguridad
 
-En el navegador: **Ajustes → Postura de seguridad**.
+En el navegador: **Ajustes → Revisión de seguridad**.
 
-![Ajustes, Postura de seguridad con los chequeos en verde](../img/docker-guide/postura.webp)
+![Ajustes, Revisión de seguridad con los chequeos en verde](../img/docker-guide/postura.webp)
 
 Y por comando (funciona desde cualquier carpeta):
 
@@ -364,7 +366,7 @@ En **Ajustes → Inteligencia artificial** verás **"El administrador bloqueó e
 2. Ve a **http://localhost:8080**.
 3. Usuario: `equipo`. Contraseña: `TRACEREPORTS_UI_VIEWER_PASSWORD` del `.env` de la prueba.
 
-✅ Ve los reportes, pero en **Ajustes** la **Postura de seguridad** dice **"Sin acceso"**:
+✅ Ve los reportes, pero en **Ajustes** la **Revisión de seguridad** dice **"Sin acceso"**:
 
 ![Ajustes con el login de solo lectura](../img/docker-guide/viewer.webp)
 

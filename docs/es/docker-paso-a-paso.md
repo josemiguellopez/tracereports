@@ -112,15 +112,16 @@ Necesitas **git**. Si `git --version` no responde, instálalo desde
 cd $HOME
 git clone https://github.com/josemiguellopez/tracereports.git
 cd tracereports
+git switch dev
 dir docker-compose.yml, .env.example
 ```
 
-> Mientras la próxima versión no esté publicada, las funciones de esta guía (login de solo lectura, cifrado,
-> `doctor --security`) están en la rama `dev`. Si alguno de los pasos siguientes no funciona como dice la
-> guía, ejecuta `git switch dev` dentro de la carpeta `tracereports` y vuelve al paso 4.
+> **`git switch dev` es obligatorio por ahora:** mientras la próxima versión no esté publicada, las funciones
+> de esta guía (login de solo lectura, cifrado de la evidencia, `doctor --security`) están en la rama `dev`.
+> Sin ese comando instalarías la versión anterior y no verías esas novedades.
 
 ✅ **Deberías ver** que `git clone` descarga el proyecto (`Resolving deltas: 100% ... done.`) y, al final,
-los dos archivos listados.
+los dos archivos listados. `git switch dev` responde `Switched to a new branch 'dev'`.
 
 <details><summary>macOS / Linux</summary>
 
@@ -191,7 +192,7 @@ $lines = @(
   "NOTIFY_DETAIL=minimal"
 )
 [IO.File]::WriteAllLines("$PWD\.env", $lines, (New-Object Text.UTF8Encoding($false)))
-Get-Content .env | Select-String "UI_USER|UI_VIEWER_USER|UI_PASSWORD"
+Get-Content .env | Select-String "_USER=|_PASSWORD="
 ```
 
 ✅ **Deberías ver** tus usuarios y sus claves (64 letras y números cada una):
@@ -232,7 +233,7 @@ TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin
 NOTIFY_DETAIL=minimal
 EOF
 chmod 600 .env
-grep -E "UI_USER|UI_VIEWER_USER|UI_PASSWORD" .env
+grep -E "_USER=|_PASSWORD=" .env
 ```
 
 </details>
@@ -360,9 +361,9 @@ sin espacios al final.
 
 🎯 TraceReports revisa su propia configuración de seguridad.
 
-En el navegador: **Ajustes** (abajo a la izquierda) → **Postura de seguridad**.
+En el navegador: **Ajustes** (abajo a la izquierda) → **Revisión de seguridad**.
 
-![Ajustes, Postura de seguridad con los chequeos en verde](../img/docker-guide/postura.webp)
+![Ajustes, Revisión de seguridad con los chequeos en verde](../img/docker-guide/postura.webp)
 
 ✅ La mayoría en verde (**OK**). Con Docker en tu equipo es normal que **"Network exposure"** aparezca como
 **Revisar**: dentro del contenedor TraceReports escucha en la red *del contenedor*, aunque el puerto solo
@@ -415,9 +416,9 @@ En **Ajustes → Inteligencia artificial** verás **"El administrador bloqueó e
 2. Ve a **http://localhost:8080**.
 3. Usuario: `equipo`. Contraseña: `TRACEREPORTS_UI_VIEWER_PASSWORD` del `.env`.
 
-✅ Ve los mismos reportes, pero en **Ajustes** la **Postura de seguridad** dice **"Sin acceso"**:
+✅ Ve los mismos reportes, pero en **Ajustes** la **Revisión de seguridad** dice **"Sin acceso"**:
 
-![Ajustes con el login de solo lectura: Postura de seguridad sin acceso](../img/docker-guide/viewer.webp)
+![Ajustes con el login de solo lectura: Revisión de seguridad sin acceso](../img/docker-guide/viewer.webp)
 
 Cierra la ventana privada.
 
