@@ -132,6 +132,25 @@ func (a *Analyzer) checkStatus(ctx context.Context, c Config, override string) *
 	return s
 }
 
+// StatusURL is the status page the Settings screen queries for c ("" = none): TRACEREPORTS_AI_STATUS_URL
+// or the provider's public one. The local engine never queries one (see checkStatus).
+func StatusURL(c Config) string {
+	switch c.Provider {
+	case "", ProviderBuiltin:
+		return ""
+	}
+	if override := strings.TrimSpace(env.Get("AI_STATUS_URL")); override != "" {
+		return override
+	}
+	if page := statusPages[c.Provider]; page.api != "" {
+		return page.api
+	}
+	if c.Provider == "ollama" {
+		return strings.TrimRight(c.withDefaults().BaseURL, "/") + "/api/version"
+	}
+	return ""
+}
+
 var statusClient = &http.Client{Timeout: 5 * time.Second}
 
 func getJSON(ctx context.Context, url string, out any) error {

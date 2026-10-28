@@ -60,6 +60,11 @@ warning, and anyone who reached the port could read and change the reports. Now 
   `cap_drop: [ALL]`, `no-new-privileges` and a healthcheck (`tracereports health`, new, asks the new
   unauthenticated `GET /healthz`); the image has the same `HEALTHCHECK`. New
   [security hardening guide](docs/en/security-hardening.md).
+- **AI provider allowlist** (`TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama`): a key of a provider outside
+  the list is ignored (with a warning), Settings only offers the allowed ones and rejects the rest, "Test
+  connection" never calls them and an unknown name stops the server. At startup the server logs every
+  external destination its configuration sends data to (AI and its status page, Teams, Slack, trackers, Lab
+  hosts), by host and scope.
 - **Screenshot policy on the server** (`TRACEREPORTS_SCREENSHOTS=all|failures|off`): with `failures` only the
   screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
   trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.

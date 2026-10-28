@@ -30,6 +30,7 @@
 //	TRACEREPORTS_STALE_RUN_HOURS  close as incomplete the runs without activity for N hours (default 24; 0 = never)
 //	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit; not for builtin)
 //	TRACEREPORTS_AI_BUILTIN_HINT  0 = LLM prompts without the local engine's conclusion (default: included)
+//	TRACEREPORTS_AI_ALLOWED_PROVIDERS  allowed AI providers, comma separated (default: all), e.g. builtin,ollama
 //	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
 //	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
 //	TRACEREPORTS_LAB      off = disable FixLab's Request Lab (resending captured calls from the report)
@@ -143,6 +144,10 @@ func runServer(parent context.Context) error {
 	// fail-closed: sin credenciales no se escucha en la red (se decide antes de tocar los datos)
 	binds, err := checkExposure(exposureFromEnv())
 	if err != nil {
+		return err
+	}
+	// un proveedor mal escrito en la allowlist no la deja vacía en silencio
+	if err := ai.CheckAllowlist(); err != nil {
 		return err
 	}
 	port := envOr("PORT", "8080")
@@ -288,6 +293,7 @@ func runServer(parent context.Context) error {
 	default:
 		slog.Info("failure diagnosis disabled (AI_PROVIDER=off)")
 	}
+	logEgress(analyzer.Config())
 	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
 

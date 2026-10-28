@@ -105,6 +105,8 @@ func (c Config) Validate() error {
 	switch {
 	case p == nil:
 		return fmt.Errorf("proveedor de IA desconocido: %q", c.Provider)
+	case !ProviderAllowed(p.ID):
+		return errNotAllowed(p)
 	case p.ID == ProviderBuiltin:
 		return nil
 	case p.NeedsKey && c.APIKey == "":
@@ -150,7 +152,7 @@ func ConfigFromEnv() Config {
 	case "off", "none", "disabled":
 		return Config{}
 	case ProviderBuiltin:
-		return Config{Provider: ProviderBuiltin}.withDefaults()
+		return allowedFromEnv(Config{Provider: ProviderBuiltin}.withDefaults())
 	case "gemini":
 		c.Model, c.APIKey, c.BaseURL = env("AI_MODEL", "GEMINI_MODEL"), env("AI_API_KEY", "GEMINI_API_KEY"), env("AI_BASE_URL", "GEMINI_BASE_URL")
 	case "anthropic":
@@ -165,7 +167,7 @@ func ConfigFromEnv() Config {
 	default:
 		c.Model, c.APIKey, c.BaseURL = env("AI_MODEL"), env("AI_API_KEY"), env("AI_BASE_URL")
 	}
-	return c.withDefaults()
+	return allowedFromEnv(c.withDefaults())
 }
 
 // EnvKey returns the API key the environment has for provider (AI_API_KEY when AI_PROVIDER
