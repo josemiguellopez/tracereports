@@ -270,7 +270,7 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"ai": aiView{Provider: cur.Provider, Model: cur.Model, BaseURL: cur.BaseURL, Enabled: s.AI.Enabled(),
 			KeySet: cur.APIKey != "", KeyHint: keyHint(cur.APIKey), KeySource: keySource},
 		"env_ai":    aiView{Provider: env.Provider, Model: env.Model, BaseURL: env.BaseURL, KeySet: env.APIKey != ""},
-		"providers": ai.Providers,
+		"providers": ai.AllowedProviders(), // solo los de TRACEREPORTS_AI_ALLOWED_PROVIDERS
 		// cifrado de la key guardada: estado, nunca el valor (master_key_missing/_wrong, damaged,
 		// plaintext = guardada antes del cifrado, encrypted)
 		"secrets": map[string]any{"master_key_set": s.Secrets.Enabled(), "saved_key": keyState(stored, keyErr)},

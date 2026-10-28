@@ -29,6 +29,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `AI_BASE_URL` | la del proveedor | URL de la API: proxy, endpoint propio, servicio compatible u Ollama remoto |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternativa a las `AI_*`: con una sola de estas el proveedor se elige solo |
 | `TRACEREPORTS_AI_BUILTIN_HINT` | `1` | Con un LLM configurado, su prompt incluye primero la conclusión del motor local (ya redactada). `0` la quita |
+| `TRACEREPORTS_AI_ALLOWED_PROVIDERS` | — (todos) | Proveedores permitidos, separados por coma (`builtin,ollama`). Uno fuera de la lista no se usa nunca. Ver [Proveedores permitidos](#proveedores-permitidos-y-salida-de-datos) |
 | `TRACEREPORTS_ENV_FILE` | `.env` | Archivo `CLAVE=valor` que el servidor lee al arrancar |
 | `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: la pantalla de Ajustes queda de solo lectura; la IA se configura solo con el entorno |
 | `TEAMS_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Microsoft Teams |
@@ -240,6 +241,29 @@ AI_API_KEY=...
 
 Con Claude, TraceReports activa el *fallback* del servidor de Anthropic: si el modelo se niega a
 analizar un fallo por sus políticas, la misma llamada lo responde un modelo alternativo.
+
+### Proveedores permitidos y salida de datos
+
+Si la evidencia no puede salir de tu red, deja solo los proveedores locales:
+
+```ini
+TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama
+```
+
+- Una key de un proveedor fuera de la lista (un `GEMINI_API_KEY` olvidado en el entorno) **se ignora**: el
+  log lo dice y diagnostica el motor local si está permitido, o nadie.
+- Ajustes solo ofrece los permitidos; guardar otro responde `400` y "Probar conexión" no lo llama.
+- Una configuración guardada antes en Ajustes con un proveedor que ya no está permitido no se carga.
+- Un nombre desconocido en la lista (`olama`) impide arrancar el servidor.
+
+Al arrancar, el servidor lista en el log **cada destino externo** que su configuración usa (IA y su página
+de estado, Teams, Slack, GitHub, Jira, Azure DevOps y los hosts extra del Lab), solo con el host y si es
+local, privado o público:
+
+```text
+INFO egress kind=ai name="Ollama (local)" host=127.0.0.1:11434 scope=loopback sends="diagnosis prompts (redacted; never screenshots)"
+INFO egress: no external destination configured (nothing leaves this server)
+```
 
 ### ¿En el `.env` o en la pantalla de Ajustes?
 
