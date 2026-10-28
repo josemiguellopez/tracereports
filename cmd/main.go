@@ -26,6 +26,7 @@
 //	TRACEREPORTS_REDACT  off = store secrets as received (default: masked before storing)
 //	TRACEREPORTS_REDACT_HEADERS / TRACEREPORTS_REDACT_KEYS / TRACEREPORTS_REDACT_PATTERNS  extra masking rules
 //	TRACEREPORTS_RETENTION_DAYS  delete runs (and screenshots) older than N days (default: keep all)
+//	TRACEREPORTS_SCREENSHOTS  all (default) | failures | off: which screenshots, traces and videos are kept
 //	TRACEREPORTS_STALE_RUN_HOURS  close as incomplete the runs without activity for N hours (default 24; 0 = never)
 //	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit; not for builtin)
 //	TRACEREPORTS_AI_BUILTIN_HINT  0 = LLM prompts without the local engine's conclusion (default: included)
@@ -169,6 +170,13 @@ func runServer(parent context.Context) error {
 	if err != nil {
 		return err
 	}
+	screenshots, err := api.ParseScreenshotPolicy(env.Get("SCREENSHOTS"))
+	if err != nil {
+		return err
+	}
+	if screenshots != api.ScreenshotsAll {
+		slog.Info("screenshot policy", "screenshots", screenshots)
+	}
 
 	notifier := notify.New(store)
 	if notifier.Enabled() {
@@ -253,6 +261,8 @@ func runServer(parent context.Context) error {
 		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS"))},
 		// tracereports demo (TRACEREPORTS_DEMO lo pone la demo)
 		Demo: env.Bool("DEMO"),
+		// qué capturas se guardan: all, failures u off (TRACEREPORTS_SCREENSHOTS)
+		Screenshots: screenshots,
 	}
 	if auth.UIUser == "" || auth.UIPass == "" {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())

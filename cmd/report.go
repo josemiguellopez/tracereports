@@ -25,6 +25,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/api"
 	"github.com/josemiguellopez/tracereports/internal/db"
+	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/offline"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 )
@@ -181,7 +182,13 @@ func newLocalServer(useAI bool) (*localServer, error) {
 		cleanup()
 		return nil, errors.New("--ai needs an AI provider in the environment (AI_PROVIDER and AI_API_KEY, or GEMINI_API_KEY...)")
 	}
-	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact}
+	// el reporte estático lleva las capturas: respeta la misma política que el servidor
+	policy, err := api.ParseScreenshotPolicy(env.Get("SCREENSHOTS"))
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact, Screenshots: policy}
 	return &localServer{target: offline.Target{Doer: offline.Handler{Handler: localOnly(srv.Router())}}, analyzer: analyzer, close: cleanup}, nil
 }
 

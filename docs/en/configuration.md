@@ -42,6 +42,7 @@ steps to apply it.
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
+| `TRACEREPORTS_SCREENSHOTS` | `all` | Which screenshots the server keeps: `all`, `failures` (only of a failed step or test) or `off` (none, no trace or video either). See [Screenshots](#screenshots) |
 | `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [FixLab](fixlab.md#security) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Status page (Statuspage format, `…/api/v2/summary.json`) that Settings → AI usage shows instead of the provider's: a mirror, a proxy or the page of an OpenAI-compatible provider |
@@ -584,6 +585,27 @@ Limits: it recognizes secrets by their key or by unambiguous shapes. Sensitive d
 text without a key, or visible in a **screenshot**, is not detected: use `TRACEREPORTS_REDACT_PATTERNS`,
 `--tracereports-no-screenshots`, `--tracereports-no-dom` or `NETWORK_MAX_BODY_KB=0` as needed, and
 `TRACEREPORTS_RETENTION_DAYS` so evidence does not pile up.
+
+### Screenshots
+
+A screenshot can show personal data or credentials, and text redaction does not reach it. The server
+decides which images it keeps with `TRACEREPORTS_SCREENSHOTS`, regardless of how each suite is
+configured:
+
+| Value | What it keeps |
+|---|---|
+| `all` (default) | Every screenshot, trace and video |
+| `failures` | Only screenshots of a failed step or a failed test; traces and videos only of failed tests |
+| `off` | No image, trace or video (steps, network and errors still arrive) |
+
+An image the policy does not allow is refused with `403` **before** it is written: no file is ever
+left on disk. It also applies to Allure imports and `tracereports report`. An unknown value stops the
+server from starting.
+
+TraceReports does **not** recognize text inside images (OCR) to cover it: it is slow, needs models
+outside the binary and is never complete (data the OCR misses leaks anyway). What works is not
+capturing it: synthetic data in test environments, this policy and the clients' masking before the
+capture.
 
 ### Abandoned runs
 

@@ -42,6 +42,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
+| `TRACEREPORTS_SCREENSHOTS` | `all` | Qué capturas guarda el servidor: `all`, `failures` (solo de un paso o un test que falló) u `off` (ninguna, tampoco trace ni video). Ver [Capturas de pantalla](#capturas-de-pantalla) |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [FixLab](fixlab.md#seguridad) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
@@ -590,6 +591,27 @@ Límites: reconoce secretos por su clave o por formas inequívocas. Un dato sens
 texto libre sin clave, o visible en una **captura de pantalla**, no se detecta: usa
 `TRACEREPORTS_REDACT_PATTERNS`, `--tracereports-no-screenshots`, `--tracereports-no-dom` o
 `NETWORK_MAX_BODY_KB=0` según el caso, y `TRACEREPORTS_RETENTION_DAYS` para no acumular evidencia.
+
+### Capturas de pantalla
+
+Una captura puede mostrar datos personales o credenciales, y la redacción de texto no la alcanza.
+El servidor decide qué imágenes guarda con `TRACEREPORTS_SCREENSHOTS`, sin depender de cómo esté
+configurada cada suite:
+
+| Valor | Qué guarda |
+|---|---|
+| `all` (por defecto) | Todas las capturas, traces y videos |
+| `failures` | Solo las capturas de un paso que falló o de un test que falló; traces y videos solo de tests fallidos |
+| `off` | Ninguna imagen, trace ni video (los pasos, la red y los errores siguen llegando) |
+
+Una imagen que la política no permite se rechaza con `403` **antes** de escribirla: nunca queda un
+archivo en el disco. También aplica a los imports de Allure y a `tracereports report`. Un valor
+desconocido impide arrancar el servidor.
+
+TraceReports **no** reconoce texto dentro de las imágenes (OCR) para taparlo: es lento, necesita
+modelos fuera del binario y nunca es completo (un dato que el OCR no lee, se filtra igual). Lo que
+funciona es no capturarlo: datos sintéticos en los ambientes de prueba, esta política y el
+enmascarado de los clientes antes de capturar.
 
 ### Ejecuciones abandonadas
 
