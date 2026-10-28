@@ -11,7 +11,7 @@ congelada.
 | Nivel | Qué | Promesa |
 | --- | --- | --- |
 | **Estable** | Los endpoints documentados en [API → Escritura](api.md#escritura-lo-que-usan-los-clientes-de-tests) y [Lectura](api.md#lectura-lo-que-usa-la-ui), las importaciones (JUnit XML, Allure), `GET /healthz`, los comandos `push`, `report`, `pr-comment`, `health`, `version`, y las funciones públicas de los cuatro clientes | Sin cambios incompatibles dentro de `/api/v1` desde 1.0; antes, solo con el proceso de abajo |
-| **Experimental** | Los endpoints marcados como *experimentales* en la documentación: [acciones desde la interfaz](api.md#acciones-desde-la-interfaz-ia-y-escalamiento), FixLab (`/network/{id}/lab`, cápsulas), incidentes similares, la postura de seguridad, Ajustes, las herramientas MCP | Pueden cambiar en cualquier versión menor, siempre escrito en el CHANGELOG |
+| **Experimental** | Los endpoints marcados como *experimentales* en la documentación: [acciones desde la interfaz](api.md#acciones-desde-la-interfaz-ia-y-escalamiento), FixLab (`/network/{id}/lab`, cápsulas), incidentes similares, la revisión de seguridad, Ajustes, las herramientas MCP | Pueden cambiar en cualquier versión menor, siempre escrito en el CHANGELOG |
 | **Interno** | Todo lo no documentado (lo que la UI incluida llama para sí misma) | Sin promesa |
 
 ## Qué es un cambio incompatible

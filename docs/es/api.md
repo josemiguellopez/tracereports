@@ -224,7 +224,7 @@ nuevas. `GET /runs/facets` acepta los mismos filtros y devuelve hasta 20 valores
   también necesita credenciales, salvo con `TRACEREPORTS_LOCAL_ADMIN=1`.
   `TRACEREPORTS_SETTINGS_LOCKED=1` los rechaza siempre (`403`).
 
-### Postura de seguridad (experimental)
+### Revisión de seguridad (experimental)
 
 `GET /security/posture` devuelve los chequeos de `tracereports doctor --security` sobre la configuración con
 que corre el servidor: `{version, checks: [{id, level, title, detail, fix}], ok, warn, fail}` (`level`:

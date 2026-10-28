@@ -3449,7 +3449,7 @@
 				sub: S.settings.usage ? tr("{n} llamadas hoy", { n: fmtNum(S.settings.usage.usage.today.calls) }) : "…" },
 			{ id: "conn", icon: "i-plug", title: "Conectar tus tests",
 				sub: !d ? "…" : d.token_set ? "Token de API activo" : "Sin token de API", tone: d && !d.token_set ? "warn" : "ok" },
-			{ id: "security", icon: "i-check", title: "Postura de seguridad", ...postureSummary(S.settings.posture) },
+			{ id: "security", icon: "i-check", title: "Revisión de seguridad", ...postureSummary(S.settings.posture) },
 		];
 	}
 
@@ -3477,18 +3477,18 @@
 	const POSTURE_TONE = { ok: "ok", warn: "warn", fail: "bad" };
 	const POSTURE_LABEL = { ok: "OK", warn: "Revisar", fail: "Crítico" };
 
-	/** La postura de seguridad del servidor: los chequeos de doctor --security, con qué hacer en cada uno. */
+	/** La revisión de seguridad del servidor: los chequeos de doctor --security, con qué hacer en cada uno. */
 	function postureCard() {
 		const p = S.settings.posture;
 		if (!p) return `<div class="card placeholder">${tr("Revisando la configuración…")}</div>`;
-		if (p.error) return `<div class="card placeholder">${tr("No se pudo leer la postura de seguridad")}: ${esc(p.error)}</div>`;
+		if (p.error) return `<div class="card placeholder">${tr("No se pudo leer la revisión de seguridad")}: ${esc(p.error)}</div>`;
 		const rows = p.checks.map((c) => `<div class="prov-status ${POSTURE_TONE[c.level] || "muted"} posture-row" data-check="${esc(c.id)}">
 				<span class="prov-dot"></span>
 				<div><b>${esc(tr(POSTURE_LABEL[c.level] || c.level))} · <span data-no-i18n>${esc(c.title)}</span></b>
 				<p class="m-hint" data-no-i18n>${esc(c.detail)}</p>
 				${c.fix ? `<p class="m-hint posture-fix" data-no-i18n>→ ${esc(c.fix)}</p>` : ""}</div></div>`).join("");
 		return `<section class="card set-card" aria-labelledby="set-posture">
-			<div class="set-head"><h5 id="set-posture">${icon("i-check")}${tr("Postura de seguridad")}</h5></div>
+			<div class="set-head"><h5 id="set-posture">${icon("i-check")}${tr("Revisión de seguridad")}</h5></div>
 			<p class="field-help">${tr("Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.")}</p>
 			<p class="field-help"><b>${tr("{ok} OK · {warn} por revisar · {fail} críticos", { ok: p.ok, warn: p.warn, fail: p.fail })}</b></p>
 			<div class="posture-list">${rows}</div></section>`;

@@ -11,7 +11,7 @@ is frozen.
 | Level | What | Promise |
 | --- | --- | --- |
 | **Stable** | The endpoints documented in [API → Writes](api.md#writes-used-by-the-test-clients) and [Reads](api.md#reads-used-by-the-ui), the imports (JUnit XML, Allure), `GET /healthz`, the CLI commands `push`, `report`, `pr-comment`, `health`, `version`, and the public functions of the four clients | No breaking change inside `/api/v1` once 1.0 is out; before it, only with the process below |
-| **Experimental** | Endpoints marked *experimental* in the docs: [actions from the interface](api.md#actions-from-the-interface-ai-and-escalation), FixLab (`/network/{id}/lab`, capsules), similar incidents, the security posture, Settings, the MCP tools | May change in any minor release, always written in the CHANGELOG |
+| **Experimental** | Endpoints marked *experimental* in the docs: [actions from the interface](api.md#actions-from-the-interface-ai-and-escalation), FixLab (`/network/{id}/lab`, capsules), similar incidents, the security check, Settings, the MCP tools | May change in any minor release, always written in the CHANGELOG |
 | **Internal** | Anything not documented (what the bundled UI calls for itself) | No promise |
 
 ## What counts as breaking

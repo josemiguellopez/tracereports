@@ -101,7 +101,7 @@ warning, and anyone who reached the port could read and change the reports. Now 
   process user, `DATA_DIR` permissions, outbound destinations, redaction, screenshot policy) with OK / WARN /
   FAIL and what to do; exit code 1 when a critical check fails, `-json` with a stable contract, `-url` to
   ask a running server. Also at `GET /api/v1/security/posture` (admin only) and in **Settings → Security
-  posture**. The production profile of the hardening guide now includes `TRACEREPORTS_ALLOWED_CIDRS`,
+  check**. The production profile of the hardening guide now includes `TRACEREPORTS_ALLOWED_CIDRS`,
   `NOTIFY_DETAIL=minimal` and encryption at rest, and passes every check.
 - **Threat model** (`docs/*/threat-model.md`): assets, actors, surfaces, mitigations and residual risks,
   including the caveats of encrypted SQLite VFS (#41). **API stability policy** (`docs/*/api-stability.md`):

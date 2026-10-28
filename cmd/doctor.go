@@ -24,7 +24,7 @@ import (
 
 const doctorUsage = `Usage: tracereports doctor --security [-json] [-url URL] [-data-dir DIR]
 
-Checks the security posture against the hardening guide: tokens, UI login, network exposure, AI
+Checks the installation's security against the hardening guide: tokens, UI login, network exposure, AI
 provider, Settings lock, retention, encryption at rest, process user, DATA_DIR permissions, outbound
 destinations, redaction and the screenshot policy. Prints OK / WARN / FAIL with what to do, and exits
 with code 1 when a check fails (usable as a CI gate).
@@ -36,12 +36,12 @@ with code 1 when a check fails (usable as a CI gate).
 `
 
 // errPostureFailed: a critical check failed (exit code 1).
-var errPostureFailed = errors.New("security posture: critical checks failed")
+var errPostureFailed = errors.New("security check: critical checks failed")
 
 func runDoctor(args []string, out io.Writer) error {
 	fl := flag.NewFlagSet("doctor", flag.ContinueOnError)
 	fl.Usage = func() { fmt.Fprint(fl.Output(), doctorUsage); fl.PrintDefaults() }
-	security := fl.Bool("security", false, "check the security posture")
+	security := fl.Bool("security", false, "run the security check")
 	asJSON := fl.Bool("json", false, "print the report as JSON")
 	url := fl.String("url", "", "a running server to ask (default: this machine's configuration)")
 	dataDir := fl.String("data-dir", "", "data folder (default DATA_DIR or ./data)")
@@ -99,7 +99,7 @@ func remotePosture(base, token string) (posture.Report, error) {
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		return r, fmt.Errorf("%s answered %s (the posture needs TRACEREPORTS_TOKEN, the UI login or the same machine)", base, res.Status)
+		return r, fmt.Errorf("%s answered %s (the security check needs TRACEREPORTS_TOKEN, the UI login or the same machine)", base, res.Status)
 	}
 	err = json.NewDecoder(io.LimitReader(res.Body, 1<<20)).Decode(&r)
 	return r, err
