@@ -143,6 +143,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -o "$RUNNER_TEMP/tracereports" ./cmd && echo "TRACEREPORTS_BIN=$RUNNER_TEMP/tracereports" >> "$GITHUB_ENV"
+      # navegador real: las capturas tapadas se verifican en los píxeles (MaskTest)
+      - run: ./gradlew installChromium
+        working-directory: client/java
       - run: ./gradlew test
         working-directory: client/java
 

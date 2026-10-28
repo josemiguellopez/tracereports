@@ -93,6 +93,19 @@ void nuevaPagina(TraceTest t) {
 navegador, no los logs del backend) y las envía al cerrar el test; si falló, agrega la captura y el
 snapshot del DOM. Declara negativos esperados con `t.expectResponse(401, "*/auth/*")`.
 
+## Capturas sin datos sensibles
+
+`SeleniumEvidence.screenshot(driver)` y `PlaywrightEvidence.screenshot(page)` (los que usan `attach` al
+fallar) **tapan** con un recuadro magenta, antes de capturar, `input[type=password]`, los elementos con el
+atributo `data-tracereports-mask` y los selectores CSS de `TRACEREPORTS_SCREENSHOT_MASK`
+(`"input[name=rut], .numero-tarjeta"`). Playwright usa su opción `mask`; Selenium pone recuadros y los
+quita después, también si la captura falla. Si no se puede tapar, no se captura.
+`TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS=off` deja de tapar los de siempre.
+
+`TRACEREPORTS_SCREENSHOTS` decide qué capturas envía `t.screenshot(...)`: `all` (por defecto), `failures`
+(solo las de un paso `FAIL`) u `off` (ninguna). El servidor aplica la misma variable por su cuenta (ver
+[Configuración → Capturas de pantalla](configuration.md#capturas-de-pantalla)).
+
 ## Sin JUnit
 
 ```java

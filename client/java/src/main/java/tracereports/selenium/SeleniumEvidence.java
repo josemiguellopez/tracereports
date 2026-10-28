@@ -15,6 +15,7 @@ import org.openqa.selenium.WebDriver;
 import org.openqa.selenium.logging.LogEntry;
 import tracereports.CdpNetwork;
 import tracereports.Dom;
+import tracereports.Mask;
 import tracereports.Status;
 import tracereports.TraceTest;
 
@@ -51,12 +52,35 @@ public final class SeleniumEvidence {
         return options;
     }
 
-    /** Captura de pantalla en PNG, o null si el navegador ya no responde. */
+    /**
+     * Captura de pantalla en PNG con los datos sensibles tapados (ver {@link Mask}), o null si el navegador ya no
+     * responde. Los recuadros se quitan siempre, aunque la captura falle; si no se pueden poner (un selector
+     * inválido), no se captura: mejor sin captura que sin máscara.
+     */
     public static byte[] screenshot(WebDriver driver) {
+        String selector = Mask.selector();
+        boolean covered = false;
         try {
+            if (!selector.isEmpty()) {
+                try {
+                    ((JavascriptExecutor) driver).executeScript(Mask.COVER_JS, selector, Mask.COLOR, Mask.OVERLAY_ATTR);
+                    covered = true;
+                } catch (RuntimeException e) {
+                    System.err.println("tracereports: no se pudo tapar " + selector + " antes de la captura: " + e.getMessage());
+                    return null;
+                }
+            }
             return ((TakesScreenshot) driver).getScreenshotAs(OutputType.BYTES);
         } catch (RuntimeException e) {
             return null;
+        } finally {
+            if (covered) {
+                try {
+                    ((JavascriptExecutor) driver).executeScript(Mask.UNCOVER_JS, Mask.OVERLAY_ATTR);
+                } catch (RuntimeException e) {
+                    // el navegador ya no responde
+                }
+            }
         }
     }
 

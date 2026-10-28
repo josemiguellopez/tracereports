@@ -2,6 +2,7 @@ package tracereports.playwright;
 
 import tracereports.TraceTest;
 import tracereports.Dom;
+import tracereports.Mask;
 import tracereports.Status;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.Request;
@@ -166,10 +167,13 @@ public final class PlaywrightEvidence {
         }
     }
 
-    /** Captura de pantalla en PNG, o null. */
+    /** Captura de pantalla en PNG con los datos sensibles tapados (ver {@link Mask}), o null. */
     public static byte[] screenshot(Page page) {
         try {
-            return page.screenshot(new Page.ScreenshotOptions().setTimeout(5000));
+            Page.ScreenshotOptions opts = new Page.ScreenshotOptions().setTimeout(5000);
+            String selector = Mask.selector();
+            if (!selector.isEmpty()) opts.setMask(List.of(page.locator(selector))).setMaskColor(Mask.COLOR);
+            return page.screenshot(opts);
         } catch (RuntimeException e) {
             return null;
         }
