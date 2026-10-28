@@ -50,6 +50,8 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 ### Security
 
+- `tracereports selftest` checks that the screenshots recorded with the Python (Playwright) and Java (Selenium)
+  clients show the demo shop's member card (`data-tracereports-mask`) covered.
 - **Go client**: `MaskSelector()`, `MaskColor` and the `CoverScript`/`UncoverScript` scripts to take screenshots
   with sensitive data covered (the playwright-go example uses them), and `Test.Screenshot` follows
   `TRACEREPORTS_SCREENSHOTS=all|failures|off`.

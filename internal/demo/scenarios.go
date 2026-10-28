@@ -63,6 +63,9 @@ type Expect struct {
 	// Command: the command that runs the test locally contains this.
 	Command    string `json:"command,omitempty"`
 	Screenshot bool   `json:"screenshot,omitempty"`
+	// MaskedShot: a screenshot of the scenario shows the member card (data-tracereports-mask) covered
+	// by the clients' magenta box.
+	MaskedShot bool `json:"masked_shot,omitempty"`
 	Network    bool   `json:"network,omitempty"`
 	// Builtin is the category the local rules engine must give the focus test (none: no failed
 	// test, so no diagnosis). It only counts for the hit rate of selftest, never makes a scenario
@@ -85,7 +88,7 @@ var Scenarios = []Scenario{
 	{ID: "pytest-ok", Client: ClientPytest, Kind: "ok", Title: "pytest + Playwright · sign in",
 		What: "A real pytest-playwright test: steps, a screenshot and every call the browser made, with the password masked.",
 		Run:  "Shop · pytest + Playwright", Test: "test_sign_in_shows_the_catalog",
-		Expect: Expect{Builtin: "none", RunStatus: "PASS", Tests: map[string]string{"test_sign_in_shows_the_catalog[chromium]": "PASS"}, Masked: true, Network: true, Screenshot: true,
+		Expect: Expect{MaskedShot: true, Builtin: "none", RunStatus: "PASS", Tests: map[string]string{"test_sign_in_shows_the_catalog[chromium]": "PASS"}, Masked: true, Network: true, Screenshot: true,
 			Command: "pytest"}},
 	{ID: "pytest-nok-backend", Client: ClientPytest, Kind: "nok", Title: "pytest + Playwright · checkout fails (500)",
 		What: "The order is never confirmed because POST /api/orders answers 500: backend incident, screenshot, console and the Lab.",
@@ -116,7 +119,7 @@ var Scenarios = []Scenario{
 	{ID: "selenium-ok", Client: ClientSelenium, Kind: "ok", Title: "Selenium + JUnit 5 (Java) · sign in",
 		What: "A real Selenium WebDriver test with the JUnit 5 extension: steps, a screenshot and the browser's network from Chrome's performance log.",
 		Run:  "Shop · Selenium (Java)", Test: "com.demoshop.ShopTest.signInShowsCatalog",
-		Expect: Expect{Builtin: "none", RunStatus: "PASS", Tests: map[string]string{"Signing in shows the catalog": "PASS"}, Screenshot: true, Network: true, Masked: true,
+		Expect: Expect{MaskedShot: true, Builtin: "none", RunStatus: "PASS", Tests: map[string]string{"Signing in shows the catalog": "PASS"}, Screenshot: true, Network: true, Masked: true,
 			Command: "gradlew test"}},
 	{ID: "selenium-nok-selector", Client: ClientSelenium, Kind: "nok", Title: "Selenium + JUnit 5 (Java) · a selector changed",
 		What: "NoSuchElementException for #add-to-cart-btn: screenshot, page snapshot and the suggested locator.",
