@@ -56,6 +56,14 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 ### Security
 
+- **Browser protections**: every response carries a Content-Security-Policy (only this server's scripts,
+  the inline ones of `index.html` by hash), `X-Frame-Options: DENY`, `nosniff` and
+  `Referrer-Policy: same-origin`. **Cross-site writes are rejected** (403 when the browser says the request
+  comes from another site), so a web page can no longer post fake runs to a local server; test clients
+  and CI are not affected. **Failed logins are throttled**: 10 wrong passwords or tokens from an address in
+  15 minutes give 429 for the rest of the window. The live stream accepts at most 500 connections, and the
+  server now has read (15 min) and idle (2 min) timeouts against slow clients.
+
 - **`tracereports doctor --security`**: the hardening checklist as checks (tokens, UI login, network
   exposure and CIDR allowlist, AI provider and allowlist, Settings lock, retention, encryption at rest,
   process user, `DATA_DIR` permissions, outbound destinations, redaction, screenshot policy) with OK / WARN /
