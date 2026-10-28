@@ -1,0 +1,112 @@
+name: Release check
+
+# Ensayo del release sin publicar nada: en cada PR que toca la configuración del release se
+# construyen los binarios (goreleaser --snapshot), el SBOM y la imagen, se firman de verdad con
+# cosign keyless y se verifican con los mismos comandos de SECURITY.md. Así un cambio que rompa la
+# firma o el SBOM falla aquí y no el día del release. La imagen va a un registro local efímero.
+on:
+  pull_request:
+    paths:
+      - .goreleaser.yaml
+      - Dockerfile
+      - .github/workflows/release.yml
+      - .github/workflows/release-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  # la identidad con que firma este workflow (en un release es la de release.yml)
+  IDENTITY: ^https://github\.com/${{ github.repository }}/\.github/workflows/release-check\.yml@
+  ISSUER: https://token.actions.githubusercontent.com
+
+jobs:
+  binaries:
+    name: Binaries, SBOM and signature
+    # un PR desde un fork no recibe token OIDC: no puede firmar
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      - uses: anchore/sbom-action/download-syft@v0
+      - uses: sigstore/cosign-installer@v4.1.2
+      - uses: goreleaser/goreleaser-action@v7
+        with:
+          version: "~> v2"
+          args: release --snapshot --clean
+      - name: The checksums are signed and the signature verifies
+        working-directory: dist
+        run: |
+          test -s checksums.txt.sigstore.json
+          cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+            --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER"
+          sha256sum --check --ignore-missing checksums.txt
+      - name: Every archive has its SBOM
+        working-directory: dist
+        run: |
+          n=0
+          for a in *.tar.gz *.zip; do
+            jq -e '.spdxVersion and (.packages | length > 0)' "$a.spdx.json" > /dev/null
+            n=$((n+1))
+          done
+          echo "$n archives with an SBOM"
+          test "$n" -eq 6
+      - name: A tampered file fails the verification
+        working-directory: dist
+        run: |
+          echo tampered >> checksums.txt
+          if cosign verify-blob checksums.txt --bundle checksums.txt.sigstore.json \
+            --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER"; then
+            echo "a modified checksums.txt must not verify"; exit 1
+          fi
+
+  image:
+    name: Image, SBOM and signature
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    services:
+      registry:
+        image: registry:2
+        ports: ["5000:5000"]
+    env:
+      IMAGE: localhost:5000/tracereports
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+        with:
+          driver-opts: network=host # para llegar al registro local
+      - id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: ${{ env.IMAGE }}:check
+          build-args: VERSION=0.0.0-check
+          sbom: true
+          provenance: mode=max
+      - uses: sigstore/cosign-installer@v4.1.2
+      - name: Sign and verify the image by digest
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          cosign sign --yes --allow-insecure-registry --allow-http-registry "$IMAGE@$DIGEST"
+          cosign verify --allow-insecure-registry --allow-http-registry "$IMAGE@$DIGEST" \
+            --certificate-identity-regexp "$IDENTITY" --certificate-oidc-issuer "$ISSUER" > /dev/null
+      - name: The image carries its SBOM
+        run: |
+          docker buildx imagetools inspect "$IMAGE:check" --format '{{ json .SBOM }}' > sbom.json
+          jq -e '.SPDX.spdxVersion' sbom.json

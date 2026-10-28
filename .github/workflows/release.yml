@@ -1,42 +1,62 @@
 name: Release
 
-# Al publicar un tag vX.Y.Z: binarios en GitHub Releases y la imagen en ghcr.io
+# Al publicar un tag vX.Y.Z: binarios en GitHub Releases y la imagen en ghcr.io, con SBOM, firma
+# keyless (cosign) y provenance (SLSA). Un tag con guion (v0.6.0-rc1) es un pre-release: no mueve
+# `latest` ni la línea X.Y. Cómo verificar: SECURITY.md.
 on:
   push:
     tags: ["v*"]
 
 permissions:
-  contents: write   # crear el release
-  packages: write   # publicar en ghcr.io
+  contents: read
 
 jobs:
   binaries:
     name: Binaries
     runs-on: ubuntu-latest
+    permissions:
+      contents: write # crear el release
+      id-token: write # firma keyless (cosign) y provenance
+      attestations: write
     steps:
       - uses: actions/checkout@v7
         with:
           fetch-depth: 0
+      # el último parche de Go: los binarios llevan la librería estándar con sus arreglos de seguridad
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
-      # las notas del release son la sección del CHANGELOG de esta versión, no la lista de commits
+          go-version: "1.27.x"
+          check-latest: true
+      # las notas del release son la sección del CHANGELOG de esta versión, no la lista de commits;
+      # un pre-release (v0.6.0-rc1) usa la sección [Unreleased]
       - name: Release notes from the CHANGELOG
         run: |
           v="${GITHUB_REF_NAME#v}"
-          awk -v v="$v" 'index($0, "## [" v "]")==1 {on=1; next} on && index($0, "## [")==1 {exit} on {print}' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
-          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then echo "CHANGELOG.md has no section for $v"; exit 1; fi
+          case "$v" in *-*) section="Unreleased" ;; *) section="$v" ;; esac
+          awk -v v="$section" 'index($0, "## [" v "]")==1 {on=1; next} on && index($0, "## [")==1 {exit} on {print}' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if [ ! -s "$RUNNER_TEMP/notes.md" ]; then echo "CHANGELOG.md has no section for $section"; exit 1; fi
           printf '\n**Full changelog:** https://github.com/%s/compare/%s...%s\n' "$GITHUB_REPOSITORY" "$(git describe --tags --abbrev=0 "$GITHUB_REF_NAME^" 2>/dev/null || echo "$GITHUB_REF_NAME")" "$GITHUB_REF_NAME" >> "$RUNNER_TEMP/notes.md"
+      - uses: anchore/sbom-action/download-syft@v0 # syft: el SBOM de cada archivo
+      - uses: sigstore/cosign-installer@v4.1.2
       - uses: goreleaser/goreleaser-action@v7
         with:
           version: "~> v2"
           args: release --clean --release-notes ${{ runner.temp }}/notes.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # provenance SLSA de cada archivo del release (gh attestation verify)
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-checksums: dist/checksums.txt
 
   image:
     name: Docker image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write # publicar en ghcr.io
+      id-token: write # firma keyless y provenance
+      attestations: write
     steps:
       - uses: actions/checkout@v7
       - uses: docker/setup-qemu-action@v4
@@ -53,8 +73,9 @@ jobs:
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
-            type=raw,value=latest
-      - uses: docker/build-push-action@v7
+            type=raw,value=latest,enable=${{ !contains(github.ref_name, '-') }}
+      - id: build
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -62,5 +83,18 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: VERSION=${{ steps.meta.outputs.version }}
+          # SBOM y provenance de BuildKit, adjuntos a la imagen en el registro
+          sbom: true
+          provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - uses: sigstore/cosign-installer@v4.1.2
+      # se firma el digest, no un tag (un tag puede moverse)
+      - run: cosign sign --yes "ghcr.io/${GITHUB_REPOSITORY}@${DIGEST}"
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+      - uses: actions/attest-build-provenance@v4
+        with:
+          subject-name: ghcr.io/${{ github.repository }}
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
