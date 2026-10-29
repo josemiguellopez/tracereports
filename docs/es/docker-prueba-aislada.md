@@ -353,6 +353,76 @@ docker exec tracereports-prueba-tracereports-1 /tracereports doctor --security
 Lo importante es **`0 fail`**. El `WARN` de **Network exposure** es normal con Docker en tu equipo (ver
 [guía de instalación, paso 9](docker-paso-a-paso.md#paso-9--revisar-la-seguridad)).
 
+<details>
+<summary><b>Opcional: dejar en verde «Exposición en la red»</b></summary>
+
+En tu equipo ya estás protegido: el `docker-compose.yml` publica el puerto solo para `127.0.0.1`, así que nadie
+de tu red llega a él. Si además quieres que TraceReports rechace cualquier conexión que no venga de la red de
+Docker, limítalo a esa red. Hazlo en **la misma ventana** de la terminal, dentro de la carpeta `tracereports`:
+
+1. Mira la red de tu instalación:
+
+   💻
+
+   ```powershell
+   $red = docker network inspect tracereports-prueba_default --format "{{(index .IPAM.Config 0).Subnet}}"; $red
+   ```
+
+   ✅ **Deberías ver** algo como `172.18.0.0/16` (los números pueden ser otros).
+
+2. Guárdala en el `.env`:
+
+   ```powershell
+   $e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; $e += "TRACEREPORTS_ALLOWED_CIDRS=$red"; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+   ```
+
+3. Aplícalo:
+
+   ```powershell
+   docker compose up -d
+   ```
+
+4. Compruébalo:
+
+   ```powershell
+   curl.exe -s -o NUL -w "%{http_code}" http://localhost:8080/api/v1/runs
+   ```
+
+   ✅ **`401`** (pide login): está bien, el filtro te deja pasar. Recarga **Ajustes → Revisión de seguridad**:
+   "Exposición en la red" pasa a **En orden** ("solo desde 172.18.0.0/16").
+
+   ❌ **`403`**: tu Docker muestra las conexiones desde otra dirección. Búscala en el log:
+
+   ```powershell
+   docker compose logs tracereports | Select-String "not in TRACEREPORTS_ALLOWED_CIDRS"
+   ```
+
+   La línea termina con `ip=…`. Repite el paso 2 con esa IP, por ejemplo después de `$red = "192.168.65.1/32"`, y
+   el paso 3.
+
+**Para deshacerlo:**
+
+```powershell
+$e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+y después `docker compose up -d`.
+
+<details><summary>macOS / Linux</summary>
+
+```bash
+red=$(docker network inspect tracereports-prueba_default --format '{{(index .IPAM.Config 0).Subnet}}'); echo "$red"
+grep -v '^TRACEREPORTS_ALLOWED_CIDRS=' .env > .env.tmp && echo "TRACEREPORTS_ALLOWED_CIDRS=$red" >> .env.tmp && mv .env.tmp .env
+docker compose up -d
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/v1/runs
+```
+
+Con `403`: `docker compose logs tracereports | grep "not in TRACEREPORTS_ALLOWED_CIDRS"`. Para deshacerlo:
+`grep -v '^TRACEREPORTS_ALLOWED_CIDRS=' .env > .env.tmp && mv .env.tmp .env` y `docker compose up -d`.
+
+</details>
+</details>
+
 En **Ajustes → Inteligencia artificial** verás **"El administrador bloqueó estos ajustes"**: es por
 `TRACEREPORTS_SETTINGS_LOCKED=1`, como debe ser.
 

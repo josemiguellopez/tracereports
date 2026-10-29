@@ -367,8 +367,8 @@ En el navegador: **Ajustes** (abajo a la izquierda) → **Revisión de seguridad
 
 ✅ La mayoría en verde (**OK**). Con Docker en tu equipo es normal que **"Exposición en la red"** aparezca
 arriba, en **Para revisar**: dentro del contenedor TraceReports escucha en la red *del contenedor*, aunque el puerto solo
-esté publicado para tu equipo. En un servidor se resuelve con `TRACEREPORTS_ALLOWED_CIDRS` (ver la
-[guía de hardening](security-hardening.md)).
+esté publicado para tu equipo. Para dejarlo en verde mira el paso opcional del final de este paso; en un servidor,
+la [guía de hardening](security-hardening.md).
 
 Lo mismo por comando (dentro de la carpeta `tracereports`):
 
@@ -383,8 +383,8 @@ docker compose exec tracereports /tracereports doctor --security
 ```
 OK    API tokens                   admin and ingest tokens set and different
 OK    UI login                     reads require the UI login or a token
-WARN  Network exposure             listening on the network for any source address
-                                   → limit TRACEREPORTS_ALLOWED_CIDRS to the networks that need it (or a firewall)
+WARN  Network exposure             inside Docker it listens on the container network; if the port is published only on 127.0.0.1 (the official docker-compose.yml), only this machine reaches it
+                                   → to filter inside Docker too, set TRACEREPORTS_ALLOWED_CIDRS to the container network (docker network inspect <project>_default) or the networks that need it
 OK    AI provider                  local rules engine or off: no evidence leaves the server
 OK    Settings locked              Settings is read-only: the configuration comes only from the environment
 OK    Retention                    runs older than 90 days are deleted (secure_delete, VACUUM)
@@ -399,6 +399,76 @@ OK    Screenshot policy            TRACEREPORTS_SCREENSHOTS=failures
 ```
 
 Lo importante es **`0 fail`**.
+
+<details>
+<summary><b>Opcional: dejar en verde «Exposición en la red»</b></summary>
+
+En tu equipo ya estás protegido: el `docker-compose.yml` publica el puerto solo para `127.0.0.1`, así que nadie
+de tu red llega a él. Si además quieres que TraceReports rechace cualquier conexión que no venga de la red de
+Docker, limítalo a esa red. Hazlo en **la misma ventana** de la terminal, dentro de la carpeta `tracereports`:
+
+1. Mira la red de tu instalación:
+
+   💻
+
+   ```powershell
+   $red = docker network inspect tracereports_default --format "{{(index .IPAM.Config 0).Subnet}}"; $red
+   ```
+
+   ✅ **Deberías ver** algo como `172.18.0.0/16` (los números pueden ser otros).
+
+2. Guárdala en el `.env`:
+
+   ```powershell
+   $e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; $e += "TRACEREPORTS_ALLOWED_CIDRS=$red"; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+   ```
+
+3. Aplícalo:
+
+   ```powershell
+   docker compose up -d
+   ```
+
+4. Compruébalo:
+
+   ```powershell
+   curl.exe -s -o NUL -w "%{http_code}" http://localhost:8080/api/v1/runs
+   ```
+
+   ✅ **`401`** (pide login): está bien, el filtro te deja pasar. Recarga **Ajustes → Revisión de seguridad**:
+   "Exposición en la red" pasa a **En orden** ("solo desde 172.18.0.0/16").
+
+   ❌ **`403`**: tu Docker muestra las conexiones desde otra dirección. Búscala en el log:
+
+   ```powershell
+   docker compose logs tracereports | Select-String "not in TRACEREPORTS_ALLOWED_CIDRS"
+   ```
+
+   La línea termina con `ip=…`. Repite el paso 2 con esa IP, por ejemplo después de `$red = "192.168.65.1/32"`, y
+   el paso 3.
+
+**Para deshacerlo:**
+
+```powershell
+$e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+y después `docker compose up -d`.
+
+<details><summary>macOS / Linux</summary>
+
+```bash
+red=$(docker network inspect tracereports_default --format '{{(index .IPAM.Config 0).Subnet}}'); echo "$red"
+grep -v '^TRACEREPORTS_ALLOWED_CIDRS=' .env > .env.tmp && echo "TRACEREPORTS_ALLOWED_CIDRS=$red" >> .env.tmp && mv .env.tmp .env
+docker compose up -d
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:8080/api/v1/runs
+```
+
+Con `403`: `docker compose logs tracereports | grep "not in TRACEREPORTS_ALLOWED_CIDRS"`. Para deshacerlo:
+`grep -v '^TRACEREPORTS_ALLOWED_CIDRS=' .env > .env.tmp && mv .env.tmp .env` y `docker compose up -d`.
+
+</details>
+</details>
 
 En **Ajustes → Inteligencia artificial** verás **"El administrador bloqueó estos ajustes"**: es por
 `TRACEREPORTS_SETTINGS_LOCKED=1`, como debe ser.

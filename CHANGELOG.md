@@ -64,6 +64,12 @@ warning, and anyone who reached the port could read and change the reports. Now 
 
 ### Changed
 
+- **Security check → Network exposure** explains the Docker case: inside the official image the server always
+  listens on the container network, so the warning now says that a port published only on `127.0.0.1` (the
+  official `docker-compose.yml`) is already reachable from that machine only, and how to filter inside Docker
+  too with `TRACEREPORTS_ALLOWED_CIDRS` and the container network. It stays a warning: from inside the
+  container the published port cannot be seen. The Docker guides gained an optional step to turn it green
+  (look up the network, save it in the `.env`, check for `401` vs `403`, undo).
 - **Without an AI key, failures are now diagnosed by the local engine** instead of not at all. To keep the
   previous behavior (no diagnosis), set `AI_PROVIDER=off`. Existing LLM setups do not change.
 - CI runs the Go tests with the race detector and checks that the server still builds without CGO.

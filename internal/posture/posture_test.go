@@ -85,6 +85,8 @@ func TestEachCheck(t *testing.T) {
 		{"network.exposure", Warn, func(c *Config) { c.AllowedCIDRs = nil }},
 		{"network.exposure", Fail, func(c *Config) { c.Insecure = true }},
 		{"network.exposure", OK, func(c *Config) { c.AllowedCIDRs, c.Exposed = nil, false }},
+		{"network.exposure", Warn, func(c *Config) { c.AllowedCIDRs, c.Docker = nil, true }},
+		{"network.exposure", OK, func(c *Config) { c.Docker = true }}, // con CIDRs ya está filtrado
 		{"ai.provider", Warn, func(c *Config) { c.AIProvider, c.AIScope = "openai", egress.ScopeName }},
 		{"ai.provider", OK, func(c *Config) {
 			c.AIProvider, c.AIScope, c.AIAllowlist = "openai", egress.ScopeName, []string{"builtin", "openai"}
@@ -159,5 +161,20 @@ func TestAIFixNamesTheRealVariable(t *testing.T) {
 	}
 	if !strings.Contains(level(Evaluate(c), "ai.provider").Fix, "TRACEREPORTS_AI_ALLOWED_PROVIDERS") {
 		t.Fatal("la instrucción no nombra la variable")
+	}
+}
+
+// Dentro de Docker el aviso explica por qué aparece y cómo filtrar con la red del contenedor, sin
+// fingir que ya está bien: desde adentro no se ve cómo se publicó el puerto.
+func TestNetworkExposureInDocker(t *testing.T) {
+	c := Hardened()
+	c.AllowedCIDRs, c.Docker = nil, true
+	ch := level(Evaluate(c), "network.exposure")
+	if ch.Level != Warn || !strings.Contains(ch.Detail, "127.0.0.1") || !strings.Contains(ch.Fix, "docker network inspect") {
+		t.Fatalf("docker: %+v", ch)
+	}
+	c.Docker = false
+	if ch := level(Evaluate(c), "network.exposure"); strings.Contains(ch.Detail, "Docker") {
+		t.Fatalf("sin Docker no lo menciona: %+v", ch)
 	}
 }

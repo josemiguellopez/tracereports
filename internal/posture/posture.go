@@ -51,6 +51,7 @@ func (r Report) Failed() bool { return r.Fail > 0 }
 // Config are the facts the checks look at. Credentials are booleans: a value never gets here.
 type Config struct {
 	Exposed  bool // escucha más allá de este equipo (bind en la red, o dentro de Docker)
+	Docker   bool // la imagen oficial (TRACEREPORTS_RUNTIME=docker): no ve cómo se publicó el puerto
 	Insecure bool // TRACEREPORTS_INSECURE=1
 
 	Token, IngestToken, SameTokens bool
@@ -149,6 +150,11 @@ func checkNetwork(c Config) Check {
 		ch.Level, ch.Detail = OK, "listening only on this machine"
 	case len(c.AllowedCIDRs) > 0:
 		ch.Level, ch.Detail = OK, "only from "+strings.Join(c.AllowedCIDRs, ", ")
+	case c.Docker:
+		// dentro del contenedor siempre se escucha en su red: si el puerto se publicó solo en 127.0.0.1
+		// (el docker-compose.yml oficial) ya está protegido, pero eso no se ve desde adentro
+		ch.Level, ch.Detail = Warn, "inside Docker it listens on the container network; if the port is published only on 127.0.0.1 (the official docker-compose.yml), only this machine reaches it"
+		ch.Fix = "to filter inside Docker too, set TRACEREPORTS_ALLOWED_CIDRS to the container network (docker network inspect <project>_default) or the networks that need it"
 	default:
 		ch.Level, ch.Detail = Warn, "listening on the network for any source address"
 		ch.Fix = "limit TRACEREPORTS_ALLOWED_CIDRS to the networks that need it (or a firewall)"
