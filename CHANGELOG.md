@@ -37,6 +37,12 @@ warning, and anyone who reached the port could read and change the reports. Now 
   failed test you are viewing (or opens the first one), what to check first in the run, how to connect your
   tests and whether the installation is secure. Admin only (the read-only login does not see it), hidden
   when AI is off; animations follow `prefers-reduced-motion`.
+- **Change the `.env`** (`docs/en/docker.md`, `docs/es/docker.md`): how to edit it by hand or with a one-line
+  command that replaces a variable without repeating it or adding a BOM, why `docker compose up -d` applies it
+  and `restart` does not, the log line that confirms each change, that Settings takes precedence over the
+  `.env`, ready-made examples (every screenshot, retention, AI off, Ollama, Docker network) and how to back it
+  up outside the project. The one-line `.env` commands in the Docker guides now work also when the file is
+  left with a single line.
 - **Install with Docker, step by step** (`docs/en/docker-step-by-step.md`, `docs/es/docker-paso-a-paso.md`): a
   guide for people new to Docker or the terminal, from installing Docker to the first report, with what to
   expect at every step, screenshots, real outputs and the fixes for common errors; linked from the READMEs

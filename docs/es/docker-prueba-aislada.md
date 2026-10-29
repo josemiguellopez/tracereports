@@ -373,7 +373,7 @@ Docker, limítalo a esa red. Hazlo en **la misma ventana** de la terminal, dentr
 2. Guárdala en el `.env`:
 
    ```powershell
-   $e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; $e += "TRACEREPORTS_ALLOWED_CIDRS=$red"; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+   $e = @(Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }); $e += "TRACEREPORTS_ALLOWED_CIDRS=$red"; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
    ```
 
 3. Aplícalo:
@@ -403,7 +403,7 @@ Docker, limítalo a esa red. Hazlo en **la misma ventana** de la terminal, dentr
 **Para deshacerlo:**
 
 ```powershell
-$e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
 ```
 
 y después `docker compose up -d`.

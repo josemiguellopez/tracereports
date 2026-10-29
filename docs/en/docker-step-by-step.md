@@ -422,7 +422,7 @@ from the Docker network, limit it to that network. Do it in **the same terminal 
 2. Save it in the `.env`:
 
    ```powershell
-   $e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; $e += "TRACEREPORTS_ALLOWED_CIDRS=$red"; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+   $e = @(Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }); $e += "TRACEREPORTS_ALLOWED_CIDRS=$red"; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
    ```
 
 3. Apply it:
@@ -452,7 +452,7 @@ from the Docker network, limit it to that network. Do it in **the same terminal 
 **To undo it:**
 
 ```powershell
-$e = Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_ALLOWED_CIDRS=' }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
 ```
 
 and then `docker compose up -d`.
@@ -758,7 +758,7 @@ Always inside the `tracereports` folder:
 | Restart | `docker compose restart` |
 | Stop (data is kept) | `docker compose stop` |
 | Start again | `docker compose start` |
-| Apply changes to the `.env` | `docker compose up -d` |
+| Apply changes to the `.env` | `docker compose up -d` (not `restart`, which keeps the previous configuration). How to edit it, with examples: [Change the `.env`](docker.md#change-the-env) |
 | Update to a new version | Make a backup, then `git pull` and `docker compose up -d --build` |
 | Check security | `docker compose exec tracereports /tracereports doctor --security` |
 

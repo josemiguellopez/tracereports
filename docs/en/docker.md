@@ -63,8 +63,8 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
 GEMINI_API_KEY=                          # optional: AI diagnosis
 ```
 
-After changing the `.env`, apply it with `docker compose up -d`. Every variable is in
-[Configuration](configuration.md).
+After changing the `.env`, apply it with `docker compose up -d` (see [Change the `.env`](#change-the-env), with
+examples). Every variable is in [Configuration](configuration.md).
 
 If you decide not to configure a login on your PC, the server still protects itself: it only serves
 requests with `Host` `localhost`/`127.0.0.1` (defense against *DNS rebinding*). With a login, the
@@ -87,6 +87,130 @@ docker compose up -d
 - `docker compose ps` must show the container `Up (healthy)`. If it keeps restarting,
   `docker compose logs tracereports` says why (for example `refusing to start`: the token or the login
   is missing).
+
+## Change the `.env`
+
+All the configuration is in the `.env` file of the `tracereports` folder. To change something: edit the file,
+apply it and check that it was applied.
+
+### 1. Edit
+
+**By hand.** Open it with a text editor, change the line and save:
+
+```powershell
+notepad .env
+```
+
+On macOS/Linux: `nano .env` (save with `Ctrl`+`O`, quit with `Ctrl`+`X`).
+
+- One variable per line, no spaces around the `=` and no quotes: `TRACEREPORTS_RETENTION_DAYS=90`.
+- If a variable is already there, **change it** instead of adding it again: two lines with the same name are confusing.
+- Lines that start with `#` are comments: they do nothing.
+
+**With a command.** Changes (or adds) a single variable without touching the rest, without repeating it and
+without damaging the file. Replace `NAME` and `value`:
+
+```powershell
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^NAME=' }); $e += 'NAME=value'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+To **remove** a variable (it goes back to its default):
+
+```powershell
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^NAME=' }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+<details><summary>macOS / Linux</summary>
+
+```bash
+# change or add
+grep -v '^NAME=' .env > .env.tmp && echo 'NAME=value' >> .env.tmp && mv .env.tmp .env
+# remove
+grep -v '^NAME=' .env > .env.tmp && mv .env.tmp .env
+```
+
+</details>
+
+> **In Windows PowerShell do not use `Set-Content`, `Out-File` or `>` to write the `.env`.** Depending on the
+> version they save it with another encoding or with an invisible mark at the start (BOM), and the first
+> variable stops being read without any warning. Notepad and the commands above save it correctly.
+
+### 2. Apply
+
+```powershell
+docker compose up -d
+```
+
+It recreates the container with the new `.env`; the data is kept. **`docker compose restart` does not do
+this**: it restarts the container with the configuration it already had.
+
+### 3. Check
+
+```powershell
+docker compose logs --tail 20 tracereports
+```
+
+On start the server announces what it took: the AI (`AI triage enabled provider=…`), the screenshot policy
+(`screenshot policy screenshots=…`), retention, encryption, the allowed network and the outbound
+destinations. It never shows keys or tokens. To also see what is left to harden:
+
+```powershell
+docker compose exec tracereports /tracereports doctor --security
+```
+
+If the server does not start after the change, the log says which variable has an invalid value (for example
+`TRACEREPORTS_SCREENSHOTS must be all, failures or off`).
+
+> **Changed the AI and the log still shows the previous one?** What is saved from **Settings → Artificial
+> intelligence** takes precedence over the `.env`. There, **Go back to the .env configuration** clears it and the
+> server uses your variables again. (With `TRACEREPORTS_SETTINGS_LOCKED=1` nothing can be saved from the screen.)
+
+### Examples
+
+Each one is the command that changes the `.env` (copy it as is) followed by `docker compose up -d`.
+
+| To | Variable(s) | What you will see in the log |
+|---|---|---|
+| Keep the screenshots of every test, not only the failed ones | `TRACEREPORTS_SCREENSHOTS=all` | `screenshot policy screenshots=all` |
+| Keep only the failures' screenshots again (recommended) | `TRACEREPORTS_SCREENSHOTS=failures` | `screenshot policy screenshots=failures` |
+| Delete runs older than 30 days | `TRACEREPORTS_RETENTION_DAYS=30` | `retention enabled days=30` |
+| Turn the automatic diagnosis off | `AI_PROVIDER=off` | `failure diagnosis disabled (AI_PROVIDER=off)` |
+
+**Keep every screenshot:**
+
+```powershell
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_SCREENSHOTS=' }); $e += 'TRACEREPORTS_SCREENSHOTS=all'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+Screenshots from before the change do not show up: with `failures` the server never kept them. In the
+**Security check**, "Screenshot policy" moves to *to review*: a screenshot can show personal data or
+passwords on screen.
+
+**Use Ollama (a model on your computer) for the diagnosis.** Download the model first with
+`ollama pull llama3.1:8b`. It changes four variables at once:
+
+```powershell
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^(AI_PROVIDER|AI_MODEL|OLLAMA_HOST|TRACEREPORTS_AI_ALLOWED_PROVIDERS)=' }); $e += 'AI_PROVIDER=ollama', 'OLLAMA_HOST=http://host.docker.internal:11434', 'AI_MODEL=llama3.1:8b', 'TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `AI triage enabled provider=ollama model=llama3.1:8b`. Inside the container `localhost` is the
+container itself: hence `host.docker.internal`, which is your computer. `TRACEREPORTS_AI_ALLOWED_PROVIDERS` is
+only needed if you already had it (the step-by-step guide sets it to `builtin`).
+
+**Allow only the Docker network:** see the optional step of
+[Check security](docker-step-by-step.md#step-9--check-security).
+
+### Back up the `.env`
+
+Keep the copy **outside** the project folder: git ignores the `.env` file, but not copies with another name
+(`.env copy`, `.env.bak`…), and such a copy could end up in a commit with your keys.
+
+```powershell
+Copy-Item .env "$HOME\tracereports-env-$(Get-Date -Format yyyyMMdd).txt"
+```
+
+On macOS/Linux: `cp .env ~/tracereports-env-$(date +%Y%m%d).txt`. With encryption at rest, that backup also
+holds `TRACEREPORTS_DB_KEY`: without it the stored screenshots cannot be read.
 
 ## Connect your tests
 
@@ -117,7 +241,7 @@ Desktop, in the **Containers** tab.
 | Follow the logs | `docker compose logs -f` |
 | Stop it | `docker compose stop` |
 | Start it again | `docker compose start` |
-| Apply `.env` changes | `docker compose up -d` |
+| Apply `.env` changes | `docker compose up -d` (not `restart`: see [Change the `.env`](#change-the-env)) |
 | Update to a new version | `git pull`, then `docker compose up -d --build` |
 | Remove the container (data stays) | `docker compose down` |
 
