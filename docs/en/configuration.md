@@ -35,6 +35,7 @@ steps to apply it.
 | `AI_BASE_URL` | the provider's API | API URL: proxy, your own endpoint, a compatible service or a remote Ollama |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternative to the `AI_*` variables: with just one of these the provider is picked automatically |
 | `TRACEREPORTS_AI_BUILTIN_HINT` | `1` | With an LLM configured, its prompt first includes the local engine's conclusion (already redacted). `0` removes it |
+| `TRACEREPORTS_AI_LANGUAGE` | `auto` | Language of the diagnoses: `es`, `en` or `auto` (the team's default language; without one, each test's). What is chosen in **Settings → Artificial intelligence** takes precedence over this variable; with `TRACEREPORTS_SETTINGS_LOCKED=1` this is how to set it. Existing diagnoses do not change: re-analyze them |
 | `TRACEREPORTS_AI_ALLOWED_PROVIDERS` | — (all) | Allowed providers, comma separated (`builtin,ollama`). One outside the list is never used. See [Allowed providers](#allowed-providers-and-data-leaving-the-server) |
 | `TRACEREPORTS_ENV_FILE` | `.env` | `KEY=value` file the server reads on startup |
 | `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: the Settings screen becomes read-only; AI is configured only from the environment |

@@ -28,6 +28,19 @@ warning, and anyone who reached the port could read and change the reports. Now 
 4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
 ### Added
 
+- **Why a test has no screenshots**: with `TRACEREPORTS_SCREENSHOTS=failures`, a test that did not fail and has
+  no screenshots says that this server only keeps the failures' ones (with `off`, every test says so), instead
+  of looking like the images were lost. `GET /api/v1/config` reports the policy, and Trace Buddy gets a "Why
+  are there no screenshots?" question when the server drops any.
+- **Language of the AI diagnoses** can be set in the `.env` with `TRACEREPORTS_AI_LANGUAGE` (`es`, `en`, `auto`),
+  which is the only way when `TRACEREPORTS_SETTINGS_LOCKED=1`; what is chosen in Settings still takes
+  precedence. `auto` now follows the team's default language and only falls back to each test's language
+  when there is none, so a Spanish-speaking team gets Spanish diagnoses even with English test names.
+  Changing the team language applies at once. Settings → Artificial intelligence says which language the
+  diagnoses are written in and where it comes from, and the log says `diagnosis language lang=…` on start.
+  A diagnosis in another language than the interface says so, in its card and in Trace Buddy: one click
+  re-analyzes it, or (when Settings is editable) sets that language for every new diagnosis and re-analyzes
+  it; with Settings locked it says which `.env` line to add.
 - **Trace Buddy**, a QA assistant on a floating button (bottom right): **Tty**, a retro terminal with legs
   whose face is on the screen. It turns on like an old monitor, code rains on its screen while the AI
   works, and it shows `^_^` or glitches with `x_x` on the result. It only opens when you call it and
@@ -40,8 +53,10 @@ warning, and anyone who reached the port could read and change the reports. Now 
 - **Change the `.env`** (`docs/en/docker.md`, `docs/es/docker.md`): how to edit it by hand or with a one-line
   command that replaces a variable without repeating it or adding a BOM, why `docker compose up -d` applies it
   and `restart` does not, the log line that confirms each change, that Settings takes precedence over the
-  `.env`, ready-made examples (every screenshot, retention, AI off, Ollama, Docker network) and how to back it
-  up outside the project. The one-line `.env` commands in the Docker guides now work also when the file is
+  `.env`, **recipes to pick your flavor** (each a single command: diagnoses in your language, Ollama, Gemini
+  with the key asked for instead of pasted, back to the local engine, maximum privacy, every screenshot, AI off;
+  they combine) and how to back it up outside the project. The step-by-step guides set
+  `TRACEREPORTS_AI_LANGUAGE` in the first `.env` and gained an optional Ollama step. The one-line `.env` commands in the Docker guides now work also when the file is
   left with a single line.
 - **Install with Docker, step by step** (`docs/en/docker-step-by-step.md`, `docs/es/docker-paso-a-paso.md`): a
   guide for people new to Docker or the terminal, from installing Docker to the first report, with what to

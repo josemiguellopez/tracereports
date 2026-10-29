@@ -33,7 +33,8 @@ import (
 // demoAIVars are the variables of the AI provider: the only configuration the demo takes from the
 // environment or the .env, unless -ai=false.
 var demoAIVars = []string{"AI_PROVIDER", "AI_MODEL", "AI_API_KEY", "AI_BASE_URL", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_BASE_URL",
-	"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_HOST", "TRACEREPORTS_AI_MAX_PER_RUN", "TRACEREPORTS_AI_STATUS_URL"}
+	"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_HOST", "TRACEREPORTS_AI_MAX_PER_RUN", "TRACEREPORTS_AI_STATUS_URL",
+	"TRACEREPORTS_AI_LANGUAGE"}
 
 // demoSideEffects are variables that would make the demo talk to the outside world.
 var demoSideEffects = []string{"TEAMS_WEBHOOK_URL", "SLACK_WEBHOOK_URL", "PUBLIC_URL", "NOTIFY_ON", "NETWORK_MAX_BODY_KB", "PORT", "DATA_DIR"}

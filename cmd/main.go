@@ -208,6 +208,9 @@ func runServer(parent context.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := api.ValidAILanguage(); err != nil {
+		return err
+	}
 	screenshots, err := api.ParseScreenshotPolicy(env.Get("SCREENSHOTS"))
 	if err != nil {
 		return err
@@ -338,6 +341,9 @@ func runServer(parent context.Context) error {
 		slog.Info("failure diagnosis: local rules engine (no LLM, no network); set AI_PROVIDER/AI_API_KEY or use Settings for an LLM", "rules", analyzer.Model())
 	default:
 		slog.Info("failure diagnosis disabled (AI_PROVIDER=off)")
+	}
+	if l := analyzer.Language(); l != "" && analyzer.Enabled() {
+		slog.Info("diagnosis language", "lang", l)
 	}
 	logEgress(analyzer.Config())
 	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado

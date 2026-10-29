@@ -141,6 +141,9 @@ func (a *Analyzer) SetLanguage(lang string) {
 	a.mu.Unlock()
 }
 
+// Language is the language the diagnoses are written in ("" = each test's).
+func (a *Analyzer) Language() string { return a.language() }
+
 func (a *Analyzer) language() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()

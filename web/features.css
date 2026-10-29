@@ -1189,6 +1189,12 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .buddy-msg a { color: var(--color-accent); font-weight: 600; }
 .buddy-msg .ai-cat { margin-left: 4px; }
 .buddy-next { font-weight: 600; color: var(--color-heading); }
+.shot-policy-note { display: flex; gap: 8px; align-items: flex-start; margin: 0 0 10px; padding: 8px 12px; border-radius: 8px; font-size: 13px;
+	color: var(--color-text-muted); background: color-mix(in srgb, var(--color-info) 8%, var(--color-surface-raised)); border: 1px solid var(--color-border); }
+.shot-policy-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; color: var(--color-info); }
+.buddy-lang { padding-top: 6px; border-top: 1px dashed var(--color-border); font-size: 13px; }
+.buddy-lang .link-btn { font-weight: 600; }
+.ai-card .buddy-lang { margin: 10px 0 0; }
 .buddy-list { margin: 4px 0 0; padding-left: 20px; }
 .buddy-ok { color: var(--color-success); font-weight: 800; }
 .buddy-bad { color: var(--color-danger); font-weight: 800; }

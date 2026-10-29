@@ -182,6 +182,20 @@
 		buddyTestLoaded(test);
 	}
 
+	/** Por qué un test no tiene capturas: la política del servidor (TRACEREPORTS_SCREENSHOTS) las descartó
+	 * antes de guardarlas. Sin esto, un test que pasó parece haber perdido sus fotos. */
+	function shotPolicyText(t) {
+		const p = S.config?.screenshots;
+		if (STATIC || !p || p === "all" || t.logs.some((l) => l.screenshot)) return "";
+		if (p === "off") return tr("Este servidor no guarda capturas (TRACEREPORTS_SCREENSHOTS=off).");
+		if (t.status === "FAIL") return "";
+		return tr("Este test no falló, y este servidor solo guarda las capturas de los tests y pasos que fallan (TRACEREPORTS_SCREENSHOTS=failures).");
+	}
+	function shotPolicyNote(t) {
+		const msg = shotPolicyText(t);
+		return msg ? `<p class="shot-policy-note">${icon("i-camera")}<span>${msg}</span></p>` : "";
+	}
+
 	// ---------- header ----------
 	function renderHeader() {
 		const r = S.run;
@@ -409,7 +423,7 @@
 			`<button class="step-chip ${cls} ${S.stepFilter === st ? "active" : ""}" data-step-filter="${st}" data-tip="Mostrar solo los pasos ${esc(name)} (${counts[st]})">${icon(ic)}${name} ${counts[st]}</button>`).join("");
 		const logs = S.stepFilter ? t.logs.filter((l) => l.status === S.stepFilter) : t.logs;
 		const rows = logs.map((l) => stepRow(l)).join("");
-		const steps = `${t.logs.length > 1 ? `<div class="steps-toolbar"><span class="lbl">Filtrar:</span>
+		const steps = `${shotPolicyNote(t)}${t.logs.length > 1 ? `<div class="steps-toolbar"><span class="lbl">Filtrar:</span>
 				<button class="step-chip all ${!S.stepFilter ? "active" : ""}" data-step-filter="" data-tip="Mostrar todos los pasos">Todos ${t.logs.length}</button>${chips}</div>` : ""}
 			<table class="table-results">
 				<thead><tr><th>Estado</th><th>Hora</th><th>Detalle</th></tr></thead>
@@ -484,6 +498,7 @@
 				${isLocal(tr) ? localBadge(tr.rule) : `<span class="ai-model">${esc(S.config.ai_model)}</span>`}</div>
 			<h6>Resumen</h6><p>${esc(tr.summary)}</p>
 			<h6>Sugerencia</h6><p class="suggestion">${esc(tr.suggestion)}</p>
+			${!STATIC && canAct() ? buddyLangNote(t) : "" /* en otro idioma que la interfaz: el mismo aviso que da Trace Buddy */}
 			${similarBlock(t)}
 			${loc}
 		</div>`;
@@ -3150,7 +3165,19 @@
 	}
 
 	// ---------- ajustes ----------
-	const AI_LANGS = [["auto", "Automático (el idioma de cada test)"], ["es", "Español"], ["en", "English"]];
+	const AI_LANGS = [["auto", "Automático (el idioma del equipo)"], ["es", "Español"], ["en", "English"]];
+	const LANG_NAME = { es: "español", en: "inglés" };
+
+	/** En qué idioma salen los diagnósticos ahora y de dónde viene esa decisión (Ajustes, .env, equipo). */
+	function aiLanguageHelp(d) {
+		const eff = d.ai_language_effective;
+		const from = d.ai_language !== "auto" ? "" : d.ai_language_env ? tr("definido en el .env con TRACEREPORTS_AI_LANGUAGE")
+			: eff ? tr("el idioma por defecto del equipo, de Ajustes → Apariencia") : "";
+		const now = eff ? tr("Los diagnósticos se escriben en {l}", { l: tr(LANG_NAME[eff]) }) + (from ? ` (${from}).` : ".")
+			: tr("Sin un idioma definido, la IA usa el de cada test (casi siempre inglés, por los nombres de los tests).");
+		const locked = !d.editable && d.edit_reason === "locked" ? ` ${tr("Ajustes está bloqueado: para cambiarlo usa TRACEREPORTS_AI_LANGUAGE=es (o en) en el .env.")}` : "";
+		return `<span class="field-help">${now}${locked} ${tr("Los diagnósticos que ya existen no cambian: usa Re-analizar.")}</span>`;
+	}
 	/**
 	 * .env completo con datos de prueba, para la ayuda de "ajustes de solo lectura". La sección de IA
 	 * que queda activa es la del proveedor configurado ahora (sin su key real). Devuelve texto plano.
@@ -3812,6 +3839,7 @@
 			</fieldset>` : ""}
 			<label class="field field-inline"><span class="field-label">Idioma de los diagnósticos</span>
 				<select data-ai-field="ai_language" ${ro ? "disabled" : ""}>${AI_LANGS.map(([v, l]) => `<option value="${v}" ${f.ai_language === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+			${aiLanguageHelp(d)}
 			${ro ? "" : `<div class="set-actions">
 				${p ? `<button class="cf-btn" data-ai-test ${st.busy ? "disabled" : ""}>${icon("i-plug")}Probar conexión</button>` : ""}
 				<button class="cf-btn cf-btn-primary" data-ai-save ${st.busy ? "disabled" : ""}>${icon("i-check")}Guardar</button>
@@ -4048,8 +4076,10 @@
 	};
 	const BUDDY_ASKS = [
 		["explain", "Explícame este fallo"], ["first", "¿Qué reviso primero?"], ["probe", "¿Funciona la IA?"],
-		["connect", "¿Cómo conecto mis tests?"], ["security", "¿Está segura mi instalación?"],
+		["connect", "¿Cómo conecto mis tests?"], ["security", "¿Está segura mi instalación?"], ["shots", "¿Por qué no hay capturas?"],
 	];
+	// "¿Por qué no hay capturas?" solo tiene sentido si el servidor descarta alguna
+	const buddyAsks = () => BUDDY_ASKS.filter(([id]) => id !== "shots" || (S.config.screenshots && S.config.screenshots !== "all"));
 	// waitTest: el test cuyo diagnóstico se está esperando para explicarlo apenas llegue
 	const buddy = { open: false, msgs: [], probing: false, greeted: false, closeTimer: 0, waitTest: null, waitEl: null };
 	const buddyHidden = () => { try { return localStorage.getItem(BUDDY_KEY) === "hidden"; } catch { return false; } };
@@ -4068,7 +4098,7 @@
 					<button class="link-btn" type="button" data-buddy-hide>Ocultar</button>
 					<button class="buddy-close" type="button" data-buddy-close aria-label="Cerrar">${icon("i-close")}</button></header>
 				<div class="buddy-log" id="buddy-log" aria-live="polite"></div>
-				<div class="buddy-asks" id="buddy-asks" role="group" aria-label="Preguntas">${BUDDY_ASKS.map(([id, label]) => `<button class="buddy-ask" type="button" data-buddy-ask="${id}">${label}</button>`).join("")}</div>
+				<div class="buddy-asks" id="buddy-asks" role="group" aria-label="Preguntas">${buddyAsks().map(([id, label]) => `<button class="buddy-ask" type="button" data-buddy-ask="${id}">${label}</button>`).join("")}</div>
 			</section>`;
 		document.body.appendChild(root);
 		root.addEventListener("click", (e) => {
@@ -4082,6 +4112,13 @@
 			if (e.target.closest("[data-view-link]")) buddyToggle(false); // el link lleva a otra vista
 		});
 		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && buddy.open) { buddyToggle(false); $("#buddy-fab").focus(); } });
+		// el aviso de idioma está en Trace Buddy y en la tarjeta del diagnóstico: sus botones valen en toda la página
+		document.addEventListener("click", (e) => {
+			const setLang = e.target.closest("[data-buddy-lang]");
+			if (setLang) { buddySetLanguage(setLang.dataset.buddyLang, Number(setLang.dataset.test), setLang); return; }
+			const again = e.target.closest("[data-buddy-reanalyze]");
+			if (again) buddyReanalyze(Number(again.dataset.buddyReanalyze), again);
+		});
 		buddyRefresh();
 	}
 
@@ -4162,7 +4199,7 @@
 
 	function buddyAsk(id, label) {
 		buddySay(esc(label), "me");
-		({ explain: buddyExplain, first: buddyFirst, probe: () => buddyProbe(true), connect: buddyConnect, security: buddySecurity }[id] || (() => {}))();
+		({ explain: buddyExplain, first: buddyFirst, probe: () => buddyProbe(true), connect: buddyConnect, security: buddySecurity, shots: buddyShots }[id] || (() => {}))();
 	}
 
 	async function buddyProbe(force) {
@@ -4242,7 +4279,70 @@
 		const who = tri.provider === "builtin" ? tr("Según el motor local de reglas") : tr("Según la IA");
 		return `<b data-no-i18n>${esc(t.name)}</b> <span class="ai-cat ${esc(tri.category)}">${esc(tri.category)}</span>
 			<p data-no-i18n>${esc(tri.summary)}</p>${tri.suggestion ? `<p class="buddy-next" data-no-i18n>→ ${esc(tri.suggestion)}</p>` : ""}
-			<small>${who}${tri.rule ? ` · <span data-no-i18n>${esc(tri.rule)}</span>` : ""}</small>`;
+			<small>${who}${tri.rule ? ` · <span data-no-i18n>${esc(tri.rule)}</span>` : ""}</small>${buddyLangNote(t)}`;
+	}
+
+	// palabras frecuentes que solo usa un idioma: alcanzan para distinguir un diagnóstico en español de uno en inglés
+	const LANG_WORDS = {
+		es: new Set(["el", "la", "los", "las", "del", "que", "en", "una", "por", "con", "para", "se", "fue", "antes", "falló", "está", "respondió", "revisa"]),
+		en: new Set(["the", "of", "and", "to", "in", "an", "is", "was", "for", "with", "that", "before", "failed", "on", "check", "it"]),
+	};
+	/** El idioma de un texto ("es", "en", o "" si no se distingue con claridad). */
+	function textLang(s) {
+		let es = 0, en = 0;
+		for (const w of String(s || "").toLowerCase().match(/[a-záéíóúñü]+/g) || []) {
+			if (LANG_WORDS.es.has(w)) es++;
+			if (LANG_WORDS.en.has(w)) en++;
+		}
+		if (es + en < 3) return "";
+		return es > en * 1.5 ? "es" : en > es * 1.5 ? "en" : "";
+	}
+
+	/** Un diagnóstico en otro idioma que la interfaz: re-analizarlo, si el servidor ya escribe en el de la
+	 * interfaz; si no, dónde se cambia (re-analizar daría el mismo idioma). */
+	function buddyLangNote(t) {
+		const tri = t.triage, ui = I18N.lang, got = textLang(`${tri.summary} ${tri.suggestion || ""}`);
+		if (!got || got === ui || !LANG_NAME[ui]) return "";
+		const was = tr(LANG_NAME[got]), want = tr(LANG_NAME[ui]);
+		if (S.config.ai_language === ui) {
+			return `<p class="buddy-lang">${tr("Este diagnóstico está en {a}.", { a: was })} <button class="link-btn" type="button" data-buddy-reanalyze="${t.id}">${tr("Re-analizarlo en {b}", { b: want })}</button></p>`;
+		}
+		// el servidor escribe en otro idioma: con Ajustes editable, un clic lo fija para todos y re-analiza este
+		if (S.config.settings_editable) {
+			return `<p class="buddy-lang">${tr("Este diagnóstico está en {a}.", { a: was })} <button class="link-btn" type="button" data-buddy-lang="${ui}" data-test="${t.id}">${tr("Escribir los diagnósticos en {b}", { b: want })}</button></p>`;
+		}
+		return `<p class="buddy-lang">${tr("Este diagnóstico está en {a}. Ajustes está bloqueado: para recibirlos en {b}, agrega TRACEREPORTS_AI_LANGUAGE={l} al .env y reinicia con docker compose up -d.", { a: was, b: want, l: ui })}</p>`;
+	}
+
+	/** Fija el idioma de los diagnósticos del servidor (Ajustes → IA) y re-analiza el test en ese idioma. */
+	async function buddySetLanguage(lang, id, btn) {
+		btn.disabled = true;
+		try {
+			await apiSend("PUT", "/api/v1/settings", { ai_language: lang });
+		} catch (err) {
+			btn.disabled = false;
+			buddySay(`${tr("No pude cambiar el idioma:")} <span data-no-i18n>${esc(err.message)}</span>`);
+			return;
+		}
+		S.config.ai_language = lang;
+		S.settings.data = null; // Ajustes vuelve a leerse con el idioma nuevo
+		buddySay(tr("Listo: desde ahora los diagnósticos se escriben en {b}. Re-analizo este…", { b: tr(LANG_NAME[lang]) }));
+		await buddyReanalyze(id, btn);
+	}
+
+	async function buddyReanalyze(id, btn) {
+		btn.disabled = true;
+		try {
+			await apiSend("POST", `/api/v1/ui/tests/${id}/analyze`, {});
+		} catch (err) {
+			btn.disabled = false;
+			buddySay(`${tr("No pude pedir el análisis:")} <span data-no-i18n>${esc(err.message)}</span>`);
+			return;
+		}
+		buddyWait({ id });
+		// el test ya está PENDING en el servidor: recargarlo arranca el seguimiento y la respuesta llega sola
+		await loadRun();
+		if (S.testId === id) await loadTest();
 	}
 
 	async function buddyOpenTest(id) {
@@ -4273,6 +4373,16 @@
 	function buddyConnect() {
 		buddySay(tr("Tus tests envían sus resultados a este servidor con un cliente (pytest, Playwright, Selenium, Java…) y un token de ingesta. Los pasos para cada framework están en")
 			+ ` <a href="#" data-view-link="settings" data-set-tab="conn">${tr("Ajustes → Conectar tus tests")}</a>.`);
+	}
+
+	function buddyShots() {
+		const p = S.config.screenshots;
+		const t = S.view === "tests" ? S.test : null;
+		const here = t ? shotPolicyText(t) : "";
+		const why = p === "off" ? tr("Este servidor no guarda ninguna captura, ni el trace ni el video (TRACEREPORTS_SCREENSHOTS=off).")
+			: tr("Este servidor solo guarda las capturas de los tests y pasos que fallan (TRACEREPORTS_SCREENSHOTS=failures): las de un test que pasó se descartan antes de guardarse.");
+		buddySay(`<p>${here || why}</p>
+			<p>${tr("Es a propósito: una captura puede mostrar datos personales o claves en pantalla. Para guardarlas todas, quien administra el servidor pone TRACEREPORTS_SCREENSHOTS=all en el .env y reinicia con docker compose up -d. Las capturas anteriores no reaparecen.")}</p>`);
 	}
 
 	async function buddySecurity() {
