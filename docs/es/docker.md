@@ -174,6 +174,7 @@ Cada uno es el comando para cambiar el `.env` (cópialo tal cual) y después `do
 | Guardar las capturas de todos los tests, no solo de los que fallan | `TRACEREPORTS_SCREENSHOTS=all` | `screenshot policy screenshots=all` |
 | Volver a guardar solo las de los fallos (lo recomendado) | `TRACEREPORTS_SCREENSHOTS=failures` | `screenshot policy screenshots=failures` |
 | Borrar las ejecuciones de más de 30 días | `TRACEREPORTS_RETENTION_DAYS=30` | `retention enabled days=30` |
+| Recibir los diagnósticos de la IA en español | `TRACEREPORTS_AI_LANGUAGE=es` | `diagnosis language lang=es` |
 | Apagar el diagnóstico automático | `AI_PROVIDER=off` | `failure diagnosis disabled (AI_PROVIDER=off)` |
 
 **Guardar todas las capturas:**

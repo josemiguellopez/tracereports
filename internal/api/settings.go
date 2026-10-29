@@ -231,11 +231,33 @@ func (s *Server) LoadSettings() error {
 	return nil
 }
 
+// aiLanguage is the language the diagnoses are written in: the one chosen in Settings, else
+// TRACEREPORTS_AI_LANGUAGE, else ("auto") the team's default language. "" when none is set: the
+// model follows the language of each test.
 func aiLanguage(saved map[string]string) string {
-	if l := saved[setAILanguage]; languages[l] {
-		return l
+	for _, l := range []string{saved[setAILanguage], EnvAILanguage(), saved[setLanguage]} {
+		if languages[l] {
+			return l
+		}
 	}
 	return ""
+}
+
+// EnvAILanguage is TRACEREPORTS_AI_LANGUAGE normalized ("" when unset or auto).
+func EnvAILanguage() string {
+	l := strings.ToLower(strings.TrimSpace(env.Get("AI_LANGUAGE")))
+	if l == "auto" {
+		return ""
+	}
+	return l
+}
+
+// ValidAILanguage checks TRACEREPORTS_AI_LANGUAGE at startup: a typo is not silently ignored.
+func ValidAILanguage() error {
+	if l := EnvAILanguage(); l != "" && !languages[l] {
+		return fmt.Errorf("TRACEREPORTS_AI_LANGUAGE must be auto, es or en (got %q)", env.Get("AI_LANGUAGE"))
+	}
+	return nil
 }
 
 func savedAIConfig(saved map[string]string) ai.Config {
@@ -300,11 +322,14 @@ func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
 		"editable":    editable,
 		"edit_reason": reason,
 		"runtime":     runtimeKind(),
-		"token_set":   s.Auth.Token != "",                         // el servidor exige TRACEREPORTS_TOKEN para escribir
-		"ui_login":    s.Auth.uiLogin(), // la UI pide usuario y clave
+		"token_set":   s.Auth.Token != "", // el servidor exige TRACEREPORTS_TOKEN para escribir
+		"ui_login":    s.Auth.uiLogin(),   // la UI pide usuario y clave
 		"language":    saved[setLanguage],
 		"ai_language": aiLang,
-		"ai_source":   source,
+		// el idioma en que se escriben los diagnósticos ahora ("" = el de cada test) y el del .env
+		"ai_language_effective": aiLanguage(saved),
+		"ai_language_env":       EnvAILanguage(),
+		"ai_source":             source,
 		"ai": aiView{Provider: cur.Provider, Model: cur.Model, BaseURL: cur.BaseURL, Enabled: s.AI.Enabled(),
 			KeySet: cur.APIKey != "", KeyHint: keyHint(cur.APIKey), KeySource: keySource},
 		"env_ai":    aiView{Provider: env.Provider, Model: env.Model, BaseURL: env.BaseURL, KeySet: env.APIKey != ""},
@@ -425,8 +450,10 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.AILanguage != nil {
-		saved[setAILanguage] = *in.AILanguage
+	if in.AILanguage != nil || in.Language != nil { // "auto" sigue al idioma del equipo
+		for k, v := range changes {
+			saved[k] = v
+		}
 		s.AI.SetLanguage(aiLanguage(saved))
 	}
 	s.getSettings(w, r)

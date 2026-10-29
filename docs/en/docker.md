@@ -174,6 +174,7 @@ Each one is the command that changes the `.env` (copy it as is) followed by `doc
 | Keep the screenshots of every test, not only the failed ones | `TRACEREPORTS_SCREENSHOTS=all` | `screenshot policy screenshots=all` |
 | Keep only the failures' screenshots again (recommended) | `TRACEREPORTS_SCREENSHOTS=failures` | `screenshot policy screenshots=failures` |
 | Delete runs older than 30 days | `TRACEREPORTS_RETENTION_DAYS=30` | `retention enabled days=30` |
+| Get the AI diagnoses in Spanish | `TRACEREPORTS_AI_LANGUAGE=es` | `diagnosis language lang=es` |
 | Turn the automatic diagnosis off | `AI_PROVIDER=off` | `failure diagnosis disabled (AI_PROVIDER=off)` |
 
 **Keep every screenshot:**

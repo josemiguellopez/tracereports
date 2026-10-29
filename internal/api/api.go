@@ -204,6 +204,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canAct, why := s.uiAccess(r)
+	canEdit, _ := s.settingsAccess(r)
 	teams, slack := false, false
 	publicURL := false
 	if s.Notify != nil {
@@ -215,7 +216,9 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		trackers = append(trackers, map[string]string{"id": p.ID(), "name": p.Name()})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(), "trackers": trackers,
-		"ai_provider": s.AI.Provider(), "language": saved[setLanguage],
+		"ai_provider": s.AI.Provider(), "language": saved[setLanguage], "ai_language": aiLanguage(saved),
+		"screenshots": s.screenshotPolicy(), // la web explica por qué un test no tiene capturas
+		"settings_editable": canEdit,       // Trace Buddy puede fijar el idioma de los diagnósticos
 		// acciones desde la UI (re-analizar, escalar, enviar) y canales disponibles
 		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL, "demo": s.Demo})
 }

@@ -35,6 +35,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `AI_BASE_URL` | la del proveedor | URL de la API: proxy, endpoint propio, servicio compatible u Ollama remoto |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternativa a las `AI_*`: con una sola de estas el proveedor se elige solo |
 | `TRACEREPORTS_AI_BUILTIN_HINT` | `1` | Con un LLM configurado, su prompt incluye primero la conclusión del motor local (ya redactada). `0` la quita |
+| `TRACEREPORTS_AI_LANGUAGE` | `auto` | Idioma de los diagnósticos: `es`, `en` o `auto` (el idioma por defecto del equipo; si no hay, el de cada test). Lo elegido en **Ajustes → Inteligencia artificial** manda sobre esta variable; con `TRACEREPORTS_SETTINGS_LOCKED=1` es la forma de fijarlo. Los diagnósticos que ya existen no cambian: se re-analizan |
 | `TRACEREPORTS_AI_ALLOWED_PROVIDERS` | — (todos) | Proveedores permitidos, separados por coma (`builtin,ollama`). Uno fuera de la lista no se usa nunca. Ver [Proveedores permitidos](#proveedores-permitidos-y-salida-de-datos) |
 | `TRACEREPORTS_ENV_FILE` | `.env` | Archivo `CLAVE=valor` que el servidor lee al arrancar |
 | `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: la pantalla de Ajustes queda de solo lectura; la IA se configura solo con el entorno |
