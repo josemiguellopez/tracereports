@@ -191,6 +191,7 @@ $lines = @(
   "TRACEREPORTS_ENCRYPT_AT_REST=1",
   "TRACEREPORTS_DB_KEY=$dbkey",
   "AI_PROVIDER=builtin",
+  "TRACEREPORTS_AI_LANGUAGE=en",
   "TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin",
   "NOTIFY_DETAIL=minimal"
 )
@@ -232,6 +233,7 @@ TRACEREPORTS_SCREENSHOTS=failures
 TRACEREPORTS_ENCRYPT_AT_REST=1
 TRACEREPORTS_DB_KEY=$(openssl rand -base64 32)
 AI_PROVIDER=builtin
+TRACEREPORTS_AI_LANGUAGE=en
 TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin
 NOTIFY_DETAIL=minimal
 EOF
@@ -253,9 +255,14 @@ What each line means:
 | `TRACEREPORTS_SCREENSHOTS=failures` | Keeps screenshots only of what failed |
 | `TRACEREPORTS_ENCRYPT_AT_REST=1` + `TRACEREPORTS_DB_KEY` | Encrypts screenshots, videos and DOM |
 | `AI_PROVIDER=builtin` | Diagnosis with local rules: **no data leaves** your computer |
+| `TRACEREPORTS_AI_LANGUAGE=en` | Diagnoses are written in English, whatever the language of your test names |
 | `NOTIFY_DETAIL=minimal` | If you connect Teams or Slack, no test names nor errors are sent |
 
 Every option is in [Configuration](configuration.md).
+
+> **Want another flavor?** This `.env` is a safe starting point. After starting you can change it with a single
+> line depending on what you need: AI diagnoses on your computer (Ollama) or in the cloud, maximum privacy,
+> keeping every screenshot… See [Recipes: pick your flavor](docker.md#recipes-pick-your-flavor).
 
 ---
 
@@ -476,6 +483,65 @@ In **Settings → Artificial intelligence** you will see **"The administrator lo
 is `TRACEREPORTS_SETTINGS_LOCKED=1`, as it should be.
 
 ![AI settings locked by the administrator](../img/docker-guide/ia-bloqueada.webp)
+
+<details>
+<summary><b>Optional: diagnoses with an AI model on your computer (Ollama)</b></summary>
+
+With nothing configured, TraceReports diagnoses with its **local rules engine**: fast, offline and free. If you
+want diagnoses written by a language model without your data leaving your computer, use
+[Ollama](https://ollama.com). Do it inside the `tracereports` folder:
+
+1. Install Ollama from [ollama.com/download](https://ollama.com/download) and download a model (about 5 GB):
+
+   💻
+
+   ```powershell
+   ollama pull llama3.1:8b
+   ```
+
+2. Connect it in the `.env` (changes four lines at once, without touching the rest):
+
+   ```powershell
+   $e = @(Get-Content .env | Where-Object { $_ -notmatch '^(AI_PROVIDER|AI_MODEL|OLLAMA_HOST|TRACEREPORTS_AI_ALLOWED_PROVIDERS)=' }); $e += 'AI_PROVIDER=ollama', 'OLLAMA_HOST=http://host.docker.internal:11434', 'AI_MODEL=llama3.1:8b', 'TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+   ```
+
+   Inside the container `localhost` is the container itself: hence `host.docker.internal`, which is your computer.
+
+3. Apply it and look at the log:
+
+   ```powershell
+   docker compose up -d
+   ```
+
+   ```powershell
+   docker compose logs --tail 15 tracereports
+   ```
+
+   ✅ **You should see** `AI triage enabled provider=ollama model=llama3.1:8b` and `diagnosis language lang=en`.
+
+4. In the web, open **Trace Buddy** (bottom right) and ask **"Does the AI work?"**. The first time it takes a few
+   seconds while Ollama loads the model; then it answers *"The AI answers: Ollama · llama3.1:8b"*.
+
+Diagnoses come out in English because of `TRACEREPORTS_AI_LANGUAGE=en` (step 4). For another language change
+that line the same way as in point 2 (`es` for Spanish). **To go back to the local engine**, change the four lines
+again, now with `AI_PROVIDER=builtin` and `TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin`, and `docker compose up -d`.
+Other recipes (AI in the cloud, maximum privacy, every screenshot…) in
+[Recipes: pick your flavor](docker.md#recipes-pick-your-flavor).
+
+<details><summary>macOS / Linux</summary>
+
+```bash
+ollama pull llama3.1:8b
+grep -vE '^(AI_PROVIDER|AI_MODEL|OLLAMA_HOST|TRACEREPORTS_AI_ALLOWED_PROVIDERS)=' .env > .env.tmp && printf '%s\n' 'AI_PROVIDER=ollama' 'OLLAMA_HOST=http://host.docker.internal:11434' 'AI_MODEL=llama3.1:8b' 'TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama' >> .env.tmp && mv .env.tmp .env
+docker compose up -d
+docker compose logs --tail 15 tracereports
+```
+
+On Linux, `host.docker.internal` needs `extra_hosts: ["host.docker.internal:host-gateway"]` on the service in
+`docker-compose.override.yml`, or use your computer's IP in `OLLAMA_HOST`.
+
+</details>
+</details>
 
 ---
 

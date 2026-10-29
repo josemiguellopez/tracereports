@@ -225,6 +225,7 @@ $lines = @(
   "TRACEREPORTS_ENCRYPT_AT_REST=1",
   "TRACEREPORTS_DB_KEY=$dbkey",
   "AI_PROVIDER=builtin",
+  "TRACEREPORTS_AI_LANGUAGE=es",
   "TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin",
   "NOTIFY_DETAIL=minimal"
 )
@@ -427,6 +428,65 @@ En **Ajustes → Inteligencia artificial** verás **"El administrador bloqueó e
 `TRACEREPORTS_SETTINGS_LOCKED=1`, como debe ser.
 
 ![Ajustes de IA bloqueados por el administrador](../img/docker-guide/ia-bloqueada.webp)
+
+<details>
+<summary><b>Opcional: diagnósticos con un modelo de IA en tu equipo (Ollama)</b></summary>
+
+Sin configurar nada, TraceReports diagnostica con su **motor local de reglas**: rápido, sin red y sin costo. Si
+quieres diagnósticos redactados por un modelo de lenguaje sin que tus datos salgan de tu equipo, usa
+[Ollama](https://ollama.com). Hazlo dentro de la carpeta `tracereports`:
+
+1. Instala Ollama desde [ollama.com/download](https://ollama.com/download) y descarga un modelo (unos 5 GB):
+
+   💻
+
+   ```powershell
+   ollama pull llama3.1:8b
+   ```
+
+2. Conéctalo en el `.env` (cambia cuatro líneas de una vez, sin tocar el resto):
+
+   ```powershell
+   $e = @(Get-Content .env | Where-Object { $_ -notmatch '^(AI_PROVIDER|AI_MODEL|OLLAMA_HOST|TRACEREPORTS_AI_ALLOWED_PROVIDERS)=' }); $e += 'AI_PROVIDER=ollama', 'OLLAMA_HOST=http://host.docker.internal:11434', 'AI_MODEL=llama3.1:8b', 'TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+   ```
+
+   Dentro del contenedor `localhost` es el propio contenedor: por eso `host.docker.internal`, que es tu equipo.
+
+3. Aplícalo y míralo en el log:
+
+   ```powershell
+   docker compose up -d
+   ```
+
+   ```powershell
+   docker compose logs --tail 15 tracereports
+   ```
+
+   ✅ **Deberías ver** `AI triage enabled provider=ollama model=llama3.1:8b` y `diagnosis language lang=es`.
+
+4. En la web, abre a **Trace Buddy** (abajo a la derecha) y pregunta **"¿Funciona la IA?"**. La primera vez tarda
+   unos segundos mientras Ollama carga el modelo; después responde *"La IA responde: Ollama · llama3.1:8b"*.
+
+Los diagnósticos salen en español por `TRACEREPORTS_AI_LANGUAGE=es` (paso 4). Para otro idioma cambia esa
+línea igual que en el punto 2 (`en` para inglés). **Para volver al motor local**, cambia de nuevo las cuatro
+líneas, ahora con `AI_PROVIDER=builtin` y `TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin`, y `docker compose up -d`.
+Otras recetas (IA en la nube, privacidad máxima, todas las capturas…) en
+[Recetas: elige tu sabor](docker.md#recetas-elige-tu-sabor).
+
+<details><summary>macOS / Linux</summary>
+
+```bash
+ollama pull llama3.1:8b
+grep -vE '^(AI_PROVIDER|AI_MODEL|OLLAMA_HOST|TRACEREPORTS_AI_ALLOWED_PROVIDERS)=' .env > .env.tmp && printf '%s\n' 'AI_PROVIDER=ollama' 'OLLAMA_HOST=http://host.docker.internal:11434' 'AI_MODEL=llama3.1:8b' 'TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama' >> .env.tmp && mv .env.tmp .env
+docker compose up -d
+docker compose logs --tail 15 tracereports
+```
+
+En Linux, `host.docker.internal` necesita `extra_hosts: ["host.docker.internal:host-gateway"]` en el servicio
+del `docker-compose.override.yml`, o usa la IP de tu equipo en `OLLAMA_HOST`.
+
+</details>
+</details>
 
 ---
 

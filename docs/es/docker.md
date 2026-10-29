@@ -165,41 +165,100 @@ Si el servidor no arranca después del cambio, el log dice qué variable tiene u
 > artificial** manda sobre el `.env`. Ahí mismo, **Volver a la configuración del .env** lo borra y el servidor usa
 > de nuevo tus variables. (Con `TRACEREPORTS_SETTINGS_LOCKED=1` no se puede guardar nada desde la pantalla.)
 
-### Ejemplos
+### Recetas: elige tu sabor
 
-Cada uno es el comando para cambiar el `.env` (cópialo tal cual) y después `docker compose up -d`.
+Cada receta es **un solo comando**: cópialo, pégalo en la terminal dentro de la carpeta `tracereports` y aplica
+con `docker compose up -d`. Solo cambia las variables de esa receta; el resto de tu `.env` queda igual. Se pueden
+combinar: una después de otra.
 
-| Para | Variable(s) | Qué verás en el log |
-|---|---|---|
-| Guardar las capturas de todos los tests, no solo de los que fallan | `TRACEREPORTS_SCREENSHOTS=all` | `screenshot policy screenshots=all` |
-| Volver a guardar solo las de los fallos (lo recomendado) | `TRACEREPORTS_SCREENSHOTS=failures` | `screenshot policy screenshots=failures` |
-| Borrar las ejecuciones de más de 30 días | `TRACEREPORTS_RETENTION_DAYS=30` | `retention enabled days=30` |
-| Recibir los diagnósticos de la IA en español | `TRACEREPORTS_AI_LANGUAGE=es` | `diagnosis language lang=es` |
-| Apagar el diagnóstico automático | `AI_PROVIDER=off` | `failure diagnosis disabled (AI_PROVIDER=off)` |
-
-**Guardar todas las capturas:**
+**Diagnósticos en mi idioma.** La IA escribe en español aunque tus tests tengan nombres en otro idioma (cambia `es` por `en` si prefieres inglés).
 
 ```powershell
-$e = @(Get-Content .env | Where-Object { $_ -notmatch '^TRACEREPORTS_SCREENSHOTS=' }); $e += 'TRACEREPORTS_SCREENSHOTS=all'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+$set = [ordered]@{ TRACEREPORTS_AI_LANGUAGE = 'es' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
 ```
 
-Las capturas de antes del cambio no aparecen: con `failures` el servidor nunca las guardó. En la
-**Revisión de seguridad**, "Política de capturas" pasa a *por revisar*: una captura puede mostrar datos
-personales o claves en pantalla.
+✅ En el log: `diagnosis language lang=es`.
 
-**Usar Ollama (un modelo en tu equipo) para el diagnóstico.** Antes descarga el modelo con
-`ollama pull llama3.1:8b`. Cambia cuatro variables de una vez:
+**IA en mi equipo, con Ollama.** Diagnósticos redactados por un modelo de lenguaje sin que nada salga de tu equipo. Antes: instala Ollama y `ollama pull llama3.1:8b`.
 
 ```powershell
-$e = @(Get-Content .env | Where-Object { $_ -notmatch '^(AI_PROVIDER|AI_MODEL|OLLAMA_HOST|TRACEREPORTS_AI_ALLOWED_PROVIDERS)=' }); $e += 'AI_PROVIDER=ollama', 'OLLAMA_HOST=http://host.docker.internal:11434', 'AI_MODEL=llama3.1:8b', 'TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+$set = [ordered]@{ AI_PROVIDER = 'ollama'; OLLAMA_HOST = 'http://host.docker.internal:11434'; AI_MODEL = 'llama3.1:8b'; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin,ollama' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
 ```
 
-✅ En el log: `AI triage enabled provider=ollama model=llama3.1:8b`. Dentro del contenedor `localhost` es el
-propio contenedor: por eso `host.docker.internal`, que es tu equipo. `TRACEREPORTS_AI_ALLOWED_PROVIDERS` solo
-hace falta si ya la tenías (la guía paso a paso la deja en `builtin`).
+✅ En el log: `AI triage enabled provider=ollama model=llama3.1:8b`. Dentro del contenedor `localhost` es el propio contenedor: por eso `host.docker.internal`, que es tu equipo.
 
-**Permitir solo la red de Docker:** ver el paso opcional de
-[Revisar la seguridad](docker-paso-a-paso.md#paso-9--revisar-la-seguridad).
+**IA en la nube, con Gemini (tiene capa gratuita).** Consigue una API key en [aistudio.google.com/apikey](https://aistudio.google.com/apikey); el comando te la pide (no queda en el historial de la terminal). Los prompts salen hacia Google **sin secretos** (se ocultan antes) y **nunca con capturas**.
+
+```powershell
+$k = Read-Host 'Pega tu API key de Gemini'; $set = [ordered]@{ AI_PROVIDER = 'gemini'; GEMINI_API_KEY = $k; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin,gemini' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ En el log: `AI triage enabled provider=gemini`. Para Claude u OpenAI es igual con `anthropic` / `ANTHROPIC_API_KEY` u `openai` / `OPENAI_API_KEY`.
+
+**Volver al motor local (sin IA externa).** El diagnóstico por reglas de siempre: sin red y sin costo.
+
+```powershell
+$set = [ordered]@{ AI_PROVIDER = 'builtin'; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ En el log: `failure diagnosis: local rules engine`.
+
+**Privacidad máxima.** Sin IA externa, sin capturas (tampoco trace ni video), 30 días de historia y notificaciones sin nombres de tests.
+
+```powershell
+$set = [ordered]@{ AI_PROVIDER = 'builtin'; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin'; TRACEREPORTS_SCREENSHOTS = 'off'; TRACEREPORTS_RETENTION_DAYS = '30'; NOTIFY_DETAIL = 'minimal' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ En el log: `screenshot policy screenshots=off` · `retention enabled days=30`.
+
+**Depurar: guardar todas las capturas.** También las de los tests que pasan. Las anteriores no reaparecen, y la **Revisión de seguridad** marca "Política de capturas" por revisar: una captura puede mostrar datos personales o claves.
+
+```powershell
+$set = [ordered]@{ TRACEREPORTS_SCREENSHOTS = 'all' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ En el log: `screenshot policy screenshots=all`.
+
+**Volver a guardar solo las capturas de los fallos (lo recomendado).**
+
+```powershell
+$set = [ordered]@{ TRACEREPORTS_SCREENSHOTS = 'failures' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ En el log: `screenshot policy screenshots=failures`.
+
+**Apagar el diagnóstico automático.**
+
+```powershell
+$set = [ordered]@{ AI_PROVIDER = 'off' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ En el log: `failure diagnosis disabled (AI_PROVIDER=off)`.
+
+<details><summary>macOS / Linux</summary>
+
+Define una vez esta función en la terminal, y después cada receta es una línea:
+
+```bash
+set_env() { for kv in "$@"; do grep -v "^${kv%%=*}=" .env > .env.tmp; echo "$kv" >> .env.tmp; mv .env.tmp .env; done; }
+```
+
+```bash
+set_env TRACEREPORTS_AI_LANGUAGE=es   # Diagnósticos en mi idioma
+set_env AI_PROVIDER=ollama OLLAMA_HOST=http://host.docker.internal:11434 AI_MODEL=llama3.1:8b TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama   # IA en mi equipo, con Ollama
+set_env AI_PROVIDER=builtin TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin   # Volver al motor local (sin IA externa)
+set_env AI_PROVIDER=builtin TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin TRACEREPORTS_SCREENSHOTS=off TRACEREPORTS_RETENTION_DAYS=30 NOTIFY_DETAIL=minimal   # Privacidad máxima
+set_env TRACEREPORTS_SCREENSHOTS=all   # Depurar: guardar todas las capturas
+set_env TRACEREPORTS_SCREENSHOTS=failures   # Volver a guardar solo las capturas de los fallos (lo recomendado)
+set_env AI_PROVIDER=off   # Apagar el diagnóstico automático
+read -rp "API key de Gemini: " k && set_env AI_PROVIDER=gemini GEMINI_API_KEY="$k" TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,gemini
+```
+
+</details>
+
+**Un servidor para todo el equipo** no es una receta de un comando: necesita HTTPS, la red permitida y el firewall. Ver
+[Desplegar en un servidor](#desplegar-en-un-servidor) y el paso opcional de
+[Revisar la seguridad](docker-paso-a-paso.md#paso-9--revisar-la-seguridad) para permitir solo la red de Docker.
 
 ### Respaldar el `.env`
 
