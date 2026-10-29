@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "tracereports"
-version = "0.3.0"
+version = "0.4.0"
 
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(17)) }
