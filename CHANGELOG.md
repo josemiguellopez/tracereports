@@ -35,6 +35,13 @@ warning, and anyone who reached the port could read and change the reports. Now 
   redaction (a password typed in the question does not reach the model), the provider allowlist, up to 60
   questions per hour per server, and every call in AI usage as "Questions to Trace Buddy". With the local rules
   engine there is no box: it cannot chat.
+  Asking how to reproduce a call or for a mock brings real artifacts below the answer, built from the report and
+  not by the model: the failed call as a cURL (secrets as `$VARIABLES`; Postman imports it) and a mock of the
+  failed backend for WireMock, Playwright or Cypress, with Copy. The model gets the test's failed calls as cURL
+  with the start of each response, knows TraceReports' tools (Copy as cURL, Generate mock, the Lab) and speaks
+  in first person. The READMEs introduce Trace Buddy with an animated GIF where he says, with a gesture each, that
+  there is no telemetry, that he is self-hosted and that your data is never shared; two of his thoughts in the app
+  remind it too.
 - **Why a test has no screenshots**: with `TRACEREPORTS_SCREENSHOTS=failures`, a test that did not fail and has
   no screenshots says that this server only keeps the failures' ones (with `off`, every test says so), instead
   of looking like the images were lost. `GET /api/v1/config` reports the policy, and Trace Buddy gets a "Why

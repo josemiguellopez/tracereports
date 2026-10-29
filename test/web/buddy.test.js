@@ -64,7 +64,7 @@ test("los pensamientos no molestan: solo con el panel cerrado, la pestaña visib
 	for (const cond of ["root.hidden", "buddy.open", "document.hidden", "buddyIsQuiet()", "buddy.chatting", "buddy.probing"]) {
 		assert.ok(fn.includes(cond), `falta la condición ${cond}`);
 	}
-	assert.ok(fn.includes("buddySpeak(buddyThoughtText(), 7000)"), "se va solo a los 7 s");
+	assert.ok(fn.includes("buddySpeak(text, 7000)") && fn.includes("const text = buddyThoughtText();"), "se va solo a los 7 s");
 	const speak = section.slice(section.indexOf("function buddySpeak("), section.indexOf("const BUDDY_REACTIONS"));
 	assert.ok(speak.includes("buddy.open") && speak.includes("setTimeout(buddyThoughtHide, ms)"), "nunca sobre el panel abierto");
 	assert.ok(/75000 \+ Math\.random\(\) \* 45000/.test(fn), "uno cada 75 a 120 s");

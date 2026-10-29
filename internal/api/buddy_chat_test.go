@@ -148,3 +148,46 @@ func TestCleanChatLimits(t *testing.T) {
 		t.Fatalf("recorte sin partir caracteres: %d", len(last))
 	}
 }
+
+// Con un test abierto, el modelo recibe el cURL real de la llamada que falló (sin secretos) y la web lo
+// recibe para mostrarlo con "Copiar": se arma del reporte, no lo inventa el modelo.
+func TestBuddyChatGetsTheFailedCallAsCurl(t *testing.T) {
+	clearAIEnv(t)
+	srv, testID := newTestServer(t)
+	const token = "Bearer eyJhbGciOiJIUzI1NiJ9.c2VjcmV0LXRva2VuLXZhbHVl.abc123"
+	payload, _ := json.Marshal(map[string]any{"connections": []map[string]any{
+		{"method": "POST", "url": "http://shop.local:8180/api/orders", "status": 500, "status_text": "Internal Server Error",
+			"request_headers": map[string]string{"Authorization": token, "Content-Type": "application/json"},
+			"post_data":       `{"sku":"A-1","qty":2}`, "response_body": `{"error":"db timeout"}`},
+	}})
+	if rec := call(t, srv, "POST", "/api/v1/tests/"+itoa(testID)+"/network", string(payload)); rec.Code != http.StatusCreated {
+		t.Fatalf("red: %d %s", rec.Code, rec.Body)
+	}
+	mock, prompts := fakeOllama(t, "Abajo tienes el cURL: impórtalo en Postman.")
+	srv.AI.SetConfig(ai.Config{Provider: "ollama", BaseURL: mock.URL, Model: "llama3.1"})
+	test, _ := srv.Store.GetTest(testID)
+	body, _ := json.Marshal(map[string]any{"run_id": test.RunID, "test_id": testID, "lang": "es", "tools": []string{"curl", "rm -rf"},
+		"messages": []map[string]string{{"role": "user", "text": "¿cómo lo replico en Postman?"}}})
+	rec := call(t, srv, "POST", "/api/v1/ui/ai/chat", string(body))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("chat: %d %s", rec.Code, rec.Body)
+	}
+	var res map[string]any
+	json.Unmarshal(rec.Body.Bytes(), &res)
+	curl, _ := res["curl"].(string)
+	if !strings.Contains(curl, "curl") || !strings.Contains(curl, "/api/orders") || !strings.Contains(curl, "A-1") {
+		t.Fatalf("cURL para la web: %q", curl)
+	}
+	sent := strings.Join(prompts(), "\n")
+	for _, where := range []string{curl, sent, rec.Body.String()} {
+		if strings.Contains(where, "c2VjcmV0LXRva2VuLXZhbHVl") {
+			t.Fatal("el token de la llamada no sale ni hacia el modelo ni hacia la web")
+		}
+	}
+	if !strings.Contains(sent, "/api/orders") || !strings.Contains(sent, "db timeout") || !strings.Contains(sent, "Postman imports a cURL") {
+		t.Fatalf("el modelo recibe la llamada, su respuesta y las herramientas: %.600s", sent)
+	}
+	if !strings.Contains(sent, "the cURL of the failed call, ready for Postman") || strings.Contains(sent, "rm -rf") {
+		t.Fatalf("solo las herramientas conocidas se anuncian al modelo: %.600s", sent)
+	}
+}
