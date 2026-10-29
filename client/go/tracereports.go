@@ -280,13 +280,18 @@ func (t *Test) Pass(message string) error { return t.Log(Pass, message) }
 func (t *Test) Fail(message string) error { return t.Log(Fail, message) }
 func (t *Test) Warn(message string) error { return t.Log(Warning, message) }
 
-// Screenshot uploads a PNG/JPEG as a step and returns the image URL.
+// Screenshot uploads a PNG/JPEG as a step and returns the image URL. Take it with the sensitive
+// elements covered (see mask.go). With TRACEREPORTS_SCREENSHOTS=off, or failures and a status other
+// than Fail, nothing is sent and the URL is "".
 func (t *Test) Screenshot(png []byte, message, status string) (string, error) {
 	if t == nil {
 		return "", ErrDisabled
 	}
 	if status == "" {
 		status = Info
+	}
+	if !ScreenshotAllowed(status) {
+		return "", nil
 	}
 	var body bytes.Buffer
 	w := multipart.NewWriter(&body)

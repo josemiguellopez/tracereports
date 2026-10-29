@@ -30,23 +30,29 @@ Check it works with `docker version`: it must show `Client` and `Server`.
 
 ## First start
 
-In the project folder:
+> **First time with Docker or the terminal?** Follow
+> [Install with Docker, step by step](docker-step-by-step.md): every command, what you should see and
+> what to do if something fails, with screenshots. Already have TraceReports and want to try another
+> version without touching yours? [Try without touching your installation](docker-isolated-trial.md).
 
-```bash
-cp -n .env.example .env   # PowerShell: if (-not (Test-Path .env)) { Copy-Item .env.example .env }
-docker compose up -d
-```
-
-> ⚠️ Copy `.env.example` **only if you do not have a `.env` yet**: a `cp` without `-n` replaces
-> yours and you lose your keys. The commands above do not overwrite an existing one.
-
-- The first time it builds the image (under a minute); afterwards it starts instantly.
-- Open **<http://localhost:8080>**.
-- `docker compose ps` must show the container `Up`.
+Two steps, **in this order**: first the `.env` with a token and the login, then start the container.
+Without a token or a login the container refuses to start.
 
 ### Minimum `.env`
 
-Configure **token and login on your PC too**. The local-only port keeps people on your network
+In the project folder, create the `.env` from the example:
+
+```bash
+cp -n .env.example .env   # PowerShell: if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+```
+
+> ⚠️ Copy `.env.example` **only if you do not have a `.env` yet**: a `cp` without `-n` replaces
+> yours and you lose your keys. The command above does not overwrite an existing one.
+
+Open it with a text editor and fill in at least the token and the login **before starting**.
+
+The container **does not start without `TRACEREPORTS_TOKEN` or the UI login**: in Docker the server
+listens on every interface of the container and would be open. Configure **token and login on your PC too**. The local-only port keeps people on your network
 out, but does not protect you from what runs on your own machine (other programs, a malicious page
 open in the browser), and your reports may hold sensitive evidence:
 
@@ -57,8 +63,8 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
 GEMINI_API_KEY=                          # optional: AI diagnosis
 ```
 
-After changing the `.env`, apply it with `docker compose up -d`. Every variable is in
-[Configuration](configuration.md).
+After changing the `.env`, apply it with `docker compose up -d` (see [Change the `.env`](#change-the-env), with
+examples). Every variable is in [Configuration](configuration.md).
 
 If you decide not to configure a login on your PC, the server still protects itself: it only serves
 requests with `Host` `localhost`/`127.0.0.1` (defense against *DNS rebinding*). With a login, the
@@ -67,6 +73,204 @@ Settings screen is editable too.
 > **Settings with Docker:** even if you open `localhost`, the connection comes from Docker's
 > network and does not count as "the same machine". To change the AI or the language from the
 > Settings screen, configure `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` and log in.
+
+### Start
+
+With the `.env` filled in:
+
+```bash
+docker compose up -d
+```
+
+- The first time it builds the image (1 to 3 minutes); afterwards it starts instantly.
+- Open **<http://localhost:8080>** and sign in with the login from the `.env`.
+- `docker compose ps` must show the container `Up (healthy)`. If it keeps restarting,
+  `docker compose logs tracereports` says why (for example `refusing to start`: the token or the login
+  is missing).
+
+## Change the `.env`
+
+All the configuration is in the `.env` file of the `tracereports` folder. To change something: edit the file,
+apply it and check that it was applied.
+
+### 1. Edit
+
+**By hand.** Open it with a text editor, change the line and save:
+
+```powershell
+notepad .env
+```
+
+On macOS/Linux: `nano .env` (save with `Ctrl`+`O`, quit with `Ctrl`+`X`).
+
+- One variable per line, no spaces around the `=` and no quotes: `TRACEREPORTS_RETENTION_DAYS=90`.
+- If a variable is already there, **change it** instead of adding it again: two lines with the same name are confusing.
+- Lines that start with `#` are comments: they do nothing.
+
+**With a command.** Changes (or adds) a single variable without touching the rest, without repeating it and
+without damaging the file. Replace `NAME` and `value`:
+
+```powershell
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^NAME=' }); $e += 'NAME=value'; [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+To **remove** a variable (it goes back to its default):
+
+```powershell
+$e = @(Get-Content .env | Where-Object { $_ -notmatch '^NAME=' }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+<details><summary>macOS / Linux</summary>
+
+```bash
+# change or add
+grep -v '^NAME=' .env > .env.tmp && echo 'NAME=value' >> .env.tmp && mv .env.tmp .env
+# remove
+grep -v '^NAME=' .env > .env.tmp && mv .env.tmp .env
+```
+
+</details>
+
+> **In Windows PowerShell do not use `Set-Content`, `Out-File` or `>` to write the `.env`.** Depending on the
+> version they save it with another encoding or with an invisible mark at the start (BOM), and the first
+> variable stops being read without any warning. Notepad and the commands above save it correctly.
+
+### 2. Apply
+
+```powershell
+docker compose up -d
+```
+
+It recreates the container with the new `.env`; the data is kept. **`docker compose restart` does not do
+this**: it restarts the container with the configuration it already had.
+
+### 3. Check
+
+```powershell
+docker compose logs --tail 20 tracereports
+```
+
+On start the server announces what it took: the AI (`AI triage enabled provider=…`), the screenshot policy
+(`screenshot policy screenshots=…`), retention, encryption, the allowed network and the outbound
+destinations. It never shows keys or tokens. To also see what is left to harden:
+
+```powershell
+docker compose exec tracereports /tracereports doctor --security
+```
+
+If the server does not start after the change, the log says which variable has an invalid value (for example
+`TRACEREPORTS_SCREENSHOTS must be all, failures or off`).
+
+> **Changed the AI and the log still shows the previous one?** What is saved from **Settings → Artificial
+> intelligence** takes precedence over the `.env`. There, **Go back to the .env configuration** clears it and the
+> server uses your variables again. (With `TRACEREPORTS_SETTINGS_LOCKED=1` nothing can be saved from the screen.)
+
+### Recipes: pick your flavor
+
+Each recipe is **a single command**: copy it, paste it in the terminal inside the `tracereports` folder and apply
+it with `docker compose up -d`. It only changes that recipe's variables; the rest of your `.env` stays the same.
+They can be combined: one after another.
+
+**Diagnoses in my language.** The AI writes in English whatever the language of your test names (change `en` to `es` for Spanish).
+
+```powershell
+$set = [ordered]@{ TRACEREPORTS_AI_LANGUAGE = 'en' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `diagnosis language lang=en`.
+
+**AI on my computer, with Ollama.** Diagnoses written by a language model without anything leaving your computer. First: install Ollama and `ollama pull llama3.1:8b`.
+
+```powershell
+$set = [ordered]@{ AI_PROVIDER = 'ollama'; OLLAMA_HOST = 'http://host.docker.internal:11434'; AI_MODEL = 'llama3.1:8b'; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin,ollama' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `AI triage enabled provider=ollama model=llama3.1:8b`. Inside the container `localhost` is the container itself: hence `host.docker.internal`, which is your computer.
+
+**AI in the cloud, with Gemini (it has a free tier).** Get an API key at [aistudio.google.com/apikey](https://aistudio.google.com/apikey); the command asks for it (it does not stay in the terminal history). Prompts go to Google **without secrets** (they are masked first) and **never with screenshots**.
+
+```powershell
+$k = Read-Host 'Paste your Gemini API key'; $set = [ordered]@{ AI_PROVIDER = 'gemini'; GEMINI_API_KEY = $k; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin,gemini' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `AI triage enabled provider=gemini`. For Claude or OpenAI it is the same with `anthropic` / `ANTHROPIC_API_KEY` or `openai` / `OPENAI_API_KEY`.
+
+**Back to the local engine (no external AI).** The usual rules-based diagnosis: offline and free.
+
+```powershell
+$set = [ordered]@{ AI_PROVIDER = 'builtin'; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `failure diagnosis: local rules engine`.
+
+**Maximum privacy.** No external AI, no screenshots (nor trace or video), 30 days of history and notifications without test names.
+
+```powershell
+$set = [ordered]@{ AI_PROVIDER = 'builtin'; TRACEREPORTS_AI_ALLOWED_PROVIDERS = 'builtin'; TRACEREPORTS_SCREENSHOTS = 'off'; TRACEREPORTS_RETENTION_DAYS = '30'; NOTIFY_DETAIL = 'minimal' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `screenshot policy screenshots=off` · `retention enabled days=30`.
+
+**Debugging: keep every screenshot.** Also those of passing tests. Earlier ones do not come back, and the **Security check** marks "Screenshot policy" to review: a screenshot can show personal data or passwords.
+
+```powershell
+$set = [ordered]@{ TRACEREPORTS_SCREENSHOTS = 'all' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `screenshot policy screenshots=all`.
+
+**Keep only the failures' screenshots again (recommended).**
+
+```powershell
+$set = [ordered]@{ TRACEREPORTS_SCREENSHOTS = 'failures' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `screenshot policy screenshots=failures`.
+
+**Turn the automatic diagnosis off.**
+
+```powershell
+$set = [ordered]@{ AI_PROVIDER = 'off' }; $e = @(Get-Content .env | Where-Object { $_ -notmatch ('^(' + ($set.Keys -join '|') + ')=') }); $e += @($set.Keys | ForEach-Object { "$_=$($set[$_])" }); [IO.File]::WriteAllLines("$PWD\.env", $e, (New-Object Text.UTF8Encoding($false)))
+```
+
+✅ In the log: `failure diagnosis disabled (AI_PROVIDER=off)`.
+
+<details><summary>macOS / Linux</summary>
+
+Define this function once in the terminal, and then each recipe is one line:
+
+```bash
+set_env() { for kv in "$@"; do grep -v "^${kv%%=*}=" .env > .env.tmp; echo "$kv" >> .env.tmp; mv .env.tmp .env; done; }
+```
+
+```bash
+set_env TRACEREPORTS_AI_LANGUAGE=en   # Diagnoses in my language
+set_env AI_PROVIDER=ollama OLLAMA_HOST=http://host.docker.internal:11434 AI_MODEL=llama3.1:8b TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama   # AI on my computer, with Ollama
+set_env AI_PROVIDER=builtin TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin   # Back to the local engine (no external AI)
+set_env AI_PROVIDER=builtin TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin TRACEREPORTS_SCREENSHOTS=off TRACEREPORTS_RETENTION_DAYS=30 NOTIFY_DETAIL=minimal   # Maximum privacy
+set_env TRACEREPORTS_SCREENSHOTS=all   # Debugging: keep every screenshot
+set_env TRACEREPORTS_SCREENSHOTS=failures   # Keep only the failures' screenshots again (recommended)
+set_env AI_PROVIDER=off   # Turn the automatic diagnosis off
+read -rp "Gemini API key: " k && set_env AI_PROVIDER=gemini GEMINI_API_KEY="$k" TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,gemini
+```
+
+</details>
+
+**A server for the whole team** is not a one-command recipe: it needs HTTPS, the allowed network and the firewall. See
+[Deploy on a server](#deploy-on-a-server) and the optional step of
+[Check security](docker-step-by-step.md#step-9--check-security) to allow only the Docker network.
+
+### Back up the `.env`
+
+Keep the copy **outside** the project folder: git ignores the `.env` file, but not copies with another name
+(`.env copy`, `.env.bak`…), and such a copy could end up in a commit with your keys.
+
+```powershell
+Copy-Item .env "$HOME\tracereports-env-$(Get-Date -Format yyyyMMdd).txt"
+```
+
+On macOS/Linux: `cp .env ~/tracereports-env-$(date +%Y%m%d).txt`. With encryption at rest, that backup also
+holds `TRACEREPORTS_DB_KEY`: without it the stored screenshots cannot be read.
 
 ## Connect your tests
 
@@ -97,7 +301,7 @@ Desktop, in the **Containers** tab.
 | Follow the logs | `docker compose logs -f` |
 | Stop it | `docker compose stop` |
 | Start it again | `docker compose start` |
-| Apply `.env` changes | `docker compose up -d` |
+| Apply `.env` changes | `docker compose up -d` (not `restart`: see [Change the `.env`](#change-the-env)) |
 | Update to a new version | `git pull`, then `docker compose up -d --build` |
 | Remove the container (data stays) | `docker compose down` |
 
@@ -146,6 +350,8 @@ To restore, start the container on the backup volume. Details and the variant wi
 Docker are in [Installation](installation.md#backup-and-restore).
 
 ## Deploy on a server
+
+Full checklist for a shared server: [Security hardening guide](security-hardening.md).
 
 1. **Token and login are mandatory.** Set `TRACEREPORTS_TOKEN`, `TRACEREPORTS_UI_USER` and
    `TRACEREPORTS_UI_PASSWORD` in the `.env`.
@@ -204,6 +410,23 @@ Every request that comes through a proxy (with `X-Forwarded-For`, `X-Real-IP` or
 counts as remote. That is why Settings and the UI actions ask for a token or the login even when
 the proxy is on the same machine, also with `TRACEREPORTS_LOCAL_ADMIN=1`.
 
+**With `TRACEREPORTS_ALLOWED_CIDRS` and the proxy on the same server.** The container does not see the
+proxy coming from `127.0.0.1`: it sees it from the Docker network's IP (the bridge gateway, usually
+`172.x.x.x`). That IP is not in the list, so **everything answers `403`**, even with the right login.
+To fix it:
+
+1. Find the refused IP in the log (it is logged once per IP):
+   ```
+   docker compose logs tracereports | grep "TRACEREPORTS_ALLOWED_CIDRS"
+   ```
+   The line says `request refused: source IP not in TRACEREPORTS_ALLOWED_CIDRS … ip=<the IP>`.
+2. Put that IP in `TRACEREPORTS_TRUSTED_PROXIES` in the `.env`: then the user's real IP is taken from
+   `X-Forwarded-For` (and checked against `TRACEREPORTS_ALLOWED_CIDRS`).
+3. Apply it with `docker compose up -d`.
+
+A user who forges `X-Forwarded-For` does not get past the filter: that header is only trusted when it
+comes from an IP in `TRACEREPORTS_TRUSTED_PROXIES`.
+
 ## Without docker compose
 
 ```bash
@@ -218,12 +441,15 @@ It uses the same `tracereports-data` volume as compose: the data is the same wit
 
 | Symptom | Cause and fix |
 |---|---|
+| On your computer, **Security check** shows "Network exposure" to review | Normal with Docker: the container listens on its network even when the port is published only on `127.0.0.1`. To turn it green, set `TRACEREPORTS_ALLOWED_CIDRS` to the container network (`docker network inspect <project>_default`): see the [step by step, step 9](docker-step-by-step.md#step-9--check-security). |
 | `docker` is not recognized | Docker Desktop was just installed: open a new terminal (or VS Code). |
 | `docker version` shows no `Server` / error 500 | The engine did not start. Open Docker Desktop and wait for *Engine running*. On Windows, if WSL or virtualization is missing: `wsl --install --no-distribution` as administrator and reboot. |
+| The container restarts and the log says `refusing to start` | The `.env` has no `TRACEREPORTS_TOKEN` nor UI login: without credentials the server does not start in Docker. Add them (see [Minimum `.env`](#minimum-env)) and `docker compose up -d`. |
 | `port is already allocated` / the container does not start | Port 8080 is taken, for example by a `go run` of the server. Stop it or change the port (`"8081:8080"`). |
 | Settings are "read-only" | With Docker the UI login is needed (see above). |
 | Tests do not arrive | Check `TRACEREPORTS_URL` and the token. `docker compose logs -f` shows every rejected request. |
 | `401 missing or invalid API token` in the tests | The server has a token and the tests cannot find it: run them from the project folder (so they read its `.env`) or set `TRACEREPORTS_TOKEN`. In CI, pass it as a *secret*. |
+| `403` on everything behind the proxy, even with the right login | With `TRACEREPORTS_ALLOWED_CIDRS`, the proxy's IP (as seen from the container) is not in the list. Put it in `TRACEREPORTS_TRUSTED_PROXIES`: see [Deploy on a server](#deploy-on-a-server). |
 | `403 host … is not allowed` | Without a UI login only `localhost` is served. If you come in through another name or IP, add it to `TRACEREPORTS_ALLOWED_HOSTS` or configure the login. |
 | Every request to `localhost` takes ~2 s, or tests end up "Interrupted" | On Windows, `localhost` is tried over IPv6 first. Publish the port on `[::1]` too (like the project's `docker-compose.yml`) or use `http://127.0.0.1:8080`. |
 | Cannot get in from another machine on the network | Expected: the port is local only. To share it, use an HTTPS proxy or switch to `"8080:8080"` with token and login. |

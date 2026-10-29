@@ -3,10 +3,13 @@
 // Environment variables:
 //
 //	PORT            HTTP port (default 8080)
-//	TRACEREPORTS_BIND  address to listen on (default: all interfaces; 127.0.0.1 = only this machine)
+//	TRACEREPORTS_BIND  address to listen on (default: all interfaces with credentials, only this
+//	                machine without them; 127.0.0.1 = only this machine)
+//	TRACEREPORTS_INSECURE  1 = listen on the network without a token or login (default: refuse to start)
 //	DATA_DIR        data directory for SQLite + screenshots (default ./data)
-//	AI_PROVIDER     gemini | anthropic | openai | openai_compatible | ollama (optional; inferred
-//	                from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST)
+//	AI_PROVIDER     builtin | gemini | anthropic | openai | openai_compatible | ollama | off (optional;
+//	                inferred from GEMINI_API_KEY / ANTHROPIC_API_KEY / OPENAI_API_KEY / OLLAMA_HOST;
+//	                without any of them: builtin, the local rules engine with no LLM and no network)
 //	AI_MODEL / AI_API_KEY / AI_BASE_URL  model, key and API URL (each provider has defaults)
 //	GEMINI_API_KEY / GEMINI_MODEL / GEMINI_BASE_URL  still supported
 //	TRACEREPORTS_SETTINGS_LOCKED  1 = the Settings screen is read-only (config only from the env)
@@ -14,17 +17,27 @@
 //	TRACEREPORTS_TOKEN   token required to write to the API (optional, recommended); it may also change settings
 //	TRACEREPORTS_INGEST_TOKEN  restricted token for test clients/CI: writes results and reads, never administers
 //	TRACEREPORTS_UI_USER / TRACEREPORTS_UI_PASSWORD  HTTP Basic login for the UI (optional)
+//	TRACEREPORTS_UI_VIEWER_USER / TRACEREPORTS_UI_VIEWER_PASSWORD  read-only UI login: reads, never changes anything
 //	TRACEREPORTS_ALLOWED_HOSTS  hosts served without login besides localhost (comma separated; * = any)
+//	TRACEREPORTS_ALLOWED_CIDRS  only these source networks get in (403 otherwise, even with a token; loopback always)
+//	TRACEREPORTS_TRUSTED_PROXIES  proxies whose X-Forwarded-For / X-Real-IP is trusted (default: none)
 //	TRACEREPORTS_LOCAL_ADMIN  1 = with a token and no UI login, the same machine (no proxy) may change settings
 //	TEAMS_WEBHOOK_URL / SLACK_WEBHOOK_URL  run summary notifications (optional)
 //	PUBLIC_URL      public base URL, used for links in notifications
 //	NOTIFY_ON       always (default) | failures
+//	NOTIFY_DETAIL   full (default) | minimal: only counts, status and the link (no test names, errors or AI text)
 //	NETWORK_MAX_BODY_KB  max stored size of each captured response body (default 256; 0 = no bodies)
 //	TRACEREPORTS_REDACT  off = store secrets as received (default: masked before storing)
 //	TRACEREPORTS_REDACT_HEADERS / TRACEREPORTS_REDACT_KEYS / TRACEREPORTS_REDACT_PATTERNS  extra masking rules
 //	TRACEREPORTS_RETENTION_DAYS  delete runs (and screenshots) older than N days (default: keep all)
+//	TRACEREPORTS_SCREENSHOTS  all (default) | failures | off: which screenshots, traces and videos are kept
+//	TRACEREPORTS_ENCRYPT_AT_REST  1 = encrypt new screenshots, traces, videos and DOM snapshots (AES-256-GCM)
+//	TRACEREPORTS_DB_KEY / TRACEREPORTS_DB_KEY_FILE  its key (32 bytes, base64/hex), never inside DATA_DIR
+//	TRACEREPORTS_DB_KEY_PREVIOUS / _FILE  the previous key, only while rotating it (tracereports db rekey)
 //	TRACEREPORTS_STALE_RUN_HOURS  close as incomplete the runs without activity for N hours (default 24; 0 = never)
-//	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit)
+//	TRACEREPORTS_AI_MAX_PER_RUN  automatic per-test AI analyses per run (default 50; 0 = no limit; not for builtin)
+//	TRACEREPORTS_AI_BUILTIN_HINT  0 = LLM prompts without the local engine's conclusion (default: included)
+//	TRACEREPORTS_AI_ALLOWED_PROVIDERS  allowed AI providers, comma separated (default: all), e.g. builtin,ollama
 //	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
 //	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
 //	TRACEREPORTS_LAB      off = disable FixLab's Request Lab (resending captured calls from the report)
@@ -38,7 +51,6 @@ import (
 	"fmt"
 	"io/fs"
 	"log/slog"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -50,11 +62,13 @@ import (
 	"github.com/josemiguellopez/tracereports"
 	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/api"
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/owners"
+	"github.com/josemiguellopez/tracereports/internal/posture"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/release"
 	"github.com/josemiguellopez/tracereports/internal/secret"
@@ -74,6 +88,8 @@ func main() {
 			err = runPRComment(os.Args[2:])
 		case "secrets":
 			err = runSecrets(os.Args[2:], os.Stdout)
+		case "evidence":
+			err = runEvidence(os.Args[2:], os.Stdout)
 		case "repro":
 			err = runRepro(os.Args[2:])
 		case "verify":
@@ -84,6 +100,10 @@ func main() {
 			err = runDemo(os.Args[2:])
 		case "selftest":
 			err = runSelftest(os.Args[2:])
+		case "health":
+			err = runHealth(os.Args[2:])
+		case "doctor":
+			err = runDoctor(os.Args[2:], os.Stdout)
 		case "version", "-version", "--version":
 			fmt.Println("tracereports " + buildVersion())
 			return
@@ -93,16 +113,19 @@ func main() {
 				"       tracereports push ...     upload a recording, allure-results or JUnit XML to a server\n" +
 				"       tracereports pr-comment   comment the run summary on the pull request\n" +
 				"       tracereports secrets ...  status / migrate of the credentials saved from Settings\n" +
+				"       tracereports evidence ... status / encrypt / rekey of the evidence encrypted at rest\n" +
 				"       tracereports repro ...    resend the calls of a FixLab capsule with a fresh session\n" +
 				"       tracereports verify ...   run the saved checks of a capsule (exit code 1 if one fails)\n" +
 				"       tracereports mcp          MCP server (stdio) for agents such as Claude Code\n" +
 				"       tracereports demo         try it in a minute: sample data and a demo shop, only on this machine\n" +
 				"       tracereports selftest     play the scenarios recorded with the real clients and check the results\n" +
+				"       tracereports health       check that the server of this machine answers (Docker healthcheck)\n" +
+				"       tracereports doctor --security  run the security check (exit code 1 if a check fails)\n" +
 				"       tracereports version      print the version\n" +
 				"Each command explains its flags with -h. Guide: docs/en/cli.md")
 			return
 		default:
-			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, repro, verify, mcp, demo, selftest, version; no command starts the server)\n", os.Args[1])
+			fmt.Fprintf(os.Stderr, "unknown command %q (commands: report, push, pr-comment, secrets, evidence, repro, verify, mcp, demo, selftest, health, doctor, version; no command starts the server)\n", os.Args[1])
 			os.Exit(2)
 		}
 		if err != nil {
@@ -133,6 +156,15 @@ func runServer(parent context.Context) error {
 	} else if n > 0 {
 		slog.Info("configuration loaded from file", "file", envFile, "variables", n)
 	}
+	// fail-closed: sin credenciales no se escucha en la red (se decide antes de tocar los datos)
+	binds, err := checkExposure(exposureFromEnv())
+	if err != nil {
+		return err
+	}
+	// un proveedor mal escrito en la allowlist no la deja vacía en silencio
+	if err := ai.CheckAllowlist(); err != nil {
+		return err
+	}
 	port := envOr("PORT", "8080")
 	dataDir := envOr("DATA_DIR", "./data")
 	// en la imagen el volumen es /data: otra ruta (p. ej. el ./data de un .env pensado para go run)
@@ -141,7 +173,15 @@ func runServer(parent context.Context) error {
 		slog.Warn("DATA_DIR is not the /data volume: the data will be lost when the container is recreated (remove DATA_DIR from the .env)", "data_dir", dataDir)
 	}
 	shotsDir := filepath.Join(dataDir, "screenshots")
-	if err := os.MkdirAll(shotsDir, 0o755); err != nil {
+	// DATA_DIR y las capturas: solo el usuario del servidor (pueden tener evidencia sensible)
+	if err := os.MkdirAll(shotsDir, 0o700); err != nil {
+		return err
+	}
+	restrictDir(dataDir)
+	restrictDir(shotsDir)
+	// cifrado en reposo (opt-in, fail-closed): activado sin una clave válida no se arranca
+	vault, err := atrest.FromEnv(dataDir)
+	if err != nil {
 		return err
 	}
 
@@ -153,6 +193,13 @@ func runServer(parent context.Context) error {
 		return err
 	}
 	defer store.Close()
+	store.SetVault(vault)
+	switch {
+	case vault.Encrypting():
+		slog.Info("evidence encrypted at rest (screenshots, traces, videos, DOM)", "key_id", vault.KeyID())
+	case vault != nil:
+		slog.Warn("TRACEREPORTS_DB_KEY set but TRACEREPORTS_ENCRYPT_AT_REST is off: encrypted evidence is readable, new evidence is stored in clear")
+	}
 	if err := settleAIBudget(store); err != nil {
 		return err
 	}
@@ -160,6 +207,24 @@ func runServer(parent context.Context) error {
 	webRoot, err := fs.Sub(tracereports.WebFS, "web")
 	if err != nil {
 		return err
+	}
+	if err := api.ValidAILanguage(); err != nil {
+		return err
+	}
+	screenshots, err := api.ParseScreenshotPolicy(env.Get("SCREENSHOTS"))
+	if err != nil {
+		return err
+	}
+	netPolicy, err := api.NewNetPolicy(env.Get("ALLOWED_CIDRS"), env.Get("TRUSTED_PROXIES"))
+	if err != nil {
+		return err // un filtro de red mal escrito no se ignora
+	}
+	if netPolicy.Enabled() {
+		slog.Info("source IP allowlist enabled (loopback is always allowed)", "allowed_cidrs", fmt.Sprint(netPolicy.Allowed()),
+			"trusted_proxies", fmt.Sprint(netPolicy.Trusted()))
+	}
+	if screenshots != api.ScreenshotsAll {
+		slog.Info("screenshot policy", "screenshots", screenshots)
 	}
 
 	notifier := notify.New(store)
@@ -176,6 +241,9 @@ func runServer(parent context.Context) error {
 		IngestToken: env.Get("INGEST_TOKEN"),
 		UIUser:      env.Get("UI_USER"),
 		UIPass:      env.Get("UI_PASSWORD"),
+		// opcional: login de solo lectura para el resto del equipo
+		ViewerUser: env.Get("UI_VIEWER_USER"),
+		ViewerPass: env.Get("UI_VIEWER_PASSWORD"),
 		// con token = despliegue: el mismo equipo también necesita credenciales, salvo que se diga
 		LocalAdmin: env.Bool("LOCAL_ADMIN"),
 	}
@@ -185,7 +253,10 @@ func runServer(parent context.Context) error {
 	if auth.Token != "" && auth.Token == auth.IngestToken {
 		return errors.New("TRACEREPORTS_INGEST_TOKEN must be different from TRACEREPORTS_TOKEN (it has fewer permissions)")
 	}
-	if auth.UIUser == "" || auth.UIPass == "" {
+	if auth.ViewerUser != "" && auth.ViewerUser == auth.UIUser {
+		return errors.New("TRACEREPORTS_UI_VIEWER_USER must be different from TRACEREPORTS_UI_USER (one reads, the other administers)")
+	}
+	if (auth.UIUser == "" || auth.UIPass == "") && (auth.ViewerUser == "" || auth.ViewerPass == "") {
 		slog.Warn("TRACEREPORTS_UI_USER/TRACEREPORTS_UI_PASSWORD not set: the reports are readable without login")
 	}
 
@@ -227,6 +298,9 @@ func runServer(parent context.Context) error {
 		Live:           hub,
 		Auth:           auth,
 		ScreenshotsDir: shotsDir,
+		Vault:          vault,
+		// los chequeos de doctor --security sobre la configuración con que corre (IA activa incluida)
+		Posture:        func() posture.Report { return posture.Evaluate(postureFromEnv(analyzer.Config(), dataDir)) },
 		Web:            webRoot,
 		SettingsLocked: env.Bool("SETTINGS_LOCKED"),
 		Redact:         redaction,
@@ -245,8 +319,12 @@ func runServer(parent context.Context) error {
 		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS"))},
 		// tracereports demo (TRACEREPORTS_DEMO lo pone la demo)
 		Demo: env.Bool("DEMO"),
+		// qué capturas se guardan: all, failures u off (TRACEREPORTS_SCREENSHOTS)
+		Screenshots: screenshots,
+		// solo la red interna (TRACEREPORTS_ALLOWED_CIDRS), con proxies confiables
+		Net: netPolicy,
 	}
-	if auth.UIUser == "" || auth.UIPass == "" {
+	if (auth.UIUser == "" || auth.UIPass == "") && (auth.ViewerUser == "" || auth.ViewerPass == "") {
 		slog.Info("without UI login only these hosts are served (plus localhost)", "allowed_hosts", apiServer.Hosts.Names())
 	}
 	// lo guardado desde la pantalla de Ajustes manda sobre el .env
@@ -256,19 +334,30 @@ func runServer(parent context.Context) error {
 	for _, t := range apiServer.Trackers {
 		slog.Info("tickets enabled", "tracker", t.Name())
 	}
-	if analyzer.Enabled() {
+	switch {
+	case analyzer.UsesLLM():
 		slog.Info("AI triage enabled", "provider", analyzer.Provider(), "model", analyzer.Model())
-	} else {
-		slog.Info("AI triage disabled: set AI_PROVIDER/AI_API_KEY (or GEMINI_API_KEY) or configure it in Settings")
+	case analyzer.Enabled():
+		slog.Info("failure diagnosis: local rules engine (no LLM, no network); set AI_PROVIDER/AI_API_KEY or use Settings for an LLM", "rules", analyzer.Model())
+	default:
+		slog.Info("failure diagnosis disabled (AI_PROVIDER=off)")
 	}
+	if l := analyzer.Language(); l != "" && analyzer.Enabled() {
+		slog.Info("diagnosis language", "lang", l)
+	}
+	logEgress(analyzer.Config())
 	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
 
 	srv := &http.Server{
-		// TRACEREPORTS_BIND=127.0.0.1 atiende solo a este equipo (vacío: todas las interfaces)
-		Addr:              net.JoinHostPort(strings.TrimSpace(env.Get("BIND")), port),
 		Handler:           apiServer.Router(),
 		ReadHeaderTimeout: 10 * time.Second,
+		// un cliente que manda el cuerpo de a poco (slowloris) no retiene la conexión para siempre;
+		// holgado para subir un video de 100 MiB por una red lenta. Sin WriteTimeout: el stream en
+		// vivo (SSE) y los exports grandes escriben por minutos.
+		ReadTimeout:    15 * time.Minute,
+		IdleTimeout:    2 * time.Minute,
+		MaxHeaderBytes: 64 << 10,
 	}
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
@@ -279,11 +368,17 @@ func runServer(parent context.Context) error {
 		return err
 	}
 
-	errCh := make(chan error, 1)
-	go func() {
-		slog.Info("TraceReports listening", "url", "http://localhost:"+port)
-		errCh <- srv.ListenAndServe()
-	}()
+	// TRACEREPORTS_BIND=127.0.0.1 atiende solo a este equipo (vacío: todas las interfaces, si hay
+	// credenciales; ver exposure.go)
+	lns, err := listen(binds, port)
+	if err != nil {
+		return err
+	}
+	errCh := make(chan error, len(lns))
+	slog.Info("TraceReports listening", "url", "http://localhost:"+port, "bind", strings.Join(binds, ","))
+	for _, ln := range lns {
+		go func() { errCh <- srv.Serve(ln) }()
+	}
 
 	select {
 	case err := <-errCh:

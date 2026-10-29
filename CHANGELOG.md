@@ -6,6 +6,246 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-29
+
+Server 0.6.0 with Python client 0.5.0, JavaScript client 0.4.0 and Java client 0.4.0 (they cover
+sensitive data before screenshots and keep their recordings private).
+
+### ⚠️ Breaking: the server no longer listens on the network without credentials
+
+Before, a server with no `TRACEREPORTS_TOKEN`, `TRACEREPORTS_INGEST_TOKEN` nor UI login only logged a
+warning, and anyone who reached the port could read and change the reports. Now (*fail-closed*):
+
+- without credentials and without `TRACEREPORTS_BIND`, it listens **only on this machine** (`127.0.0.1` and
+  `::1`): `go run ./cmd`, the binary on a laptop, `tracereports demo` and `selftest` work as before;
+- without credentials and with `TRACEREPORTS_BIND` on the network (`0.0.0.0`, `::`, an IP), it **does not
+  start** and says what to set;
+- in **Docker** (official image), without credentials it **does not start**: inside the container it always
+  listens on every interface, even when the port is published only on `127.0.0.1`.
+
+**Migration:**
+
+1. Generate a token: `openssl rand -hex 32` (or `python -c "import secrets; print(secrets.token_hex(32))"`).
+2. Put it in the server's `.env` (`TRACEREPORTS_TOKEN=...`), or pass it with `docker run -e TRACEREPORTS_TOKEN=...`;
+   optionally add `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` to protect the reports too.
+3. Give the same token to your test clients and CI (`TRACEREPORTS_TOKEN`, or the restricted
+   `TRACEREPORTS_INGEST_TOKEN`).
+4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
+### Added
+
+- **Chat with Trace Buddy**: with an LLM configured (Ollama, Gemini, Claude, OpenAI…), it takes free questions
+  in a box at the bottom of its panel (Enter sends, Shift+Enter breaks the line) and answers with the evidence of
+  the test or run being viewed and the last turns of the conversation, in the interface language, only about
+  testing and TraceReports. Through the new `POST /api/v1/ui/ai/chat`: admin only, everything through the
+  redaction (a password typed in the question does not reach the model), the provider allowlist, up to 60
+  questions per hour per server, and every call in AI usage as "Questions to Trace Buddy". With the local rules
+  engine there is no box: it cannot chat.
+  Asking how to reproduce a call or for a mock brings real artifacts below the answer, built from the report and
+  not by the model: the failed call as a cURL (secrets as `$VARIABLES`; Postman imports it) and a mock of the
+  failed backend for WireMock, Playwright or Cypress, with Copy. The model gets the test's failed calls as cURL
+  with the start of each response, knows TraceReports' tools (Copy as cURL, Generate mock, the Lab) and speaks
+  in first person. The READMEs introduce Trace Buddy with an animated GIF where he says, with a gesture each, that
+  there is no telemetry, that he is self-hosted and that your data is never shared; two of his thoughts in the app
+  remind it too.
+- **Why a test has no screenshots**: with `TRACEREPORTS_SCREENSHOTS=failures`, a test that did not fail and has
+  no screenshots says that this server only keeps the failures' ones (with `off`, every test says so), instead
+  of looking like the images were lost. `GET /api/v1/config` reports the policy, and Trace Buddy gets a "Why
+  are there no screenshots?" question when the server drops any.
+- **Language of the AI diagnoses** can be set in the `.env` with `TRACEREPORTS_AI_LANGUAGE` (`es`, `en`, `auto`),
+  which is the only way when `TRACEREPORTS_SETTINGS_LOCKED=1`; what is chosen in Settings still takes
+  precedence. `auto` now follows the team's default language and only falls back to each test's language
+  when there is none, so a Spanish-speaking team gets Spanish diagnoses even with English test names.
+  Changing the team language applies at once. Settings → Artificial intelligence says which language the
+  diagnoses are written in and where it comes from, and the log says `diagnosis language lang=…` on start.
+  A diagnosis in another language than the interface says so, in its card and in Trace Buddy: one click
+  re-analyzes it, or (when Settings is editable) sets that language for every new diagnosis and re-analyzes
+  it; with Settings locked it says which `.env` line to add.
+- **Trace Buddy**, a QA assistant on a floating button (bottom right): a small QA engineer in a hood, in 3D
+  (built in code with three.js, loaded only for whoever sees it and after the page is ready; without WebGL it
+  shows its picture). Its face lives on the visor: it blinks, follows the pointer with eyes, head and body,
+  talks when it answers, nods at a question and changes expression and gesture with what happens (scratches its
+  head while the AI works, thumbs up with star eyes on success, hand to the visor on a problem). Left alone it
+  fidgets, gets bored and falls asleep; hovered for a while it blushes. Now and then it says something in a
+  thought bubble about what is being viewed (at most every ~90 s, only with the panel closed; the × silences it
+  for the session). On a theme change it changes clothes step by step behind a pixelated censor: the old hood
+  flies off, the new clothes come piece by piece and the new hood drops in. It only opens when you call it and
+  can be hidden (Settings → Appearance brings it back). Its first message tells whether the configured AI
+  answers (provider, model and how long it took, or why not in plain words), through the new
+  `POST /api/v1/ui/ai/probe`. Without an LLM it answers from what TraceReports already knows: explains the
+  failed test you are viewing (or opens the first one), what to check first in the run, how to connect your
+  tests and whether the installation is secure. Admin only (the read-only login does not see it), hidden
+  when AI is off; animations follow `prefers-reduced-motion`.
+- **Change the `.env`** (`docs/en/docker.md`, `docs/es/docker.md`): how to edit it by hand or with a one-line
+  command that replaces a variable without repeating it or adding a BOM, why `docker compose up -d` applies it
+  and `restart` does not, the log line that confirms each change, that Settings takes precedence over the
+  `.env`, **recipes to pick your flavor** (each a single command: diagnoses in your language, Ollama, Gemini
+  with the key asked for instead of pasted, back to the local engine, maximum privacy, every screenshot, AI off;
+  they combine) and how to back it up outside the project. The step-by-step guides set
+  `TRACEREPORTS_AI_LANGUAGE` in the first `.env` and gained an optional Ollama step. The one-line `.env` commands in the Docker guides now work also when the file is
+  left with a single line.
+- **Install with Docker, step by step** (`docs/en/docker-step-by-step.md`, `docs/es/docker-paso-a-paso.md`): a
+  guide for people new to Docker or the terminal, from installing Docker to the first report, with what to
+  expect at every step, screenshots, real outputs and the fixes for common errors; linked from the READMEs
+  and the Docker guide. A companion guide, **Try with Docker without touching your installation**
+  (`docs/en/docker-isolated-trial.md`, `docs/es/docker-prueba-aislada.md`), runs another version next to an
+  existing one (own project, image and volume), checks everything and puts the existing one back at the end.
+  The Docker guide's "First start" now creates the `.env` with the token and login
+  before `docker compose up -d` (before, the container refused to start on the first try).
+
+- **Similar incidents**: each classified failure is indexed by its signature (TF-IDF in pure Go, no AI), and the
+  diagnosis of a new failure shows up to three already classified failures of the same project that look at
+  least 60 % like it, with their verdict and comment (`GET /api/v1/tests/{id}/similar`).
+- **Local LLM without Ollama**: optional `docker compose --profile llm` with llama.cpp server (no published
+  port, model mounted read-only, nothing downloaded at runtime) and a guide for llama.cpp, llamafile, LM Studio,
+  vLLM and LocalAI (`docs/en/local-ai.md`).
+- **Local diagnosis engine, no LLM** (`AI_PROVIDER=builtin`, the new default): a versioned catalog of
+  deterministic rules inside the binary explains why each test failed (backend 5xx, 429 or no answer,
+  DNS/refused/TLS, 401/403, changed selector, assertion with expected and actual values, uncaught JavaScript
+  error, flaky test, environment down) and writes the run summary, in Spanish or English. It uses no network,
+  no model and no API key, so the diagnosis works from the first `docker run` and test data never leaves the
+  server. The UI labels it **Local engine** with the rule that concluded it. With an LLM configured, the engine
+  runs first and the model gets its (redacted) conclusion to confirm or correct it
+  (`TRACEREPORTS_AI_BUILTIN_HINT=0` turns that off). `tracereports report` uses it without `--ai`, and
+  `tracereports selftest` reports its hit rate over the recorded scenarios (minimum 90 %).
+
+### Changed
+
+- **Security check → Network exposure** explains the Docker case: inside the official image the server always
+  listens on the container network, so the warning now says that a port published only on `127.0.0.1` (the
+  official `docker-compose.yml`) is already reachable from that machine only, and how to filter inside Docker
+  too with `TRACEREPORTS_ALLOWED_CIDRS` and the container network. It stays a warning: from inside the
+  container the published port cannot be seen. The Docker guides gained an optional step to turn it green
+  (look up the network, save it in the `.env`, check for `401` vs `403`, undo).
+- **Without an AI key, failures are now diagnosed by the local engine** instead of not at all. To keep the
+  previous behavior (no diagnosis), set `AI_PROVIDER=off`. Existing LLM setups do not change.
+- CI runs the Go tests with the race detector and checks that the server still builds without CGO.
+- The CI, the release binaries and CodeQL build with the latest patch release of Go 1.27 (like the Docker
+  image) instead of the minimum in `go.mod`: the binaries carry the standard library's security fixes.
+- A pre-release tag (`v0.6.0-rc1`) is published as a pre-release, takes its notes from `[Unreleased]` and
+  no longer moves the image's `latest` tag.
+- **Settings → Security check** has a new layout: a summary ring with the verdict, what needs fixing first
+  (critical before warnings, with the fix in view), and the checks in order grouped by topic in a compact grid
+  with an icon each; click one to see its detail. Titles and details follow the interface language (the API
+  and `doctor --security` keep their English output), and **Check again** re-runs the checks.
+
+### Fixed
+
+- With no runs yet, going from Settings, Metrics or Search to Tests, Categories or any other run view
+  left the previous screen showing: the "No runs yet" message is back.
+- Settings → AI usage said "Ollama answers" for the local rules engine, which does not use Ollama: it now
+  says that it runs inside the server.
+- **Open in Lab** stayed on "Preparing the Lab…" for a call with nothing masked (no password, token nor
+  cookie): the plan sent its values as `null`. It now opens and says the call is resent as it is; any other
+  unexpected plan shows an error instead of hanging.
+- A side panel (Lab, mock, compare) closed right as it opened (Escape or a very fast double click) came back
+  open.
+- On a phone, long test names and errors with no spaces (`test_…[chromium]`,
+  `playwright._impl._errors.TimeoutError`) pushed Categories, Errors and Analysis sideways: they now wrap.
+
+### Security
+
+- **Docs fixes**: `TRACEREPORTS_SCREENSHOT_MASK` is read by the test clients, not the server (removed from
+  the server profile of the hardening guide); `doctor --security` now names the full
+  `TRACEREPORTS_AI_ALLOWED_PROVIDERS` variable; the Docker guide explains `TRACEREPORTS_TRUSTED_PROXIES`
+  when the proxy runs on the same server as the container and `TRACEREPORTS_ALLOWED_CIDRS` is set; duplicated
+  rows of the threat model removed.
+
+- **Browser protections**: every response carries a Content-Security-Policy (only this server's scripts,
+  the inline ones of `index.html` by hash), `X-Frame-Options: DENY`, `nosniff` and
+  `Referrer-Policy: same-origin`. **Cross-site writes are rejected** (403 when the browser says the request
+  comes from another site), so a web page can no longer post fake runs to a local server; test clients
+  and CI are not affected. **Failed logins are throttled**: 10 wrong passwords or tokens from an address in
+  15 minutes give 429 for the rest of the window. The live stream accepts at most 500 connections, and the
+  server now has read (15 min) and idle (2 min) timeouts against slow clients.
+- **Read-only UI login** (`TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD`): the rest of
+  the team sees every report but never sends results, changes Settings nor uses the UI actions, not even
+  from the same machine. The production profile of the hardening guide includes it.
+- **The AI key can no longer be redirected**: a key saved from Settings or given by the environment is
+  only sent to the API URL it was configured for. Changing the URL (when saving or in "Test connection")
+  requires typing the key again, otherwise 409. At startup, a saved URL that differs from the
+  environment's no longer takes the environment key.
+- **Private files outside the server**: `tracereports report` and the offline recordings and mirror of
+  the four clients (Python, JavaScript, Java, Go) now create their folders with `0700` and files with
+  `0600` on Linux and macOS (before: readable by every user of the machine). A recording holds the
+  evidence before server-side redaction. To publish a static report with a web server, grant read access
+  on purpose (`chmod -R a+rX`).
+- **`repro`, `verify` and the MCP stay on the test's hosts**: a resend from your machine (with the secrets
+  of `TRACEREPORTS_LAB_<NAME>`) only goes to the hosts the test called, those of `TRACEREPORTS_LAB_HOSTS`
+  and, in the CLI, the URL passed with `-base`. The base URL an agent proposes over MCP never opens a new
+  host. They also read from the server with the smallest credential available (ingest token, read-only
+  login) instead of the admin ones, and the token no longer gets overwritten when a UI login is also set.
+
+- **`tracereports doctor --security`**: the hardening checklist as checks (tokens, UI login, network
+  exposure and CIDR allowlist, AI provider and allowlist, Settings lock, retention, encryption at rest,
+  process user, `DATA_DIR` permissions, outbound destinations, redaction, screenshot policy) with OK / WARN /
+  FAIL and what to do; exit code 1 when a critical check fails, `-json` with a stable contract, `-url` to
+  ask a running server. Also at `GET /api/v1/security/posture` (admin only) and in **Settings → Security
+  check**. The production profile of the hardening guide now includes `TRACEREPORTS_ALLOWED_CIDRS`,
+  `NOTIFY_DETAIL=minimal` and encryption at rest, and passes every check.
+- **Threat model** (`docs/*/threat-model.md`): assets, actors, surfaces, mitigations and residual risks,
+  including the caveats of encrypted SQLite VFS (#41). **API stability policy** (`docs/*/api-stability.md`):
+  stable, experimental and internal levels, deprecation with `Deprecation`/`Sunset` headers from 1.0.
+  **Criteria for 1.0** (`docs/*/release-1.0.md`) measured by `scripts/release_criteria.py` and a weekly
+  workflow. `SECURITY.md` now has patch times by severity and a coordinated disclosure window;
+  `GOVERNANCE.md` and `MAINTAINERS.md` describe decisions and how to become a maintainer.
+
+- `tracereports selftest` checks that the screenshots recorded with the Python (Playwright) and Java (Selenium)
+  clients show the demo shop's member card (`data-tracereports-mask`) covered.
+- **Evidence encrypted at rest, opt-in** (`TRACEREPORTS_ENCRYPT_AT_REST=1` with `TRACEREPORTS_DB_KEY` or
+  `TRACEREPORTS_DB_KEY_FILE`): new screenshots, Playwright traces, videos and DOM snapshots are stored with
+  authenticated AES-256-GCM (64 KiB chunks, HKDF subkeys per use). The UI, ZIP export and tickets read them
+  as before (videos keep Range requests). Fail-closed: turned on without a valid key, or with the key file
+  inside `DATA_DIR`, the server does not start. `tracereports evidence status|encrypt|rekey` encrypts the
+  evidence kept before and rotates the key (`TRACEREPORTS_DB_KEY_PREVIOUS`). Off by default: nothing changes.
+  The SQLite database itself is not encrypted (a pure-Go encrypted SQLite cost too much in the spike):
+  keep `DATA_DIR` on an encrypted volume.
+
+- **Go client**: `MaskSelector()`, `MaskColor` and the `CoverScript`/`UncoverScript` scripts to take screenshots
+  with sensitive data covered (the playwright-go example uses them), and `Test.Screenshot` follows
+  `TRACEREPORTS_SCREENSHOTS=all|failures|off`.
+- **Hardening**: SQLite `secure_delete` plus `VACUUM` and a WAL checkpoint after each retention purge, so
+  purged evidence is not left in the database file; `DATA_DIR` is `0700` (an older, wider folder is
+  tightened) and screenshots and artifacts are written `0600`; the server warns at startup when
+  `TRACEREPORTS_RETENTION_DAYS` is not set. `docker-compose.yml` runs read-only with a `tmpfs` `/tmp`,
+  `cap_drop: [ALL]`, `no-new-privileges` and a healthcheck (`tracereports health`, new, asks the new
+  unauthenticated `GET /healthz`); the image has the same `HEALTHCHECK`. New
+  [security hardening guide](docs/en/security-hardening.md).
+- **AI provider allowlist** (`TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama`): a key of a provider outside
+  the list is ignored (with a warning), Settings only offers the allowed ones and rejects the rest, "Test
+  connection" never calls them and an unknown name stops the server. At startup the server logs every
+  external destination its configuration sends data to (AI and its status page, Teams, Slack, trackers, Lab
+  hosts), by host and scope.
+- **Minimal notifications** (`NOTIFY_DETAIL=minimal`): Teams and Slack get only the run name, counts, status
+  and the report link, without test names, errors, backend URLs or AI text. It also applies to the weekly
+  summary (numbers only) and escalations (severity and link).
+- **Source IP allowlist** (`TRACEREPORTS_ALLOWED_CIDRS`, IPv4 and IPv6): requests from other networks get `403`
+  on the UI, the API and the screenshots, even with a valid token; loopback is always allowed.
+  `X-Forwarded-For` / `X-Real-IP` are only trusted from `TRACEREPORTS_TRUSTED_PROXIES`, so a spoofed header does
+  not get around it. An invalid value stops the server.
+- **Screenshot policy on the server** (`TRACEREPORTS_SCREENSHOTS=all|failures|off`): with `failures` only the
+  screenshots of a failed step or test are kept (traces and videos only of failed tests); with `off` no image,
+  trace or video is kept. A refused upload answers `403` before anything is written, so no file is left on disk.
+  It also applies to Allure imports and `tracereports report`.
+- **Python client: screenshots with sensitive data covered.** Before each screenshot it covers
+  `input[type=password]`, every element with `data-tracereports-mask` and the CSS selectors of
+  `TRACEREPORTS_SCREENSHOT_MASK` (Playwright: native `mask`; Selenium: temporary boxes removed afterwards, even
+  when the screenshot fails; no screenshot if it cannot cover). `TRACEREPORTS_SCREENSHOTS=all|failures|off`
+  decides which screenshots are sent. New helpers `playwright_screenshot(page)` and `selenium_screenshot(driver)`.
+- **Java client: screenshots with sensitive data covered.** `SeleniumEvidence.screenshot` and
+  `PlaywrightEvidence.screenshot` cover `input[type=password]`, `data-tracereports-mask` and
+  `TRACEREPORTS_SCREENSHOT_MASK` before capturing (Playwright `mask`; Selenium temporary boxes, always removed),
+  and `TraceTest.screenshot` follows `TRACEREPORTS_SCREENSHOTS=all|failures|off`.
+- **JavaScript client: screenshots with sensitive data covered.** The Playwright fixtures take the failure
+  screenshot with `mask` (`input[type=password]`, `data-tracereports-mask`, `TRACEREPORTS_SCREENSHOT_MASK`) and
+  the reporter uploads it instead of Playwright's unmasked automatic one; Selenium's `screenshot(driver)`
+  covers the same elements with temporary boxes. `TRACEREPORTS_SCREENSHOTS=all|failures|off` also governs the
+  traces and videos the reporter uploads. New helper `playwrightScreenshot(page)`.
+- **Signed releases**: binaries (through `checksums.txt`) and the Docker image are signed keyless with
+  cosign, carry an SPDX SBOM and a SLSA provenance attestation. How to verify them: `SECURITY.md`.
+- **govulncheck** fails CI when reachable code has a known vulnerability; **CodeQL** analyzes Go,
+  JavaScript/TypeScript, Python, Java and the workflows; **OpenSSF Scorecard** runs on `main` (badge in the
+  README); a release rehearsal builds, signs and verifies everything on the pull requests that change it.
+
 ## [0.5.0] - 2026-10-16
 
 Server only: the clients did not change (Python 0.4.0, JavaScript 0.3.0, Java 0.3.0 and Go stay as they are).
@@ -233,7 +473,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/josemiguellopez/tracereports/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/josemiguellopez/tracereports/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/josemiguellopez/tracereports/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/josemiguellopez/tracereports/compare/v0.2.0...v0.3.0

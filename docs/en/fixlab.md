@@ -142,12 +142,20 @@ The Lab makes the server send HTTP requests, so it is treated as an SSRF capabil
 - **Where** it may send:
   - From the server's own machine, any host, like your terminal.
   - On a shared server, only the hosts the test called plus `TRACEREPORTS_LAB_HOSTS`.
+  - **`repro`, `verify` and the MCP** (from your machine, with the secrets of `TRACEREPORTS_LAB_<NAME>`):
+    only the hosts the test called, those of `TRACEREPORTS_LAB_HOSTS` and, in the CLI, the URL you pass
+    with `-base`. A capsule or a plan comes from ingested data: this way nobody with the ingest token can
+    aim your secrets at another host. In the MCP the base URL is proposed by the agent, so it never opens a
+    new host: declare it in `TRACEREPORTS_LAB_HOSTS`.
   - Link-local addresses (cloud metadata, `169.254.169.254`) and schemes other than `http`/`https`
     are always blocked.
   - Redirects are shown, not followed.
 - **Secrets**: the values you type are used for that send only, never stored nor logged. The answer
   goes through the masking policy before it is shown, so a new token stays hidden.
 - The **exported ZIP** has no Lab: there is no server to send from.
+- **Credentials to read**: `repro`, `verify` and the MCP read from the server with the smallest credential
+  available: `TRACEREPORTS_INGEST_TOKEN` before `TRACEREPORTS_TOKEN`, and the read-only login
+  (`TRACEREPORTS_UI_VIEWER_USER`) before the admin one. The agent never needs to administer.
 
 | Variable | Default | What it does |
 | --- | --- | --- |

@@ -25,6 +25,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/api"
 	"github.com/josemiguellopez/tracereports/internal/db"
+	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/offline"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 )
@@ -130,7 +131,7 @@ func runReport(args []string) error {
 			return err
 		}
 		if zipPath != "" {
-			if err := os.WriteFile(zipPath, data, 0o644); err != nil {
+			if err := os.WriteFile(zipPath, data, 0o600); err != nil {
 				return err
 			}
 		}
@@ -163,7 +164,7 @@ func newLocalServer(useAI bool) (*localServer, error) {
 	}
 	cleanup := func() { store.Close(); os.RemoveAll(tmp) }
 	shots := filepath.Join(tmp, "screenshots")
-	if err := os.MkdirAll(shots, 0o755); err != nil {
+	if err := os.MkdirAll(shots, 0o700); err != nil {
 		cleanup()
 		return nil, err
 	}
@@ -175,12 +176,19 @@ func newLocalServer(useAI bool) (*localServer, error) {
 	analyzer := ai.New(store)
 	analyzer.Redact = redact.FromEnv()
 	if !useAI {
-		_ = analyzer.SetConfig(ai.Config{}) // sin --ai no sale nada a la red
-	} else if !analyzer.Enabled() {
+		// sin --ai diagnostica el motor local: nada sale a la red
+		_ = analyzer.SetConfig(ai.Config{Provider: ai.ProviderBuiltin})
+	} else if !analyzer.UsesLLM() {
 		cleanup()
 		return nil, errors.New("--ai needs an AI provider in the environment (AI_PROVIDER and AI_API_KEY, or GEMINI_API_KEY...)")
 	}
-	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact}
+	// el reporte estático lleva las capturas: respeta la misma política que el servidor
+	policy, err := api.ParseScreenshotPolicy(env.Get("SCREENSHOTS"))
+	if err != nil {
+		cleanup()
+		return nil, err
+	}
+	srv := &api.Server{Store: store, AI: analyzer, ScreenshotsDir: shots, Web: webRoot, Redact: analyzer.Redact, Screenshots: policy}
 	return &localServer{target: offline.Target{Doer: offline.Handler{Handler: localOnly(srv.Router())}}, analyzer: analyzer, close: cleanup}, nil
 }
 
@@ -385,22 +393,33 @@ func unzipTo(data []byte, dir string) error {
 			}
 		}
 	}
+	root, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
 	for _, f := range zr.File {
 		if strings.TrimPrefix(f.Name, prefix) == "" {
 			continue
+		}
+		// zip slip: ninguna entrada sale de la carpeta del reporte
+		if strings.Contains(f.Name, "..") {
+			return fmt.Errorf("unexpected path in the report: %s", f.Name)
 		}
 		name := filepath.Clean(filepath.FromSlash(strings.TrimPrefix(f.Name, prefix)))
 		if filepath.IsAbs(name) || strings.HasPrefix(name, "..") {
 			return fmt.Errorf("unexpected path in the report: %s", f.Name)
 		}
-		dest := filepath.Join(dir, name)
+		dest := filepath.Join(root, name)
+		if rel, err := filepath.Rel(root, dest); err != nil || strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("unexpected path in the report: %s", f.Name)
+		}
 		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(dest, 0o755); err != nil {
+			if err := os.MkdirAll(dest, 0o700); err != nil {
 				return err
 			}
 			continue
 		}
-		if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(dest), 0o700); err != nil {
 			return err
 		}
 		rc, err := f.Open()
@@ -412,7 +431,7 @@ func unzipTo(data []byte, dir string) error {
 		if err != nil {
 			return err
 		}
-		if err := os.WriteFile(dest, content, 0o644); err != nil {
+		if err := os.WriteFile(dest, content, 0o600); err != nil {
 			return err
 		}
 	}

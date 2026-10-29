@@ -23,7 +23,8 @@ func OpenExisting(path string, readOnly bool) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	dsn := uri + "?_pragma=busy_timeout(5000)"
+	// lo que se reescribe (una credencial o un DOM que se cifran) no queda en claro en páginas libres
+	dsn := uri + "?_pragma=busy_timeout(5000)&_pragma=secure_delete(1)"
 	if readOnly {
 		dsn = uri + "?mode=ro&_pragma=busy_timeout(5000)&_pragma=query_only(1)"
 	}

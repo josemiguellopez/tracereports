@@ -179,6 +179,21 @@
 		}
 		S.test = test;
 		renderTestDetail();
+		buddyTestLoaded(test);
+	}
+
+	/** Por qué un test no tiene capturas: la política del servidor (TRACEREPORTS_SCREENSHOTS) las descartó
+	 * antes de guardarlas. Sin esto, un test que pasó parece haber perdido sus fotos. */
+	function shotPolicyText(t) {
+		const p = S.config?.screenshots;
+		if (STATIC || !p || p === "all" || t.logs.some((l) => l.screenshot)) return "";
+		if (p === "off") return tr("Este servidor no guarda capturas (TRACEREPORTS_SCREENSHOTS=off).");
+		if (t.status === "FAIL") return "";
+		return tr("Este test no falló, y este servidor solo guarda las capturas de los tests y pasos que fallan (TRACEREPORTS_SCREENSHOTS=failures).");
+	}
+	function shotPolicyNote(t) {
+		const msg = shotPolicyText(t);
+		return msg ? `<p class="shot-policy-note">${icon("i-camera")}<span>${msg}</span></p>` : "";
 	}
 
 	// ---------- header ----------
@@ -213,13 +228,21 @@
 
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
-		if (!S.run && !global) return;
+		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
+		if (!S.run && !global) {
+			// sin ejecución cargada no hay qué mostrar: se oculta la vista anterior (Ajustes, Métricas…)
+			// y, si el servidor no tiene ejecuciones, vuelve el estado vacío
+			$$(".view").forEach((v) => (v.hidden = true));
+			$("#empty-state").hidden = S.runs.length > 0;
+			document.body.classList.remove("view-global", "view-dashboard");
+			$("#run-banner").hidden = true;
+			return;
+		}
 		$$(".view").forEach((v) => (v.hidden = v.id !== `view-${S.view}`));
 		$("#empty-state").hidden = global || S.runs.length > 0;
 		document.body.classList.toggle("view-global", global);
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
-		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
 		({ search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
 			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
 	}
@@ -290,7 +313,7 @@
 		else if (!x.items.length) list.innerHTML = `<div class="placeholder">${tr("Sin resultados: quita un filtro o prueba otra búsqueda.")}</div>`;
 		else list.innerHTML = x.items.map((r) => `<button class="search-row" data-search-run="${r.id}" role="option" aria-selected="${x.selected === r.id}">
 			<span class="search-state ${lower(r.status)}" style="--c:var(--${lower(r.status)})"></span><span class="search-main"><b>${esc(r.name)}</b><span>${[r.branch, r.environment, r.project].filter(Boolean).map(esc).join(" · ")}</span></span>
-			<span class="search-meta" title="${esc(fmtDateTime(r.started_at))}">${esc(relativeRun(r.started_at))}</span><span class="search-count">${r.passed}/${r.total} OK${r.failed ? ` · <b class="fail">${plural(r.failed, tr("fallo"), tr("fallos"))}</b>` : ""}${r.flaky_count ? ` · <b class="flaky">${r.flaky_count} flaky</b>` : ""}</span><label title="${tr("Marcar para comparar")}" onclick="event.stopPropagation()"><input type="checkbox" data-search-compare="${r.id}" ${x.compare.includes(r.id) ? "checked" : ""}></label></button>`).join("");
+			<span class="search-meta" title="${esc(fmtDateTime(r.started_at))}">${esc(relativeRun(r.started_at))}</span><span class="search-count">${r.passed}/${r.total} OK${r.failed ? ` · <b class="fail">${plural(r.failed, tr("fallo"), tr("fallos"))}</b>` : ""}${r.flaky_count ? ` · <b class="flaky">${r.flaky_count} flaky</b>` : ""}</span><label title="${tr("Marcar para comparar")}" data-search-compare-label><input type="checkbox" data-search-compare="${r.id}" ${x.compare.includes(r.id) ? "checked" : ""}></label></button>`).join("");
 		$("#search-more").hidden = !x.cursor || x.loading;
 		if (!x.selected) renderSearchPreview();
 	}
@@ -400,7 +423,7 @@
 			`<button class="step-chip ${cls} ${S.stepFilter === st ? "active" : ""}" data-step-filter="${st}" data-tip="Mostrar solo los pasos ${esc(name)} (${counts[st]})">${icon(ic)}${name} ${counts[st]}</button>`).join("");
 		const logs = S.stepFilter ? t.logs.filter((l) => l.status === S.stepFilter) : t.logs;
 		const rows = logs.map((l) => stepRow(l)).join("");
-		const steps = `${t.logs.length > 1 ? `<div class="steps-toolbar"><span class="lbl">Filtrar:</span>
+		const steps = `${shotPolicyNote(t)}${t.logs.length > 1 ? `<div class="steps-toolbar"><span class="lbl">Filtrar:</span>
 				<button class="step-chip all ${!S.stepFilter ? "active" : ""}" data-step-filter="" data-tip="Mostrar todos los pasos">Todos ${t.logs.length}</button>${chips}</div>` : ""}
 			<table class="table-results">
 				<thead><tr><th>Estado</th><th>Hora</th><th>Detalle</th></tr></thead>
@@ -433,6 +456,7 @@
 		}
 		ensureHistory(t);
 		ensureLocator(t);
+		ensureSimilar(t);
 		updateAutoScrollToggle();
 	}
 
@@ -458,7 +482,7 @@
 				<p style="margin-top:8px">El análisis de IA aún no había terminado cuando se exportó este reporte.</p></div>`;
 		}
 		if (tr.state === "PENDING") {
-			return `<div class="card ai-card"><div class="ai-head">${title}<span class="ai-model">Analizando con ${esc(S.config.ai_model)}…</span></div>
+			return `<div class="card ai-card"><div class="ai-head">${title}<span class="ai-model">${S.config.ai_provider === "builtin" ? "Diagnosticando con el motor local…" : `Analizando con ${esc(S.config.ai_model)}…`}</span></div>
 				<div class="shimmer"></div><div class="shimmer short"></div>${loc}</div>`;
 		}
 		if (tr.state === "ERROR") {
@@ -471,9 +495,11 @@
 		}
 		return `<div class="card ai-card">
 			<div class="ai-head">${title}<span class="ai-cat ${esc(tr.category)}" tabindex="0" data-tip-title="Categoría del fallo" data-tip="${esc(AI_LABEL[tr.category] || tr.category)}">${esc(tr.category)}</span>
-				<span class="ai-model">${esc(S.config.ai_model)}</span></div>
+				${isLocal(tr) ? localBadge(tr.rule) : `<span class="ai-model">${esc(S.config.ai_model)}</span>`}</div>
 			<h6>Resumen</h6><p>${esc(tr.summary)}</p>
 			<h6>Sugerencia</h6><p class="suggestion">${esc(tr.suggestion)}</p>
+			${!STATIC && canAct() ? buddyLangNote(t) : "" /* en otro idioma que la interfaz: el mismo aviso que da Trace Buddy */}
+			${similarBlock(t)}
 			${loc}
 		</div>`;
 	}
@@ -1039,6 +1065,31 @@
 		}
 	}
 
+	// ---- Incidentes parecidos (veredictos del equipo) ----
+	S.sim = S.sim || {};
+
+	function ensureSimilar(t) {
+		if (t.status !== "FAIL" || STATIC || S.sim[t.id] !== undefined) return;
+		S.sim[t.id] = null; // cargando
+		fetch(`/api/v1/tests/${t.id}/similar`).then((r) => (r.ok ? r.json() : []))
+			.then((list) => { S.sim[t.id] = list; if (S.test?.id === t.id) renderTestDetail(); })
+			.catch(() => { S.sim[t.id] = []; });
+	}
+
+	/** Fallos ya clasificados por el equipo que se parecen a este (sin IA: TF-IDF sobre su firma). */
+	function similarBlock(t) {
+		const list = S.sim[t.id];
+		if (!list?.length) return "";
+		const tr = window.TraceReportsI18n.t;
+		const items = list.map((s) => `<li class="similar-item"><span class="similar-score">${s.score}%</span>
+			<a href="#run=${s.run_id}&view=tests&test=${s.test_id}" data-no-i18n>${esc(s.test_name || "#" + s.test_id)}</a>
+			<span class="verdict-chip sm v-${esc(s.verdict)}">${esc(verdictName(s.verdict))}</span>
+			${s.comment ? `<span class="verdict-comment" data-no-i18n>${esc(s.comment)}</span>` : ""}
+			<small>${esc(fmtDateTime(s.created_at))}</small></li>`).join("");
+		return `<h6 tabindex="0" data-tip="${esc(tr("Fallos que el equipo ya clasificó y se parecen a este por su firma (la llamada que falló o el error). El porcentaje es el parecido, no una probabilidad."))}">${tr("Incidentes parecidos")}</h6>
+			<ul class="similar-list">${items}</ul>`;
+	}
+
 	// ---- AI Locator Recommender ----
 	const locKey = (t) => `${t.id}:${t.status}:${t.triage?.state || ""}:${t.triage?.locator_pick || ""}`;
 	const currentLocator = () => (S.test ? S.loc[locKey(S.test)] || null : null);
@@ -1474,9 +1525,22 @@
 		loadLabRun();
 	}
 
-	/** Causa: hipótesis de la IA (nunca confirmada), o la IA dijo que la evidencia no alcanza. */
-	function incidentCause(inc, cls) {
+	/** El diagnóstico lo escribió el motor local de reglas (sin LLM): se marca como tal, nunca como IA. */
+	function isLocal(x) { return x?.provider === "builtin"; }
+
+	function localBadge(rule) {
 		const tr = window.TraceReportsI18n.t;
+		return `<span class="ai-model ai-local" tabindex="0" data-tip="${esc(tr("Motor local de reglas: sin LLM y sin red. Los datos no salen del servidor."))}">${tr("Motor local")}${rule ? ` · <span class="mono" data-no-i18n>${esc(rule)}</span>` : ""}</span>`;
+	}
+
+	/** Causa: hipótesis de la IA (nunca confirmada), o la IA dijo que la evidencia no alcanza. Con el
+	 * motor local (local = true) es la conclusión de una regla determinística. */
+	function incidentCause(inc, cls, local) {
+		const tr = window.TraceReportsI18n.t;
+		if (local) {
+			if (inc.insufficient) return `<div class="${cls} muted">${tr("El motor local no encontró una regla concluyente.")}${inc.cause ? ` ${esc(inc.cause)}` : ""}</div>`;
+			return inc.cause ? `<div class="${cls}"><span class="hyp" data-tip="${esc(tr("Conclusión de una regla del motor local a partir de la evidencia observada. Confírmala antes de tratarla como la causa."))}">${tr("Conclusión")}</span> ${esc(inc.cause)}</div>` : "";
+		}
 		if (inc.insufficient) return `<div class="${cls} muted">${tr("La IA no propone causa: la evidencia no alcanza.")}</div>`;
 		return inc.cause ? `<div class="${cls}"><span class="hyp" data-tip="${esc(tr("Hipótesis de la IA a partir de la evidencia. Confírmala antes de tratarla como la causa."))}">${tr("Causa probable")}</span> ${esc(inc.cause)}</div>` : "";
 	}
@@ -1500,7 +1564,7 @@
 			<span class="inc-icon">${icon(INCIDENT_ICON[inc.kind] || "i-warning")}</span>
 			<div class="inc-body">
 				<div class="inc-title"><b data-no-i18n>${esc(inc.title)}</b><span class="inc-count">${inc.test_ids.length} test${inc.test_ids.length === 1 ? "" : "s"}</span>${compact ? "" : incidentVerified(inc)}</div>
-				${incidentCause(inc, "inc-cause")}
+				${incidentCause(inc, "inc-cause", isLocal(sum))}
 				${inc.action ? `<div class="inc-action">→ ${esc(inc.action)}</div>` : ""}
 				${compact ? "" : incidentEvidence(inc)}
 				${compact ? "" : `<div class="inc-tests">${inc.test_ids.map((id, i) => `<a data-goto="${id}">${esc(inc.test_names[i])}</a>`).join("")}</div>`}
@@ -1528,7 +1592,7 @@
 			return;
 		}
 		setHTML(el, `<div class="sum-head ${S.run.failed ? "has-fail" : "all-ok"}">${icon(S.run.failed ? "i-spark" : "i-pass")}
-				<h3>${esc(sum.headline)}</h3>${sum.ai ? `<span class="ai-model">${esc(S.config.ai_model)}</span>` : ""}</div>
+				<h3>${esc(sum.headline)}</h3>${sum.ai ? `<span class="ai-model">${esc(S.config.ai_model)}</span>` : isLocal(sum) ? localBadge("") : ""}</div>
 			${summaryBody(sum, false)}`);
 	}
 
@@ -1783,6 +1847,7 @@
 
 	function applyTheme(id, persist = true) {
 		document.body.dataset.theme = id;
+		buddy.three?.setTheme(id); // Trace Buddy se cambia de ropa (applyTheme corre después de definir buddy)
 		if (persist) { try { localStorage.setItem(THEME_KEY, id); } catch { /* ignore */ } }
 		$$("#theme-menu .theme-option").forEach((o) => o.setAttribute("aria-checked", String(o.dataset.themeId === id)));
 		// los gráficos leen los colores del tema al crearse: se vuelven a dibujar
@@ -1896,7 +1961,8 @@
 			if (check) { const id = Number(check.dataset.searchCompare), x = S.runSearch; x.compare = check.checked ? [...x.compare.filter((n) => n !== id), id].slice(-2) : x.compare.filter((n) => n !== id); renderRunSearch(); if (x.preview && x.preview[0].id === x.selected) renderSearchPreview(...x.preview); /* su botón Comparar depende de la marca */ if (x.compare.length === 2) compareSearchRuns(x.compare[0], x.compare[1]).catch(() => {}); return; }
 		});
 		$("#run-search-results").addEventListener("click", (e) => {
-			if (e.target.closest("[data-search-compare]")) return;
+			// la casilla de comparar (o su etiqueta) no abre la ejecución; sin onclick inline: la CSP no lo permite
+			if (e.target.closest("[data-search-compare], [data-search-compare-label]")) return;
 			const row = e.target.closest("[data-search-run]"); if (row) selectSearchRun(Number(row.dataset.searchRun));
 		});
 		$("#run-search-preview").addEventListener("click", (e) => { const test = e.target.closest("[data-search-test]"); if (test) { S.testId = Number(test.dataset.searchTest); switchRun(Number(test.dataset.searchTestRun)).then(() => { S.testId = Number(test.dataset.searchTest); setView("tests"); return loadTest(); }).catch(() => {}); return; } const open = e.target.closest("[data-search-open]"); if (open) { switchRun(Number(open.dataset.searchOpen)).then(() => setView("dashboard")).catch(() => {}); return; } const cmp = e.target.closest("[data-search-compare-open]"); if (cmp) compareSearchRuns(Number(cmp.dataset.searchCompareBase), Number(cmp.dataset.searchCompareOpen)).catch(() => {}); });
@@ -2203,14 +2269,15 @@
 				: sum.state === "PENDING" ? `<div class="shimmer"></div><div class="shimmer short"></div>`
 				: sum.state === "ERROR" ? `<p class="ai-err">${icon("i-fail")}<span>${esc(sum.error || "")}</span></p>`
 				: `<p class="ai-headline">${esc(sum.headline)}</p>${sum.summary ? `<p>${esc(sum.summary)}</p>` : ""}
-					${!sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, o con la misma firma de error.")}</p>` : ""}
+					${isLocal(sum) ? `<p class="m-hint">${tr("Diagnóstico del motor local de reglas: cada conclusión sale de una regla determinística sobre la evidencia observada, sin IA y sin red.")}</p>`
+						: !sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, o con la misma firma de error.")}</p>` : ""}
 					${summaryCoverage(sum)}`;
 			const incidents = (sum?.incidents || []).map((inc) => `<article class="card incident-card">
 				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error") }[inc.kind] || inc.kind)}</span>
 					<h6 data-no-i18n>${esc(AI_LABEL[inc.title] ? tr(AI_LABEL[inc.title]) : inc.title)}</h6>
 					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}${incidentVerified(inc)}</header>
 				${incidentEvidence(inc)}
-				${incidentCause(inc, "inc-cause-p")}
+				${incidentCause(inc, "inc-cause-p", isLocal(sum))}
 				${inc.action ? `<p><b>${tr("Qué hacer")}:</b> ${esc(inc.action)}</p>` : ""}
 				<ul class="inc-tests">${inc.test_ids.map((id, i) => `<li><a href="#run=${r.id}&view=tests&test=${id}" data-no-i18n>${esc(inc.test_names[i] || "#" + id)}</a></li>`).join("")}</ul>
 				${canAct() || incidentLab(inc) ? `<div class="inc-actions">${incidentLab(inc)}${canAct() ? `<button class="cf-btn cf-btn-sm" data-escalate="${inc.test_ids.length === 1 ? inc.test_ids[0] : 0}">${icon("i-megaphone")}${tr("Escalar")}</button>` : ""}</div>` : ""}
@@ -3099,7 +3166,19 @@
 	}
 
 	// ---------- ajustes ----------
-	const AI_LANGS = [["auto", "Automático (el idioma de cada test)"], ["es", "Español"], ["en", "English"]];
+	const AI_LANGS = [["auto", "Automático (el idioma del equipo)"], ["es", "Español"], ["en", "English"]];
+	const LANG_NAME = { es: "español", en: "inglés" };
+
+	/** En qué idioma salen los diagnósticos ahora y de dónde viene esa decisión (Ajustes, .env, equipo). */
+	function aiLanguageHelp(d) {
+		const eff = d.ai_language_effective;
+		const from = d.ai_language !== "auto" ? "" : d.ai_language_env ? tr("definido en el .env con TRACEREPORTS_AI_LANGUAGE")
+			: eff ? tr("el idioma por defecto del equipo, de Ajustes → Apariencia") : "";
+		const now = eff ? tr("Los diagnósticos se escriben en {l}", { l: tr(LANG_NAME[eff]) }) + (from ? ` (${from}).` : ".")
+			: tr("Sin un idioma definido, la IA usa el de cada test (casi siempre inglés, por los nombres de los tests).");
+		const locked = !d.editable && d.edit_reason === "locked" ? ` ${tr("Ajustes está bloqueado: para cambiarlo usa TRACEREPORTS_AI_LANGUAGE=es (o en) en el .env.")}` : "";
+		return `<span class="field-help">${now}${locked} ${tr("Los diagnósticos que ya existen no cambian: usa Re-analizar.")}</span>`;
+	}
 	/**
 	 * .env completo con datos de prueba, para la ayuda de "ajustes de solo lectura". La sección de IA
 	 * que queda activa es la del proveedor configurado ahora (sin su key real). Devuelve texto plano.
@@ -3170,20 +3249,22 @@
 	/** Ayuda cuando los ajustes son de solo lectura: por qué, pasos según cómo corre el servidor y un .env completo. */
 	function readOnlyHelp(d) {
 		const docker = d.runtime === "docker";
-		const reason = ["locked", "login", "remote"].includes(d.edit_reason) ? d.edit_reason : "remote";
+		const reason = ["locked", "login", "remote", "viewer"].includes(d.edit_reason) ? d.edit_reason : "remote";
 		const env = envExample(d);
 		S.settings.envText = env;
 		const title = {
 			locked: "El administrador bloqueó estos ajustes",
 			login: "Inicia sesión para cambiar los ajustes",
+			viewer: "Tu usuario es de solo lectura",
 			remote: "Los ajustes están en solo lectura desde este navegador",
 		}[reason];
 		const why = {
 			locked: "El servidor tiene TRACEREPORTS_SETTINGS_LOCKED=1: la IA se configura solo con el archivo .env, no desde esta pantalla.",
 			login: "El servidor pide usuario y clave para cambiar los ajustes. Recarga la página e ingresa los de TRACEREPORTS_UI_USER y TRACEREPORTS_UI_PASSWORD.",
+			viewer: "Entraste con el login de solo lectura (TRACEREPORTS_UI_VIEWER_USER): puedes ver todos los reportes, pero no cambiar ajustes ni usar acciones. Pídele el cambio a quien administra el servidor.",
 			remote: "Por seguridad, sin un usuario y clave configurados nadie puede cambiar la IA desde la red: solo desde el mismo equipo donde corre el servidor. Así nadie más puede ver el uso de tu API key ni cambiarla.",
 		}[reason];
-		const steps = reason === "login" ? "" : `<ol class="ro-steps">
+		const steps = reason === "login" || reason === "viewer" ? "" : `<ol class="ro-steps">
 			<li>${tr(docker ? "Abre (o crea) el archivo <code>.env</code> que está junto a <code>docker-compose.yml</code>." : "Crea (o abre) el archivo <code>.env</code> en la carpeta desde donde ejecutas el servidor.")}</li>
 			<li>${tr(reason === "locked" ? "Cambia la sección de inteligencia artificial: deja activa una sola opción." : "Copia el ejemplo y reemplaza los datos de prueba: sobre todo <code>TRACEREPORTS_UI_USER</code>, <code>TRACEREPORTS_UI_PASSWORD</code> y tu API key.")}</li>
 			<li>${tr(docker ? "Aplica los cambios: <code>docker compose up -d</code> (recrea el contenedor con el .env nuevo)." : "Reinicia el servidor: detenlo (Ctrl+C) y vuelve a ejecutar <code>./tracereports</code> o <code>go run ./cmd</code>.")}</li>
@@ -3364,6 +3445,7 @@
 		if (!STATIC && !st.data && !st.error && !st.loading) { st.loading = true; loadSettings().finally(() => { st.loading = false; }); }
 		if (!STATIC && !st.usage && !st.usageError && !st.usageLoading) loadUsage();
 		if (!STATIC && st.tab === "usage" && !st.status && !st.statusLoading) loadStatus(false);
+		if (!STATIC && !st.posture && !st.postureLoading) loadPosture();
 		const head = `<div class="page-head"><div><h4 class="page-title">Ajustes</h4>
 				<p class="page-sub">${STATIC ? "Reporte exportado: el idioma y el tema se guardan en este navegador." : "El idioma y el tema son de cada navegador. La IA es del servidor: aplica a todos."}</p></div></div>`;
 		let html;
@@ -3376,7 +3458,8 @@
 			const body = cur.id === "look" ? appearanceCard()
 				: st.error ? `<div class="card placeholder">No se pudieron cargar los ajustes: ${esc(st.error)}</div>`
 				: !st.data ? `<div class="card placeholder">Cargando…</div>`
-				: cur.id === "ai" ? aiCardSettings() : cur.id === "usage" ? usageCard() : connectCard(st.data);
+				: cur.id === "ai" ? aiCardSettings() : cur.id === "usage" ? usageCard()
+				: cur.id === "security" ? postureCard() : connectCard(st.data);
 			html = `${head}<div class="set-layout">
 				<nav class="card set-nav" role="tablist" aria-label="Secciones de Ajustes" aria-orientation="vertical">
 					${tabs.map((t) => `<button role="tab" id="set-tab-${t.id}" aria-selected="${t.id === cur.id}" aria-controls="set-panel" tabindex="${t.id === cur.id ? 0 : -1}" data-set-tab="${t.id}">
@@ -3403,7 +3486,161 @@
 				sub: S.settings.usage ? tr("{n} llamadas hoy", { n: fmtNum(S.settings.usage.usage.today.calls) }) : "…" },
 			{ id: "conn", icon: "i-plug", title: "Conectar tus tests",
 				sub: !d ? "…" : d.token_set ? "Token de API activo" : "Sin token de API", tone: d && !d.token_set ? "warn" : "ok" },
+			{ id: "security", icon: "i-shield", title: "Revisión de seguridad", ...postureSummary(S.settings.posture) },
 		];
+	}
+
+	/** Línea de estado de la postura en el índice de Ajustes. */
+	const postureFails = (n) => (n === 1 ? tr("1 crítico") : tr("{n} críticos", { n }));
+
+	function postureSummary(p) {
+		if (!p) return { sub: "…" };
+		if (p.error) return { sub: tr("Sin acceso"), tone: "muted" };
+		if (p.fail) return { sub: postureFails(p.fail), tone: "warn" };
+		if (p.warn) return { sub: tr("{n} por revisar", { n: p.warn }), tone: "warn" };
+		return { sub: tr("Todo en orden"), tone: "ok" };
+	}
+
+	async function loadPosture() {
+		const st = S.settings;
+		st.postureLoading = true;
+		try {
+			st.posture = await api("/api/v1/security/posture");
+		} catch (err) {
+			st.posture = { error: err.message, checks: [] };
+		}
+		st.postureLoading = false;
+		if (S.view === "settings") renderSettings(true);
+	}
+
+	const POSTURE_TONE = { ok: "ok", warn: "warn", fail: "bad" };
+	const POSTURE_LABEL = { ok: "OK", warn: "Revisar", fail: "Crítico" };
+	// por id estable del chequeo (el mismo de doctor --security -json): tema, ícono y título en el idioma de la interfaz
+	const POSTURE_GROUPS = [
+		["Acceso", ["auth.tokens", "auth.ui_login"]],
+		["Red y salida de datos", ["network.exposure", "egress.destinations"]],
+		["Datos y evidencia", ["data.encryption", "data.retention", "data.permissions", "evidence.redaction", "evidence.screenshots"]],
+		["IA y servidor", ["ai.provider", "settings.locked", "process.user"]],
+	];
+	const POSTURE_CHECK = {
+		"auth.tokens": ["i-key", "Tokens de la API"], "auth.ui_login": ["i-user", "Login de la interfaz"],
+		"network.exposure": ["i-globe", "Exposición en la red"], "egress.destinations": ["i-send", "Destinos externos"],
+		"data.encryption": ["i-lock", "Cifrado de la evidencia"], "data.retention": ["i-calendar", "Retención"],
+		"data.permissions": ["i-folder", "Permisos de DATA_DIR"], "evidence.redaction": ["i-eye-off", "Ocultar secretos"],
+		"evidence.screenshots": ["i-camera", "Política de capturas"], "ai.provider": ["i-spark", "Proveedor de IA"],
+		"settings.locked": ["i-gear", "Ajustes bloqueados"], "process.user": ["i-server", "Usuario del proceso"],
+	};
+	// el detalle y el arreglo llegan en inglés, como en doctor --security: en español se traducen los conocidos
+	// (con sus valores) y lo que no se reconozca se muestra tal cual
+	const POSTURE_ES = [
+		[/^admin and ingest tokens set and different$/, "tokens de administración y de ingesta definidos y distintos"],
+		[/^TRACEREPORTS_INGEST_TOKEN is the same as TRACEREPORTS_TOKEN$/, "TRACEREPORTS_INGEST_TOKEN es igual a TRACEREPORTS_TOKEN"],
+		[/^generate a different ingest token: (.+)$/, "genera un token de ingesta distinto: $1"],
+		[/^listening on the network without any token: anyone who reaches the port writes and reads$/, "escucha en la red sin ningún token: cualquiera que llegue al puerto escribe y lee"],
+		[/^set TRACEREPORTS_TOKEN and TRACEREPORTS_INGEST_TOKEN \((.+)\), or listen only on 127\.0\.0\.1$/, "define TRACEREPORTS_TOKEN y TRACEREPORTS_INGEST_TOKEN ($1), o escucha solo en 127.0.0.1"],
+		[/^no token: fine on a laptop \(only this machine\), not on a shared server$/, "sin token: sirve en un notebook (solo este equipo), no en un servidor compartido"],
+		[/^set TRACEREPORTS_TOKEN and TRACEREPORTS_INGEST_TOKEN before sharing the server$/, "define TRACEREPORTS_TOKEN y TRACEREPORTS_INGEST_TOKEN antes de compartir el servidor"],
+		[/^only the admin token: test clients and CI use a credential that can change Settings$/, "solo el token de administración: los clientes de test y la CI usan una credencial que puede cambiar Ajustes"],
+		[/^set TRACEREPORTS_INGEST_TOKEN for clients and CI, and keep TRACEREPORTS_TOKEN for admins$/, "define TRACEREPORTS_INGEST_TOKEN para los clientes y la CI, y deja TRACEREPORTS_TOKEN para administrar"],
+		[/^reads require the UI login or a token$/, "para leer hace falta el login o un token"],
+		[/^no UI login and TRACEREPORTS_ALLOWED_HOSTS=\*: anyone who reaches the port reads every report$/, "sin login y con TRACEREPORTS_ALLOWED_HOSTS=*: cualquiera que llegue al puerto lee todos los reportes"],
+		[/^set TRACEREPORTS_UI_USER and TRACEREPORTS_UI_PASSWORD$/, "define TRACEREPORTS_UI_USER y TRACEREPORTS_UI_PASSWORD"],
+		[/^no UI login: a token does not protect reads, and the Host check is not access control$/, "sin login: un token no protege la lectura, y revisar el Host no es control de acceso"],
+		[/^set TRACEREPORTS_UI_USER and TRACEREPORTS_UI_PASSWORD \(and HTTPS on the proxy\)$/, "define TRACEREPORTS_UI_USER y TRACEREPORTS_UI_PASSWORD (y HTTPS en el proxy)"],
+		[/^no UI login, but the server only listens on this machine$/, "sin login, pero el servidor solo escucha en este equipo"],
+		[/^TRACEREPORTS_INSECURE=1: the server listens on the network even without credentials$/, "TRACEREPORTS_INSECURE=1: el servidor escucha en la red aunque no tenga credenciales"],
+		[/^remove TRACEREPORTS_INSECURE and set the tokens and the UI login$/, "quita TRACEREPORTS_INSECURE y define los tokens y el login"],
+		[/^listening only on this machine$/, "escucha solo en este equipo"],
+		[/^only from (.+)$/, "solo desde $1"],
+		[/^listening on the network for any source address$/, "escucha en la red para cualquier dirección de origen"],
+		[/^inside Docker it listens on the container network; if the port is published only on 127\.0\.0\.1 \(the official docker-compose\.yml\), only this machine reaches it$/,
+			"dentro de Docker escucha en la red del contenedor; si el puerto se publicó solo en 127.0.0.1 (el docker-compose.yml oficial), solo este equipo llega a él"],
+		[/^to filter inside Docker too, set TRACEREPORTS_ALLOWED_CIDRS to the container network \(docker network inspect (.+)\) or the networks that need it$/,
+			"para filtrar también dentro de Docker, define TRACEREPORTS_ALLOWED_CIDRS con la red del contenedor (docker network inspect $1) o las redes que lo necesitan"],
+		[/^limit TRACEREPORTS_ALLOWED_CIDRS to the networks that need it \(or a firewall\)$/, "limita TRACEREPORTS_ALLOWED_CIDRS a las redes que lo necesitan (o usa un firewall)"],
+		[/^local rules engine or off: no evidence leaves the server$/, "motor local de reglas o apagada: ninguna evidencia sale del servidor"],
+		[/^provider (.+) is not in TRACEREPORTS_AI_ALLOWED_PROVIDERS$/, "el proveedor $1 no está en TRACEREPORTS_AI_ALLOWED_PROVIDERS"],
+		[/^use an allowed provider, or add it to TRACEREPORTS_AI_ALLOWED_PROVIDERS if the policy permits$/, "usa un proveedor permitido, o agrégalo a TRACEREPORTS_AI_ALLOWED_PROVIDERS si la política lo permite"],
+		[/^(.+) inside the network \((.+)\)$/, "$1 dentro de la red ($2)"],
+		[/^(.+), explicitly allowed in TRACEREPORTS_AI_ALLOWED_PROVIDERS: redacted prompts leave the network$/, "$1, permitido explícitamente en TRACEREPORTS_AI_ALLOWED_PROVIDERS: los prompts salen de la red sin secretos"],
+		[/^(.+): redacted prompts leave the network, and no TRACEREPORTS_AI_ALLOWED_PROVIDERS limits it$/, "$1: los prompts salen de la red sin secretos, y ningún TRACEREPORTS_AI_ALLOWED_PROVIDERS lo limita"],
+		[/^use AI_PROVIDER=builtin or a local LLM, or set TRACEREPORTS_AI_ALLOWED_PROVIDERS to make the decision explicit$/, "usa AI_PROVIDER=builtin o un LLM local, o define TRACEREPORTS_AI_ALLOWED_PROVIDERS para dejar la decisión explícita"],
+		[/^Settings is read-only: the configuration comes only from the environment$/, "Ajustes es de solo lectura: la configuración viene solo del entorno"],
+		[/^any admin \(and every UI user\) can change the AI provider, its URL and key from the screen$/, "cualquier administrador (y cada usuario con login) puede cambiar desde la pantalla el proveedor de IA, su URL y su clave"],
+		[/^set TRACEREPORTS_SETTINGS_LOCKED=1$/, "define TRACEREPORTS_SETTINGS_LOCKED=1"],
+		[/^Settings editable, only from this machine$/, "Ajustes editable, solo desde este equipo"],
+		[/^runs older than (\d+) days are deleted \(secure_delete, VACUUM\)$/, "las ejecuciones de más de $1 días se borran (secure_delete, VACUUM)"],
+		[/^evidence is kept forever$/, "la evidencia se guarda para siempre"],
+		[/^set TRACEREPORTS_RETENTION_DAYS to what your data policy allows$/, "define TRACEREPORTS_RETENTION_DAYS según lo que permita tu política de datos"],
+		[/^give a valid TRACEREPORTS_DB_KEY or TRACEREPORTS_DB_KEY_FILE outside DATA_DIR \(the server will not start\)$/, "entrega un TRACEREPORTS_DB_KEY o TRACEREPORTS_DB_KEY_FILE válido fuera de DATA_DIR (el servidor no arrancará)"],
+		[/^screenshots, traces, videos and DOM encrypted \(AES-256-GCM\), key outside DATA_DIR$/, "capturas, trazas, videos y DOM cifrados (AES-256-GCM), clave fuera de DATA_DIR"],
+		[/^off: the evidence is as safe as the disk of DATA_DIR$/, "apagado: la evidencia está tan protegida como el disco de DATA_DIR"],
+		[/^set TRACEREPORTS_ENCRYPT_AT_REST=1 with TRACEREPORTS_DB_KEY_FILE, and keep DATA_DIR on an encrypted volume$/, "define TRACEREPORTS_ENCRYPT_AT_REST=1 con TRACEREPORTS_DB_KEY_FILE, y deja DATA_DIR en un volumen cifrado"],
+		[/^not applicable on this system \(ACLs\)$/, "no aplica en este sistema (ACL)"],
+		[/^not applicable on this system$/, "no aplica en este sistema"],
+		[/^running as root$/, "corre como root"],
+		[/^run as an unprivileged user \(the official image already is nonroot\)$/, "córrelo con un usuario sin privilegios (la imagen oficial ya es nonroot)"],
+		[/^unprivileged user \(uid (\d+)\)$/, "usuario sin privilegios (uid $1)"],
+		[/^created with 0700 when the server starts$/, "se crea con 0700 al arrancar el servidor"],
+		[/^(.+) is (0\d+): other users of the host can read the evidence$/, "$1 tiene $2: otros usuarios del equipo pueden leer la evidencia"],
+		[/^(0\d+): only the server user$/, "$1: solo el usuario del servidor"],
+		[/^none: no data leaves the server$/, "ninguno: ningún dato sale del servidor"],
+		[/^(.+) — chat notifications carry test names and errors$/, "$1 — las notificaciones al chat llevan nombres de tests y errores"],
+		[/^set NOTIFY_DETAIL=minimal \(counts and a link only\)$/, "define NOTIFY_DETAIL=minimal (solo conteos y un link)"],
+		[/^secrets in headers, bodies and logs are masked before storing$/, "los secretos en headers, cuerpos y logs se ocultan antes de guardarse"],
+		[/^TRACEREPORTS_REDACT=off: secrets are stored as received$/, "TRACEREPORTS_REDACT=off: los secretos se guardan tal como llegan"],
+		[/^remove TRACEREPORTS_REDACT=off$/, "quita TRACEREPORTS_REDACT=off"],
+		[/^every screenshot, trace and video is kept$/, "se guardan todas las capturas, trazas y videos"],
+		[/^set TRACEREPORTS_SCREENSHOTS=failures \(or off\) and mask sensitive fields in the clients$/, "define TRACEREPORTS_SCREENSHOTS=failures (u off) y oculta los campos sensibles en los clientes"],
+	];
+	function postureText(s) {
+		if (!s || window.TraceReportsI18n.lang === "en") return s || "";
+		for (const [re, es] of POSTURE_ES) {
+			const m = s.match(re);
+			if (m) return es.replace(/\$(\d)/g, (_, i) => m[i]);
+		}
+		return s;
+	}
+	const postureTitle = (c) => (POSTURE_CHECK[c.id] ? tr(POSTURE_CHECK[c.id][1]) : c.title);
+	const postureIcon = (c) => icon(POSTURE_CHECK[c.id]?.[0] || "i-shield");
+
+	/** La revisión de seguridad del servidor: arriba el resumen, después lo que hay que arreglar con qué hacer,
+	 * y lo que está en orden, compacto y por tema (el detalle se abre con un clic). */
+	function postureCard() {
+		const p = S.settings.posture;
+		if (!p) return `<div class="card placeholder">${tr("Revisando la configuración…")}</div>`;
+		if (p.error) return `<div class="card placeholder">${tr("No se pudo leer la revisión de seguridad")}: ${esc(p.error)}</div>`;
+		const total = p.checks.length, tone = p.fail ? "bad" : p.warn ? "warn" : "ok";
+		const pct = total ? Math.round((p.ok / total) * 100) : 0;
+		const verdict = p.fail ? postureFails(p.fail) + (p.warn ? ` · ${tr("{n} por revisar", { n: p.warn })}` : "")
+			: p.warn ? tr("{n} por revisar", { n: p.warn }) : tr("Todo en orden");
+		// lo crítico primero; dentro de cada nivel, el orden del servidor
+		const issues = p.checks.filter((c) => c.level !== "ok").sort((a, b) => (a.level === "fail" ? 0 : 1) - (b.level === "fail" ? 0 : 1));
+		const issueRows = issues.map((c) => `<div class="posture-issue ${POSTURE_TONE[c.level] || "muted"}" data-check="${esc(c.id)}">
+				<span class="posture-ico">${postureIcon(c)}</span>
+				<div><b><span class="posture-level">${esc(tr(POSTURE_LABEL[c.level] || c.level))}</span> ${esc(postureTitle(c))}</b>
+				<p class="m-hint" data-no-i18n>${esc(postureText(c.detail))}</p>
+				${c.fix ? `<p class="posture-fix" data-no-i18n>→ ${esc(postureText(c.fix))}</p>` : ""}</div></div>`).join("");
+		const ok = p.checks.filter((c) => c.level === "ok");
+		const known = new Set(POSTURE_GROUPS.flatMap(([, ids]) => ids));
+		const groups = [...POSTURE_GROUPS, ["Otros", ok.filter((c) => !known.has(c.id)).map((c) => c.id)]].map(([name, ids]) => {
+			const items = ids.map((id) => ok.find((c) => c.id === id)).filter(Boolean);
+			if (!items.length) return "";
+			return `<div class="posture-group"><h6>${tr(name)}</h6><div class="posture-grid">${items.map((c) => `<details class="posture-item" data-check="${esc(c.id)}">
+					<summary><span class="posture-ico">${postureIcon(c)}</span><span class="posture-name">${esc(postureTitle(c))}</span>${icon("i-check")}</summary>
+					<p class="m-hint" data-no-i18n>${esc(postureText(c.detail))}</p></details>`).join("")}</div></div>`;
+		}).join("");
+		return `<section class="card set-card posture" aria-labelledby="set-posture">
+			<div class="set-card-head"><h5 id="set-posture">${icon("i-shield")}${tr("Revisión de seguridad")}</h5>
+				<button class="cf-btn cf-btn-sm" data-posture-refresh ${S.settings.postureLoading ? "disabled" : ""}>${tr("Volver a revisar")}</button></div>
+			<div class="posture-hero ${tone}" role="status">
+				<svg class="posture-ring" viewBox="0 0 36 36" aria-hidden="true"><circle cx="18" cy="18" r="15.9" pathLength="100"/><circle class="posture-ring-val" cx="18" cy="18" r="15.9" pathLength="100" stroke-dasharray="${pct} 100"/></svg>
+				<div><b class="posture-verdict">${esc(verdict)}</b>
+				<p class="posture-count">${tr("{ok} de {n} chequeos en orden", { ok: p.ok, n: total })}</p>
+				<p class="field-help">${tr("Los mismos chequeos de tracereports doctor --security, sobre la configuración con que corre este servidor. Nunca muestra valores de credenciales.")}</p></div></div>
+			${issues.length ? `<h6 class="posture-sub">${tr("Para revisar")}</h6><div class="posture-issues">${issueRows}</div>` : ""}
+			${ok.length ? `<h6 class="posture-sub">${tr("En orden")}</h6><div class="posture-groups">${groups}</div>` : ""}
+		</section>`;
 	}
 
 	async function loadUsage() {
@@ -3457,7 +3694,7 @@
 		return `<div class="prov-status ${tone}" role="status">
 			<span class="prov-dot" aria-hidden="true"></span>
 			<div>
-				<b>${head}</b>${s.description && s.source === "statuspage" ? ` <span class="m-hint" data-no-i18n>(${esc(s.description)})</span>` : ""}${s.source === "local" ? ` <span class="m-hint">${esc(s.indicator === "none" ? tr("Ollama responde (versión {v})", { v: s.description }) : tr("Ollama no responde en {u}", { u: s.description }))}</span>` : ""}
+				<b>${head}</b>${s.description && s.source === "statuspage" ? ` <span class="m-hint" data-no-i18n>(${esc(s.description)})</span>` : ""}${s.source === "local" ? ` <span class="m-hint">${esc(s.provider === "builtin" ? tr("Funciona dentro del servidor (reglas {v})", { v: s.description }) : s.indicator === "none" ? tr("Ollama responde (versión {v})", { v: s.description }) : tr("Ollama no responde en {u}", { u: s.description }))}</span>` : ""}
 				${s.error ? `<p class="m-hint">${esc(tr("No se pudo consultar la página de estado: {e}", { e: s.error }))}</p>` : ""}
 				${comps ? `<ul class="prov-status-list">${comps}</ul>` : ""}
 				${incs ? `<p class="prov-status-sub">${tr("Incidentes abiertos")}</p><ul class="prov-status-list">${incs}</ul>` : ""}
@@ -3466,7 +3703,7 @@
 			</div></div>`;
 	}
 
-	const USAGE_KINDS = { triage: "Diagnóstico de tests", run_summary: "Resumen de la ejecución", escalation: "Escalamientos", test: "Probar conexión" };
+	const USAGE_KINDS = { triage: "Diagnóstico de tests", run_summary: "Resumen de la ejecución", escalation: "Escalamientos", test: "Probar conexión", chat: "Preguntas a Trace Buddy" };
 
 	/** Uso del proveedor de IA: llamadas y tokens que informó, hoy, 7 y 30 días (Ajustes → Uso de la IA). */
 	function usageCard() {
@@ -3537,6 +3774,14 @@
 						<span><b data-no-i18n>${esc(t.name)}</b><small>${esc(t.desc)}</small></span></button>`).join("")}
 				</div>
 			</div>
+			${buddyAvailable() ? `<div class="field">
+				<span class="field-label" data-no-i18n>Trace Buddy</span>
+				<div class="seg" role="group" aria-label="Trace Buddy">
+					<button data-buddy-show="1" aria-pressed="${!buddyHidden()}">Mostrar</button>
+					<button data-buddy-show="0" aria-pressed="${buddyHidden()}">Ocultar</button>
+				</div>
+				<p class="field-help">El asistente de QA del botón de abajo a la derecha. Se guarda en este navegador.</p>
+			</div>` : ""}
 		</section>`;
 	}
 
@@ -3569,7 +3814,7 @@
 					: `<span class="dot"></span>${tr("Desactivada")}`}
 					<span class="src-badge" data-tip="${d.ai_source === "ui" ? "Configurada desde esta pantalla: manda sobre el .env." : "Configurada con variables de entorno (.env)."}">${d.ai_source === "ui" ? "desde Ajustes" : "desde .env"}</span></span>
 			</div>
-			<p class="field-help">Diagnostica cada fallo y el resumen de la ejecución. Elige el proveedor: en la nube (Gemini, Claude, OpenAI) o local con Ollama, donde los datos de tus tests no salen de tu red.</p>
+			<p class="field-help">Diagnostica cada fallo y el resumen de la ejecución. Por defecto lo hace el motor local de reglas, sin IA y sin red. Para un diagnóstico redactado elige un LLM: en la nube (Gemini, Claude, OpenAI) o local con Ollama, donde los datos de tus tests no salen de tu red.</p>
 			${ro ? readOnlyHelp(d) : ""}${secretKeyNotice(d.secrets?.saved_key)}
 			<fieldset class="prov-grid" ${ro ? "disabled" : ""}>
 				<legend class="field-label">Proveedor</legend>
@@ -3580,7 +3825,8 @@
 						<span class="prov-note">${esc(x.note)}</span>
 					</label>`).join("")}
 			</fieldset>
-			${p ? `<fieldset class="ai-fields" ${ro ? "disabled" : ""}>
+			${p?.id === "builtin" ? `<p class="field-help">${tr("El motor local reconoce fallos de backend, red, credenciales, selectores, aserciones, tests inestables y ambientes caídos con reglas fijas. No necesita modelo, URL ni API key.")}</p>` : ""}
+			${p && p.id !== "builtin" ? `<fieldset class="ai-fields" ${ro ? "disabled" : ""}>
 				<label class="field"><span class="field-label">Modelo</span>
 					<input type="text" data-ai-field="model" value="${esc(f.model)}" placeholder="${esc(p.default_model || "nombre-del-modelo")}" autocomplete="off" spellcheck="false">
 					<span class="field-help">${p.default_model ? tr("Vacío = {m}.", { m: p.default_model }) : tr("El nombre exacto que usa ese servicio.")}${p.id === "ollama" ? ` ${tr("Descárgalo antes con")} <code>ollama pull ${esc(f.model || p.default_model)}</code>.` : ""}</span></label>
@@ -3594,6 +3840,7 @@
 			</fieldset>` : ""}
 			<label class="field field-inline"><span class="field-label">Idioma de los diagnósticos</span>
 				<select data-ai-field="ai_language" ${ro ? "disabled" : ""}>${AI_LANGS.map(([v, l]) => `<option value="${v}" ${f.ai_language === v ? "selected" : ""}>${esc(l)}</option>`).join("")}</select></label>
+			${aiLanguageHelp(d)}
 			${ro ? "" : `<div class="set-actions">
 				${p ? `<button class="cf-btn" data-ai-test ${st.busy ? "disabled" : ""}>${icon("i-plug")}Probar conexión</button>` : ""}
 				<button class="cf-btn cf-btn-primary" data-ai-save ${st.busy ? "disabled" : ""}>${icon("i-check")}Guardar</button>
@@ -3687,6 +3934,9 @@
 		root.addEventListener("click", async (e) => {
 			const setTab = e.target.closest("[data-set-tab]");
 			if (setTab) { openSettingsTab(setTab.dataset.setTab, true); if (setTab.dataset.setTab === "usage") { loadUsage(); loadStatus(false); } return; }
+			const buddyShow = e.target.closest("[data-buddy-show]");
+			if (buddyShow) { buddySetHidden(buddyShow.dataset.buddyShow !== "1"); return; }
+			if (e.target.closest("[data-posture-refresh]")) { loadPosture(); renderSettings(true); return; }
 			if (e.target.closest("[data-usage-refresh]")) { loadUsage(); loadStatus(true); renderSettings(true); return; }
 			const lang = e.target.closest("[data-set-lang]");
 			if (lang) { I18N.setLang(lang.dataset.setLang); renderSettings(true); return; }
@@ -3790,6 +4040,580 @@
 		}, true);
 	}
 
+	// ---------- Trace Buddy: asistente de QA ----------
+	// Solo se abre cuando se le llama; ocultarlo se recuerda en este navegador (Ajustes → Apariencia lo
+	// vuelve a mostrar). Sin LLM responde con lo que TraceReports ya sabe (diagnósticos, la ejecución, la
+	// revisión de seguridad); la primera burbuja dice si la IA configurada responde. Solo administración:
+	// probar la IA gasta la key del equipo.
+	const BUDDY_KEY = "tracereports-buddy";
+	// El personaje: un pequeño ingeniero de QA con capucha (web/buddy/). La imagen tiene una sola expresión: el
+	// ánimo (data-mood en #buddy: idle, thinking, success, error) se ve en el halo y en la pastilla de estado.
+	const BUDDY_LOGO = `<img class="buddy-logo" src="buddy/tracebuddy-avatar.webp" alt="" width="512" height="512" decoding="async" draggable="false">`;
+	const BUDDY_MOODS = { idle: "Disponible", thinking: "Analizando…", success: "Listo", error: "Revisa esto" };
+	const BUDDY_PROVIDERS = { gemini: "Google Gemini", anthropic: "Anthropic Claude", openai: "OpenAI", openai_compatible: "Compatible con OpenAI", ollama: "Ollama" };
+	const BUDDY_HINTS = {
+		model_unavailable: "El modelo no está disponible para esta cuenta.",
+		no_credits: "La cuenta del proveedor no tiene saldo: agrega créditos o cambia de proveedor.",
+		quota_daily: "Se agotó la cuota diaria de este modelo.",
+		rate_limit: "Hubo demasiadas llamadas seguidas: espera un momento y vuelve a probar.",
+		overloaded: "El modelo está saturado en este momento.",
+	};
+	const BUDDY_ASKS = [
+		["explain", "Explícame este fallo"], ["first", "¿Qué reviso primero?"], ["probe", "¿Funciona la IA?"],
+		["connect", "¿Cómo conecto mis tests?"], ["security", "¿Está segura mi instalación?"], ["shots", "¿Por qué no hay capturas?"],
+	];
+	// "¿Por qué no hay capturas?" solo tiene sentido si el servidor descarta alguna
+	const buddyAsks = () => BUDDY_ASKS.filter(([id]) => id !== "shots" || (S.config.screenshots && S.config.screenshots !== "all"));
+	// waitTest: el test cuyo diagnóstico se está esperando para explicarlo apenas llegue
+	const buddy = { open: false, msgs: [], probing: false, greeted: false, closeTimer: 0, waitTest: null, waitEl: null, chat: [], chatting: false, thoughts: 0 };
+	// el chat libre necesita un modelo de lenguaje: el motor local diagnostica, pero no conversa
+	const buddyCanChat = () => !!S.config.ai_enabled && !!S.config.ai_provider && S.config.ai_provider !== "builtin";
+	const buddyHidden = () => { try { return localStorage.getItem(BUDDY_KEY) === "hidden"; } catch { return false; } };
+	const buddyAvailable = () => canAct() && !!S.config.ai_enabled;
+
+	function buddyMount() {
+		if (STATIC || $("#buddy")) return;
+		const root = document.createElement("div");
+		root.id = "buddy";
+		root.className = "buddy";
+		root.dataset.mood = "idle";
+		root.innerHTML = `<div class="buddy-thought" id="buddy-thought" hidden><button class="buddy-thought-text" type="button" data-buddy-thought></button>
+				<button class="buddy-thought-x" type="button" data-buddy-quiet aria-label="No mostrar pensamientos">${icon("i-close")}</button></div>
+			<div class="buddy-launch"><button class="buddy-fab" id="buddy-fab" type="button" aria-expanded="false" aria-controls="buddy-panel" aria-label="Abrir Trace Buddy"><span class="buddy-glow" aria-hidden="true"></span>${BUDDY_LOGO}<span class="buddy-3d" aria-hidden="true"></span></button>
+				<span class="buddy-status" id="buddy-status" aria-hidden="true"><i></i><span>${tr(BUDDY_MOODS.idle)}</span></span></div>
+			<section class="buddy-panel" id="buddy-panel" role="dialog" aria-labelledby="buddy-title" hidden>
+				<header class="buddy-head"><span class="buddy-avatar">${BUDDY_LOGO}</span>
+					<div><b id="buddy-title" data-no-i18n>Trace Buddy</b><small>Tu aliado en QA Automation</small></div>
+					<button class="link-btn" type="button" data-buddy-hide>Ocultar</button>
+					<button class="buddy-close" type="button" data-buddy-close aria-label="Cerrar">${icon("i-close")}</button></header>
+				<div class="buddy-context" id="buddy-context"></div>
+				<div class="buddy-log" id="buddy-log" aria-live="polite"></div>
+				<div class="buddy-asks" id="buddy-asks" role="group" aria-label="Preguntas">${buddyAsks().map(([id, label]) => `<button class="buddy-ask" type="button" data-buddy-ask="${id}">${label}</button>`).join("")}</div>
+				${buddyCanChat() ? `<form class="buddy-chat" id="buddy-chat">
+					<textarea id="buddy-input" rows="1" maxlength="2000" placeholder="Pregunta por este fallo o el reporte…" aria-label="Tu pregunta"></textarea>
+					<button class="buddy-send" type="submit" aria-label="Enviar">${icon("i-send")}</button></form>
+				<p class="buddy-note">${tr("Las sugerencias de la IA se verifican con la evidencia del reporte.")}</p>` : ""}
+			</section>`;
+		document.body.appendChild(root);
+		root.addEventListener("click", (e) => {
+			if (e.target.closest("#buddy-fab")) { buddyToggle(!buddy.open); return; }
+			if (e.target.closest("[data-buddy-thought]")) { buddyThoughtHide(); buddyToggle(true); return; }
+			if (e.target.closest("[data-buddy-quiet]")) { buddyQuiet(); return; }
+			if (e.target.closest("[data-buddy-close]")) { buddyToggle(false); return; }
+			if (e.target.closest("[data-buddy-hide]")) { buddySetHidden(true); return; }
+			const copyBtn = e.target.closest("[data-buddy-copy]");
+			if (copyBtn) { copyText(copyBtn.closest(".buddy-tool").querySelector(".buddy-code").textContent, copyBtn); return; }
+			const fmt = e.target.closest("[data-buddy-mock-fmt]");
+			if (fmt && buddy.mockConn) {
+				const card = fmt.closest("[data-buddy-mock]");
+				card.querySelectorAll("[data-buddy-mock-fmt]").forEach((b) => b.classList.toggle("on", b === fmt));
+				card.querySelector(".buddy-code").textContent = CF.MockGenerator.generate(fmt.dataset.buddyMockFmt, buddy.mockConn);
+				return;
+			}
+			if (e.target.closest("[data-buddy-mock-open]") && buddy.mockConn) { openMockFor(buddy.mockConn); return; }
+			const ask = e.target.closest("[data-buddy-ask]");
+			if (ask) { buddyAsk(ask.dataset.buddyAsk, ask.textContent); return; }
+			const open = e.target.closest("[data-buddy-test]");
+			if (open) { e.preventDefault(); buddyOpenTest(Number(open.dataset.buddyTest)); return; }
+			if (e.target.closest("[data-view-link]")) buddyToggle(false); // el link lleva a otra vista
+		});
+		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && buddy.open) { buddyToggle(false); $("#buddy-fab").focus(); } });
+		root.addEventListener("submit", (e) => { if (e.target.id === "buddy-chat") { e.preventDefault(); buddyChatSend(); } });
+		root.addEventListener("keydown", (e) => {
+			// Enter envía; Shift+Enter hace un salto de línea
+			if (e.target.id === "buddy-input" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); buddyChatSend(); }
+		});
+		root.addEventListener("input", (e) => { if (e.target.id === "buddy-input") buddyGrow(e.target); });
+		// el aviso de idioma está en Trace Buddy y en la tarjeta del diagnóstico: sus botones valen en toda la página
+		document.addEventListener("click", (e) => {
+			const setLang = e.target.closest("[data-buddy-lang]");
+			if (setLang) { buddySetLanguage(setLang.dataset.buddyLang, Number(setLang.dataset.test), setLang); return; }
+			const again = e.target.closest("[data-buddy-reanalyze]");
+			if (again) buddyReanalyze(Number(again.dataset.buddyReanalyze), again);
+		});
+		buddyRefresh();
+		buddyLoad3D(root);
+		buddy.thoughtTimer = setTimeout(buddyThink, 20000); // el primero, un saludo, a los 20 s
+	}
+
+	// ---------- pensamientos: cuando nadie le habla, de vez en cuando dice algo ----------
+	// Sin volverse el clip de Office: solo con el panel cerrado y la pestaña visible, uno cada ~90 s como
+	// máximo, se va solo a los 7 s, un clic abre el panel y la × lo silencia hasta cerrar la pestaña.
+	const BUDDY_QUIET_KEY = "tracereports-buddy-quiet";
+	const buddyIsQuiet = () => { try { return sessionStorage.getItem(BUDDY_QUIET_KEY) === "1"; } catch { return false; } };
+
+	/** Qué pensar ahora: algo del reporte que se está viendo si lo hay; si no, saludar o aburrirse. */
+	function buddyThoughtText() {
+		const t = S.view === "tests" ? S.test : null;
+		const failed = S.run ? S.run.tests.filter((x) => x.status === "FAIL").length : 0;
+		const context = [];
+		if (t?.status === "FAIL") context.push(tr("Este test falló. ¿Te explico qué pasó?"));
+		if (failed > 1) context.push(tr("Hay {n} tests en rojo en esta ejecución. ¿Empezamos por el que más rompe?", { n: failed }));
+		if (S.run && !failed) context.push(tr("Todo verde por aquí. ¡Buen trabajo!"));
+		if (buddyCanChat()) context.push(tr("¡Estoy listo! Pregúntame lo que quieras del reporte."));
+		const chatter = [
+			tr("¡Hola! Estoy aquí si me necesitas."),
+			tr("Ando un poco aburrido… ¿revisamos algo juntos?"),
+			tr("¿Sabías que puedo explicarte un fallo con un clic?"),
+			tr("Pssst… pásame el mouse por encima."),
+			tr("Sin telemetría: lo que veo aquí, aquí se queda 🤐"),
+			tr("Vivo en tu servidor, no en la nube. Tus datos no se comparten con nadie 🔒"),
+		];
+		if (buddy.thoughts === 0) return chatter[0];
+		const pool = context.length && Math.random() < 0.65 ? context : chatter;
+		return pool[Math.floor(Math.random() * pool.length)];
+	}
+
+	function buddyThink() {
+		clearTimeout(buddy.thoughtTimer);
+		buddy.thoughtTimer = setTimeout(buddyThink, 75000 + Math.random() * 45000);
+		const root = $("#buddy");
+		if (!root || root.hidden || buddy.open || document.hidden || buddyIsQuiet() || buddy.chatting || buddy.probing) return;
+		const text = buddyThoughtText();
+		buddySpeak(text, 7000);
+		buddy.thoughts = (buddy.thoughts || 0) + 1;
+		// cada frase con su gesto: "shhh" para la telemetría, brazos cruzados para cuidar tus datos
+		if (text.includes("🤐")) buddy.three?.act("shush", "shush");
+		else if (text.includes("🔒")) buddy.three?.act("proud", "proud");
+		else buddy.three?.wave();
+	}
+
+	/** Dice algo en el globo (un pensamiento o una reacción), con la boca moviéndose. */
+	function buddySpeak(text, ms) {
+		const root = $("#buddy"), el = $("#buddy-thought");
+		if (!root || !el || root.hidden || buddy.open) return;
+		el.querySelector("[data-buddy-thought]").textContent = text;
+		el.hidden = false;
+		requestAnimationFrame(() => el.classList.add("show"));
+		buddy.three?.talk(Math.min(3, 0.8 + text.length / 30));
+		clearTimeout(buddy.thoughtHide);
+		buddy.thoughtHide = setTimeout(buddyThoughtHide, ms);
+	}
+
+	// lo que dice el personaje 3D cuando le pasa algo: responde a algo que hizo la persona (cambiar el tema,
+	// dejarle el cursor encima), así que sale aunque los pensamientos estén silenciados
+	const BUDDY_REACTIONS = {
+		changeStart: ["¿Tema nuevo? Necesito cambiar mi outfit… ¡no mires! 🙈", "¡Uy, cambio de look! Dame un segundo…"],
+		changeEnd: ["¡Listo! ¿Qué tal me queda?", "Ta-dá ✨ ¿Te gusta mi outfit nuevo?"],
+		shy: ["¡Me vas a hacer sonrojar! 😳", "¿Me estás mirando? 😳"],
+	};
+	function buddyReact(name) {
+		const lines = BUDDY_REACTIONS[name];
+		if (lines) buddySpeak(tr(lines[Math.floor(Math.random() * lines.length)]), name === "changeStart" ? 3200 : 3600);
+	}
+
+	function buddyThoughtHide() {
+		const el = $("#buddy-thought");
+		if (!el || el.hidden) return;
+		el.classList.remove("show");
+		setTimeout(() => { if (!el.classList.contains("show")) el.hidden = true; }, 220);
+	}
+
+	function buddyQuiet() {
+		try { sessionStorage.setItem(BUDDY_QUIET_KEY, "1"); } catch { /* solo esta vez */ }
+		buddyThoughtHide();
+	}
+
+	/** El personaje en 3D (web/buddy/buddy3d.js, con three.js): se carga después de que la página está lista y
+	 * solo para quien ve a Trace Buddy. Si algo falla o no hay WebGL, se queda la imagen. */
+	function buddyLoad3D(root) {
+		if (root.hidden || buddy.three !== undefined) return;
+		buddy.three = null; // cargando
+		const start = () => import("./buddy/buddy3d.js").then((m) => {
+			const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+			const ctl = m.mountBuddy3D(root.querySelector(".buddy-3d"), { theme: document.body.dataset.theme, reducedMotion, onEvent: buddyReact });
+			if (!ctl) return;
+			buddy.three = ctl;
+			root.classList.add("has-3d");
+			ctl.setMood(root.dataset.mood || "idle");
+		}).catch((err) => console.warn("Trace Buddy 3D:", err));
+		(window.requestIdleCallback || ((f) => setTimeout(f, 1200)))(start);
+	}
+
+	/** Muestra u oculta el botón según el permiso, la IA y la preferencia del navegador. */
+	function buddyRefresh() {
+		const root = $("#buddy");
+		if (!root) return;
+		const show = buddyAvailable() && !buddyHidden();
+		if (!show && buddy.open) buddyToggle(false);
+		root.hidden = !show;
+		buddy.three?.setVisible(show);
+		if (show) buddyLoad3D(root);
+	}
+
+	function buddyMood(mood, ms = 0) {
+		const root = $("#buddy");
+		if (!root) return;
+		clearTimeout(buddy.moodTimer);
+		const set = (m) => {
+			root.dataset.mood = m;
+			buddy.three?.setMood(m);
+			const label = $("#buddy-status span"), status = tr(BUDDY_MOODS[m] || BUDDY_MOODS.idle);
+			if (label) label.textContent = status;
+			$("#buddy-fab")?.setAttribute("aria-label", `${tr("Abrir Trace Buddy")} · ${status}`);
+		};
+		set(mood);
+		if (ms) buddy.moodTimer = setTimeout(() => set(buddy.probing || buddy.waitTest || buddy.chatting ? "thinking" : "idle"), ms);
+	}
+
+	function buddySetHidden(hidden) {
+		try { localStorage.setItem(BUDDY_KEY, hidden ? "hidden" : "shown"); } catch { /* sin almacenamiento: solo esta sesión */ }
+		if (hidden) {
+			buddyToggle(false);
+			const root = $("#buddy");
+			root.classList.add("leaving"); // se despide encogiéndose antes de ocultarse
+			setTimeout(() => { root.classList.remove("leaving"); buddyRefresh(); }, 260);
+		} else buddyRefresh();
+		if (S.view === "settings") renderSettings(true);
+	}
+
+	/** La barra bajo la cabecera: la IA que responde de verdad (o el motor local) y el test que se está viendo. */
+	function buddyContext() {
+		const bar = $("#buddy-context");
+		if (!bar) return;
+		const llm = buddyCanChat();
+		const mode = llm ? `${tr("IA conectada")} · <span data-no-i18n>${esc(S.config.ai_model || S.config.ai_provider)}</span>` : tr("Motor local");
+		const t = S.view === "tests" && S.test ? S.test : null;
+		const what = t ? `<span class="buddy-context-test" data-no-i18n title="${esc(t.name)}">${esc(t.name)}</span>`
+			: S.run ? `<span class="buddy-context-test" data-no-i18n>${esc(S.run.name)}</span>` : "";
+		bar.innerHTML = `<span class="buddy-mode ${llm ? "llm" : "local"}">${mode}</span>${what}`;
+	}
+
+	function buddyToggle(open) {
+		const panel = $("#buddy-panel"), fab = $("#buddy-fab");
+		if (!panel || buddy.open === open) return;
+		buddy.open = open;
+		fab.setAttribute("aria-expanded", String(open));
+		buddy.three?.setPanel(open);
+		fab.classList.toggle("active", open);
+		clearTimeout(buddy.closeTimer);
+		if (open) {
+			buddyThoughtHide();
+			fab.classList.remove("news");
+			buddyContext();
+			panel.hidden = false;
+			requestAnimationFrame(() => panel.classList.add("open")); // un cuadro después, para que la transición corra
+			if (!buddy.greeted) {
+				buddy.greeted = true;
+				buddySay(tr("¡Hola! Soy Trace Buddy. Te ayudo a entender los fallos de tus tests y a revisar tu instalación. Primero veo si la IA responde…"));
+				buddyProbe(false);
+			}
+			setTimeout(() => panel.querySelector(".buddy-ask")?.focus(), 60);
+		} else {
+			panel.classList.remove("open");
+			buddy.closeTimer = setTimeout(() => { panel.hidden = true; }, 240);
+		}
+	}
+
+	const BUDDY_TYPING = `<span class="buddy-typing" aria-hidden="true"><i></i><i></i><i></i></span>`;
+
+	/** El personaje 3D mueve la boca un rato, según lo largo de lo que dice. */
+	function buddyTalk(el) {
+		buddy.three?.talk(Math.min(4, 0.8 + (el.textContent || "").length / 70));
+	}
+
+	/** Agrega una burbuja y la devuelve (para completarla después con buddyFill). */
+	function buddySay(html, from = "bot") {
+		buddy.msgs.push({ html, from });
+		const log = $("#buddy-log");
+		if (!log) return null;
+		const el = document.createElement("div");
+		el.className = `buddy-msg ${from}`;
+		el.innerHTML = html;
+		log.appendChild(el);
+		if (from === "bot" && !html.includes("buddy-typing")) buddyTalk(el);
+		log.scrollTop = log.scrollHeight;
+		return el;
+	}
+
+	/** Completa una burbuja que estaba "escribiendo…"; con el panel cerrado, el botón avisa que hay respuesta.
+	 * Una respuesta a una pregunta va al final, donde se está mirando, si hubo mensajes después; un aviso que no
+	 * responde a nada (el estado de la IA, inPlace) se queda donde empezó, para no meterse entre pregunta y respuesta. */
+	function buddyFill(el, html, inPlace = false) {
+		if (el?.isConnected && (inPlace || el === el.parentNode.lastElementChild)) { el.innerHTML = html; el.classList.remove("waiting"); buddyTalk(el); }
+		else { el?.remove(); buddySay(html); }
+		const log = $("#buddy-log");
+		if (log) log.scrollTop = log.scrollHeight;
+		if (!buddy.open) $("#buddy-fab")?.classList.add("news");
+	}
+
+	function buddyAsk(id, label) {
+		buddySay(esc(label), "me");
+		buddy.three?.nod();
+		({ explain: buddyExplain, first: buddyFirst, probe: () => buddyProbe(true), connect: buddyConnect, security: buddySecurity, shots: buddyShots }[id] || (() => {}))();
+	}
+
+	async function buddyProbe(force) {
+		if (buddy.probing) return;
+		buddy.probing = true;
+		$$("[data-buddy-ask=probe]").forEach((b) => (b.disabled = true));
+		const el = buddySay(BUDDY_TYPING);
+		el?.classList.add("waiting");
+		buddyMood("thinking");
+		let r;
+		try {
+			r = await apiSend("POST", `/api/v1/ui/ai/probe${force ? "?force=1" : ""}`, {});
+		} catch (err) {
+			r = { ok: false, state: "error", error: err.message };
+		}
+		buddy.probing = false;
+		$$("[data-buddy-ask=probe]").forEach((b) => (b.disabled = false));
+		buddyFill(el, buddyProbeText(r), !force); // la del saludo queda bajo el saludo; "¿Funciona la IA?" responde a esa pregunta
+		buddyMood(r.ok ? "success" : r.state === "off" ? "idle" : "error", 2600);
+	}
+
+	/** La respuesta de /ui/ai/probe en palabras simples. */
+	function buddyProbeText(r) {
+		const aiLink = `<a href="#" data-view-link="settings" data-set-tab="ai">${tr("Ajustes → Inteligencia artificial")}</a>`;
+		if (r.state === "off") return tr("Mi IA está apagada en este servidor.") + ` ${aiLink}`;
+		if (r.state === "local") {
+			return `<b>${tr("Uso el motor local de reglas")}</b> <span data-no-i18n>(${esc(r.model)})</span>. `
+				+ tr("Diagnostico los fallos sin que nada salga del servidor, pero todavía no puedo conversar libremente. Para chatear conmigo, configura Ollama (un modelo en tu red) en")
+				+ ` ${aiLink}.`;
+		}
+		const name = esc(tr(BUDDY_PROVIDERS[r.provider] || r.provider || ""));
+		if (r.ok) {
+			return `<span class="buddy-ok">✓</span> ${tr("¡Estoy conectado! Pienso con")} <b data-no-i18n>${name}</b> · <span data-no-i18n>${esc(r.model)}</span> · `
+				+ tr("respondí en {t}", { t: fmtDur(r.ms) });
+		}
+		const why = BUDDY_HINTS[r.hint] ? tr(BUDDY_HINTS[r.hint]) : `<span data-no-i18n>${esc(r.error || "")}</span>`;
+		const tryModel = r.suggest ? ` ${tr("Prueba con el modelo {m}.", { m: r.suggest })}` : "";
+		return `<span class="buddy-bad">✗</span> ${tr("No pude conectar con")} <b data-no-i18n>${name}</b>${r.model ? ` <span data-no-i18n>(${esc(r.model)})</span>` : ""}: ${why}${esc(tryModel)} ${tr("Revisa")} ${aiLink}.`;
+	}
+
+	// palabras que piden una herramienta del reporte: el cURL de la llamada que falló o un mock de ese backend
+	const BUDDY_TOOL_WORDS = {
+		curl: /\b(curl|postman|insomnia|replic\w*|reproduc\w*|request|solicitud|petici[oó]n|endpoint|llamada)\b/i,
+		mock: /\b(mock\w*|stub\w*|wiremock|simul\w*|intercept\w*)\b/i,
+	};
+	function buddyToolsFor(text, testId) {
+		if (!testId) return [];
+		return Object.keys(BUDDY_TOOL_WORDS).filter((k) => BUDDY_TOOL_WORDS[k].test(text));
+	}
+
+	/** El cURL de la llamada que falló, como lo arma "Copiar como cURL" (secretos como $VARIABLES). */
+	function buddyCurlCard(curl) {
+		return `<div class="buddy-tool"><b>${tr("cURL de la llamada que falló")}</b>
+			<pre class="buddy-code" data-no-i18n>${esc(curl)}</pre>
+			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-copy>${icon("i-copy")}${tr("Copiar")}</button></div>
+			<small>${tr("En Postman: Import → Raw text → pega el cURL. Cambia las variables como $TOKEN por su valor real.")}</small></div>`;
+	}
+
+	/** Un mock del backend que falló (el mismo generador del botón "Generar mock"), con sus formatos. */
+	async function buddyMockCard(testId) {
+		const list = await loadNetwork(testId).catch(() => []);
+		const conn = list.find((c) => isNetError(c) && c.status) || list.find(isNetError);
+		if (!conn) return "";
+		buddy.mockConn = conn;
+		const first = CF.MockGenerator.FORMATS.find((f) => f.id === "wiremock") || CF.MockGenerator.FORMATS[0];
+		return `<div class="buddy-tool" data-buddy-mock><b>${tr("Mock del backend que falló")}</b> <span class="m-hint" data-no-i18n>${esc(conn.method)} ${esc(conn.status || "")}</span>
+			<div class="buddy-tool-formats">${CF.MockGenerator.FORMATS.map((f) => `<button type="button" class="buddy-tool-fmt ${f.id === first.id ? "on" : ""}" data-buddy-mock-fmt="${f.id}" data-no-i18n>${esc(f.label)}</button>`).join("")}</div>
+			<pre class="buddy-code" data-no-i18n>${esc(CF.MockGenerator.generate(first.id, conn))}</pre>
+			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-copy>${icon("i-copy")}${tr("Copiar")}</button>
+				<button class="buddy-tool-btn" type="button" data-buddy-mock-open>${tr("Abrir el generador")}</button></div></div>`;
+	}
+
+	function buddyGrow(el) {
+		el.style.height = "auto";
+		el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+	}
+
+	/** Una pregunta libre: va con la evidencia del test (o la ejecución) que se está viendo y las últimas
+	 * respuestas de la conversación. El servidor la pasa por la redacción antes de enviarla al modelo. */
+	async function buddyChatSend() {
+		const input = $("#buddy-input"), text = input?.value.trim();
+		if (!text || buddy.chatting) return;
+		input.value = "";
+		buddyGrow(input);
+		buddySay(esc(text), "me");
+		buddy.three?.nod();
+		buddy.chat.push({ role: "user", text });
+		buddy.chatting = true;
+		$("#buddy-chat .buddy-send").disabled = true;
+		const el = buddySay(BUDDY_TYPING);
+		el?.classList.add("waiting");
+		buddyMood("thinking");
+		const testId = S.view === "tests" && S.test ? S.test.id : 0;
+		const tools = buddyToolsFor(text, testId);
+		try {
+			const r = await apiSend("POST", "/api/v1/ui/ai/chat", { run_id: S.runId || 0, test_id: testId, lang: I18N.lang, messages: buddy.chat.slice(-8), tools });
+			buddy.chat.push({ role: "assistant", text: r.answer });
+			buddyFill(el, `<div class="buddy-answer" data-no-i18n>${esc(r.answer).replace(/\n/g, "<br>")}</div>`);
+			if (tools.includes("curl") && r.curl) buddySay(buddyCurlCard(r.curl));
+			if (tools.includes("mock")) { const card = await buddyMockCard(testId); if (card) buddySay(card); }
+			buddyMood("success", 2000);
+		} catch (err) {
+			buddy.chat.pop(); // la pregunta sin respuesta no queda en el historial que viaja al modelo
+			buddyFill(el, `${tr("No pude responder:")} <span data-no-i18n>${esc(err.message)}</span>`);
+			buddyMood("error", 2600);
+		}
+		buddy.chatting = false;
+		$("#buddy-chat .buddy-send").disabled = false;
+		input.focus();
+	}
+
+	function buddyExplain() {
+		const t = S.view === "tests" ? S.test : null;
+		if (t && t.status === "FAIL" && t.triage?.state === "PENDING") { buddyWait(t); return; }
+		if (!t || t.status !== "FAIL") {
+			const first = S.run?.tests.find((x) => x.status === "FAIL");
+			buddySay(first
+				? `${tr("Este test no falló.")} <a href="#" data-buddy-test="${first.id}">${tr("Abrir el primer test fallido y explicarlo")}</a>`
+				: tr("Abre un test fallido (en rojo) en Tests y vuelve a preguntarme: te explico qué pasó y qué revisar."));
+			return;
+		}
+		buddySay(buddyExplainText(t));
+	}
+
+	/** Un diagnóstico en curso: se responde solo cuando llega (loadTest avisa con buddyTestLoaded). */
+	function buddyWait(t) {
+		if (buddy.waitTest === t.id) { buddySay(tr("Sigo en eso: te respondo aquí apenas termine.")); return; }
+		buddy.waitTest = t.id;
+		buddy.waitEl = buddySay(`${tr("Lo estoy analizando… te respondo aquí apenas termine.")} ${BUDDY_TYPING}`);
+		buddy.waitEl?.classList.add("waiting");
+		buddyMood("thinking");
+	}
+
+	function buddyTestLoaded(t) {
+		if (buddy.open) buddyContext();
+		if (buddy.waitTest !== t.id || t.triage?.state === "PENDING") return;
+		const el = buddy.waitEl;
+		buddy.waitTest = buddy.waitEl = null;
+		buddyFill(el, buddyExplainText(t));
+		buddyMood(t.triage?.state === "DONE" ? "success" : "error", 2600);
+	}
+
+	function buddyExplainText(t) {
+		const tri = t.triage;
+		if (!tri || tri.state !== "DONE") {
+			return tr("Este fallo no tiene diagnóstico automático.") + (tri?.error ? ` <span data-no-i18n>${esc(tri.error)}</span>` : "")
+				+ ` ${tr("Mira el error y los pasos del test, o usa Re-analizar en la vista IA.")}`;
+		}
+		const who = tri.provider === "builtin" ? tr("Lo analicé con mis reglas locales")
+			: `${tr("Lo analicé con")} <span data-no-i18n>${esc(S.config.ai_model || tri.provider || "")}</span>`;
+		return `<b data-no-i18n>${esc(t.name)}</b> <span class="ai-cat ${esc(tri.category)}">${esc(tri.category)}</span>
+			<p data-no-i18n>${esc(tri.summary)}</p>${tri.suggestion ? `<p class="buddy-next" data-no-i18n>→ ${esc(tri.suggestion)}</p>` : ""}
+			<small>${who}${tri.rule ? ` · <span data-no-i18n>${esc(tri.rule)}</span>` : ""}</small>${buddyLangNote(t)}`;
+	}
+
+	// palabras frecuentes que solo usa un idioma: alcanzan para distinguir un diagnóstico en español de uno en inglés
+	const LANG_WORDS = {
+		es: new Set(["el", "la", "los", "las", "del", "que", "en", "una", "por", "con", "para", "se", "fue", "antes", "falló", "está", "respondió", "revisa"]),
+		en: new Set(["the", "of", "and", "to", "in", "an", "is", "was", "for", "with", "that", "before", "failed", "on", "check", "it"]),
+	};
+	/** El idioma de un texto ("es", "en", o "" si no se distingue con claridad). */
+	function textLang(s) {
+		let es = 0, en = 0;
+		for (const w of String(s || "").toLowerCase().match(/[a-záéíóúñü]+/g) || []) {
+			if (LANG_WORDS.es.has(w)) es++;
+			if (LANG_WORDS.en.has(w)) en++;
+		}
+		if (es + en < 3) return "";
+		return es > en * 1.5 ? "es" : en > es * 1.5 ? "en" : "";
+	}
+
+	/** Un diagnóstico en otro idioma que la interfaz: re-analizarlo, si el servidor ya escribe en el de la
+	 * interfaz; si no, dónde se cambia (re-analizar daría el mismo idioma). */
+	function buddyLangNote(t) {
+		const tri = t.triage, ui = I18N.lang, got = textLang(`${tri.summary} ${tri.suggestion || ""}`);
+		if (!got || got === ui || !LANG_NAME[ui]) return "";
+		const was = tr(LANG_NAME[got]), want = tr(LANG_NAME[ui]);
+		if (S.config.ai_language === ui) {
+			return `<p class="buddy-lang">${tr("Este diagnóstico está en {a}.", { a: was })} <button class="link-btn" type="button" data-buddy-reanalyze="${t.id}">${tr("Re-analizarlo en {b}", { b: want })}</button></p>`;
+		}
+		// el servidor escribe en otro idioma: con Ajustes editable, un clic lo fija para todos y re-analiza este
+		if (S.config.settings_editable) {
+			return `<p class="buddy-lang">${tr("Este diagnóstico está en {a}.", { a: was })} <button class="link-btn" type="button" data-buddy-lang="${ui}" data-test="${t.id}">${tr("Escribir los diagnósticos en {b}", { b: want })}</button></p>`;
+		}
+		return `<p class="buddy-lang">${tr("Este diagnóstico está en {a}. Ajustes está bloqueado: para recibirlos en {b}, agrega TRACEREPORTS_AI_LANGUAGE={l} al .env y reinicia con docker compose up -d.", { a: was, b: want, l: ui })}</p>`;
+	}
+
+	/** Fija el idioma de los diagnósticos del servidor (Ajustes → IA) y re-analiza el test en ese idioma. */
+	async function buddySetLanguage(lang, id, btn) {
+		btn.disabled = true;
+		try {
+			await apiSend("PUT", "/api/v1/settings", { ai_language: lang });
+		} catch (err) {
+			btn.disabled = false;
+			buddySay(`${tr("No pude cambiar el idioma:")} <span data-no-i18n>${esc(err.message)}</span>`);
+			return;
+		}
+		S.config.ai_language = lang;
+		S.settings.data = null; // Ajustes vuelve a leerse con el idioma nuevo
+		buddySay(tr("Listo: desde ahora los diagnósticos se escriben en {b}. Re-analizo este…", { b: tr(LANG_NAME[lang]) }));
+		await buddyReanalyze(id, btn);
+	}
+
+	async function buddyReanalyze(id, btn) {
+		btn.disabled = true;
+		try {
+			await apiSend("POST", `/api/v1/ui/tests/${id}/analyze`, {});
+		} catch (err) {
+			btn.disabled = false;
+			buddySay(`${tr("No pude pedir el análisis:")} <span data-no-i18n>${esc(err.message)}</span>`);
+			return;
+		}
+		buddyWait({ id });
+		// el test ya está PENDING en el servidor: recargarlo arranca el seguimiento y la respuesta llega sola
+		await loadRun();
+		if (S.testId === id) await loadTest();
+	}
+
+	async function buddyOpenTest(id) {
+		S.testId = id;
+		setView("tests");
+		await loadTest();
+		buddyExplain();
+	}
+
+	function buddyFirst() {
+		const r = S.run;
+		if (!r) {
+			buddySay(tr("Todavía no hay ejecuciones. Empieza conectando tus tests:") + ` <a href="#" data-view-link="settings" data-set-tab="conn">${tr("Conectar tus tests")}</a>.`);
+			return;
+		}
+		const failed = r.tests.filter((t) => t.status === "FAIL");
+		if (!failed.length) { buddySay(tr("En esta ejecución no falló ningún test. Nada urgente que revisar.")); return; }
+		const inc = r.summary?.incidents || [];
+		const top = inc.slice(0, 3).map((i) => `<li><span data-no-i18n>${esc(i.title)}</span> · ${plural(i.test_ids.length, "test", "tests")}</li>`).join("");
+		// el titular del diagnóstico ya dice cuántos fallaron; sin él, el conteo
+		const head = r.summary?.headline ? `<b data-no-i18n>${esc(r.summary.headline)}</b>`
+			: failed.length === 1 ? tr("Falló 1 test en esta ejecución.") : tr("Fallaron {n} tests en esta ejecución.", { n: failed.length });
+		buddySay(`${head}
+			${top ? `<p>${tr("Empieza por las causas que rompen más tests:")}</p><ol class="buddy-list">${top}</ol>` : ""}
+			<p><a href="#" data-view-link="exceptions">${tr("Ver Errores")}</a> · <a href="#" data-view-link="dashboard">${tr("Ver Análisis")}</a></p>`);
+	}
+
+	function buddyConnect() {
+		buddySay(tr("Tus tests envían sus resultados a este servidor con un cliente (pytest, Playwright, Selenium, Java…) y un token de ingesta. Los pasos para cada framework están en")
+			+ ` <a href="#" data-view-link="settings" data-set-tab="conn">${tr("Ajustes → Conectar tus tests")}</a>.`);
+	}
+
+	function buddyShots() {
+		const p = S.config.screenshots;
+		const t = S.view === "tests" ? S.test : null;
+		const here = t ? shotPolicyText(t) : "";
+		const why = p === "off" ? tr("Este servidor no guarda ninguna captura, ni el trace ni el video (TRACEREPORTS_SCREENSHOTS=off).")
+			: tr("Este servidor solo guarda las capturas de los tests y pasos que fallan (TRACEREPORTS_SCREENSHOTS=failures): las de un test que pasó se descartan antes de guardarse.");
+		buddySay(`<p>${here || why}</p>
+			<p>${tr("Es a propósito: una captura puede mostrar datos personales o claves en pantalla. Para guardarlas todas, quien administra el servidor pone TRACEREPORTS_SCREENSHOTS=all en el .env y reinicia con docker compose up -d. Las capturas anteriores no reaparecen.")}</p>`);
+	}
+
+	async function buddySecurity() {
+		let p = S.settings.posture;
+		if (!p || p.error) {
+			try { p = S.settings.posture = await api("/api/v1/security/posture"); } catch (err) { p = { error: err.message }; }
+		}
+		const link = `<a href="#" data-view-link="settings" data-set-tab="security">${tr("Revisión de seguridad")}</a>`;
+		if (p.error) { buddySay(tr("No pude leer la revisión de seguridad.") + ` <span data-no-i18n>${esc(p.error)}</span>`); return; }
+		const issues = p.checks.filter((c) => c.level !== "ok");
+		if (!issues.length) { buddySay(`<span class="buddy-ok">✓</span> ${tr("Los {n} chequeos de seguridad están en orden.", { n: p.checks.length })} ${link}`); buddyMood("success", 2600); return; }
+		buddyMood("error", 2600);
+		const first = issues.sort((a, b) => (a.level === "fail" ? 0 : 1) - (b.level === "fail" ? 0 : 1))[0];
+		buddySay(`${tr("Hay {n} cosas por revisar.", { n: issues.length })} ${tr("La más importante:")} <b>${esc(postureTitle(first))}</b>
+			<p data-no-i18n>${esc(postureText(first.detail))}</p>${first.fix ? `<p class="buddy-next" data-no-i18n>→ ${esc(postureText(first.fix))}</p>` : ""}<p>${link}</p>`);
+	}
+
 	// ---------- polling (live updates) ----------
 	function needsPolling() {
 		if (!S.run || S.liveState === "live") return false; // con SSE no hace falta consultar
@@ -3838,6 +4662,7 @@
 			console.error(err);
 		}
 		if (GLOBAL_VIEWS.has(S.view)) renderView(); // métricas y ajustes funcionan aunque no haya ejecuciones
+		buddyMount();
 		if (S.view === "search" && !STATIC) await loadRunSearch();
 		if (STATIC) return; // exported snapshot: nothing to poll
 		try { S.autoScroll = localStorage.getItem("tracereports-autoscroll") !== "off"; } catch { /* ignore */ }

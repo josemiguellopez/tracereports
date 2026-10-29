@@ -42,15 +42,14 @@ final class Recorder {
 
     Recorder(Path dir) throws IOException {
         this.dir = dir;
-        Files.createDirectories(dir.resolve("bodies"));
+        PrivateFiles.dirs(dir.resolve("bodies")); // evidencia sin redactar: solo el usuario
         try { // el primer proceso crea el marcador
-            Files.writeString(dir.resolve(MARKER), Json.write(Map.of("format", "tracereports-offline", "version", 1,
+            PrivateFiles.writeString(dir.resolve(MARKER), Json.write(Map.of("format", "tracereports-offline", "version", 1,
                     "id", UUID.randomUUID().toString().replace("-", ""))), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
         } catch (FileAlreadyExistsException ignored) {
             // otro proceso ya lo creó
         }
-        this.events = Files.newOutputStream(dir.resolve("events-" + pid + "-" + tag + ".jsonl"),
-                StandardOpenOption.CREATE, StandardOpenOption.APPEND);
+        this.events = PrivateFiles.append(dir.resolve("events-" + pid + "-" + tag + ".jsonl"));
     }
 
     /** Carpeta nueva para una sesión dentro de {@code base} (no mezcla corridas distintas). */
@@ -78,11 +77,11 @@ final class Recorder {
     }
 
     private long reserveBlock() throws IOException {
-        Path ids = Files.createDirectories(dir.resolve("ids"));
+        Path ids = PrivateFiles.dirs(dir.resolve("ids"));
         for (int i = 0; i < 100; i++) {
             long candidate = ThreadLocalRandom.current().nextLong(MIN_BLOCK, MAX_BLOCK);
             try {
-                Files.createFile(ids.resolve(Long.toString(candidate)));
+                PrivateFiles.write(ids.resolve(Long.toString(candidate)), new byte[0], StandardOpenOption.CREATE_NEW);
                 return candidate;
             } catch (FileAlreadyExistsException taken) {
                 // ya es de otro grabador: se prueba otro
@@ -106,7 +105,7 @@ final class Recorder {
                 raw = new String(body, StandardCharsets.UTF_8); // ya es JSON (lo escribió Json.write)
             } else {
                 String name = "bodies/" + pid + "-" + tag + "-" + seq + ".bin";
-                Files.write(dir.resolve(name), body);
+                PrivateFiles.write(dir.resolve(name), body);
                 e.put("body_file", name);
             }
             String out = "";

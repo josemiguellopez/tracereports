@@ -61,7 +61,7 @@
 
 	// ─── drawer accesible ────────────────────────────────────────────────────
 	const Drawer = (() => {
-		let root, panel, lastFocus, onClose, hideTimer;
+		let root, panel, lastFocus, onClose, hideTimer, showFrame;
 		const FOCUSABLE = 'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 		function ensure() {
@@ -106,7 +106,8 @@
 			clearTimeout(hideTimer);
 			root.hidden = false;
 			document.documentElement.classList.add("cf-no-scroll");
-			requestAnimationFrame(() => {
+			cancelAnimationFrame(showFrame);
+			showFrame = requestAnimationFrame(() => {
 				root.classList.add("open");
 				(panel.querySelector("[data-cf-autofocus]") || panel).focus();
 			});
@@ -115,6 +116,8 @@
 
 		function close() {
 			if (!root || root.hidden) return;
+			// cerrar antes del frame que lo muestra (Escape o un clic muy rápido): ese frame ya no lo abre
+			cancelAnimationFrame(showFrame);
 			root.classList.remove("open");
 			document.documentElement.classList.remove("cf-no-scroll");
 			clearTimeout(hideTimer);

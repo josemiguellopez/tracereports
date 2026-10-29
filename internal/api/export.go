@@ -9,7 +9,6 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -234,7 +233,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 	}
 	// capturas, traces y videos: se copian del disco al ZIP sin cargarlos enteros en memoria
 	for _, name := range shots {
-		f, err := os.Open(filepath.Join(s.ScreenshotsDir, name))
+		f, err := s.shots().Open(name) // el ZIP lleva la evidencia descifrada: quien exporta ya la ve
 		if err != nil {
 			slog.Warn("export: screenshot missing", "file", name, "err", err)
 			continue
@@ -344,7 +343,7 @@ func (s *Server) exportEscalations(runID int64, detail *db.RunDetail, shots *[]s
 	}
 	out := map[string]*ai.Escalation{}
 	for _, testID := range targets {
-		facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, runID, testID)
+		facts, err := ai.BuildFacts(s.Store, s.shots(), runID, testID)
 		if err != nil {
 			slog.Warn("export: escalation facts", "run_id", runID, "test_id", testID, "err", err)
 			continue

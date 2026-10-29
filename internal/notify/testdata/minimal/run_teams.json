@@ -1,0 +1,37 @@
+{
+  "attachments": [
+    {
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "actions": [
+          {
+            "title": "Ver reporte",
+            "type": "Action.OpenUrl",
+            "url": "https://reports.example.com/#run=1\u0026view=dashboard"
+          }
+        ],
+        "body": [
+          {
+            "color": "Attention",
+            "size": "Medium",
+            "text": "❌ Regresión web",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "isSubtle": true,
+            "spacing": "None",
+            "text": "2 tests · 1 OK · 1 fallidos · 0 omitidos · 50% correctos · 42s",
+            "type": "TextBlock",
+            "wrap": true
+          }
+        ],
+        "type": "AdaptiveCard",
+        "version": "1.4"
+      },
+      "contentType": "application/vnd.microsoft.card.adaptive"
+    }
+  ],
+  "type": "message"
+}

@@ -174,7 +174,7 @@ func (s *Server) getEscalation(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
-	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, ref.RunID, ref.TestID)
+	facts, err := ai.BuildFacts(s.Store, s.shots(), ref.RunID, ref.TestID)
 	if errors.Is(err, db.ErrNotFound) {
 		w.WriteHeader(http.StatusNoContent) // nada generado de lo que no existe
 		return
@@ -214,7 +214,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	started := time.Now() // el tiempo total incluye reunir la evidencia
-	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, in.RunID, in.TestID)
+	facts, err := ai.BuildFacts(s.Store, s.shots(), in.RunID, in.TestID)
 	if respondErr(w, err, "run or test") {
 		return
 	}
@@ -251,7 +251,7 @@ func (s *Server) saveEscalation(ref escalationRef, revision string, e *ai.Escala
 	if e.Source != "ai" {
 		return
 	}
-	if now, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, ref.RunID, ref.TestID); err != nil || factsRevision(now) != revision {
+	if now, err := ai.BuildFacts(s.Store, s.shots(), ref.RunID, ref.TestID); err != nil || factsRevision(now) != revision {
 		return
 	}
 	raw, err := json.Marshal(e)
@@ -266,7 +266,7 @@ func (s *Server) saveEscalation(ref escalationRef, revision string, e *ai.Escala
 // escalationFor returns the summary to share: the cached AI one, or a new one (the template is
 // immediate; with AI configured and noAI false, the AI writes it).
 func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool) (*ai.Escalation, error) {
-	facts, err := ai.BuildFacts(s.Store, s.ScreenshotsDir, ref.RunID, ref.TestID)
+	facts, err := ai.BuildFacts(s.Store, s.shots(), ref.RunID, ref.TestID)
 	if err != nil {
 		return nil, err
 	}
@@ -319,7 +319,7 @@ func (s *Server) sendEscalation(w http.ResponseWriter, r *http.Request) {
 	}
 	l := escalationLabels[in.Lang]
 	msg := &notify.Escalation{Title: e.Title, Severity: l[e.Severity], Critical: e.Severity == "critical" || e.Severity == "high",
-		Headline: e.Headline, LinkLabel: l["link"],
+		Headline: e.Headline, LinkLabel: l["link"], Lang: in.Lang,
 		Sections: [][2]string{{l["what"], e.WhatHappened}, {l["impact"], e.Impact}, {l["cause"], e.RootCause}, {l["owner"], e.Owner}},
 		Lists:    [][2]any{{l["evidence"], e.Evidence}, {l["next"], e.NextSteps}}}
 	if base := s.Notify.PublicURL(); base != "" {

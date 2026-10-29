@@ -301,7 +301,8 @@ func Prepare(conns []db.NetConn, connID int64) (*Plan, error) {
 	target := &conns[idx]
 	tpl := newTemplater()
 	found := tpl.found
-	p := &Plan{ConnID: connID, Target: tpl.call(target), Original: original(target)}
+	// vars y fields van siempre como lista (nunca null): la UI del Lab los recorre directamente
+	p := &Plan{ConnID: connID, Target: tpl.call(target), Original: original(target), Vars: []Var{}}
 	p.Hosts = hostsOf(conns)
 
 	needsAuth := found["authorization"] != nil
@@ -338,7 +339,7 @@ func Prepare(conns []db.NetConn, connID int64) (*Plan, error) {
 	}
 
 	// CSRF: los campos anti-CSRF se leen de la página que origina el login (o la llamada)
-	var csrfFields []string
+	csrfFields := []string{}
 	for name := range found {
 		if csrfKey(name) {
 			csrfFields = append(csrfFields, name)

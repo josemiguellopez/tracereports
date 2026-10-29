@@ -1,0 +1,25 @@
+{
+  "blocks": [
+    {
+      "text": {
+        "text": "*❌ Regresión web*\n2 tests · 1 OK · 1 fallidos · 0 omitidos · 50% correctos · 42s",
+        "type": "mrkdwn"
+      },
+      "type": "section"
+    },
+    {
+      "elements": [
+        {
+          "text": {
+            "text": "Ver reporte",
+            "type": "plain_text"
+          },
+          "type": "button",
+          "url": "https://reports.example.com/#run=1\u0026view=dashboard"
+        }
+      ],
+      "type": "actions"
+    }
+  ],
+  "text": "❌ Regresión web — 2 tests · 1 OK · 1 fallidos · 0 omitidos · 50% correctos · 42s"
+}

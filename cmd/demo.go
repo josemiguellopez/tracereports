@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports"
+	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/demo"
 )
 
@@ -32,7 +33,8 @@ import (
 // demoAIVars are the variables of the AI provider: the only configuration the demo takes from the
 // environment or the .env, unless -ai=false.
 var demoAIVars = []string{"AI_PROVIDER", "AI_MODEL", "AI_API_KEY", "AI_BASE_URL", "GEMINI_API_KEY", "GEMINI_MODEL", "GEMINI_BASE_URL",
-	"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_HOST", "TRACEREPORTS_AI_MAX_PER_RUN", "TRACEREPORTS_AI_STATUS_URL"}
+	"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_HOST", "TRACEREPORTS_AI_MAX_PER_RUN", "TRACEREPORTS_AI_STATUS_URL",
+	"TRACEREPORTS_AI_LANGUAGE"}
 
 // demoSideEffects are variables that would make the demo talk to the outside world.
 var demoSideEffects = []string{"TEAMS_WEBHOOK_URL", "SLACK_WEBHOOK_URL", "PUBLIC_URL", "NOTIFY_ON", "NETWORK_MAX_BODY_KB", "PORT", "DATA_DIR"}
@@ -93,13 +95,16 @@ func demoAIStatus(base string, asked bool) string {
 		_ = json.NewDecoder(res.Body).Decode(&cfg)
 		res.Body.Close()
 	}
+	local := "Diagnosis: local rules engine (" + cfg.Model + "), no LLM and no network."
 	switch {
-	case cfg.Enabled:
+	case cfg.Enabled && cfg.Provider != ai.ProviderBuiltin:
 		return fmt.Sprintf("AI diagnosis: on (%s, %s), with the key of your environment or .env: it spends tokens. -ai=false turns it off.", cfg.Provider, cfg.Model)
+	case !cfg.Enabled:
+		return "Diagnosis: off (AI_PROVIDER=off)."
 	case asked:
-		return "AI diagnosis: off, no API key found. Add AI_PROVIDER and AI_API_KEY (or GEMINI_API_KEY) to your environment or .env."
+		return local + " For an LLM, add AI_PROVIDER and AI_API_KEY (or GEMINI_API_KEY) to your environment or .env."
 	default:
-		return "AI diagnosis: off (-ai=false)."
+		return local + " (-ai=false: the AI keys of your environment are not used)."
 	}
 }
 

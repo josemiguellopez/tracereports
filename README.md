@@ -4,6 +4,7 @@
   <a href="https://tracereports.cl/"><img alt="Try it now" src="https://img.shields.io/badge/try%20it%20now-%E2%86%92-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/stargazers"><img alt="GitHub stars" src="https://img.shields.io/github/stars/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&color=c9fa6b" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/josemiguellopez/tracereports/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/josemiguellopez/tracereports"><img alt="OpenSSF Scorecard" src="https://img.shields.io/ossf-scorecard/github.com/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&label=openssf%20scorecard" /></a>
   <a href="./LICENSE"><img alt="License: Apache-2.0" src="https://img.shields.io/badge/license-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <img alt="Single Go binary" src="https://img.shields.io/badge/single-go%20binary-fc9672.svg?style=for-the-badge&logo=go&logoColor=white&labelColor=000000" />
   <img alt="Self-hosted, no telemetry" src="https://img.shields.io/badge/self--hosted-no%20telemetry-eeeee2.svg?style=for-the-badge&labelColor=000000" />
@@ -34,7 +35,8 @@ TraceReports is a self-hosted test report server. Every step with its screenshot
 the browser made, and an AI diagnosis that turns a wall of red into a handful of incidents.
 
 ```bash
-docker run -d -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # server + UI on http://localhost:8080
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # the server and your tests share it
+docker run -d -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # server + UI on http://localhost:8080
 pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # that's it, no code changes
 ```
@@ -55,6 +57,27 @@ language over the **REST API**: [pick your language](#2-run-an-example-in-your-l
   <br />
   <sub>A real run of the <a href="examples/orangehrm">OrangeHRM example suite</a> with simulated backend failures, in the Pixel theme.</sub>
 </p>
+
+## Meet Trace Buddy: your senior QA buddy, powered by AI
+
+<p align="center">
+  <img src="./.github/assets/trace-buddy.gif" alt="Trace Buddy, a 3D hooded QA engineer, explains why a checkout test failed and hands over the cURL for Postman, then changes his outfit when the theme changes" width="100%" />
+</p>
+
+Debugging a red test at 2 a.m. doesn't have to be a lonely job. **Trace Buddy** lives in the corner of every
+report: a little hooded QA engineer, in 3D, who has read the whole run and is happy to talk it through with you.
+
+- **Ask him anything about the failure**, in plain words. He answers from the report's evidence: the steps, the
+  network calls, the console and his own diagnosis. No copy-pasting logs into a chat.
+- **He hands you the real thing, not a guess**: the failed call as a **cURL ready for Postman** and a **mock of the
+  broken backend** (WireMock, Playwright or Cypress), built from what the browser recorded, with secrets masked.
+- **He has feelings.** He follows your cursor, frowns while he thinks, celebrates a green run, worries about a red
+  one, blushes if you stare, falls asleep if you leave him alone… and changes his outfit (behind a censor, of
+  course) every time you change the theme.
+- **🔒 No telemetry · 🏠 Self-hosted · 🛡️ Your data is never shared.** He lives on your server, not in someone
+  else's cloud, and says so himself. He thinks with **your own model** (Ollama) or only the providers you allow,
+  only admins can talk to him, and secrets are masked before anything leaves. Without an LLM he still explains each
+  failure with the local rules engine and tells you when your AI is up.
 
 ## The problem
 
@@ -241,8 +264,16 @@ storing anything, and the AI, webhooks and trackers are optional.
 **With Docker** (recommended, nothing to clone):
 
 ```bash
-docker run -d --name tracereports -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # keep it: your tests send it
+docker run -d --name tracereports -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
 ```
+
+The container does not start without a token or the UI login: it would be open to the network.
+See [Security](docs/en/configuration.md#security). **New to Docker or the terminal?** Follow
+[Install with Docker, step by step](docs/en/docker-step-by-step.md) (from installing Docker to your first
+report, with screenshots).
+For a shared server, follow the [security hardening guide](docs/en/security-hardening.md); the
+[threat model](docs/en/threat-model.md) says what it protects and what is left to you.
 
 **Without Docker:** download the binary for your OS from the [latest release](https://github.com/josemiguellopez/tracereports/releases/latest) (Linux, macOS and
 Windows, amd64 and arm64), unzip it and run `./tracereports` (`tracereports.exe` on Windows).
@@ -401,7 +432,7 @@ its screenshot, network calls and diagnosis.
 ## Documentation
 
 - [Full feature tour](README.en.md)
-- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Configuration](docs/en/configuration.md) · [Command line](docs/en/cli.md)
+- [Installation](docs/en/installation.md) · [Docker](docs/en/docker.md) · [Docker, step by step](docs/en/docker-step-by-step.md) · [Docker isolated trial](docs/en/docker-isolated-trial.md) · [Configuration](docs/en/configuration.md) · [Command line](docs/en/cli.md)
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md) · [Demo, playground and selftest](docs/en/demo.md): try it in a minute and check a deployment
 - [Allure](docs/en/allure.md): your Allure results, diagnosed with AI
 - [Selenium](docs/en/selenium.md): network, console and suggested selectors with Selenium in Python, JavaScript and Java

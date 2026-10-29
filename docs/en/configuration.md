@@ -20,26 +20,38 @@ steps to apply it.
 | `TRACEREPORTS_INGEST_TOKEN` | — | **Restricted** token for clients and CI: sends results and reads, never changes Settings nor uses UI actions. See [Permissions](#permissions-of-each-credential) |
 | `TRACEREPORTS_SECRET_KEY` | — | Master key (32 bytes, base64 or hex) to store **encrypted** the AI API key typed in Settings. Without it, the key can only be given through the environment. See [Encrypted credentials](#credentials-saved-from-settings-encrypted) |
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | The previous master key, only while you change it (rotation) |
+| `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = encrypts new screenshots, traces, videos and DOM snapshots (AES-256-GCM). Needs `TRACEREPORTS_DB_KEY`. See [Evidence encryption](security-hardening.md#application-level-evidence-encryption-optional) |
+| `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Its key (32 bytes, base64 or hex), or a file holding it; never inside `DATA_DIR` |
+| `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | The previous key, only while rotating it (`tracereports evidence rekey`) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
+| `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | **Read-only** login for the rest of the team: sees everything, never sends results, changes Settings nor uses actions. A different user from the admin one |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
+| `TRACEREPORTS_ALLOWED_CIDRS` | — (all) | Only these networks get in (`10.0.0.0/8,fd00::/8`, or single IPs); the rest gets `403`, even with a token. This machine always gets in. See [Restrict by source network](#restrict-by-source-network) |
+| `TRACEREPORTS_TRUSTED_PROXIES` | — | Proxies whose `X-Forwarded-For` / `X-Real-IP` is trusted to know the client IP. Without it those headers are ignored |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: with a token and no login, the same machine (no proxy) may change Settings and use the UI actions |
-| `AI_PROVIDER` | inferred from the key | `gemini`, `anthropic`, `openai`, `openai_compatible` or `ollama` |
+| `AI_PROVIDER` | inferred from the key; without a key, `builtin` | `builtin` (local engine, no LLM), `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` or `off` (no diagnosis). See [Local engine](#local-diagnosis-engine-no-llm) |
 | `AI_MODEL` | the provider's default | Model (see the provider table) |
 | `AI_API_KEY` | — | The provider's API key (Ollama does not use one) |
 | `AI_BASE_URL` | the provider's API | API URL: proxy, your own endpoint, a compatible service or a remote Ollama |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternative to the `AI_*` variables: with just one of these the provider is picked automatically |
+| `TRACEREPORTS_AI_BUILTIN_HINT` | `1` | With an LLM configured, its prompt first includes the local engine's conclusion (already redacted). `0` removes it |
+| `TRACEREPORTS_AI_LANGUAGE` | `auto` | Language of the diagnoses: `es`, `en` or `auto` (the team's default language; without one, each test's). What is chosen in **Settings → Artificial intelligence** takes precedence over this variable; with `TRACEREPORTS_SETTINGS_LOCKED=1` this is how to set it. Existing diagnoses do not change: re-analyze them |
+| `TRACEREPORTS_AI_ALLOWED_PROVIDERS` | — (all) | Allowed providers, comma separated (`builtin,ollama`). One outside the list is never used. See [Allowed providers](#allowed-providers-and-data-leaving-the-server) |
 | `TRACEREPORTS_ENV_FILE` | `.env` | `KEY=value` file the server reads on startup |
 | `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: the Settings screen becomes read-only; AI is configured only from the environment |
 | `TEAMS_WEBHOOK_URL` | — | Sends each run's summary to Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Sends each run's summary to Slack |
 | `PUBLIC_URL` | — | Public URL of the server, for the *View report* button in notifications |
-| `TRACEREPORTS_BIND` | all interfaces | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows) |
+| `TRACEREPORTS_BIND` | all interfaces; without credentials, only this machine | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows). See [Security](#security) |
+| `TRACEREPORTS_INSECURE` | — | `1`: start listening on the network **without** a token or login (only in a closed lab network). See [Security](#security) |
 | `NOTIFY_ON` | `always` | `always`, or `failures` to notify only when something failed |
+| `NOTIFY_DETAIL` | `full` | `minimal`: Teams and Slack get only counts, status and the link; no test names, errors, backend URLs or AI text. See [Notifications](#teams-and-slack-notifications) |
 | `NETWORK_MAX_BODY_KB` | `256` | Maximum stored size of each network *response body*; `0` = store no bodies |
 | `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
+| `TRACEREPORTS_SCREENSHOTS` | `all` | Which screenshots the server keeps: `all`, `failures` (only of a failed step or test) or `off` (none, no trace or video either). See [Screenshots](#screenshots) |
 | `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [FixLab](fixlab.md#security) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Status page (Statuspage format, `…/api/v2/summary.json`) that Settings → AI usage shows instead of the provider's: a mirror, a proxy or the page of an OpenAI-compatible provider |
@@ -50,8 +62,19 @@ steps to apply it.
 
 ## Security
 
-With no configuration the server is **open**: anyone who reaches the port can read and write
-reports. That is fine on your machine, not on a shared server.
+**The server is never left open to the network without credentials** (*fail-closed*):
+
+| Credentials (`TRACEREPORTS_TOKEN`, `TRACEREPORTS_INGEST_TOKEN` or the UI login) | `TRACEREPORTS_BIND` | Result |
+|---|---|---|
+| Yes | any | Listens where `TRACEREPORTS_BIND` says (empty: every interface) |
+| No | empty | Listens **only on this machine** (`127.0.0.1` and `::1`), with a warning |
+| No | `127.0.0.1`, `::1` or `localhost` | Listens only on this machine |
+| No | `0.0.0.0`, `::` or a network IP | **Does not start** and explains what to set |
+| No | Docker (official image) | **Does not start**: inside the container it always listens on every interface, even when the port is published only on `127.0.0.1` |
+
+`TRACEREPORTS_INSECURE=1` accepts the risk knowingly (a closed lab network): it starts as before,
+with a warning in the log. Without credentials, anyone who reaches the port can read and write
+reports.
 
 ```bash
 TRACEREPORTS_TOKEN=a-long-random-token      # generate it with: python -c "import secrets; print(secrets.token_hex(24))"
@@ -87,6 +110,22 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
 - Put the server behind HTTPS (a reverse proxy such as Caddy, nginx or Traefik). HTTP Basic
   without TLS travels in plain text.
 
+### Restrict by source network
+
+Besides the firewall, the server can enforce on its own which networks get in:
+
+```ini
+TRACEREPORTS_ALLOWED_CIDRS=10.0.0.0/8,192.168.10.0/24,fd00::/8
+TRACEREPORTS_TRUSTED_PROXIES=10.0.0.5        # the reverse proxy, if there is one
+```
+
+- Every request whose source IP is not in the list gets `403` (UI, API and `/screenshots/*`), **even with a
+  valid token**. This machine (`127.0.0.1`, `::1`) always gets in.
+- The source IP is the connection's. `X-Forwarded-For` and `X-Real-IP` are only trusted when the connection
+  comes from a proxy of `TRACEREPORTS_TRUSTED_PROXIES`, and then the last hop that is not a trusted proxy is
+  taken: a client that sends its own `X-Forwarded-For` does not get around the filter.
+- An invalid value stops the server from starting. Each refused IP is logged once.
+
 ### Permissions of each credential
 
 | Credential | Sends results | Reads reports | Changes Settings and uses UI actions |
@@ -94,8 +133,15 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
 | `TRACEREPORTS_TOKEN` | Yes | Yes | **Yes** (kept like that for compatibility) |
 | `TRACEREPORTS_INGEST_TOKEN` | Yes | Yes | No, not even from the same machine |
 | UI login (`TRACEREPORTS_UI_USER`/`_PASSWORD`) | No | Yes | Yes |
+| Read-only login (`TRACEREPORTS_UI_VIEWER_USER`/`_PASSWORD`) | No | Yes | No, not even from the same machine |
 | No credentials | Only with no token configured | Only without UI login (and through an allowed host) | Only in local mode, from the same machine |
 
+- **Two logins**: `TRACEREPORTS_UI_USER` administers (Settings, escalations, tickets, Lab);
+  `TRACEREPORTS_UI_VIEWER_USER` is for the rest of the team and only reads. Nobody needs the login that
+  can change the AI just to see reports.
+- **The AI key cannot be redirected**: a saved or environment key is only sent to the URL it was
+  configured for. Changing the API URL in Settings requires typing the key again; otherwise it is
+  rejected (409), so an admin cannot point the URL to their own server and receive the key.
 - **A token alone does not protect reads**: without UI login, anyone reaching the server through an
   allowed host (`localhost`, `PUBLIC_URL` or `TRACEREPORTS_ALLOWED_HOSTS`) sees the reports. On a
   shared server configure the login too.
@@ -130,9 +176,72 @@ Network captures are masked on the client before being sent: `Authorization`, `C
 `Set-Cookie` headers, tokens, passwords and national IDs (RUT). Even so, **do not report real
 personal data** from production environments.
 
+## Local diagnosis engine (no LLM)
+
+With nothing configured, each failure and each run get a diagnosis from the **local rules engine**
+(`AI_PROVIDER=builtin`): a catalog of deterministic rules inside the same binary. **It uses no network,
+needs no model or API key and costs nothing**: test data never leaves the server. It always gives the
+same answer for the same evidence, in milliseconds, and each conclusion cites the evidence it relies on
+(the call, the step, the line). The UI labels it **Local engine** with the rule's name, never as AI.
+
+The engine uses what TraceReports already correlates: the backend call that caused the failure, the error
+message and trace, the failed step, the page's JavaScript errors, the test's history and how much of the
+run failed. The rule with the highest priority wins (on a tie, the most confident one):
+
+| Rule | Category | When it applies |
+|---|---|---|
+| `backend_5xx` | `BACKEND_TIMEOUT` | A backend call answered 5xx right before the failure |
+| `backend_rate_limited` | `BACKEND_TIMEOUT` | It answered 429 |
+| `network_unreachable` | `INFRA_ERROR` | The call got no answer because of DNS, a refused connection, TLS or a cut connection |
+| `backend_no_response` | `BACKEND_TIMEOUT` | No answer because of a timeout, or 408 |
+| `auth_rejected` | `INFRA_ERROR` | 401/403: the test's session or credentials |
+| `backend_status` | `BACKEND_TIMEOUT` | No network captured; the test expected another status and got 5xx/429/408 (Go, REST, JUnit) |
+| `network_error` | `INFRA_ERROR` | The error message is about DNS, a refused connection, TLS or a connection exception (`ConnectionError`) |
+| `js_error` | `LOGIC_BUG` | An uncaught JavaScript error and the expected element never showed up |
+| `backend_client_error` | `LOGIC_BUG` | A 4xx the application did not recover from |
+| `locator_not_found` | `LOCATOR_CHANGED` | The selector did not find the element |
+| `assertion` | `LOGIC_BUG` | A check failed (cites the expected value, the actual one and the line) |
+| `environment_down` | `INFRA_ERROR` | 80 % or more of a run of at least 5 tests failed |
+| `timeout` | `BACKEND_TIMEOUT` | A timeout with no network evidence |
+| `flaky` | `INFRA_ERROR` | The test alternates between passing and failing and there is no other evidence |
+| `no_conclusive_rule` | `LOGIC_BUG` | None applies: it says so and cites the best evidence |
+
+If the test is flaky, the conclusion adds it as a note. The run summary counts the incidents by kind and,
+when almost everything failed, points at the environment.
+
+### Local engine, local LLM or cloud LLM
+
+How to run a local LLM (Docker Compose `llm` profile, llama.cpp, LM Studio, vLLM…): [Local LLM](local-ai.md).
+
+| | Local engine (`builtin`) | Local LLM (Ollama, llama.cpp, LM Studio…) | Cloud LLM |
+|---|---|---|---|
+| Data leaving the server | Never | Stays in your network | Yes (redacted) |
+| Setup | None | A runtime and a model | An API key |
+| Cost | Zero | Hardware | Per use |
+| Result | Deterministic, citing the rule | Written; varies | Written; the most accurate |
+| Uncommon failures | "No conclusive rule" | Proposes a hypothesis | Proposes a hypothesis |
+
+With an LLM configured, the local engine **runs first** and the model gets its conclusion (redacted) to
+confirm or correct it: the LLM writes up and enriches, but the evidence and the grouping do not depend on
+it. `TRACEREPORTS_AI_BUILTIN_HINT=0` turns that off. `AI_PROVIDER=off` turns every diagnosis off. The
+`TRACEREPORTS_AI_MAX_PER_RUN` limit does not apply to the local engine (it costs nothing), and its
+diagnoses do not count in **AI usage**. `tracereports report` uses it too without `--ai`.
+
+### Adding a rule
+
+The rules live in [`internal/ai/builtin`](../../internal/ai/builtin): each one is a function that reads the
+evidence (`Input`) and, when it applies, proposes a category, a confidence and the data of its texts. To
+contribute one:
+
+1. Add it to `Catalog` in `builtin.go` with a priority that does not clash with another.
+2. Write its texts in Spanish **and** English in `templates.go` (a test requires the same variables).
+3. Add cases to `builtin_test.go`: one that triggers it, one that does not and the edge of its condition.
+4. If the meaning of the catalog changes, bump `Version` (`rules-v1` → `rules-v2`).
+5. `go run ./cmd selftest` shows the hit rate over the recorded scenarios (minimum 90 %).
+
 ## AI diagnosis
 
-Works with any of these providers:
+Besides the local engine, it works with any of these providers:
 
 | Provider | `AI_PROVIDER` | Default model | Notes |
 |---|---|---|---|
@@ -164,6 +273,29 @@ AI_API_KEY=...
 
 With Claude, TraceReports enables Anthropic's server-side *fallback*: if the model declines to
 analyze a failure for policy reasons, a fallback model answers within the same call.
+
+### Allowed providers and data leaving the server
+
+If the evidence must not leave your network, allow only the local providers:
+
+```ini
+TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama
+```
+
+- A key of a provider outside the list (a `GEMINI_API_KEY` forgotten in the environment) **is ignored**: the
+  log says so and the local engine diagnoses if it is allowed, or nobody does.
+- Settings only offers the allowed ones; saving another answers `400` and "Test connection" does not call it.
+- A configuration saved earlier from Settings with a provider that is no longer allowed is not loaded.
+- An unknown name in the list (`olama`) stops the server from starting.
+
+At startup the server logs **every external destination** its configuration uses (the AI and its status
+page, Teams, Slack, GitHub, Jira, Azure DevOps and the extra Lab hosts), with only the host and whether it
+is local, private or public:
+
+```text
+INFO egress kind=ai name="Ollama (local)" host=127.0.0.1:11434 scope=loopback sends="diagnosis prompts (redacted; never screenshots)"
+INFO egress: no external destination configured (nothing leaves this server)
+```
 
 ### In the `.env` or on the Settings screen?
 
@@ -256,6 +388,12 @@ When each run is closed (`PATCH /runs/{id}/finish`), the server sends:
 - the diagnosis headline and the main causes with their suggested action;
 - the comparison with the previous run (new failures, fixed, flaky);
 - a **View report** button if `PUBLIC_URL` is set.
+
+**Shared channels (`NOTIFY_DETAIL=minimal`)**: if the channel must not see test names, errors or the
+diagnosis, with `NOTIFY_DETAIL=minimal` only the run name, the counts (OK, failed, skipped, changes since
+the previous run), the status and the **View report** button arrive. It applies to everything that is sent:
+the notice of each run, the weekly summary (its numbers, without the list of tests) and escalations (only the
+severity and the link; the details stay in the report).
 
 **Microsoft Teams** (Workflows webhook):
 1. In the channel: **⋯ → Workflows → "Post to a channel when a webhook request is received"**.
@@ -397,6 +535,13 @@ browser). The next time that test fails in the same project, its detail shows *I
 classified as…* with **Same verdict** to apply it in one click: nobody investigates the same
 failure twice. Through the API: `POST /api/v1/ui/tests/{id}/verdict` (see the [API](api.md)).
 
+**Similar incidents**: each classified failure goes into an index with its signature (the backend call
+that caused it or the normalized error, the category and the local engine's rule). When another test fails,
+its diagnosis shows up to three already classified failures **of the same project** that look at least 60 %
+like it, with their verdict and comment: *"92 % · pays an order · Environment · connection pool exhausted"*.
+It is TF-IDF over the signature, no AI and no network; the percentage is similarity, not probability.
+Retention deletes the entry with the evidence. Through the API: `GET /api/v1/tests/{id}/similar`.
+
 ## Playwright trace and video
 
 The test detail shows its **video** (it plays right there) and its Playwright **trace**: download
@@ -510,6 +655,27 @@ Limits: it recognizes secrets by their key or by unambiguous shapes. Sensitive d
 text without a key, or visible in a **screenshot**, is not detected: use `TRACEREPORTS_REDACT_PATTERNS`,
 `--tracereports-no-screenshots`, `--tracereports-no-dom` or `NETWORK_MAX_BODY_KB=0` as needed, and
 `TRACEREPORTS_RETENTION_DAYS` so evidence does not pile up.
+
+### Screenshots
+
+A screenshot can show personal data or credentials, and text redaction does not reach it. The server
+decides which images it keeps with `TRACEREPORTS_SCREENSHOTS`, regardless of how each suite is
+configured:
+
+| Value | What it keeps |
+|---|---|
+| `all` (default) | Every screenshot, trace and video |
+| `failures` | Only screenshots of a failed step or a failed test; traces and videos only of failed tests |
+| `off` | No image, trace or video (steps, network and errors still arrive) |
+
+An image the policy does not allow is refused with `403` **before** it is written: no file is ever
+left on disk. It also applies to Allure imports and `tracereports report`. An unknown value stops the
+server from starting.
+
+TraceReports does **not** recognize text inside images (OCR) to cover it: it is slow, needs models
+outside the binary and is never complete (data the OCR misses leaks anyway). What works is not
+capturing it: synthetic data in test environments, this policy and the clients' masking before the
+capture.
 
 ### Abandoned runs
 

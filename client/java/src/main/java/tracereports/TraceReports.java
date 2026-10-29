@@ -36,7 +36,7 @@ import java.util.logging.Logger;
  */
 public final class TraceReports {
     private static final Logger LOG = Logger.getLogger("tracereports");
-    public static final String VERSION = "0.3.0";
+    public static final String VERSION = "0.4.0";
 
     final String baseUrl;
     final String token;

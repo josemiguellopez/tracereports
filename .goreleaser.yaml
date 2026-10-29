@@ -28,6 +28,24 @@ archives:
 checksum:
   name_template: checksums.txt
 
+# SBOM (SPDX, con syft) de cada archivo publicado: qué módulos y versiones lleva el binario
+sboms:
+  - artifacts: archive
+    documents:
+      - "{{ .ArtifactName }}.spdx.json"
+
+# firma keyless con cosign (identidad OIDC del workflow de release, sin claves que guardar): se
+# firma checksums.txt, que a su vez cubre cada archivo. Verificación: SECURITY.md
+signs:
+  - cmd: cosign
+    artifacts: checksum
+    signature: "${artifact}.sigstore.json"
+    args: ["sign-blob", "--bundle=${signature}", "${artifact}", "--yes"]
+
+release:
+  # vX.Y.Z-rc1 y similares se publican como pre-release, nunca como la versión vigente
+  prerelease: auto
+
 changelog:
   sort: asc
   filters:

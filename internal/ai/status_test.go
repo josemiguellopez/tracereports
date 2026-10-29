@@ -104,6 +104,13 @@ func TestProviderStatusWithoutAStatusPage(t *testing.T) {
 	if s := a.ProviderStatus(context.Background(), true); s.Indicator != "major" || s.Error == "" {
 		t.Fatalf("ollama down: %+v", s)
 	}
+	// el motor local no consulta ninguna página de estado, ni con TRACEREPORTS_AI_STATUS_URL
+	t.Setenv("TRACEREPORTS_AI_STATUS_URL", "http://127.0.0.1:1/never")
+	local := New(nil)
+	if s := local.ProviderStatus(context.Background(), true); s.Provider != ProviderBuiltin || s.Source != "local" || s.Indicator != "none" || s.Error != "" {
+		t.Fatalf("local engine: %+v", s)
+	}
+	t.Setenv("AI_PROVIDER", "off")
 	off := New(nil)
 	if s := off.ProviderStatus(context.Background(), true); s.Provider != "" || s.Source != "none" {
 		t.Fatalf("no AI: %+v", s)

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -75,10 +76,16 @@ func TestEscalateTemplateAndAccess(t *testing.T) {
 	}
 	srv.Auth = Auth{}
 
-	// sin IA: re-analizar responde 409; sin canal: enviar responde 502
+	// diagnóstico apagado: re-analizar responde 409; con el motor local se encola; sin canal: enviar responde 502
+	_ = srv.AI.SetConfig(ai.Config{})
 	if rec := call(t, srv, "POST", "/api/v1/ui/tests/"+itoa(testID)+"/analyze", "{}"); rec.Code != 409 {
 		t.Fatalf("reanalyze without AI: %d", rec.Code)
 	}
+	_ = srv.AI.SetConfig(ai.Config{Provider: ai.ProviderBuiltin})
+	if rec := call(t, srv, "POST", "/api/v1/ui/tests/"+itoa(testID)+"/analyze", "{}"); rec.Code != 202 {
+		t.Fatalf("reanalyze with the local engine: %d", rec.Code)
+	}
+	srv.AI.Wait(context.Background())
 	srv.Notify = notify.New(srv.Store)
 	send, _ := json.Marshal(map[string]any{"run_id": runID, "test_id": testID, "audience": "qa", "lang": "es", "channel": "teams"})
 	if rec := call(t, srv, "POST", "/api/v1/ui/escalate/send", string(send)); rec.Code != 502 {

@@ -60,7 +60,8 @@ public final class TraceTest {
     }
 
     public void screenshot(byte[] png, String message, Status status) {
-        if (!active() || png == null || png.length == 0) return;
+        // TRACEREPORTS_SCREENSHOTS=off|failures: la captura no se envía (ver Mask)
+        if (!active() || png == null || png.length == 0 || !Mask.allowed(status)) return;
         String boundary = "----tracereports" + UUID.randomUUID().toString().replace("-", "");
         ByteArrayOutputStream body = new ByteArrayOutputStream();
         String head = part(boundary, "message", message == null ? "" : message) + part(boundary, "status", status.name())

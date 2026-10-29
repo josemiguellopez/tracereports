@@ -4,6 +4,7 @@
   <a href="https://tracereports.cl/"><img alt="Pruébalo ya" src="https://img.shields.io/badge/pru%C3%A9balo%20ya-%E2%86%92-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/stargazers"><img alt="Estrellas en GitHub" src="https://img.shields.io/github/stars/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&color=c9fa6b" /></a>
   <a href="https://github.com/josemiguellopez/tracereports/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/josemiguellopez/tracereports/ci.yml?branch=main&style=for-the-badge&labelColor=000000&label=CI" /></a>
+  <a href="https://scorecard.dev/viewer/?uri=github.com/josemiguellopez/tracereports"><img alt="OpenSSF Scorecard" src="https://img.shields.io/ossf-scorecard/github.com/josemiguellopez/tracereports?style=for-the-badge&labelColor=000000&label=openssf%20scorecard" /></a>
   <a href="./LICENSE"><img alt="Licencia: Apache-2.0" src="https://img.shields.io/badge/licencia-Apache--2.0-c9fa6b.svg?style=for-the-badge&labelColor=000000" /></a>
   <img alt="Un solo binario de Go" src="https://img.shields.io/badge/un%20solo-binario%20go-fc9672.svg?style=for-the-badge&logo=go&logoColor=white&labelColor=000000" />
   <img alt="Autohospedado, sin telemetría" src="https://img.shields.io/badge/autohospedado-sin%20telemetr%C3%ADa-eeeee2.svg?style=for-the-badge&labelColor=000000" />
@@ -35,7 +36,8 @@ llamada HTTP que hizo el navegador y un diagnóstico con IA que convierte una pa
 puñado de incidentes.
 
 ```bash
-docker run -d -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # servidor + UI en http://localhost:8080
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # lo comparten el servidor y tus tests
+docker run -d -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports   # servidor + UI en http://localhost:8080
 pip install pytest pytest-playwright tracereports
 pytest --tracereports                      # listo, sin cambiar tu código
 ```
@@ -56,6 +58,28 @@ cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en
   <br />
   <sub>Una ejecución real de la <a href="examples/orangehrm">suite de ejemplo de OrangeHRM</a> con fallos de backend simulados, en el tema Pixel.</sub>
 </p>
+
+## Conoce a Trace Buddy: tu QA senior con IA, siempre contigo
+
+<p align="center">
+  <img src="./.github/assets/trace-buddy-es.gif" alt="Trace Buddy, un pequeño ingeniero de QA en 3D con capucha, explica por qué falló un test de checkout y entrega el cURL para Postman; luego se cambia de ropa al cambiar el tema" width="100%" />
+</p>
+
+Depurar un test en rojo a las 2 de la mañana no tiene por qué ser un trabajo solitario. **Trace Buddy** vive en
+la esquina de cada reporte: un pequeño ingeniero de QA con capucha, en 3D, que ya leyó toda la ejecución y está feliz
+de revisarla contigo.
+
+- **Pregúntale lo que quieras del fallo**, con tus palabras. Responde con la evidencia del reporte: los pasos, las
+  llamadas de red, la consola y su propio diagnóstico. Nada de copiar y pegar logs en un chat.
+- **Te entrega lo real, no una suposición**: la llamada que falló como **cURL listo para Postman** y un **mock del
+  backend roto** (WireMock, Playwright o Cypress), armados con lo que grabó el navegador y con los secretos ocultos.
+- **Tiene sentimientos.** Sigue tu cursor, frunce el ceño mientras piensa, celebra una ejecución en verde, se
+  preocupa con una en rojo, se sonroja si lo miras mucho, se duerme si lo dejas solo… y se cambia de ropa (detrás de
+  una censura, claro) cada vez que cambias el tema.
+- **🔒 Sin telemetría · 🏠 Self-hosted · 🛡️ Tus datos no se comparten.** Vive en tu servidor, no en la nube de
+  otro, y te lo dice él mismo. Piensa con **tu propio modelo** (Ollama) o solo con los proveedores que permitas, solo
+  quien administra puede hablarle y los secretos se ocultan antes de que algo salga. Sin un LLM igual explica cada
+  fallo con el motor local de reglas y te avisa si tu IA está funcionando.
 
 ## El problema
 
@@ -247,8 +271,16 @@ secretos antes de guardar nada, y la IA, los webhooks y los trackers son opciona
 **Con Docker** (recomendado, sin clonar nada):
 
 ```bash
-docker run -d --name tracereports -p 8080:8080 -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
+export TRACEREPORTS_TOKEN=$(openssl rand -hex 32)   # guárdalo: tus tests lo envían
+docker run -d --name tracereports -p 8080:8080 -e TRACEREPORTS_TOKEN -v tracereports-data:/data ghcr.io/josemiguellopez/tracereports
 ```
+
+El contenedor no arranca sin un token o el login de la UI: quedaría abierto a la red.
+Ver [Seguridad](docs/es/configuration.md#seguridad). **¿Primera vez con Docker o con la terminal?** Sigue
+[Instalar con Docker, paso a paso](docs/es/docker-paso-a-paso.md) (desde instalar Docker hasta tu primer
+reporte, con capturas).
+Para un servidor compartido, sigue la [guía de hardening](docs/es/security-hardening.md); el
+[modelo de amenazas](docs/es/threat-model.md) dice qué protege y qué queda en tus manos.
 
 **Sin Docker:** descarga el binario para tu sistema desde la [última versión](https://github.com/josemiguellopez/tracereports/releases/latest) (Linux, macOS y
 Windows, amd64 y arm64), descomprímelo y ejecuta `./tracereports` (`tracereports.exe` en Windows).
@@ -407,7 +439,7 @@ para ver su captura, sus llamadas de red y el diagnóstico.
 ## Documentación
 
 - [Guía completa](GUIA-COMPLETA.md)
-- [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Configuración](docs/es/configuration.md) · [Línea de comandos](docs/es/cli.md)
+- [Instalación](docs/es/installation.md) · [Docker](docs/es/docker.md) · [Docker, paso a paso](docs/es/docker-paso-a-paso.md) · [Probar Docker sin tocar tu instalación](docs/es/docker-prueba-aislada.md) · [Configuración](docs/es/configuration.md) · [Línea de comandos](docs/es/cli.md)
 - [Inicio rápido: la demo en 5 minutos](docs/es/quickstart.md) · [Demo, playground y selftest](docs/es/demo.md): pruébalo en un minuto y comprueba un despliegue
 - [Allure](docs/es/allure.md): tus resultados de Allure, diagnosticados con IA
 - [Selenium](docs/es/selenium.md): red, consola y selectores sugeridos con Selenium en Python, JavaScript y Java

@@ -429,6 +429,20 @@ func TestVerdict(t *testing.T) {
 	}
 }
 
+// A call with nothing masked still sends its lists as [] (never null): the Lab UI walks them.
+func TestPreparePlainCallHasEmptyLists(t *testing.T) {
+	conns := []db.NetConn{{ID: 1, Method: "GET", URL: "https://shop.test/", Status: 200,
+		RequestHeaders: map[string]string{"accept": "text/html"}}}
+	p, err := Prepare(conns, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(p)
+	if !strings.Contains(string(b), `"vars":[]`) {
+		t.Fatalf("plan = %s", b)
+	}
+}
+
 func TestPrepareUnknownCall(t *testing.T) {
 	if _, err := Prepare(nil, 99); err == nil {
 		t.Fatal("expected an error")

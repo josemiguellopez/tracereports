@@ -20,6 +20,9 @@ import (
 const (
 	ShopUser     = "qa@demo.shop"
 	ShopPassword = "demo"
+	// ShopMemberCard is a made-up sensitive value on the products page, marked with
+	// data-tracereports-mask: no screenshot of the clients may show it.
+	ShopMemberCard = "4000 1234 5678 9010"
 )
 
 // Bugs the shop can have; "orders" is on when the demo starts.

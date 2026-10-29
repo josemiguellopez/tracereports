@@ -18,6 +18,27 @@ is scattered across the HTML report, the backend logs and the QA engineer's head
 
 ![Run diagnosis](docs/img/diagnostico.png)
 
+## Meet Trace Buddy: your senior QA buddy, powered by AI
+
+<p align="center">
+  <img src="./.github/assets/trace-buddy.gif" alt="Trace Buddy, a 3D hooded QA engineer, explains why a checkout test failed and hands over the cURL for Postman, then changes his outfit when the theme changes" width="100%" />
+</p>
+
+Debugging a red test at 2 a.m. doesn't have to be a lonely job. **Trace Buddy** lives in the corner of every
+report: a little hooded QA engineer, in 3D, who has read the whole run and is happy to talk it through with you.
+
+- **Ask him anything about the failure**, in plain words. He answers from the report's evidence: the steps, the
+  network calls, the console and his own diagnosis. No copy-pasting logs into a chat.
+- **He hands you the real thing, not a guess**: the failed call as a **cURL ready for Postman** and a **mock of the
+  broken backend** (WireMock, Playwright or Cypress), built from what the browser recorded, with secrets masked.
+- **He has feelings.** He follows your cursor, frowns while he thinks, celebrates a green run, worries about a red
+  one, blushes if you stare, falls asleep if you leave him alone… and changes his outfit (behind a censor, of
+  course) every time you change the theme.
+- **🔒 No telemetry · 🏠 Self-hosted · 🛡️ Your data is never shared.** He lives on your server, not in someone
+  else's cloud, and says so himself. He thinks with **your own model** (Ollama) or only the providers you allow,
+  only admins can talk to him, and secrets are masked before anything leaves. Without an LLM he still explains each
+  failure with the local rules engine and tells you when your AI is up.
+
 ## What's included
 
 | | |
@@ -132,6 +153,8 @@ The example test code and its messages are in Spanish; the report UI can be swit
 
 - [Installation](docs/en/installation.md): binary, Docker, first run.
 - [Docker](docs/en/docker.md): day to day, data, backup and deploying on a server with HTTPS.
+- [Install with Docker, step by step](docs/en/docker-step-by-step.md): from installing Docker to your first report, for people new to Docker or the terminal, with screenshots.
+- [Try with Docker without touching your installation](docs/en/docker-isolated-trial.md): try another version end to end and leave your installation as it was.
 - [Configuration](docs/en/configuration.md): environment variables, security, AI, language, Teams/Slack.
 - [Command line](docs/en/cli.md): every `tracereports` command (server, demo, report, push, pr-comment, repro, verify, mcp, selftest, secrets, version).
 - [Quickstart: the demo in 5 minutes](docs/en/quickstart.md): start the report and the demo shop step by step.

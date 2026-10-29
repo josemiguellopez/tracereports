@@ -101,11 +101,14 @@ def test_otro(page, tracereports):
 Para agregar pasos y capturas propias, usa la fixture `tracereports`:
 
 ```python
+from tracereports import playwright_screenshot
+
+
 def test_login(page, tracereports):
     """El administrador entra al Dashboard."""
     tracereports.log_info("Abrir el login")
     page.goto("https://mi-app/login")
-    tracereports.attach_screenshot(page.screenshot(), "Formulario de login")
+    tracereports.attach_screenshot(playwright_screenshot(page), "Formulario de login")  # lo sensible, tapado
     ...
     tracereports.log_pass("Login correcto")
 ```
@@ -125,15 +128,15 @@ ejecución como **incompleta**: nunca aparece como exitosa.
 > [examples/python-selenium-allure](../../examples/python-selenium-allure/README.es.md).
 
 ```python
-from tracereports import TraceReports
+from tracereports import TraceReports, playwright_screenshot, selenium_screenshot
 
 cr = TraceReports()                     # o TraceReports("https://tracereports.miempresa.com", token="...")
 cr.start_run("Regresión web", environment="staging")
 
 cr.start_test("Login correcto", category="login, smoke", description="Credenciales válidas")
 cr.log_info("Abrir el login")
-cr.attach_screenshot(driver.get_screenshot_as_png(), "Formulario")   # Selenium
-cr.attach_screenshot(page.screenshot(), "Formulario")                # Playwright
+cr.attach_screenshot(selenium_screenshot(driver), "Formulario")   # Selenium, con lo sensible tapado
+cr.attach_screenshot(playwright_screenshot(page), "Formulario")   # Playwright, ídem
 cr.attach_screenshot("capturas/login.png", "Desde archivo")
 cr.log_pass("Usuario dentro")
 cr.end_test()                           # el estado se deduce de los pasos, o end_test("FAIL", ...)
@@ -165,6 +168,36 @@ def test_login(self):
 with cr.test("Checkout", category="e2e", on_failure=page.screenshot):
     ...
 ```
+
+## Capturas sin datos sensibles
+
+Antes de cada captura, el cliente **tapa** (un recuadro magenta) los elementos sensibles:
+
+- siempre `input[type=password]` y todo elemento con el atributo `data-tracereports-mask`;
+- además, los de `TRACEREPORTS_SCREENSHOT_MASK`, un grupo de selectores CSS:
+  `TRACEREPORTS_SCREENSHOT_MASK="input[name=rut], .numero-tarjeta, #saldo"`.
+
+```html
+<span data-tracereports-mask>12.345.678-9</span>   <!-- tapado en toda captura de TraceReports -->
+```
+
+Con Playwright se usa su opción nativa `mask`. Con Selenium se ponen recuadros sobre esos elementos, se
+captura y se quitan, también si la captura falla: el DOM queda igual. Si no se puede tapar (un selector
+inválido), no se envía la captura. `TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS=off` deja de tapar los de
+siempre.
+
+Lo hace solo la captura al fallar de `pytest --tracereports`. En tu código usa los mismos helpers:
+
+```python
+from tracereports import playwright_screenshot, selenium_screenshot
+
+tracereports.attach_screenshot(playwright_screenshot(page), "Formulario")   # en vez de page.screenshot()
+cr.attach_screenshot(selenium_screenshot(driver), "Formulario")             # en vez de get_screenshot_as_png()
+```
+
+`TRACEREPORTS_SCREENSHOTS` decide qué capturas se envían: `all` (por defecto), `failures` (solo las de un
+paso `FAIL`) u `off` (ninguna). El servidor aplica la misma variable por su cuenta (ver
+[Configuración → Capturas de pantalla](configuration.md#capturas-de-pantalla)).
 
 ## Captura de red con Playwright
 

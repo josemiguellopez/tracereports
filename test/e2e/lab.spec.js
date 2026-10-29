@@ -221,3 +221,19 @@ test("Lab: exportar a Postman y .http descarga archivos válidos sin valores", a
 	expect(bru.name).toBe("get-api-orders-status-open.bru");
 	expect(bru.text).toMatch(/^meta \{/);
 });
+
+// Una llamada sin nada enmascarado (sin contraseña, token ni cookie) llegaba con "vars": null y el
+// Lab se quedaba en "Preparando el Lab…": ahora se dibuja y avisa que se reenvía tal cual.
+test("Lab: una llamada sin datos enmascarados se abre y se reenvía tal cual", async ({ page }) => {
+	const { run, failId } = JSON.parse(process.env.E2E_SEED);
+	await page.goto(`/#run=${run}&view=tests&test=${failId}`);
+	const detail = page.locator("#test-detail");
+	await detail.locator('[data-tab="network"]').click();
+	const card = detail.locator(".net-card", { hasText: "/config" });
+	await card.locator("summary").click();
+	await card.locator(".net-actions [data-lab]").click();
+	const lab = page.locator(".cf-drawer .lab");
+	await expect(lab.locator(".lab-flow")).toContainText("Envía la llamada");
+	await expect(lab).toContainText("Esta llamada no tiene datos enmascarados: se reenvía tal cual.");
+	await expect(lab).not.toContainText("Preparando el Lab");
+});

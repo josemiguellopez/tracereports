@@ -22,12 +22,13 @@ import fs from "node:fs";
 import path from "node:path";
 import { detectBranch, detectCommit } from "./context.js";
 import { env } from "./env.js";
+import { screenshotAllowed } from "./mask.js";
 import { Recorder, newSessionDir } from "./offline.js";
 import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 import { downloadBinary } from "./binary.js";
 
-export const VERSION = "0.3.0";
+export const VERSION = "0.4.0";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
 
@@ -369,7 +370,8 @@ export class TraceTest {
    * base64 (Selenium `driver.takeScreenshot()`).
    */
   screenshot(image, message = "", status = "INFO") {
-    if (!this.active || !image) return;
+    // TRACEREPORTS_SCREENSHOTS=off|failures: la captura no se envía (ver mask.js)
+    if (!this.active || !image || !screenshotAllowed(status)) return;
     const data = typeof image === "string" ? Buffer.from(image, "base64") : Buffer.from(image);
     const boundary = `----tracereports${Math.random().toString(16).slice(2)}`;
     const part = (name, value) => `--${boundary}\r\nContent-Disposition: form-data; name="${name}"\r\n\r\n${value}\r\n`;

@@ -25,6 +25,7 @@
 // página navegara puede no estar ya disponible; el resto de la llamada sí.
 
 import { DOM_SCRIPT } from "./dom.js";
+import { seleniumScreenshot } from "./mask.js";
 
 const LOG_PREFS = { performance: "ALL", browser: "ALL" };
 const BODY_TYPES = new Set(["xhr", "fetch"]);
@@ -39,14 +40,15 @@ export function seleniumOptions(options) {
   return options;
 }
 
-/** Captura de pantalla como base64 (lo que acepta `t.screenshot`), o null. */
+/**
+ * Captura de pantalla como base64 (lo que acepta `t.screenshot`) con los datos sensibles tapados
+ * (ver mask.js), o null.
+ */
 export async function screenshot(driver) {
-  try {
-    return await driver.takeScreenshot();
-  } catch {
-    return null;
-  }
+  return seleniumScreenshot(driver);
 }
+
+export { seleniumScreenshot };
 
 /** Snapshot de los elementos de la página, o null si el navegador ya no responde. */
 export async function captureDom(driver) {

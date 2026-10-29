@@ -108,8 +108,14 @@ func run(t *testing.T, category, description string, body func(x *e2e)) {
 // step registra un paso; check falla el test con un mensaje claro (también va al reporte).
 func (x *e2e) step(msg string) { x.rep.Info(msg) }
 
+// shot toma la captura con los datos sensibles tapados (contraseñas, data-tracereports-mask y
+// TRACEREPORTS_SCREENSHOT_MASK).
 func (x *e2e) shot(msg, status string) {
-	if png, err := x.page.Screenshot(); err == nil {
+	png, err := x.page.Screenshot(playwright.PageScreenshotOptions{
+		Mask:      []playwright.Locator{x.page.Locator(tracereports.MaskSelector())},
+		MaskColor: playwright.String(tracereports.MaskColor),
+	})
+	if err == nil {
 		x.rep.Screenshot(png, msg, status)
 	}
 }

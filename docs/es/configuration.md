@@ -20,26 +20,38 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_INGEST_TOKEN` | — | Token **restringido** para clientes y CI: envía resultados y lee, pero nunca cambia Ajustes ni usa acciones de la UI. Ver [Permisos](#permisos-de-cada-credencial) |
 | `TRACEREPORTS_SECRET_KEY` | — | Clave maestra (32 bytes en base64 o hex) para guardar **cifrada** la API key de IA escrita en Ajustes. Sin ella, la key solo se puede dar por el entorno. Ver [Credenciales cifradas](#credenciales-guardadas-desde-ajustes-cifradas) |
 | `TRACEREPORTS_SECRET_KEY_PREVIOUS` | — | La clave maestra anterior, solo mientras la cambias (rotación) |
+| `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = cifra las capturas, traces, videos e instantáneas del DOM nuevas (AES-256-GCM). Exige `TRACEREPORTS_DB_KEY`. Ver [Cifrado de la evidencia](security-hardening.md#cifrado-de-la-evidencia-en-la-aplicación-opcional) |
+| `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Su clave (32 bytes en base64 o hex), o un archivo que la contiene; nunca dentro de `DATA_DIR` |
+| `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | La clave anterior, solo mientras la rotas (`tracereports evidence rekey`) |
 | `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
+| `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | Login de **solo lectura** para el resto del equipo: ve todo, no escribe resultados, no cambia Ajustes ni usa acciones. Usuario distinto del de administración |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
+| `TRACEREPORTS_ALLOWED_CIDRS` | — (todas) | Solo estas redes entran (`10.0.0.0/8,fd00::/8`, o IPs sueltas); el resto recibe `403`, también con token. Este equipo siempre entra. Ver [Restringir por red](#restringir-por-red-de-origen) |
+| `TRACEREPORTS_TRUSTED_PROXIES` | — | Proxies cuyo `X-Forwarded-For` / `X-Real-IP` se cree para saber la IP del cliente. Sin esto esos headers se ignoran |
 | `TRACEREPORTS_LOCAL_ADMIN` | — | `1`: con token y sin login, el mismo equipo (sin proxy) puede cambiar Ajustes y usar las acciones de la UI |
-| `AI_PROVIDER` | se deduce de la key | `gemini`, `anthropic`, `openai`, `openai_compatible` u `ollama` |
+| `AI_PROVIDER` | se deduce de la key; sin key, `builtin` | `builtin` (motor local, sin LLM), `gemini`, `anthropic`, `openai`, `openai_compatible`, `ollama` u `off` (sin diagnóstico). Ver [Motor local](#motor-local-de-diagnóstico-sin-llm) |
 | `AI_MODEL` | el del proveedor | Modelo (ver la tabla de proveedores) |
 | `AI_API_KEY` | — | API key del proveedor (Ollama no la usa) |
 | `AI_BASE_URL` | la del proveedor | URL de la API: proxy, endpoint propio, servicio compatible u Ollama remoto |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `OLLAMA_HOST` | — | Alternativa a las `AI_*`: con una sola de estas el proveedor se elige solo |
+| `TRACEREPORTS_AI_BUILTIN_HINT` | `1` | Con un LLM configurado, su prompt incluye primero la conclusión del motor local (ya redactada). `0` la quita |
+| `TRACEREPORTS_AI_LANGUAGE` | `auto` | Idioma de los diagnósticos: `es`, `en` o `auto` (el idioma por defecto del equipo; si no hay, el de cada test). Lo elegido en **Ajustes → Inteligencia artificial** manda sobre esta variable; con `TRACEREPORTS_SETTINGS_LOCKED=1` es la forma de fijarlo. Los diagnósticos que ya existen no cambian: se re-analizan |
+| `TRACEREPORTS_AI_ALLOWED_PROVIDERS` | — (todos) | Proveedores permitidos, separados por coma (`builtin,ollama`). Uno fuera de la lista no se usa nunca. Ver [Proveedores permitidos](#proveedores-permitidos-y-salida-de-datos) |
 | `TRACEREPORTS_ENV_FILE` | `.env` | Archivo `CLAVE=valor` que el servidor lee al arrancar |
 | `TRACEREPORTS_SETTINGS_LOCKED` | — | `1`: la pantalla de Ajustes queda de solo lectura; la IA se configura solo con el entorno |
 | `TEAMS_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Slack |
 | `PUBLIC_URL` | — | URL pública del servidor, para el botón *Ver reporte* de las notificaciones |
-| `TRACEREPORTS_BIND` | todas las interfaces | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows) |
+| `TRACEREPORTS_BIND` | todas las interfaces; sin credenciales, solo este equipo | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows). Ver [Seguridad](#seguridad) |
+| `TRACEREPORTS_INSECURE` | — | `1`: arranca escuchando en la red **sin** token ni login (solo en una red cerrada de laboratorio). Ver [Seguridad](#seguridad) |
 | `NOTIFY_ON` | `always` | `always`, o `failures` para avisar solo si hubo fallos |
+| `NOTIFY_DETAIL` | `full` | `minimal`: Teams y Slack reciben solo conteos, estado y el link; sin nombres de tests, errores, URLs del backend ni texto de IA. Ver [Notificaciones](#notificaciones-a-teams-y-slack) |
 | `NETWORK_MAX_BODY_KB` | `256` | Máximo guardado por cada *response body* de red; `0` = no guardar bodies |
 | `TRACEREPORTS_REDACT` | activo | `off` guarda los secretos tal como llegan (no recomendado) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
+| `TRACEREPORTS_SCREENSHOTS` | `all` | Qué capturas guarda el servidor: `all`, `failures` (solo de un paso o un test que falló) u `off` (ninguna, tampoco trace ni video). Ver [Capturas de pantalla](#capturas-de-pantalla) |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [FixLab](fixlab.md#seguridad) |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
@@ -50,8 +62,19 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 
 ## Seguridad
 
-Sin configuración, el servidor está **abierto**: cualquiera que llegue al puerto puede ver y
-escribir reportes. Esto sirve en tu máquina, pero no en un servidor compartido.
+**El servidor no queda abierto a la red sin credenciales** (*fail-closed*):
+
+| Credenciales (`TRACEREPORTS_TOKEN`, `TRACEREPORTS_INGEST_TOKEN` o el login de la UI) | `TRACEREPORTS_BIND` | Resultado |
+|---|---|---|
+| Sí | cualquiera | Escucha donde diga `TRACEREPORTS_BIND` (vacío: todas las interfaces) |
+| No | vacío | Escucha **solo en este equipo** (`127.0.0.1` y `::1`), con un aviso |
+| No | `127.0.0.1`, `::1` o `localhost` | Escucha solo en este equipo |
+| No | `0.0.0.0`, `::` o una IP de la red | **No arranca** y explica qué configurar |
+| No | Docker (imagen oficial) | **No arranca**: dentro del contenedor siempre escucha en todas las interfaces, aunque publiques el puerto solo en `127.0.0.1` |
+
+`TRACEREPORTS_INSECURE=1` acepta el riesgo a sabiendas (una red de laboratorio cerrada): arranca
+como antes, con un aviso en el log. Sin credenciales, cualquiera que llegue al puerto puede ver y
+escribir reportes.
 
 ```bash
 TRACEREPORTS_TOKEN=un-token-largo-y-aleatorio      # genéralo con: python -c "import secrets; print(secrets.token_hex(24))"
@@ -87,6 +110,22 @@ TRACEREPORTS_UI_PASSWORD=una-clave-segura
 - Expón el servidor detrás de HTTPS (reverse proxy como Caddy, nginx o Traefik). HTTP Basic sin
   TLS viaja en texto plano.
 
+### Restringir por red de origen
+
+Además del firewall, el servidor puede imponer él mismo qué redes entran:
+
+```ini
+TRACEREPORTS_ALLOWED_CIDRS=10.0.0.0/8,192.168.10.0/24,fd00::/8
+TRACEREPORTS_TRUSTED_PROXIES=10.0.0.5        # el reverse proxy, si lo hay
+```
+
+- Toda petición cuya IP de origen no esté en la lista recibe `403` (UI, API y `/screenshots/*`), **también
+  con un token válido**. Este equipo (`127.0.0.1`, `::1`) siempre entra.
+- La IP de origen es la de la conexión. `X-Forwarded-For` y `X-Real-IP` solo se creen si la conexión viene de
+  un proxy de `TRACEREPORTS_TRUSTED_PROXIES`, y entonces se toma el último salto que no es un proxy
+  confiable: un cliente que manda su propio `X-Forwarded-For` no evade el filtro.
+- Un valor inválido impide arrancar. Cada IP rechazada se anota una vez en el log.
+
 ### Permisos de cada credencial
 
 | Credencial | Envía resultados | Lee reportes | Cambia Ajustes y usa acciones de la UI |
@@ -94,8 +133,15 @@ TRACEREPORTS_UI_PASSWORD=una-clave-segura
 | `TRACEREPORTS_TOKEN` | Sí | Sí | **Sí** (se mantiene así por compatibilidad) |
 | `TRACEREPORTS_INGEST_TOKEN` | Sí | Sí | No, ni desde el mismo equipo |
 | Login de UI (`TRACEREPORTS_UI_USER`/`_PASSWORD`) | No | Sí | Sí |
+| Login de solo lectura (`TRACEREPORTS_UI_VIEWER_USER`/`_PASSWORD`) | No | Sí | No, ni desde el mismo equipo |
 | Sin credenciales | Solo sin ningún token configurado | Solo sin login de UI (y por un host permitido) | Solo en modo local, desde el mismo equipo |
 
+- **Dos logins**: `TRACEREPORTS_UI_USER` administra (Ajustes, escalamientos, tickets, Lab);
+  `TRACEREPORTS_UI_VIEWER_USER` es para el resto del equipo y solo lee. Así no hace falta dar a todos el
+  login que puede cambiar la IA.
+- **La key de IA no se puede redirigir**: una key guardada o del entorno solo se envía a la URL con que se
+  configuró. Para cambiar la URL de la API en Ajustes hay que escribir la key de nuevo; si no, se
+  rechaza (409). Así nadie que administre puede apuntar la URL a su servidor y llevarse la key.
 - **Solo con un token no se protegen las lecturas**: sin login de UI, cualquiera que llegue al
   servidor por un host permitido (`localhost`, `PUBLIC_URL` o `TRACEREPORTS_ALLOWED_HOSTS`) ve los
   reportes. En un servidor compartido configura también el login.
@@ -130,9 +176,73 @@ Las capturas de red se enmascaran en el cliente antes de enviarse: headers `Auth
 `Cookie` y `Set-Cookie`, tokens, contraseñas y RUT. Aun así, **no reportes datos personales
 reales** desde ambientes productivos.
 
+## Motor local de diagnóstico (sin LLM)
+
+Sin configurar nada, cada fallo y cada ejecución reciben un diagnóstico del **motor local de reglas**
+(`AI_PROVIDER=builtin`): un catálogo de reglas determinísticas dentro del mismo binario. **No usa la red,
+no necesita modelo ni API key y no tiene costo**: los datos de los tests no salen del servidor. Da siempre
+la misma respuesta para la misma evidencia, en milisegundos, y cada conclusión cita la evidencia en la que
+se apoya (la llamada, el paso, la línea). La UI la marca como **Motor local** con el nombre de la regla,
+nunca como IA.
+
+El motor usa lo que TraceReports ya correlaciona: la llamada al backend que causó el fallo, el mensaje de
+error y la traza, el paso que falló, los errores de JavaScript de la página, el historial del test y cuánto
+falló la ejecución. Gana la regla de mayor prioridad (a igual prioridad, la de más confianza):
+
+| Regla | Categoría | Cuándo aplica |
+|---|---|---|
+| `backend_5xx` | `BACKEND_TIMEOUT` | Una llamada al backend respondió 5xx justo antes del fallo |
+| `backend_rate_limited` | `BACKEND_TIMEOUT` | Respondió 429 |
+| `network_unreachable` | `INFRA_ERROR` | La llamada no tuvo respuesta por DNS, conexión rechazada, TLS o conexión cortada |
+| `backend_no_response` | `BACKEND_TIMEOUT` | Sin respuesta por timeout, o 408 |
+| `auth_rejected` | `INFRA_ERROR` | 401/403: sesión o credenciales del test |
+| `backend_status` | `BACKEND_TIMEOUT` | Sin red capturada, el test esperaba otro código y recibió 5xx/429/408 (Go, REST, JUnit) |
+| `network_error` | `INFRA_ERROR` | El mensaje de error es de DNS, conexión rechazada, TLS o una excepción de conexión (`ConnectionError`) |
+| `js_error` | `LOGIC_BUG` | Un error de JavaScript no capturado y el elemento esperado nunca apareció |
+| `backend_client_error` | `LOGIC_BUG` | Un 4xx del que la aplicación no se recuperó |
+| `locator_not_found` | `LOCATOR_CHANGED` | El selector no encontró el elemento |
+| `assertion` | `LOGIC_BUG` | Falló una verificación (cita el valor esperado, el real y la línea) |
+| `environment_down` | `INFRA_ERROR` | Falló el 80 % o más de una ejecución de al menos 5 tests |
+| `timeout` | `BACKEND_TIMEOUT` | Un timeout sin evidencia de red |
+| `flaky` | `INFRA_ERROR` | El test alterna entre pasar y fallar y no hay otra evidencia |
+| `no_conclusive_rule` | `LOGIC_BUG` | Ninguna aplica: lo dice y cita la mejor evidencia |
+
+Si el test es inestable, la conclusión lo agrega como nota. El resumen de la ejecución cuenta los
+incidentes por tipo y, si falló casi todo, apunta al ambiente.
+
+### Motor local, LLM local o LLM en la nube
+
+Cómo levantar un LLM local (perfil `llm` de Docker Compose, llama.cpp, LM Studio, vLLM…): [LLM local](local-ai.md).
+
+| | Motor local (`builtin`) | LLM local (Ollama, llama.cpp, LM Studio…) | LLM en la nube |
+|---|---|---|---|
+| Datos fuera del servidor | Nunca | No salen de tu red | Sí (redactados) |
+| Instalación | Ninguna | Un runtime y un modelo | Una API key |
+| Costo | Cero | Hardware | Por uso |
+| Resultado | Determinístico, con la regla citada | Redactado; varía | Redactado; el más preciso |
+| Fallos poco comunes | "Sin regla concluyente" | Propone una hipótesis | Propone una hipótesis |
+
+Con un LLM configurado, el motor local **corre primero** y el modelo recibe su conclusión (redactada)
+para confirmarla o corregirla: el LLM redacta y enriquece, pero la evidencia y el agrupamiento no
+dependen de él. `TRACEREPORTS_AI_BUILTIN_HINT=0` lo desactiva. `AI_PROVIDER=off` apaga todo diagnóstico.
+El límite `TRACEREPORTS_AI_MAX_PER_RUN` no se aplica al motor local (no tiene costo), y sus diagnósticos
+no cuentan en **Uso de la IA**. `tracereports report` también lo usa sin `--ai`.
+
+### Agregar una regla
+
+Las reglas viven en [`internal/ai/builtin`](../../internal/ai/builtin): cada una es una función que lee
+la evidencia (`Input`) y, si aplica, propone categoría, confianza y los datos de sus textos. Para
+contribuir una:
+
+1. Agrégala a `Catalog` en `builtin.go` con una prioridad que no choque con otra.
+2. Escribe sus textos en español **e** inglés en `templates.go` (un test exige las mismas variables).
+3. Suma casos en `builtin_test.go`: uno que la active, uno que no y el borde de su condición.
+4. Si cambia el significado del catálogo, sube `Version` (`rules-v1` → `rules-v2`).
+5. `go run ./cmd selftest` muestra la tasa de aciertos sobre los escenarios grabados (mínimo 90 %).
+
 ## Diagnóstico con IA
 
-Funciona con cualquiera de estos proveedores:
+Además del motor local, funciona con cualquiera de estos proveedores:
 
 | Proveedor | `AI_PROVIDER` | Modelo por defecto | Notas |
 |---|---|---|---|
@@ -164,6 +274,29 @@ AI_API_KEY=...
 
 Con Claude, TraceReports activa el *fallback* del servidor de Anthropic: si el modelo se niega a
 analizar un fallo por sus políticas, la misma llamada lo responde un modelo alternativo.
+
+### Proveedores permitidos y salida de datos
+
+Si la evidencia no puede salir de tu red, deja solo los proveedores locales:
+
+```ini
+TRACEREPORTS_AI_ALLOWED_PROVIDERS=builtin,ollama
+```
+
+- Una key de un proveedor fuera de la lista (un `GEMINI_API_KEY` olvidado en el entorno) **se ignora**: el
+  log lo dice y diagnostica el motor local si está permitido, o nadie.
+- Ajustes solo ofrece los permitidos; guardar otro responde `400` y "Probar conexión" no lo llama.
+- Una configuración guardada antes en Ajustes con un proveedor que ya no está permitido no se carga.
+- Un nombre desconocido en la lista (`olama`) impide arrancar el servidor.
+
+Al arrancar, el servidor lista en el log **cada destino externo** que su configuración usa (IA y su página
+de estado, Teams, Slack, GitHub, Jira, Azure DevOps y los hosts extra del Lab), solo con el host y si es
+local, privado o público:
+
+```text
+INFO egress kind=ai name="Ollama (local)" host=127.0.0.1:11434 scope=loopback sends="diagnosis prompts (redacted; never screenshots)"
+INFO egress: no external destination configured (nothing leaves this server)
+```
 
 ### ¿En el `.env` o en la pantalla de Ajustes?
 
@@ -256,6 +389,12 @@ Al cerrar cada ejecución (`PATCH /runs/{id}/finish`) se envía:
 - el titular del diagnóstico y las principales causas con su acción sugerida;
 - la comparación con la ejecución anterior (fallos nuevos, arreglados, flaky);
 - un botón **Ver reporte** si definiste `PUBLIC_URL`.
+
+**Canales compartidos (`NOTIFY_DETAIL=minimal`)**: si el canal no debe ver los nombres de los tests, los
+errores ni el diagnóstico, con `NOTIFY_DETAIL=minimal` solo llegan el nombre de la ejecución, los conteos
+(OK, fallidos, omitidos, cambios respecto de la anterior), el estado y el botón **Ver reporte**. Aplica a
+todo lo que se envía: el aviso de cada ejecución, el resumen semanal (con sus números, sin la lista de
+tests) y los escalamientos (solo la severidad y el link; el detalle queda en el reporte).
 
 **Microsoft Teams** (webhook de Workflows):
 1. En el canal: **⋯ → Workflows → "Post to a channel when a webhook request is received"**.
@@ -399,6 +538,13 @@ su detalle muestra *En la ejecución #N lo clasificaron como…* con **Mismo ver
 aplicarlo en un clic: nadie investiga dos veces el mismo fallo. Por API:
 `POST /api/v1/ui/tests/{id}/verdict` (ver la [API](api.md)).
 
+**Incidentes parecidos**: cada fallo clasificado entra a un índice con su firma (la llamada al backend que
+lo causó o el error normalizado, la categoría y la regla del motor local). Cuando otro test falla, su
+diagnóstico muestra hasta tres fallos ya clasificados **del mismo proyecto** que se le parecen al menos un
+60 %, con su veredicto y comentario: *"92 % · pays an order · Ambiente · pool de conexiones agotado"*. Es
+TF-IDF sobre la firma, sin IA y sin red; el porcentaje es parecido, no probabilidad. La retención borra
+la entrada junto con la evidencia. Por API: `GET /api/v1/tests/{id}/similar`.
+
 ## Trace y video de Playwright
 
 El detalle de un test muestra su **video** (se reproduce ahí mismo) y su **trace** de Playwright:
@@ -515,6 +661,27 @@ Límites: reconoce secretos por su clave o por formas inequívocas. Un dato sens
 texto libre sin clave, o visible en una **captura de pantalla**, no se detecta: usa
 `TRACEREPORTS_REDACT_PATTERNS`, `--tracereports-no-screenshots`, `--tracereports-no-dom` o
 `NETWORK_MAX_BODY_KB=0` según el caso, y `TRACEREPORTS_RETENTION_DAYS` para no acumular evidencia.
+
+### Capturas de pantalla
+
+Una captura puede mostrar datos personales o credenciales, y la redacción de texto no la alcanza.
+El servidor decide qué imágenes guarda con `TRACEREPORTS_SCREENSHOTS`, sin depender de cómo esté
+configurada cada suite:
+
+| Valor | Qué guarda |
+|---|---|
+| `all` (por defecto) | Todas las capturas, traces y videos |
+| `failures` | Solo las capturas de un paso que falló o de un test que falló; traces y videos solo de tests fallidos |
+| `off` | Ninguna imagen, trace ni video (los pasos, la red y los errores siguen llegando) |
+
+Una imagen que la política no permite se rechaza con `403` **antes** de escribirla: nunca queda un
+archivo en el disco. También aplica a los imports de Allure y a `tracereports report`. Un valor
+desconocido impide arrancar el servidor.
+
+TraceReports **no** reconoce texto dentro de las imágenes (OCR) para taparlo: es lento, necesita
+modelos fuera del binario y nunca es completo (un dato que el OCR no lee, se filtra igual). Lo que
+funciona es no capturarlo: datos sintéticos en los ambientes de prueba, esta política y el
+enmascarado de los clientes antes de capturar.
 
 ### Ejecuciones abandonadas
 

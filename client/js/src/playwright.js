@@ -14,14 +14,18 @@
 //     navegador, no los logs del backend);
 //   - captura la consola: console.error, console.warn y los errores de JavaScript sin manejar
 //     (pestaña "Consola");
-//   - si el test falla: snapshot del DOM (recomendador de locators) y una captura si el proyecto
-//     no tiene `screenshot: "only-on-failure"`.
+//   - si el test falla: snapshot del DOM (recomendador de locators) y una captura con los datos
+//     sensibles tapados (ver mask.js); el reporter la sube en vez de la de `screenshot:
+//     "only-on-failure"`, que Playwright toma sin máscara.
 // Todo viaja como attachments del test; el reporter `tracereports/reporter` los sube.
 
 import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { domSnapshotInPage } from "./dom.js";
+import { MASKED_SHOT, playwrightScreenshot, screenshotsPolicy } from "./mask.js";
+
+export { MASKED_SHOT, playwrightScreenshot };
 
 // @playwright/test se carga desde el proyecto que corre los tests: así hay una sola copia aunque
 // este paquete esté instalado como enlace (npm install ../tracereports/client/js).
@@ -169,11 +173,11 @@ const fixtures = {
     if (testInfo.status !== testInfo.expectedStatus) {
       const snap = await captureDom(page);
       if (snap) await testInfo.attach("tracereports-dom", { body: JSON.stringify(snap), contentType: "application/json" });
-      const mode = testInfo.project.use?.screenshot;
-      const auto = mode === "on" || mode === "only-on-failure" || mode?.mode === "on" || mode?.mode === "only-on-failure";
-      if (!auto) {
+      // siempre la captura tapada: la automática de Playwright (screenshot: "only-on-failure") no se
+      // puede tapar, y el reporter la reemplaza por esta
+      if (screenshotsPolicy() !== "off") {
         try {
-          await testInfo.attach("Captura al fallar", { body: await page.screenshot({ timeout: 5000 }), contentType: "image/png" });
+          await testInfo.attach(MASKED_SHOT, { body: await playwrightScreenshot(page, { timeout: 5000 }), contentType: "image/png" });
         } catch { /* la página puede estar cerrada */ }
       }
     }

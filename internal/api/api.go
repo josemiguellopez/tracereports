@@ -22,10 +22,12 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/live"
 	"github.com/josemiguellopez/tracereports/internal/notify"
 	"github.com/josemiguellopez/tracereports/internal/owners"
+	"github.com/josemiguellopez/tracereports/internal/posture"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 	"github.com/josemiguellopez/tracereports/internal/release"
 	"github.com/josemiguellopez/tracereports/internal/repro"
@@ -54,7 +56,12 @@ type Server struct {
 	Live           *live.Hub // eventos en vivo (SSE); nil = desactivado
 	Auth           Auth
 	ScreenshotsDir string
-	Web            fs.FS // root containing index.html, style.css, app.js
+	// Vault encrypts the evidence at rest (TRACEREPORTS_ENCRYPT_AT_REST): the files of
+	// ScreenshotsDir and, through the Store, the DOM snapshots. nil = in clear, as before.
+	Vault *atrest.Vault
+	// Posture evaluates the security posture (GET /api/v1/security/posture); nil = not available.
+	Posture func() posture.Report
+	Web     fs.FS // root containing index.html, style.css, app.js
 	// SettingsLocked (TRACEREPORTS_SETTINGS_LOCKED) makes the Settings screen read-only: the
 	// configuration comes only from the environment.
 	SettingsLocked bool
@@ -76,6 +83,15 @@ type Server struct {
 	ReleaseGate *release.Gate
 	// Lab configures FixLab's Request Lab (TRACEREPORTS_LAB, TRACEREPORTS_LAB_HOSTS).
 	Lab LabConfig
+	// Net filters requests by source IP (TRACEREPORTS_ALLOWED_CIDRS / TRUSTED_PROXIES); nil = no filter.
+	Net *NetPolicy
+	// Screenshots is the screenshot policy (TRACEREPORTS_SCREENSHOTS: all, failures or off;
+	// "" = all). See screenshot_policy.go.
+	Screenshots string
+	// probe caches Trace Buddy's "does the AI answer?" check (see buddy.go).
+	probe probeCache
+	// chat limits Trace Buddy's free questions per hour (see buddy.go).
+	chat chatLimiter
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -89,8 +105,12 @@ func (s *Server) redactor() *redact.Policy {
 // Router builds the chi router.
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
-	r.Use(peerAddr, middleware.RealIP, middleware.Recoverer, middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
-	r.Use(s.Auth.middleware, s.hostGuard)
+	// el filtro por IP va primero, con la dirección real de la conexión (RealIP la reescribe después)
+	r.Use(peerAddr, s.Net.middleware, middleware.RealIP, middleware.Recoverer,
+		securityHeaders(contentSecurityPolicy(s.Web)),
+		middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
+	// freno a la fuerza bruta, CSRF de otros sitios y después las credenciales
+	r.Use(s.authThrottle(newAuthFailures()), sameSiteWrites, s.Auth.middleware, s.hostGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.trackActivity, s.idempotent)
@@ -102,9 +122,12 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/settings/ai", s.resetAISettings)
 		r.Get("/settings/ai/usage", s.aiUsage)
 		r.Get("/settings/ai/status", s.aiStatus)
+		r.Get("/security/posture", s.securityPosture)
 		r.Get("/metrics", s.getMetrics)
 		r.Get("/runs/{run_id}/recurrence", s.runRecurrence)
 		r.Get("/runs/{run_id}/escalation", s.getEscalation)
+		r.Post("/ui/ai/probe", s.aiProbe)
+		r.Post("/ui/ai/chat", s.aiChat)
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/escalate", s.escalate)
@@ -115,6 +138,7 @@ func (s *Server) Router() http.Handler {
 		r.Delete("/ui/quarantine/{test_id}", s.removeQuarantine)
 		r.Get("/quarantine", s.listQuarantine)
 		r.Post("/ui/tests/{test_id}/verdict", s.setVerdict)
+		r.Get("/tests/{test_id}/similar", s.similarIncidents)
 		r.Post("/ui/lab/send", s.labSend)
 		r.Post("/ui/lab/checks", s.labSaveCheck)
 		r.Delete("/ui/lab/checks/{check_id}", s.labDeleteCheck)
@@ -157,9 +181,21 @@ func (s *Server) Router() http.Handler {
 		r.Get("/network/{conn_id}/capsule", s.connCapsule)
 	})
 
-	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(http.FileServer(http.Dir(s.ScreenshotsDir))))))
+	// la evidencia se descifra al servirla (TRACEREPORTS_ENCRYPT_AT_REST); en claro, se sirve tal cual
+	r.Handle("/screenshots/*", withTraceViewerCORS(http.StripPrefix("/screenshots/", noDirListing(s.serveEvidence()))))
 	r.Handle("/*", http.FileServer(http.FS(s.Web)))
-	return r
+	// /healthz va antes de la autenticación: el healthcheck de Docker o de un balanceador no tiene
+	// credenciales, y la respuesta no dice nada de los datos
+	root := http.NewServeMux()
+	root.HandleFunc("GET /healthz", healthz)
+	root.Handle("/", r)
+	return root
+}
+
+// healthz answers that the server is up (it does not touch the data).
+func healthz(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 // ---------- Handlers: runs ----------
@@ -171,6 +207,7 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	canAct, why := s.uiAccess(r)
+	canEdit, _ := s.settingsAccess(r)
 	teams, slack := false, false
 	publicURL := false
 	if s.Notify != nil {
@@ -182,7 +219,9 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 		trackers = append(trackers, map[string]string{"id": p.ID(), "name": p.Name()})
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(), "trackers": trackers,
-		"ai_provider": s.AI.Provider(), "language": saved[setLanguage],
+		"ai_provider": s.AI.Provider(), "language": saved[setLanguage], "ai_language": aiLanguage(saved),
+		"screenshots":       s.screenshotPolicy(), // la web explica por qué un test no tiene capturas
+		"settings_editable": canEdit,              // Trace Buddy puede fijar el idioma de los diagnósticos
 		// acciones desde la UI (re-analizar, escalar, enviar) y canales disponibles
 		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL, "demo": s.Demo})
 }
@@ -572,7 +611,12 @@ func (s *Server) uploadScreenshot(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "status must be one of INFO, PASS, FAIL, WARNING, SKIP")
 		return
 	}
-	if _, err := s.Store.GetTest(id); respondErr(w, err, "test") {
+	t, err := s.Store.GetTest(id)
+	if respondErr(w, err, "test") {
+		return
+	}
+	if !s.screenshotAllowed(status, t.Status) {
+		s.screenshotRefused(w)
 		return
 	}
 
@@ -607,7 +651,8 @@ func (s *Server) saveScreenshotFile(testID int64, data []byte) (string, error) {
 		return "", errNotImage
 	}
 	name := fmt.Sprintf("t%d_%d%s", testID, time.Now().UnixNano(), ext)
-	if err := os.WriteFile(filepath.Join(s.ScreenshotsDir, name), data, 0o644); err != nil {
+	// solo el usuario del servidor la lee (0600): puede mostrar datos de los tests
+	if err := s.shots().WriteFile(name, data); err != nil {
 		return "", err
 	}
 	return "/screenshots/" + name, nil
@@ -622,8 +667,16 @@ func (s *Server) removeScreenshotFile(url string) {
 // errNotImage: the bytes are not a PNG, JPEG, GIF or WEBP image.
 var errNotImage = errors.New("only PNG, JPEG, GIF or WEBP images are accepted")
 
-// storeScreenshot saves an image of a test and records it as a step (ts 0 = now).
-func (s *Server) storeScreenshot(testID int64, data []byte, status, message string, ts int64) (*db.Log, error) {
+// errScreenshotPolicy: TRACEREPORTS_SCREENSHOTS does not allow keeping this image.
+var errScreenshotPolicy = errors.New("screenshot not kept (TRACEREPORTS_SCREENSHOTS)")
+
+// storeScreenshot saves an image of a test and records it as a step (ts 0 = now); testStatus is
+// the result of its test when known. When the policy does not allow it, nothing is stored and it
+// returns errScreenshotPolicy.
+func (s *Server) storeScreenshot(testID int64, data []byte, status, testStatus, message string, ts int64) (*db.Log, error) {
+	if !s.screenshotAllowed(status, testStatus) {
+		return nil, errScreenshotPolicy
+	}
 	url, err := s.saveScreenshotFile(testID, data)
 	if err != nil {
 		return nil, err

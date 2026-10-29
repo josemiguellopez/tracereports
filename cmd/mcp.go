@@ -45,12 +45,7 @@ func (m *mcpClient) get(path string, out any) error {
 		return err
 	}
 	req.Header.Set("Accept", "application/json")
-	if tok := m.getenv("TRACEREPORTS_TOKEN"); tok != "" {
-		req.Header.Set("Authorization", "Bearer "+tok)
-	}
-	if u, p := m.getenv("TRACEREPORTS_UI_USER"), m.getenv("TRACEREPORTS_UI_PASSWORD"); u != "" && p != "" {
-		req.SetBasicAuth(u, p)
-	}
+	readCredentials(req, m.getenv) // el agente solo lee: nunca con la credencial de administración si hay otra
 	res, err := m.http.Do(req)
 	if err != nil {
 		return fmt.Errorf("TraceReports at %s is not reachable (TRACEREPORTS_URL): %w", m.base, err)
@@ -357,7 +352,7 @@ func (m *mcpClient) reproduce(ctx context.Context, args json.RawMessage) (string
 	if err != nil {
 		return "", err
 	}
-	res, err := lab.Run(ctx, call.Plan, lab.Options{Values: vals, BaseURL: a.BaseURL})
+	res, err := lab.Run(ctx, call.Plan, lab.Options{Values: vals, BaseURL: a.BaseURL, Allow: m.labAllow(call.Plan)})
 	if err != nil {
 		return "", err
 	}
@@ -404,7 +399,7 @@ func (m *mcpClient) verifyFix(ctx context.Context, args json.RawMessage) (string
 				base = ch.BaseURL
 			}
 			r := map[string]any{"check": ch.Name, "expect": ch.Expect}
-			res, err := lab.Run(ctx, call.Plan, lab.Options{Values: vals, BaseURL: base, Target: ch.Request})
+			res, err := lab.Run(ctx, call.Plan, lab.Options{Values: vals, BaseURL: base, Target: ch.Request, Allow: m.labAllow(call.Plan)})
 			var fails []lab.Failure
 			if err != nil {
 				fails = []lab.Failure{{Kind: "network", Got: err.Error()}}
@@ -470,4 +465,10 @@ func runMCP(args []string) error {
 	m := newMCPClient(os.Getenv)
 	s := mcp.NewServer("tracereports", buildVersion(), mcpInstructions, m.tools()...)
 	return s.Serve(context.Background(), os.Stdin, os.Stdout)
+}
+
+// labAllow is the host rule of a resend asked by the agent: only the hosts the test called and
+// TRACEREPORTS_LAB_HOSTS. The base URL comes from the agent, so it never opens a new host.
+func (m *mcpClient) labAllow(p *lab.Plan) func(*url.URL) error {
+	return lab.HostRule(p, lab.ParseHosts(m.getenv("TRACEREPORTS_LAB_HOSTS")))
 }

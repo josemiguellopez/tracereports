@@ -289,11 +289,22 @@ test("inglés: la navegación se traduce", async ({ page }) => {
 });
 
 test("sin IA, el fallo dice cómo activarla (Ajustes o AI_PROVIDER; en la demo, el .env), en los dos idiomas", async ({ page }) => {
-	// otro spec puede haber configurado la IA desde Ajustes: aquí el servidor responde que no hay
+	// el servidor de e2e diagnostica con el motor local: aquí responde como uno con AI_PROVIDER=off
+	// (sin proveedor y sin diagnósticos guardados)
 	let demo = false;
 	await page.route("**/api/v1/config", async (route) => {
 		const res = await route.fetch();
-		await route.fulfill({ response: res, json: { ...(await res.json()), ai_enabled: false, demo } });
+		await route.fulfill({ response: res, json: { ...(await res.json()), ai_enabled: false, ai_provider: "", demo } });
+	});
+	const noTriage = (t) => ({ ...t, triage: null });
+	await page.route(/\/api\/v1\/runs\/\d+$/, async (route) => {
+		const res = await route.fetch();
+		const run = await res.json();
+		await route.fulfill({ response: res, json: { ...run, tests: (run.tests || []).map(noTriage) } });
+	});
+	await page.route(/\/api\/v1\/tests\/\d+$/, async (route) => {
+		const res = await route.fetch();
+		await route.fulfill({ response: res, json: noTriage(await res.json()) });
 	});
 	const card = page.locator("#test-detail .ai-card.muted");
 	const check = async (text) => {

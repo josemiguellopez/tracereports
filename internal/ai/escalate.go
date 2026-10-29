@@ -9,11 +9,11 @@ import (
 	_ "image/jpeg" //
 	_ "image/png"  //
 	"net/url"
-	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 )
 
@@ -154,8 +154,8 @@ func firstLine(s string) string {
 
 // blankImage reports a screenshot that is a single flat color (e.g. the empty page a browser shows
 // when the backend is down): useless as evidence on an escalation card.
-func blankImage(path string) bool {
-	f, err := os.Open(path)
+func blankImage(shots atrest.Dir, name string) bool {
+	f, err := shots.Open(name)
 	if err != nil {
 		return false
 	}
@@ -176,9 +176,9 @@ func blankImage(path string) bool {
 	return hi-lo < 0x0800 // menos de ~3% de contraste en toda la imagen
 }
 
-// BuildFacts gathers the evidence of a run (testID 0) or of one of its tests. shotsDir is where
-// the screenshots live, to skip blank ones.
-func BuildFacts(store *db.Store, shotsDir string, runID, testID int64) (*Facts, error) {
+// BuildFacts gathers the evidence of a run (testID 0) or of one of its tests. shots is where the
+// screenshots live (encrypted or not), to skip blank ones.
+func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts, error) {
 	run, err := store.GetRunDetail(runID)
 	if err != nil {
 		return nil, err
@@ -257,7 +257,7 @@ func BuildFacts(store *db.Store, shotsDir string, runID, testID int64) (*Facts, 
 		if f.Screenshot == "" { // si todas están en blanco, se queda la última
 			f.Screenshot, f.ShotCaption = shot, clip(t.Logs[i].Message, 160)
 		}
-		if shotsDir == "" || !blankImage(filepath.Join(shotsDir, filepath.Base(shot))) {
+		if shots.Path == "" || !blankImage(shots, filepath.Base(shot)) {
 			f.Screenshot, f.ShotCaption = shot, clip(t.Logs[i].Message, 160)
 			break
 		}
@@ -359,7 +359,7 @@ func EscalateTemplate(f *Facts, runID, testID int64, audience, lang string) *Esc
 
 func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, audience, lang string) *Escalation {
 	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
-	if a.Enabled() {
+	if a.UsesLLM() { // el motor local no redacta: la plantilla ya es lo suyo
 		start := time.Now()
 		ctx, calls := withCallTiming(ctx)
 		err := a.escalateAI(ctx, e)

@@ -14,11 +14,77 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # el último parche de la misma línea que el Dockerfile (golang:1.27-alpine): go.mod solo fija
+      # el mínimo, y compilar con ese .0 dejaría fuera los arreglos de seguridad de la librería estándar
       - uses: actions/setup-go@v7
         with:
-          go-version-file: go.mod
+          go-version: "1.27.x"
+          check-latest: true
       - run: go vet ./...
       - run: go test ./...
+      - name: El binario compila sin CGO
+        run: go build -o /dev/null ./cmd
+        env:
+          CGO_ENABLED: "0"
+
+  server-race:
+    name: Server (Go, race detector)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      # necesita CGO solo para compilar los tests; el binario publicado sigue siendo estático
+      # (CGO_ENABLED=0 en .goreleaser.yaml y en el Dockerfile)
+      - run: go test -race ./...
+        env:
+          CGO_ENABLED: "1"
+
+  govulncheck:
+    name: Vulnerabilities (govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "1.27.x"
+          check-latest: true
+      # falla solo con vulnerabilidades alcanzables desde el código (módulos y librería estándar)
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+      - run: go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...
+        working-directory: client/go
+
+  compose:
+    name: Docker (hardened compose)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker compose config --quiet
+      # el perfil opcional del LLM local (llama.cpp server)
+      - run: docker compose --profile llm config --quiet
+      # sin credenciales el contenedor no arranca (fail-closed): con un token, sí
+      - name: Start the hardened container
+        run: |
+          echo "TRACEREPORTS_TOKEN=$(openssl rand -hex 32)" > .env
+          docker compose up -d --build --wait --wait-timeout 240
+      - name: Read-only, no capabilities, no new privileges
+        run: |
+          id=$(docker compose ps -q tracereports)
+          test "$(docker inspect -f '{{.HostConfig.ReadonlyRootfs}}' "$id")" = true
+          docker inspect -f '{{.HostConfig.CapDrop}}' "$id" | grep -q ALL
+          docker inspect -f '{{.HostConfig.SecurityOpt}}' "$id" | grep -q no-new-privileges
+          test "$(docker inspect -f '{{.State.Health.Status}}' "$id")" = healthy
+      - name: It receives a run (writes only in /data and /tmp)
+        run: |
+          token=$(sed -n 's/^TRACEREPORTS_TOKEN=//p' .env)
+          curl -fsS -X POST -H "Authorization: Bearer $token" -H 'Content-Type: application/json' -d '{"name":"compose hardened"}' http://127.0.0.1:8080/api/v1/runs
+          curl -fsS -H "Authorization: Bearer $token" http://127.0.0.1:8080/api/v1/runs | grep -q 'compose hardened'
+      - if: failure()
+        run: docker compose logs
+      - if: always()
+        run: docker compose down -v
 
   client-python:
     name: Client (Python)
@@ -33,7 +99,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -o "$RUNNER_TEMP/tracereports" ./cmd && echo "TRACEREPORTS_BIN=$RUNNER_TEMP/tracereports" >> "$GITHUB_ENV"
-      - run: pip install pytest pytest-xdist ./client/python
+      - run: pip install pytest pytest-xdist playwright selenium ./client/python
+      # navegadores reales: las capturas enmascaradas se verifican en los píxeles (test_mask.py)
+      - run: python -m playwright install --with-deps chromium
       - run: pytest client/python/tests
 
   client-js:
@@ -49,6 +117,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -o "$RUNNER_TEMP/tracereports" ./cmd && echo "TRACEREPORTS_BIN=$RUNNER_TEMP/tracereports" >> "$GITHUB_ENV"
+      # navegador real: las capturas enmascaradas se verifican en los píxeles (test/mask.test.js)
+      - run: npm ci && npx playwright install --with-deps chromium
+        working-directory: test/e2e
       - run: npm test
         working-directory: client/js
       # los tipos publicados (index.d.ts) aceptan lo que acepta el runtime
@@ -105,6 +176,9 @@ jobs:
         with:
           go-version-file: go.mod
       - run: go build -o "$RUNNER_TEMP/tracereports" ./cmd && echo "TRACEREPORTS_BIN=$RUNNER_TEMP/tracereports" >> "$GITHUB_ENV"
+      # navegador real: las capturas tapadas se verifican en los píxeles (MaskTest)
+      - run: ./gradlew installChromium
+        working-directory: client/java
       - run: ./gradlew test
         working-directory: client/java
 

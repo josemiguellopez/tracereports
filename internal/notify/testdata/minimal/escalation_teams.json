@@ -1,0 +1,43 @@
+{
+  "attachments": [
+    {
+      "content": {
+        "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+        "actions": [
+          {
+            "title": "Ver en TraceReports",
+            "type": "Action.OpenUrl",
+            "url": "https://reports.example.com/#run=1\u0026test=2"
+          }
+        ],
+        "body": [
+          {
+            "color": "Attention",
+            "size": "Small",
+            "spacing": "None",
+            "text": "Severidad alta",
+            "type": "TextBlock",
+            "weight": "Bolder"
+          },
+          {
+            "size": "Large",
+            "spacing": "Small",
+            "text": "Escalamiento para revisar",
+            "type": "TextBlock",
+            "weight": "Bolder",
+            "wrap": true
+          },
+          {
+            "text": "El detalle está en el reporte: este canal solo recibe el aviso (NOTIFY_DETAIL=minimal).",
+            "type": "TextBlock",
+            "wrap": true
+          }
+        ],
+        "type": "AdaptiveCard",
+        "version": "1.4"
+      },
+      "contentType": "application/vnd.microsoft.card.adaptive"
+    }
+  ],
+  "type": "message"
+}

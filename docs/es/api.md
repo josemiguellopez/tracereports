@@ -224,6 +224,13 @@ nuevas. `GET /runs/facets` acepta los mismos filtros y devuelve hasta 20 valores
   también necesita credenciales, salvo con `TRACEREPORTS_LOCAL_ADMIN=1`.
   `TRACEREPORTS_SETTINGS_LOCKED=1` los rechaza siempre (`403`).
 
+### Revisión de seguridad (experimental)
+
+`GET /security/posture` devuelve los chequeos de `tracereports doctor --security` sobre la configuración con
+que corre el servidor: `{version, checks: [{id, level, title, detail, fix}], ok, warn, fail}` (`level`:
+`ok`, `warn` o `fail`). Requiere `TRACEREPORTS_TOKEN`, el login de la UI o el mismo equipo en modo local
+(el token de ingesta recibe 403). Nunca incluye valores de credenciales.
+
 ## Acciones desde la interfaz (IA y escalamiento)
 
 Requieren `Content-Type: application/json` y la misma regla que los Ajustes: token, login de la UI
@@ -231,6 +238,8 @@ o, en modo local, el mismo equipo del servidor.
 
 | Método | Ruta | Body | Respuesta |
 |---|---|---|---|
+| POST | `/ui/ai/probe` | `{}` (`?force=1` se salta la caché de 20 s) | Si la IA configurada ahora responde (Trace Buddy): `{ok, state, provider, model, ms}`, `state` = `llm`, `local` (motor de reglas, nada que llamar) u `off`; con error `{ok: false, error, hint, suggest}`. Usa la configuración activa, así que funciona también con Ajustes bloqueado; una sola petición pequeña y fija, que queda en Uso de la IA |
+| POST | `/ui/ai/chat` | `{run_id, test_id, lang, messages: [{role, text}]}` | Una pregunta libre a Trace Buddy: `{answer, provider, model}`. Necesita un LLM (`409` con `code: needs_llm` con el motor local). El modelo recibe la evidencia de la ejecución o del test (`run_id`/`test_id`, ambos opcionales) y los últimos 8 turnos de hasta 2000 caracteres, todo pasado por la redacción. Hasta 60 preguntas por hora por servidor (`429`); queda en Uso de la IA como `chat` |
 | POST | `/ui/tests/{test_id}/analyze` | — | `202 {queued}`: vuelve a diagnosticar un test fallido |
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnostica los fallos sin diagnóstico (o todos con `all`) y el resumen de la ejecución |
 | POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché y trae `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (cuánto esperó al proveedor, las pausas entre reintentos y lo que tardó TraceReports; `attempts`: cada llamada con `ms`, `ok`, `status`, `reason` y la espera siguiente `wait_ms`/`wait_asked`). Ante un 429/5xx se espera lo que pide el proveedor (`Retry-After`, `retry-after-ms` o el `RetryInfo` de Gemini), hasta 90 s |

@@ -64,10 +64,18 @@ func TestAnalyzeAsyncStoresTriage(t *testing.T) {
 	}
 }
 
-func TestDisabledWithoutKey(t *testing.T) {
-	t.Setenv("GEMINI_API_KEY", "")
-	if New(nil).Enabled() {
-		t.Fatal("analyzer should be disabled without a key")
+// Sin key diagnostica el motor local (sin LLM); AI_PROVIDER=off apaga el diagnóstico.
+func TestBuiltinWithoutKeyAndOff(t *testing.T) {
+	clearEnv(t)
+	a := New(nil)
+	if !a.Enabled() || a.UsesLLM() || a.Provider() != ProviderBuiltin {
+		t.Fatalf("without a key the local engine diagnoses: %+v", a.Config())
+	}
+	for _, off := range []string{"off", "OFF", "none", "disabled"} {
+		t.Setenv("AI_PROVIDER", off)
+		if New(nil).Enabled() {
+			t.Fatalf("AI_PROVIDER=%s should turn the diagnosis off", off)
+		}
 	}
 }
 

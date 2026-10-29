@@ -57,6 +57,18 @@ func (s *Store) PurgeRunsBefore(cutoff int64) (int, []string, error) {
 	return deleted, files, nil
 }
 
+// Compact rewrites the database without free pages (VACUUM) and empties the WAL (checkpoint), so
+// what a purge deleted is not left anywhere in the files: secure_delete already zeroes the deleted
+// rows, VACUUM drops the free pages and the checkpoint, the old copies of the pages that the WAL
+// keeps. It takes the write lock while it runs; retention calls it only after deleting runs.
+func (s *Store) Compact() error {
+	if _, err := s.db.Exec(`VACUUM`); err != nil {
+		return err
+	}
+	_, err := s.db.Exec(`PRAGMA wal_checkpoint(TRUNCATE)`)
+	return err
+}
+
 // purgeChunk keeps each IN (...) well below SQLite's limit of bound parameters.
 const purgeChunk = 500
 

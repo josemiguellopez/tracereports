@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "tracereports"
-version = "0.3.0"
+version = "0.4.0"
 
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(17)) }
@@ -26,10 +26,19 @@ dependencies {
     testImplementation("org.junit.platform:junit-platform-testkit")
     // la captura de Playwright se prueba con un Response simulado (sin navegador)
     testImplementation("com.microsoft.playwright:playwright:1.64.0")
+    // el enmascarado de Selenium se prueba con un driver simulado y sus scripts en un navegador real
+    testImplementation("org.seleniumhq.selenium:selenium-api:4.51.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 tasks.withType<JavaCompile> { options.encoding = "UTF-8" }
+
+// Chromium para los tests que verifican las capturas tapadas en un navegador real (los tests no lo bajan)
+tasks.register<JavaExec>("installChromium") {
+    classpath = sourceSets["test"].runtimeClasspath
+    mainClass.set("com.microsoft.playwright.CLI")
+    args("install", "--with-deps", "chromium")
+}
 
 tasks.test {
     useJUnitPlatform()

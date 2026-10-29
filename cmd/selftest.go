@@ -53,7 +53,12 @@ func runSelftest(args []string) error {
 type selftestOptions struct {
 	url, only, token string
 	out              io.Writer
+	// stats (opcional) recibe los aciertos del motor local de reglas
+	stats *builtinStats
 }
+
+// builtinStats counts the scenarios the local rules engine diagnosed as expected.
+type builtinStats struct{ Hits, Total int }
 
 func selftest(ctx context.Context, o selftestOptions) error {
 	want := map[string]bool{}
@@ -102,6 +107,7 @@ func selftest(ctx context.Context, o selftestOptions) error {
 
 	fmt.Fprintf(o.out, "TraceReports selftest against %s\n\n", base)
 	scenarios, checks, failed := 0, 0, 0
+	var local builtinStats
 	for _, sc := range demo.Scenarios {
 		if len(want) > 0 && !want[sc.ID] {
 			continue
@@ -118,22 +124,45 @@ func selftest(ctx context.Context, o selftestOptions) error {
 			continue
 		}
 		results := demo.Verify(ctx, base, sc, runID)
-		bad := 0
+		bad, counted := 0, 0
 		for _, c := range results {
-			if !c.OK {
+			switch {
+			case c.Builtin: // cuenta para la tasa de aciertos del motor local, no para el escenario
+				local.Total++
+				if c.OK {
+					local.Hits++
+				}
+			case !c.OK:
 				bad++
+				counted++
+			default:
+				counted++
 			}
 		}
-		checks += len(results)
+		checks += counted
 		mark := "✓"
 		if bad > 0 {
 			mark, failed = "✗", failed+1
 		}
-		fmt.Fprintf(o.out, "%s %-24s %-52s %d/%d  run #%d\n", mark, sc.ID, sc.Title, len(results)-bad, len(results), runID)
+		fmt.Fprintf(o.out, "%s %-24s %-52s %d/%d  run #%d\n", mark, sc.ID, sc.Title, counted-bad, counted, runID)
 		for _, c := range results {
-			if !c.OK {
+			switch {
+			case !c.OK && c.Builtin:
+				fmt.Fprintf(o.out, "    · %s: %s\n", c.Name, c.Detail)
+			case !c.OK:
 				fmt.Fprintf(o.out, "    ✗ %s: %s\n", c.Name, c.Detail)
 			}
+		}
+	}
+	if o.stats != nil {
+		*o.stats = local
+	}
+	if local.Total > 0 {
+		rate := float64(local.Hits) / float64(local.Total)
+		fmt.Fprintf(o.out, "\nLocal rules engine: %d/%d scenarios diagnosed as expected (%.0f %%, minimum %.0f %%).\n",
+			local.Hits, local.Total, rate*100, demo.BuiltinMinRate*100)
+		if rate < demo.BuiltinMinRate {
+			return fmt.Errorf("%w: the local rules engine got %d of %d scenarios right", errSelftest, local.Hits, local.Total)
 		}
 	}
 	if failed > 0 {

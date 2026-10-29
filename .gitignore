@@ -27,3 +27,5 @@ allure-report/
 /client/python/build/
 /output/
 /tracereports-report/
+/models/
+/cmd.exe

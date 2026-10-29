@@ -43,7 +43,8 @@ python -m pytest --tracereports
 
 That's it. The plugin finds the driver in your fixtures (whatever its name: `driver`, `browser`…) and
 for each test sends its network and console, and the screenshot and DOM when it fails. Your tests do
-not change.
+not change. The screenshot comes with sensitive data covered: see
+[Screenshots without sensitive data](python.md#screenshots-without-sensitive-data).
 
 Already using Allure? See [examples/python-selenium-allure](../../examples/python-selenium-allure):
 Allure and TraceReports in the same run.

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 )
 
 func TestBlankImage(t *testing.T) {
@@ -18,7 +20,7 @@ func TestBlankImage(t *testing.T) {
 		f, _ := os.Create(p)
 		png.Encode(f, img)
 		f.Close()
-		return p
+		return name
 	}
 	white := save("white.png", func(m *image.RGBA) {
 		for y := 0; y < 300; y++ {
@@ -38,7 +40,18 @@ func TestBlankImage(t *testing.T) {
 			}
 		}
 	})
-	if !blankImage(white) || blankImage(page) || blankImage(filepath.Join(dir, "missing.png")) {
+	shots := atrest.Dir{Path: dir}
+	if !blankImage(shots, white) || blankImage(shots, page) || blankImage(shots, "missing.png") {
 		t.Fatal("blank detection")
+	}
+	// cifradas en disco (TRACEREPORTS_ENCRYPT_AT_REST) se detectan igual
+	v, _ := atrest.New(make([]byte, 32), nil, true)
+	enc := atrest.Dir{Path: t.TempDir(), Vault: v}
+	for _, name := range []string{white, page} {
+		raw, _ := os.ReadFile(filepath.Join(dir, name))
+		enc.WriteFile(name, raw)
+	}
+	if !blankImage(enc, white) || blankImage(enc, page) {
+		t.Fatal("blank detection (encrypted)")
 	}
 }

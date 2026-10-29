@@ -142,6 +142,10 @@ carpeta a tu `.gitignore`.
 Al terminar, la consola (el resumen de pytest, el reporter de Playwright o el log en Java y Go)
 muestra las dos ubicaciones: la URL del reporte en el servidor y la ruta del `index.html` local.
 
+El reporte trae las capturas y la evidencia de red: `tracereports report` lo escribe solo para tu
+usuario (`0700`/`0600` en Linux y macOS). Si lo vas a publicar con un servidor web, dale permisos de
+lectura a propósito (`chmod -R a+rX carpeta`).
+
 ## 4. Qué trae el reporte local
 
 | Incluye | No incluye (necesitan el servidor) |

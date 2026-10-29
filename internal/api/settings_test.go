@@ -173,7 +173,7 @@ func TestSettingsTestConnectionAndMetrics(t *testing.T) {
 	if res["ok"] != true {
 		t.Fatalf("test connection: %s", rec.Body)
 	}
-	if srv.AI.Enabled() {
+	if srv.AI.UsesLLM() || srv.AI.Provider() != ai.ProviderBuiltin {
 		t.Fatal("testing a provider must not apply it")
 	}
 	rec = call(t, srv, "POST", "/api/v1/settings/ai/test", `{"provider":"anthropic"}`)

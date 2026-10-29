@@ -1,4 +1,5 @@
-// Package ai classifies test failures with an LLM: Google Gemini, Anthropic Claude, OpenAI (or any
+// Package ai classifies test failures with the local rules engine (internal/ai/builtin, the
+// default: no LLM and no network) or with an LLM: Google Gemini, Anthropic Claude, OpenAI (or any
 // OpenAI-compatible API) or a local Ollama model.
 package ai
 
@@ -14,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/locator"
@@ -139,6 +141,9 @@ func (a *Analyzer) SetLanguage(lang string) {
 	a.mu.Unlock()
 }
 
+// Language is the language the diagnoses are written in ("" = each test's).
+func (a *Analyzer) Language() string { return a.language() }
+
 func (a *Analyzer) language() string {
 	a.mu.RLock()
 	defer a.mu.RUnlock()
@@ -166,6 +171,9 @@ func (a *Analyzer) Test(ctx context.Context, c Config) (time.Duration, error) {
 	}
 	if err := c.Validate(); err != nil {
 		return 0, err
+	}
+	if c.Provider == ProviderBuiltin {
+		return 0, nil // el motor local está dentro del binario: no hay conexión que probar
 	}
 	start := time.Now()
 	text, err := a.callWithUsage(ctx, c, UsageTest, `Health check. Reply with the JSON object {"ok": true}.`, map[string]any{
@@ -268,7 +276,11 @@ func (a *Analyzer) analyzeAsync(testID int64, force bool) bool {
 		}
 	} else {
 		// comprobar el cupo y reservarlo es una sola transacción (ver db.ReserveTriage)
-		outcome, runID, err := a.store.ReserveTriage(testID, a.MaxPerRun)
+		budget := a.MaxPerRun
+		if a.Provider() == ProviderBuiltin {
+			budget = 0 // el límite cuida el costo de un LLM; el motor local no cuesta nada
+		}
+		outcome, runID, err := a.store.ReserveTriage(testID, budget)
 		switch {
 		case err != nil:
 			slog.Error("ai: triage budget", "test_id", testID, "err", err)
@@ -397,6 +409,19 @@ func (a *Analyzer) analyze(ctx context.Context, testID, rev int64) error {
 	if err != nil {
 		return err
 	}
+	c := a.Config()
+	var local builtin.Diagnosis
+	if c.Provider == ProviderBuiltin || builtinHint() {
+		if local, err = a.diagnoseBuiltin(t); err != nil {
+			return err
+		}
+	}
+	if c.Provider == ProviderBuiltin {
+		if saved, err := a.store.SaveTriageAt(testID, rev, local.Category, local.Summary, local.Suggestion, "", "", ProviderBuiltin, local.Rule); err != nil || !saved {
+			return err
+		}
+		return nil
+	}
 	lastStep := "(no steps logged)"
 	for i := len(t.Logs) - 1; i >= 0; i-- {
 		if t.Logs[i].Message != "" {
@@ -412,11 +437,11 @@ func (a *Analyzer) analyze(ctx context.Context, testID, rev int64) error {
 	if err != nil {
 		return err
 	}
-	res, err := a.classify(ctx, buildPrompt(t, lastStep, netErrors, a.language())+consolePromptSection(t.Console)+locatorPromptSection(failed, cands), cands)
+	res, err := a.classify(ctx, buildPrompt(t, lastStep, netErrors, a.language())+consolePromptSection(t.Console)+locatorPromptSection(failed, cands)+builtinPromptSection(local), cands)
 	if err != nil {
 		return err
 	}
-	if saved, err := a.store.SaveTriageAt(testID, rev, res.Category, res.Summary, res.Suggestion, res.RecommendedLocator, res.LocatorReason); err != nil || !saved {
+	if saved, err := a.store.SaveTriageAt(testID, rev, res.Category, res.Summary, res.Suggestion, res.RecommendedLocator, res.LocatorReason, c.Provider, ""); err != nil || !saved {
 		return err // !saved: el resultado cambió; el análisis repetido guarda el del nuevo
 	}
 	return nil

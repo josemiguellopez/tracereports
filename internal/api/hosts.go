@@ -85,7 +85,7 @@ func (p *HostPolicy) allowed(host string) bool {
 
 // hostGuard rejects requests without credentials whose Host is not allowed (DNS rebinding).
 func (s *Server) hostGuard(next http.Handler) http.Handler {
-	uiAuth := s.Auth.UIUser != "" && s.Auth.UIPass != ""
+	uiAuth := s.Auth.uiLogin()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// una solicitud con un token válido (el completo o el de ingesta de CI) trae credenciales:
 		// no es DNS rebinding. Lo que cada token puede hacer lo decide Auth.middleware

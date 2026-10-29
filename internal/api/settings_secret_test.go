@@ -94,7 +94,7 @@ func TestAIKeyWithoutMasterKeyIsRefused(t *testing.T) {
 	if rec.Code != 409 || !strings.Contains(rec.Body.String(), "TRACEREPORTS_SECRET_KEY") || strings.Contains(rec.Body.String(), fakeAIKey) {
 		t.Fatalf("must refuse with a clear error: %d %s", rec.Code, rec.Body)
 	}
-	if storedKey(t, srv) != "" || srv.AI.Enabled() {
+	if storedKey(t, srv) != "" || srv.AI.UsesLLM() || srv.AI.Provider() != ai.ProviderBuiltin {
 		t.Fatal("nothing stored nor applied")
 	}
 	// la IA por variables de entorno sigue funcionando sin clave maestra

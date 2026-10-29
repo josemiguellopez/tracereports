@@ -396,7 +396,8 @@ func (s *Server) importResult(ir *importRun, res allure.Result, now time.Time) e
 	if err := s.importSteps(id, res.Steps, 0, start); err != nil {
 		return err
 	}
-	if err := s.importAttachments(id, res.Attachments, "INFO", end); err != nil {
+	// los adjuntos del test (la captura del fallo, en general) siguen el resultado del test
+	if err := s.importAttachments(id, res.Attachments, "INFO", res.Status, end); err != nil {
 		return err
 	}
 	if res.Status != allure.Pass && res.Message != "" {
@@ -425,7 +426,7 @@ func (s *Server) importSteps(testID int64, steps []allure.Step, depth int, fallb
 		if st.Status == allure.Fail {
 			status = allure.Fail
 		}
-		if err := s.importAttachments(testID, st.Attachments, status, msTime(st.Stop, at)); err != nil {
+		if err := s.importAttachments(testID, st.Attachments, status, "", msTime(st.Stop, at)); err != nil {
 			return err
 		}
 	}
@@ -434,7 +435,7 @@ func (s *Server) importSteps(testID int64, steps []allure.Step, depth int, fallb
 
 // importAttachments stores images as screenshots and short text attachments as steps; anything
 // else (videos, traces, HTML) is only mentioned. A missing or unreadable file is skipped.
-func (s *Server) importAttachments(testID int64, atts []allure.Attachment, status string, at time.Time) error {
+func (s *Server) importAttachments(testID int64, atts []allure.Attachment, status, testStatus string, at time.Time) error {
 	for _, a := range atts {
 		name := a.Name
 		if name == "" {
@@ -447,7 +448,7 @@ func (s *Server) importAttachments(testID int64, atts []allure.Attachment, statu
 		case err != nil:
 			continue
 		case a.IsImage():
-			if _, err := s.storeScreenshot(testID, data, status, name, at.UnixMilli()); err != nil && !errors.Is(err, errNotImage) {
+			if _, err := s.storeScreenshot(testID, data, status, testStatus, name, at.UnixMilli()); err != nil && !errors.Is(err, errNotImage) && !errors.Is(err, errScreenshotPolicy) {
 				return err
 			}
 			continue

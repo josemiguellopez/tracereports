@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image/png"
 	"io"
 	"net/http"
 	"sort"
@@ -20,7 +21,13 @@ type Check struct {
 	Name   string `json:"name"`
 	OK     bool   `json:"ok"`
 	Detail string `json:"detail,omitempty"`
+	// Builtin: the diagnosis of the local rules engine. It counts for the hit rate of selftest
+	// (BuiltinMinRate), not for the result of the scenario.
+	Builtin bool `json:"builtin,omitempty"`
 }
+
+// BuiltinMinRate is the share of scenarios the local rules engine must diagnose as expected.
+const BuiltinMinRate = 0.9
 
 type verifier struct {
 	ctx    context.Context
@@ -137,6 +144,10 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 		}
 		add("screenshot", shots > 0, "%d screenshots", shots)
 	}
+	if e.MaskedShot {
+		n := v.maskedPixels(watched)
+		add("member card covered in the screenshot", n >= minMaskedPixels, "%d magenta pixels (data-tracereports-mask)", n)
+	}
 	if e.Locator != "" && failed != nil {
 		var rep struct {
 			FailedSelector string `json:"failed_selector"`
@@ -177,6 +188,11 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 			got += c.Cmd + " | "
 		}
 		add("command to run it locally", strings.Contains(got, e.Command), "framework %q key %q: %s", run.Framework, watched[0].Key, got)
+	}
+	if e.Builtin != "" {
+		if c, ok := v.builtin(run, failed, e.Builtin); ok {
+			out = append(out, c)
+		}
 	}
 	if e.Lab {
 		add("Lab reproduces the failure", true, "")
@@ -236,6 +252,91 @@ func (v verifier) incident(runID int64, t *db.Test) string {
 		}
 	}
 	return "no diagnosis after 20 s"
+}
+
+// builtin checks the diagnosis of the local rules engine for the focus test (want "none": no
+// test of the run gets one). ok=false when the server diagnoses with an LLM: nothing to check.
+func (v verifier) builtin(run db.RunDetail, focus *db.Test, want string) (Check, bool) {
+	var cfg struct {
+		Provider string `json:"ai_provider"`
+	}
+	if _, err := v.get("/api/v1/config", &cfg); err != nil || cfg.Provider != "builtin" {
+		return Check{}, false
+	}
+	c := Check{Name: "local rules engine says " + want, Builtin: true}
+	if want == "none" {
+		c.OK = true
+		for _, t := range run.Tests {
+			if t.Triage != nil && t.Triage.State == "DONE" {
+				c.OK, c.Detail = false, fmt.Sprintf("%q got %s", t.Name, t.Triage.Category)
+			}
+		}
+		return c, true
+	}
+	if focus == nil {
+		c.Detail = "no failed test to check"
+		return c, true
+	}
+	deadline := time.Now().Add(20 * time.Second)
+	for time.Now().Before(deadline) {
+		var t db.Test
+		_, _ = v.get(fmt.Sprintf("/api/v1/tests/%d", focus.ID), &t)
+		if tr := t.Triage; tr != nil && (tr.State == "DONE" || tr.State == "ERROR") {
+			c.OK, c.Detail = tr.State == "DONE" && tr.Category == want, fmt.Sprintf("got %s (rule %s) %s", tr.Category, tr.Rule, tr.Error)
+			return c, true
+		}
+		select {
+		case <-v.ctx.Done():
+			c.Detail = "cancelled"
+			return c, true
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
+	c.Detail = "no diagnosis after 20 s"
+	return c, true
+}
+
+// minMaskedPixels: the covered member card is a box of a few thousand pixels; the shop has no magenta.
+const minMaskedPixels = 500
+
+// maskedPixels counts, in the biggest screenshot of the tests, the pixels of the clients' mask
+// color (#FF00FF): the member card of the products page is covered there.
+func (v verifier) maskedPixels(tests []*db.Test) int {
+	best := 0
+	for _, t := range tests {
+		var full db.Test
+		_, _ = v.get(fmt.Sprintf("/api/v1/tests/%d", t.ID), &full)
+		for _, l := range full.Logs {
+			if l.Screenshot == "" {
+				continue
+			}
+			req, err := http.NewRequestWithContext(v.ctx, http.MethodGet, v.base+l.Screenshot, nil)
+			if err != nil {
+				continue
+			}
+			authorize(v.ctx, req)
+			res, err := v.client.Do(req)
+			if err != nil {
+				continue
+			}
+			img, err := png.Decode(res.Body)
+			res.Body.Close()
+			if err != nil {
+				continue
+			}
+			n := 0
+			b := img.Bounds()
+			for y := b.Min.Y; y < b.Max.Y; y++ {
+				for x := b.Min.X; x < b.Max.X; x++ {
+					if r, g, bl, _ := img.At(x, y).RGBA(); r>>8 == 0xFF && g>>8 == 0 && bl>>8 == 0xFF {
+						n++
+					}
+				}
+			}
+			best = max(best, n)
+		}
+	}
+	return best
 }
 
 // lab resends the failed backend call from its capsule, like `tracereports repro`.
