@@ -103,3 +103,11 @@ test("cada chequeo del servidor tiene ícono, título traducido y tema", () => {
 		assert.ok(new RegExp(`\\[".+", \\[[^\\]]*"${id.replace(".", "\\.")}"`).test(src), `sin tema: ${id}`);
 	}
 });
+
+test("el aviso de Docker se traduce con el nombre de la red", () => {
+	const html = card("es")({ ok: 0, warn: 1, fail: 0, checks: [check("network.exposure", "warn", "Network exposure",
+		"inside Docker it listens on the container network; if the port is published only on 127.0.0.1 (the official docker-compose.yml), only this machine reaches it",
+		"to filter inside Docker too, set TRACEREPORTS_ALLOWED_CIDRS to the container network (docker network inspect <project>_default) or the networks that need it")] });
+	assert.ok(html.includes("dentro de Docker escucha en la red del contenedor"), html);
+	assert.ok(html.includes("docker network inspect &lt;project&gt;_default"), "el valor capturado va escapado");
+});

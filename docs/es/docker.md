@@ -258,6 +258,7 @@ Usa el mismo volumen `tracereports-data` que compose: los datos son los mismos c
 | Síntoma | Causa y solución |
 |---|---|
 | `docker` no se reconoce | Docker Desktop recién instalado: abre una terminal (o VS Code) nueva. |
+| En tu equipo, **Revisión de seguridad** muestra "Exposición en la red" por revisar | Normal con Docker: el contenedor escucha en su red aunque el puerto se publique solo en `127.0.0.1`. Para dejarlo en verde, `TRACEREPORTS_ALLOWED_CIDRS` con la red del contenedor (`docker network inspect <proyecto>_default`): ver el [paso a paso, paso 9](docker-paso-a-paso.md#paso-9--revisar-la-seguridad). |
 | `docker version` no muestra `Server` / error 500 | El motor no arrancó. Abre Docker Desktop y espera *Engine running*. En Windows, si falta WSL o la virtualización: `wsl --install --no-distribution` como administrador y reinicia. |
 | El contenedor se reinicia y el log dice `refusing to start` | Falta `TRACEREPORTS_TOKEN` o el login de la UI en el `.env`: sin credenciales el servidor no arranca en Docker. Agrégalos (ver [Configuración mínima del `.env`](#configuración-mínima-del-env)) y `docker compose up -d`. |
 | `port is already allocated` / el contenedor no arranca | El 8080 está ocupado, por ejemplo por un `go run` del servidor. Detenlo o cambia el puerto (`"8081:8080"`). |

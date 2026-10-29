@@ -111,6 +111,7 @@ func postureFromEnv(c ai.Config, dataDir string) posture.Config {
 	e := exposureFromEnv()
 	pc := posture.Config{
 		Exposed:        onNetwork(e),
+		Docker:         e.docker,
 		Insecure:       e.insecure,
 		Token:          env.Get("TOKEN") != "",
 		IngestToken:    env.Get("INGEST_TOKEN") != "",

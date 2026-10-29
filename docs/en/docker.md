@@ -257,6 +257,7 @@ It uses the same `tracereports-data` volume as compose: the data is the same wit
 
 | Symptom | Cause and fix |
 |---|---|
+| On your computer, **Security check** shows "Network exposure" to review | Normal with Docker: the container listens on its network even when the port is published only on `127.0.0.1`. To turn it green, set `TRACEREPORTS_ALLOWED_CIDRS` to the container network (`docker network inspect <project>_default`): see the [step by step, step 9](docker-step-by-step.md#step-9--check-security). |
 | `docker` is not recognized | Docker Desktop was just installed: open a new terminal (or VS Code). |
 | `docker version` shows no `Server` / error 500 | The engine did not start. Open Docker Desktop and wait for *Engine running*. On Windows, if WSL or virtualization is missing: `wsl --install --no-distribution` as administrator and reboot. |
 | The container restarts and the log says `refusing to start` | The `.env` has no `TRACEREPORTS_TOKEN` nor UI login: without credentials the server does not start in Docker. Add them (see [Minimum `.env`](#minimum-env)) and `docker compose up -d`. |
