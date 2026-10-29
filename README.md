@@ -61,11 +61,11 @@ language over the **REST API**: [pick your language](#2-run-an-example-in-your-l
 ## Meet Trace Buddy: your senior QA buddy, powered by AI
 
 <p align="center">
-  <img src="./.github/assets/trace-buddy.gif" alt="Trace Buddy, a 3D hooded QA hacker, explains why a checkout test failed and hands over the cURL for Postman, then changes his outfit when the theme changes" width="100%" />
+  <img src="./.github/assets/trace-buddy.gif" alt="Trace Buddy, a 3D hooded QA engineer, explains why a checkout test failed and hands over the cURL for Postman, then changes his outfit when the theme changes" width="100%" />
 </p>
 
 Debugging a red test at 2 a.m. doesn't have to be a lonely job. **Trace Buddy** lives in the corner of every
-report: a little hooded QA hacker, in 3D, who has read the whole run and is happy to talk it through with you.
+report: a little hooded QA engineer, in 3D, who has read the whole run and is happy to talk it through with you.
 
 - **Ask him anything about the failure**, in plain words. He answers from the report's evidence: the steps, the
   network calls, the console and his own diagnosis. No copy-pasting logs into a chat.

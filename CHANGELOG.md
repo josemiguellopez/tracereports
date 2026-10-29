@@ -55,7 +55,7 @@ warning, and anyone who reached the port could read and change the reports. Now 
   A diagnosis in another language than the interface says so, in its card and in Trace Buddy: one click
   re-analyzes it, or (when Settings is editable) sets that language for every new diagnosis and re-analyzes
   it; with Settings locked it says which `.env` line to add.
-- **Trace Buddy**, a QA assistant on a floating button (bottom right): a small QA hacker in a hood, in 3D
+- **Trace Buddy**, a QA assistant on a floating button (bottom right): a small QA engineer in a hood, in 3D
   (built in code with three.js, loaded only for whoever sees it and after the page is ready; without WebGL it
   shows its picture). Its face lives on the visor: it blinks, follows the pointer with eyes, head and body,
   talks when it answers, nods at a question and changes expression and gesture with what happens (scratches its
