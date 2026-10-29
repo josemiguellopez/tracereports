@@ -9,8 +9,8 @@ const WEB = path.join(__dirname, "..", "..", "web");
 /** Lee un archivo de web/ como texto. */
 const read = (name) => fs.readFileSync(path.join(WEB, name), "utf8");
 
-/** Carga los scripts indicados (en orden) y devuelve el `window` resultante. */
-function load(files, { lang = "es" } = {}) {
+/** Carga los scripts indicados (en orden) y devuelve el `window` resultante. `globals` suma variables globales. */
+function load(files, { lang = "es", globals = {} } = {}) {
 	const window = {};
 	const ctx = {
 		window,
@@ -19,6 +19,7 @@ function load(files, { lang = "es" } = {}) {
 		document: { addEventListener() {}, createElement: () => ({}), documentElement: { classList: { remove() {} } } },
 		MutationObserver: class { observe() {} disconnect() {} },
 		URL, URLSearchParams, console,
+		...globals, // p. ej. un fetch falso
 	};
 	vm.createContext(ctx);
 	for (const f of files) vm.runInContext(read(f), ctx, { filename: f });

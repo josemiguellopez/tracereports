@@ -124,11 +124,18 @@
 			wrap.innerHTML = `<div class="placeholder">${tr("No se pudo preparar el Lab: {e}", { e: esc(err.message) })}</div>`;
 			return;
 		}
-		render(wrap, data, onChange);
+		try {
+			render(wrap, data, onChange);
+		} catch (err) {
+			// un plan inesperado no deja el cajón pegado en "Preparando el Lab…"
+			wrap.innerHTML = `<div class="placeholder">${tr("No se pudo preparar el Lab: {e}", { e: esc(err.message) })}</div>`;
+		}
 	}
 
 	function render(wrap, data, onChange) {
 		const p = data.plan;
+		p.vars ||= [];
+		if (p.csrf) p.csrf.fields ||= [];
 		const t = p.target;
 		const o = p.original;
 		let origin = "";

@@ -157,3 +157,34 @@ test("toBruno: la llamada en formato .bru y el login documentado", () => {
 	assert.match(noLogin, /body:json \{\n  \{"a":"\{\{b\}\}"\}\n\}/);
 	assert.doesNotMatch(noLogin, /docs \{/);
 });
+
+// Una llamada sin datos enmascarados llegaba con "vars": null y el Lab se quedaba en
+// "Preparando el Lab…" para siempre: ahora se dibuja, y si el plan trae algo raro muestra el error.
+test("open dibuja un plan sin vars y nunca se queda en «Preparando el Lab…»", async () => {
+	const plan = (extra) => ({
+		any_host: false, can_send: true, lab_hosts: null, reason: "",
+		plan: { conn_id: 625, target: { method: "GET", url: "https://shop.test/", headers: {} }, vars: null, original: { status: 200 }, hosts: ["shop.test"], ...extra },
+	});
+	let answer;
+	const wrap = { innerHTML: "", addEventListener() {}, querySelector: () => null, querySelectorAll: () => [] };
+	const w = load(files, {
+		globals: {
+			fetch: async () => ({ ok: true, json: async () => answer }),
+			document: { addEventListener() {}, createElement: () => wrap, documentElement: { classList: { remove() {} } } },
+		},
+	});
+	w.TraceReportsFeatures.Drawer = { open() {} };
+
+	answer = plan({});
+	await w.TraceReportsLab.open(625);
+	assert.match(wrap.innerHTML, /Esta llamada no tiene datos enmascarados/);
+	assert.doesNotMatch(wrap.innerHTML, /Preparando el Lab/);
+
+	answer = plan({ csrf: { page_url: "https://shop.test/login", fields: null } });
+	await w.TraceReportsLab.open(625);
+	assert.match(wrap.innerHTML, /Abre la página para obtener una sesión nueva/);
+
+	answer = plan({ target: null });
+	await w.TraceReportsLab.open(625);
+	assert.match(wrap.innerHTML, /No se pudo preparar el Lab/);
+});

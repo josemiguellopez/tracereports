@@ -129,6 +129,13 @@ warning, and anyone who reached the port could read and change the reports. Now 
   left the previous screen showing: the "No runs yet" message is back.
 - Settings → AI usage said "Ollama answers" for the local rules engine, which does not use Ollama: it now
   says that it runs inside the server.
+- **Open in Lab** stayed on "Preparing the Lab…" for a call with nothing masked (no password, token nor
+  cookie): the plan sent its values as `null`. It now opens and says the call is resent as it is; any other
+  unexpected plan shows an error instead of hanging.
+- A side panel (Lab, mock, compare) closed right as it opened (Escape or a very fast double click) came back
+  open.
+- On a phone, long test names and errors with no spaces (`test_…[chromium]`,
+  `playwright._impl._errors.TimeoutError`) pushed Categories, Errors and Analysis sideways: they now wrap.
 
 ### Security
 
