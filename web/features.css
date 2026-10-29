@@ -1113,7 +1113,7 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .similar-score { font-weight: 600; font-variant-numeric: tabular-nums; min-width: 3.2em; color: var(--text-muted); }
 
 /* ---------- Trace Buddy: asistente de QA (botón flotante + panel) ----------
-   El personaje es un pequeño hacker de QA con capucha (web/buddy/). El panel tiene su propia paleta oscura
+   El personaje es un pequeño ingeniero de QA con capucha (web/buddy/). El panel tiene su propia paleta oscura
    en todos los temas, como una terminal; fuera de él manda el tema de TraceReports. */
 .buddy {
 	--tb-bg: #0d1426; --tb-surface: #151e34; --tb-raised: #1c2a43; --tb-border: #2b3855; --tb-ink: #eff6ff; --tb-muted: #9aaac8;

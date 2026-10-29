@@ -4046,7 +4046,7 @@
 	// revisión de seguridad); la primera burbuja dice si la IA configurada responde. Solo administración:
 	// probar la IA gasta la key del equipo.
 	const BUDDY_KEY = "tracereports-buddy";
-	// El personaje: un pequeño hacker de QA con capucha (web/buddy/). La imagen tiene una sola expresión: el
+	// El personaje: un pequeño ingeniero de QA con capucha (web/buddy/). La imagen tiene una sola expresión: el
 	// ánimo (data-mood en #buddy: idle, thinking, success, error) se ve en el halo y en la pastilla de estado.
 	const BUDDY_LOGO = `<img class="buddy-logo" src="buddy/tracebuddy-avatar.webp" alt="" width="512" height="512" decoding="async" draggable="false">`;
 	const BUDDY_MOODS = { idle: "Disponible", thinking: "Analizando…", success: "Listo", error: "Revisa esto" };

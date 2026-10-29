@@ -62,11 +62,11 @@ cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en
 ## Conoce a Trace Buddy: tu QA senior con IA, siempre contigo
 
 <p align="center">
-  <img src="./.github/assets/trace-buddy-es.gif" alt="Trace Buddy, un pequeño hacker de QA en 3D con capucha, explica por qué falló un test de checkout y entrega el cURL para Postman; luego se cambia de ropa al cambiar el tema" width="100%" />
+  <img src="./.github/assets/trace-buddy-es.gif" alt="Trace Buddy, un pequeño ingeniero de QA en 3D con capucha, explica por qué falló un test de checkout y entrega el cURL para Postman; luego se cambia de ropa al cambiar el tema" width="100%" />
 </p>
 
 Depurar un test en rojo a las 2 de la mañana no tiene por qué ser un trabajo solitario. **Trace Buddy** vive en
-la esquina de cada reporte: un pequeño hacker de QA con capucha, en 3D, que ya leyó toda la ejecución y está feliz
+la esquina de cada reporte: un pequeño ingeniero de QA con capucha, en 3D, que ya leyó toda la ejecución y está feliz
 de revisarla contigo.
 
 - **Pregúntale lo que quieras del fallo**, con tus palabras. Responde con la evidencia del reporte: los pasos, las

@@ -1,4 +1,4 @@
-// Trace Buddy en 3D: un pequeño hacker de QA con capucha, construido por código con three.js (sin modelos
+// Trace Buddy en 3D: un pequeño ingeniero de QA con capucha, construido por código con three.js (sin modelos
 // externos). La cara vive en el visor (un canvas que se redibuja: pestañea, sigue al puntero, habla y cambia
 // de expresión), el cuerpo hace gestos según lo que pasa (asiente, pulgar arriba, mano al visor, se rasca la
 // cabeza, se duerme si nadie lo mira) y la ropa cambia con el tema de TraceReports.
