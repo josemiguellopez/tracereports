@@ -90,6 +90,8 @@ type Server struct {
 	Screenshots string
 	// probe caches Trace Buddy's "does the AI answer?" check (see buddy.go).
 	probe probeCache
+	// chat limits Trace Buddy's free questions per hour (see buddy.go).
+	chat chatLimiter
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -125,6 +127,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/{run_id}/recurrence", s.runRecurrence)
 		r.Get("/runs/{run_id}/escalation", s.getEscalation)
 		r.Post("/ui/ai/probe", s.aiProbe)
+		r.Post("/ui/ai/chat", s.aiChat)
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/escalate", s.escalate)
@@ -217,8 +220,8 @@ func (s *Server) getConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ai_enabled": s.AI.Enabled(), "ai_model": s.AI.Model(), "trackers": trackers,
 		"ai_provider": s.AI.Provider(), "language": saved[setLanguage], "ai_language": aiLanguage(saved),
-		"screenshots": s.screenshotPolicy(), // la web explica por qué un test no tiene capturas
-		"settings_editable": canEdit,       // Trace Buddy puede fijar el idioma de los diagnósticos
+		"screenshots":       s.screenshotPolicy(), // la web explica por qué un test no tiene capturas
+		"settings_editable": canEdit,              // Trace Buddy puede fijar el idioma de los diagnósticos
 		// acciones desde la UI (re-analizar, escalar, enviar) y canales disponibles
 		"ui_actions": canAct, "ui_actions_reason": why, "teams": teams, "slack": slack, "public_url": publicURL, "demo": s.Demo})
 }

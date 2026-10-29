@@ -26,7 +26,7 @@ test("con off lo explica en cualquier test; con all o en un reporte exportado, n
 	assert.equal(note("failures", pass, true), "");
 });
 
-test("Tty solo ofrece la pregunta de las capturas cuando el servidor descarta alguna", () => {
+test("Trace Buddy solo ofrece la pregunta de las capturas cuando el servidor descarta alguna", () => {
 	assert.ok(src.includes('const buddyAsks = () => BUDDY_ASKS.filter(([id]) => id !== "shots" || (S.config.screenshots && S.config.screenshots !== "all"));'));
 	assert.ok(src.includes("${buddyAsks().map("));
 });
