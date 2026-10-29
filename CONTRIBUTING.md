@@ -71,6 +71,9 @@ To see your changes with real data, start the server and run one of the
 - The UI lives in [`web/`](web) and has **no build step**: plain HTML, CSS and JavaScript.
 - It is embedded in the binary with `go:embed`, so **restart the server** (`go run ./cmd`) to see
   your changes.
+- [`test/e2e/ui_sweep.spec.js`](test/e2e/ui_sweep.spec.js) walks every view on desktop and on a phone
+  (no JavaScript errors, nothing stuck on "Loading…", no sideways scroll) and opens and closes the side
+  panels. CI runs it on every pull request; run it before yours when you change a screen.
 - Colors, spacing and components come from design tokens. Read
   [UI tokens and components](docs/en/ui-tokens.md) before adding styles or a new theme.
 
