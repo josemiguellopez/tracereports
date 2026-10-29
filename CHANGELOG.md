@@ -28,6 +28,13 @@ warning, and anyone who reached the port could read and change the reports. Now 
 4. Only in a closed lab network, `TRACEREPORTS_INSECURE=1` restores the previous behavior (with a warning).
 ### Added
 
+- **Chat with Trace Buddy**: with an LLM configured (Ollama, Gemini, Claude, OpenAI…), it takes free questions
+  in a box at the bottom of its panel (Enter sends, Shift+Enter breaks the line) and answers with the evidence of
+  the test or run being viewed and the last turns of the conversation, in the interface language, only about
+  testing and TraceReports. Through the new `POST /api/v1/ui/ai/chat`: admin only, everything through the
+  redaction (a password typed in the question does not reach the model), the provider allowlist, up to 60
+  questions per hour per server, and every call in AI usage as "Questions to Trace Buddy". With the local rules
+  engine there is no box: it cannot chat.
 - **Why a test has no screenshots**: with `TRACEREPORTS_SCREENSHOTS=failures`, a test that did not fail and has
   no screenshots says that this server only keeps the failures' ones (with `off`, every test says so), instead
   of looking like the images were lost. `GET /api/v1/config` reports the policy, and Trace Buddy gets a "Why
@@ -41,9 +48,15 @@ warning, and anyone who reached the port could read and change the reports. Now 
   A diagnosis in another language than the interface says so, in its card and in Trace Buddy: one click
   re-analyzes it, or (when Settings is editable) sets that language for every new diagnosis and re-analyzes
   it; with Settings locked it says which `.env` line to add.
-- **Trace Buddy**, a QA assistant on a floating button (bottom right): **Tty**, a retro terminal with legs
-  whose face is on the screen. It turns on like an old monitor, code rains on its screen while the AI
-  works, and it shows `^_^` or glitches with `x_x` on the result. It only opens when you call it and
+- **Trace Buddy**, a QA assistant on a floating button (bottom right): a small QA hacker in a hood, in 3D
+  (built in code with three.js, loaded only for whoever sees it and after the page is ready; without WebGL it
+  shows its picture). Its face lives on the visor: it blinks, follows the pointer with eyes, head and body,
+  talks when it answers, nods at a question and changes expression and gesture with what happens (scratches its
+  head while the AI works, thumbs up with star eyes on success, hand to the visor on a problem). Left alone it
+  fidgets, gets bored and falls asleep; hovered for a while it blushes. Now and then it says something in a
+  thought bubble about what is being viewed (at most every ~90 s, only with the panel closed; the × silences it
+  for the session). On a theme change it changes clothes step by step behind a pixelated censor: the old hood
+  flies off, the new clothes come piece by piece and the new hood drops in. It only opens when you call it and
   can be hidden (Settings → Appearance brings it back). Its first message tells whether the configured AI
   answers (provider, model and how long it took, or why not in plain words), through the new
   `POST /api/v1/ui/ai/probe`. Without an LLM it answers from what TraceReports already knows: explains the

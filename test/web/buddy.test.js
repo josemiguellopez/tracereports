@@ -33,7 +33,7 @@ test("distingue un diagnóstico en español de uno en inglés (textos reales de 
 	assert.equal(textLang("HTTP 500"), "", "con muy pocas palabras no adivina");
 });
 
-test("Tty re-analiza si el servidor ya escribe en ese idioma; si no, lo fija con un clic o dice qué poner en el .env", () => {
+test("Trace Buddy re-analiza si el servidor ya escribe en ese idioma; si no, lo fija con un clic o dice qué poner en el .env", () => {
 	const en = { id: 7, triage: { summary: "The test failed before the order was confirmed and the backend returned an error.", suggestion: "Check the logs of the service." } };
 	const yaEnEspanol = langParts("es", "es").buddyLangNote(en);
 	assert.ok(yaEnEspanol.includes('data-buddy-reanalyze="7"') && yaEnEspanol.includes("Re-analizarlo en español"), yaEnEspanol);
@@ -43,4 +43,42 @@ test("Tty re-analiza si el servidor ya escribe en ese idioma; si no, lo fija con
 	assert.ok(bloqueado.includes("TRACEREPORTS_AI_LANGUAGE=es") && !bloqueado.includes("<button"), bloqueado);
 	const es = { id: 8, triage: { summary: "El backend respondió con un error justo antes del fallo de la prueba.", suggestion: "Revisa los logs del servicio." } };
 	assert.equal(langParts("es", "es").buddyLangNote(es), "", "mismo idioma: nada que avisar");
+});
+
+test("el chat solo aparece con un modelo de lenguaje, y la respuesta del modelo se muestra escapada", () => {
+	const fn = section.slice(section.indexOf("const buddyCanChat"), section.indexOf("const buddyHidden"));
+	const can = (cfg) => new Function("S", `${fn}; return buddyCanChat();`)({ config: cfg });
+	assert.equal(can({ ai_enabled: true, ai_provider: "ollama" }), true);
+	assert.equal(can({ ai_enabled: true, ai_provider: "builtin" }), false, "el motor local no conversa");
+	assert.equal(can({ ai_enabled: false, ai_provider: "" }), false);
+	assert.ok(section.includes('${buddyCanChat() ? `<form class="buddy-chat" id="buddy-chat">'));
+	// lo que escribe el modelo nunca entra al HTML sin esc(), ni lo que escribe la persona
+	assert.ok(section.includes('${esc(r.answer).replace(/\\n/g, "<br>")}'));
+	assert.ok(section.includes('buddySay(esc(text), "me");'));
+	// una pregunta sin respuesta no queda en lo que viaja al modelo
+	assert.ok(section.includes("buddy.chat.pop();"));
+});
+
+test("los pensamientos no molestan: solo con el panel cerrado, la pestaña visible y sin silenciar", () => {
+	const fn = section.slice(section.indexOf("function buddyThink()"), section.indexOf("function buddyThoughtHide()"));
+	for (const cond of ["root.hidden", "buddy.open", "document.hidden", "buddyIsQuiet()", "buddy.chatting", "buddy.probing"]) {
+		assert.ok(fn.includes(cond), `falta la condición ${cond}`);
+	}
+	assert.ok(fn.includes("buddySpeak(buddyThoughtText(), 7000)"), "se va solo a los 7 s");
+	const speak = section.slice(section.indexOf("function buddySpeak("), section.indexOf("const BUDDY_REACTIONS"));
+	assert.ok(speak.includes("buddy.open") && speak.includes("setTimeout(buddyThoughtHide, ms)"), "nunca sobre el panel abierto");
+	assert.ok(/75000 \+ Math\.random\(\) \* 45000/.test(fn), "uno cada 75 a 120 s");
+});
+
+test("piensa en lo que se está viendo: un test fallido, varios en rojo o todo verde", () => {
+	const fn = section.slice(section.indexOf("function buddyThoughtText()"), section.indexOf("function buddyThink()"));
+	const tr = (s, v) => s.replace(/\{(\w+)\}/g, (_, k) => v[k]);
+	const think = (S, n = 3) => new Function("S", "tr", "buddyCanChat", "buddy", `${fn}; return buddyThoughtText();`)(S, tr, () => false, { thoughts: n });
+	const fail = { view: "tests", test: { status: "FAIL" }, run: { tests: [{ status: "FAIL" }, { status: "FAIL" }, { status: "PASS" }] } };
+	const seen = new Set(Array.from({ length: 60 }, () => think(fail)));
+	assert.ok([...seen].some((x) => x.includes("Este test falló")), [...seen].join(" | "));
+	assert.ok([...seen].some((x) => x.includes("Hay 2 tests en rojo")));
+	const green = { view: "tests", test: { status: "PASS" }, run: { tests: [{ status: "PASS" }] } };
+	assert.ok(Array.from({ length: 60 }, () => think(green)).some((x) => x.includes("Todo verde")));
+	assert.equal(think(fail, 0), "¡Hola! Estoy aquí si me necesitas.", "el primero es un saludo");
 });

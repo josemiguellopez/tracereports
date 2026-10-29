@@ -1847,6 +1847,7 @@
 
 	function applyTheme(id, persist = true) {
 		document.body.dataset.theme = id;
+		buddy.three?.setTheme(id); // Trace Buddy se cambia de ropa (applyTheme corre después de definir buddy)
 		if (persist) { try { localStorage.setItem(THEME_KEY, id); } catch { /* ignore */ } }
 		$$("#theme-menu .theme-option").forEach((o) => o.setAttribute("aria-checked", String(o.dataset.themeId === id)));
 		// los gráficos leen los colores del tema al crearse: se vuelven a dibujar
@@ -3702,7 +3703,7 @@
 			</div></div>`;
 	}
 
-	const USAGE_KINDS = { triage: "Diagnóstico de tests", run_summary: "Resumen de la ejecución", escalation: "Escalamientos", test: "Probar conexión" };
+	const USAGE_KINDS = { triage: "Diagnóstico de tests", run_summary: "Resumen de la ejecución", escalation: "Escalamientos", test: "Probar conexión", chat: "Preguntas a Trace Buddy" };
 
 	/** Uso del proveedor de IA: llamadas y tokens que informó, hoy, 7 y 30 días (Ajustes → Uso de la IA). */
 	function usageCard() {
@@ -4045,27 +4046,10 @@
 	// revisión de seguridad); la primera burbuja dice si la IA configurada responde. Solo administración:
 	// probar la IA gasta la key del equipo.
 	const BUDDY_KEY = "tracereports-buddy";
-	// Tty, el personaje: una terminal retro con patitas. Su cara está en la pantalla (ojos que pestañean y
-	// el cursor de boca) y cambia con el ánimo de #buddy (data-mood: idle, thinking, success, error).
-	// La pantalla es un <svg> anidado: recorta el "código" que cae sin ids repetidos entre el botón y el panel.
-	const BUDDY_LOGO = `<svg class="buddy-logo tty" viewBox="16 14 170 180" aria-hidden="true">
-		<path d="M140 34 q22 -18 30 4" stroke="#18200d" stroke-width="7" fill="none" stroke-linecap="round"/>
-		<circle class="bl-dot" cx="170" cy="40" r="9"/>
-		<g class="tty-leg"><rect x="66" y="158" width="14" height="24" rx="6" fill="#18200d"/><rect x="58" y="176" width="30" height="12" rx="6" fill="#18200d"/></g>
-		<g class="tty-leg r"><rect x="120" y="158" width="14" height="24" rx="6" fill="#18200d"/><rect x="112" y="176" width="30" height="12" rx="6" fill="#18200d"/></g>
-		<rect x="28" y="30" width="144" height="134" rx="26" fill="#c9fa6b" stroke="#18200d" stroke-width="8"/>
-		<rect x="42" y="146" width="116" height="8" rx="4" fill="#6c9736"/>
-		<g class="tty-crt"><rect class="tty-screen" x="44" y="44" width="112" height="94" rx="16"/>
-			<svg x="44" y="44" width="112" height="94" viewBox="44 44 112 94">
-				<rect class="tty-scan" x="44" y="88" width="112" height="7" fill="#c9fa6b" opacity=".1"/>
-				<g class="tty-rain" font-family="JetBrains Mono, Consolas, monospace" font-size="14" font-weight="700" fill="#c9fa6b">
-					<text x="52" y="76">01</text><text x="80" y="98">{}</text><text x="106" y="72">&lt;/&gt;</text><text x="132" y="104">ok</text></g>
-				<g class="tty-face"><g class="tty-eyes"><rect x="68" y="70" width="16" height="22" rx="3"/><rect x="116" y="70" width="16" height="22" rx="3"/></g>
-					<rect class="tty-mouth" x="89" y="108" width="22" height="7" rx="2"/></g>
-				<text class="tty-happy" x="100" y="103" text-anchor="middle">^_^</text>
-				<text class="tty-sad" x="100" y="103" text-anchor="middle">x_x</text>
-			</svg></g>
-	</svg>`;
+	// El personaje: un pequeño hacker de QA con capucha (web/buddy/). La imagen tiene una sola expresión: el
+	// ánimo (data-mood en #buddy: idle, thinking, success, error) se ve en el halo y en la pastilla de estado.
+	const BUDDY_LOGO = `<img class="buddy-logo" src="buddy/tracebuddy-avatar.webp" alt="" width="512" height="512" decoding="async" draggable="false">`;
+	const BUDDY_MOODS = { idle: "Disponible", thinking: "Analizando…", success: "Listo", error: "Revisa esto" };
 	const BUDDY_PROVIDERS = { gemini: "Google Gemini", anthropic: "Anthropic Claude", openai: "OpenAI", openai_compatible: "Compatible con OpenAI", ollama: "Ollama" };
 	const BUDDY_HINTS = {
 		model_unavailable: "El modelo no está disponible para esta cuenta.",
@@ -4081,7 +4065,9 @@
 	// "¿Por qué no hay capturas?" solo tiene sentido si el servidor descarta alguna
 	const buddyAsks = () => BUDDY_ASKS.filter(([id]) => id !== "shots" || (S.config.screenshots && S.config.screenshots !== "all"));
 	// waitTest: el test cuyo diagnóstico se está esperando para explicarlo apenas llegue
-	const buddy = { open: false, msgs: [], probing: false, greeted: false, closeTimer: 0, waitTest: null, waitEl: null };
+	const buddy = { open: false, msgs: [], probing: false, greeted: false, closeTimer: 0, waitTest: null, waitEl: null, chat: [], chatting: false, thoughts: 0 };
+	// el chat libre necesita un modelo de lenguaje: el motor local diagnostica, pero no conversa
+	const buddyCanChat = () => !!S.config.ai_enabled && !!S.config.ai_provider && S.config.ai_provider !== "builtin";
 	const buddyHidden = () => { try { return localStorage.getItem(BUDDY_KEY) === "hidden"; } catch { return false; } };
 	const buddyAvailable = () => canAct() && !!S.config.ai_enabled;
 
@@ -4091,18 +4077,28 @@
 		root.id = "buddy";
 		root.className = "buddy";
 		root.dataset.mood = "idle";
-		root.innerHTML = `<button class="buddy-fab" id="buddy-fab" type="button" aria-expanded="false" aria-controls="buddy-panel" aria-label="Abrir Trace Buddy">${BUDDY_LOGO}</button>
+		root.innerHTML = `<div class="buddy-thought" id="buddy-thought" hidden><button class="buddy-thought-text" type="button" data-buddy-thought></button>
+				<button class="buddy-thought-x" type="button" data-buddy-quiet aria-label="No mostrar pensamientos">${icon("i-close")}</button></div>
+			<div class="buddy-launch"><button class="buddy-fab" id="buddy-fab" type="button" aria-expanded="false" aria-controls="buddy-panel" aria-label="Abrir Trace Buddy"><span class="buddy-glow" aria-hidden="true"></span>${BUDDY_LOGO}<span class="buddy-3d" aria-hidden="true"></span></button>
+				<span class="buddy-status" id="buddy-status" aria-hidden="true"><i></i><span>${tr(BUDDY_MOODS.idle)}</span></span></div>
 			<section class="buddy-panel" id="buddy-panel" role="dialog" aria-labelledby="buddy-title" hidden>
 				<header class="buddy-head"><span class="buddy-avatar">${BUDDY_LOGO}</span>
-					<div><b id="buddy-title" data-no-i18n>Trace Buddy</b><small>Tu asistente de QA</small></div>
+					<div><b id="buddy-title" data-no-i18n>Trace Buddy</b><small>Tu aliado en QA Automation</small></div>
 					<button class="link-btn" type="button" data-buddy-hide>Ocultar</button>
 					<button class="buddy-close" type="button" data-buddy-close aria-label="Cerrar">${icon("i-close")}</button></header>
+				<div class="buddy-context" id="buddy-context"></div>
 				<div class="buddy-log" id="buddy-log" aria-live="polite"></div>
 				<div class="buddy-asks" id="buddy-asks" role="group" aria-label="Preguntas">${buddyAsks().map(([id, label]) => `<button class="buddy-ask" type="button" data-buddy-ask="${id}">${label}</button>`).join("")}</div>
+				${buddyCanChat() ? `<form class="buddy-chat" id="buddy-chat">
+					<textarea id="buddy-input" rows="1" maxlength="2000" placeholder="Pregunta por este fallo o el reporte…" aria-label="Tu pregunta"></textarea>
+					<button class="buddy-send" type="submit" aria-label="Enviar">${icon("i-send")}</button></form>
+				<p class="buddy-note">${tr("Las sugerencias de la IA se verifican con la evidencia del reporte.")}</p>` : ""}
 			</section>`;
 		document.body.appendChild(root);
 		root.addEventListener("click", (e) => {
 			if (e.target.closest("#buddy-fab")) { buddyToggle(!buddy.open); return; }
+			if (e.target.closest("[data-buddy-thought]")) { buddyThoughtHide(); buddyToggle(true); return; }
+			if (e.target.closest("[data-buddy-quiet]")) { buddyQuiet(); return; }
 			if (e.target.closest("[data-buddy-close]")) { buddyToggle(false); return; }
 			if (e.target.closest("[data-buddy-hide]")) { buddySetHidden(true); return; }
 			const ask = e.target.closest("[data-buddy-ask]");
@@ -4112,6 +4108,12 @@
 			if (e.target.closest("[data-view-link]")) buddyToggle(false); // el link lleva a otra vista
 		});
 		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && buddy.open) { buddyToggle(false); $("#buddy-fab").focus(); } });
+		root.addEventListener("submit", (e) => { if (e.target.id === "buddy-chat") { e.preventDefault(); buddyChatSend(); } });
+		root.addEventListener("keydown", (e) => {
+			// Enter envía; Shift+Enter hace un salto de línea
+			if (e.target.id === "buddy-input" && e.key === "Enter" && !e.shiftKey && !e.isComposing) { e.preventDefault(); buddyChatSend(); }
+		});
+		root.addEventListener("input", (e) => { if (e.target.id === "buddy-input") buddyGrow(e.target); });
 		// el aviso de idioma está en Trace Buddy y en la tarjeta del diagnóstico: sus botones valen en toda la página
 		document.addEventListener("click", (e) => {
 			const setLang = e.target.closest("[data-buddy-lang]");
@@ -4120,6 +4122,96 @@
 			if (again) buddyReanalyze(Number(again.dataset.buddyReanalyze), again);
 		});
 		buddyRefresh();
+		buddyLoad3D(root);
+		buddy.thoughtTimer = setTimeout(buddyThink, 20000); // el primero, un saludo, a los 20 s
+	}
+
+	// ---------- pensamientos: cuando nadie le habla, de vez en cuando dice algo ----------
+	// Sin volverse el clip de Office: solo con el panel cerrado y la pestaña visible, uno cada ~90 s como
+	// máximo, se va solo a los 7 s, un clic abre el panel y la × lo silencia hasta cerrar la pestaña.
+	const BUDDY_QUIET_KEY = "tracereports-buddy-quiet";
+	const buddyIsQuiet = () => { try { return sessionStorage.getItem(BUDDY_QUIET_KEY) === "1"; } catch { return false; } };
+
+	/** Qué pensar ahora: algo del reporte que se está viendo si lo hay; si no, saludar o aburrirse. */
+	function buddyThoughtText() {
+		const t = S.view === "tests" ? S.test : null;
+		const failed = S.run ? S.run.tests.filter((x) => x.status === "FAIL").length : 0;
+		const context = [];
+		if (t?.status === "FAIL") context.push(tr("Este test falló. ¿Te explico qué pasó?"));
+		if (failed > 1) context.push(tr("Hay {n} tests en rojo en esta ejecución. ¿Empezamos por el que más rompe?", { n: failed }));
+		if (S.run && !failed) context.push(tr("Todo verde por aquí. ¡Buen trabajo!"));
+		if (buddyCanChat()) context.push(tr("¡Estoy listo! Pregúntame lo que quieras del reporte."));
+		const chatter = [
+			tr("¡Hola! Estoy aquí si me necesitas."),
+			tr("Ando un poco aburrido… ¿revisamos algo juntos?"),
+			tr("¿Sabías que puedo explicarte un fallo con un clic?"),
+			tr("Pssst… pásame el mouse por encima."),
+		];
+		if (buddy.thoughts === 0) return chatter[0];
+		const pool = context.length && Math.random() < 0.65 ? context : chatter;
+		return pool[Math.floor(Math.random() * pool.length)];
+	}
+
+	function buddyThink() {
+		clearTimeout(buddy.thoughtTimer);
+		buddy.thoughtTimer = setTimeout(buddyThink, 75000 + Math.random() * 45000);
+		const root = $("#buddy");
+		if (!root || root.hidden || buddy.open || document.hidden || buddyIsQuiet() || buddy.chatting || buddy.probing) return;
+		buddySpeak(buddyThoughtText(), 7000);
+		buddy.thoughts = (buddy.thoughts || 0) + 1;
+		buddy.three?.wave();
+	}
+
+	/** Dice algo en el globo (un pensamiento o una reacción), con la boca moviéndose. */
+	function buddySpeak(text, ms) {
+		const root = $("#buddy"), el = $("#buddy-thought");
+		if (!root || !el || root.hidden || buddy.open) return;
+		el.querySelector("[data-buddy-thought]").textContent = text;
+		el.hidden = false;
+		requestAnimationFrame(() => el.classList.add("show"));
+		buddy.three?.talk(Math.min(3, 0.8 + text.length / 30));
+		clearTimeout(buddy.thoughtHide);
+		buddy.thoughtHide = setTimeout(buddyThoughtHide, ms);
+	}
+
+	// lo que dice el personaje 3D cuando le pasa algo: responde a algo que hizo la persona (cambiar el tema,
+	// dejarle el cursor encima), así que sale aunque los pensamientos estén silenciados
+	const BUDDY_REACTIONS = {
+		changeStart: ["¿Tema nuevo? Necesito cambiar mi outfit… ¡no mires! 🙈", "¡Uy, cambio de look! Dame un segundo…"],
+		changeEnd: ["¡Listo! ¿Qué tal me queda?", "Ta-dá ✨ ¿Te gusta mi outfit nuevo?"],
+		shy: ["¡Me vas a hacer sonrojar! 😳", "¿Me estás mirando? 😳"],
+	};
+	function buddyReact(name) {
+		const lines = BUDDY_REACTIONS[name];
+		if (lines) buddySpeak(tr(lines[Math.floor(Math.random() * lines.length)]), name === "changeStart" ? 3200 : 3600);
+	}
+
+	function buddyThoughtHide() {
+		const el = $("#buddy-thought");
+		if (!el || el.hidden) return;
+		el.classList.remove("show");
+		setTimeout(() => { if (!el.classList.contains("show")) el.hidden = true; }, 220);
+	}
+
+	function buddyQuiet() {
+		try { sessionStorage.setItem(BUDDY_QUIET_KEY, "1"); } catch { /* solo esta vez */ }
+		buddyThoughtHide();
+	}
+
+	/** El personaje en 3D (web/buddy/buddy3d.js, con three.js): se carga después de que la página está lista y
+	 * solo para quien ve a Trace Buddy. Si algo falla o no hay WebGL, se queda la imagen. */
+	function buddyLoad3D(root) {
+		if (root.hidden || buddy.three !== undefined) return;
+		buddy.three = null; // cargando
+		const start = () => import("./buddy/buddy3d.js").then((m) => {
+			const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+			const ctl = m.mountBuddy3D(root.querySelector(".buddy-3d"), { theme: document.body.dataset.theme, reducedMotion, onEvent: buddyReact });
+			if (!ctl) return;
+			buddy.three = ctl;
+			root.classList.add("has-3d");
+			ctl.setMood(root.dataset.mood || "idle");
+		}).catch((err) => console.warn("Trace Buddy 3D:", err));
+		(window.requestIdleCallback || ((f) => setTimeout(f, 1200)))(start);
 	}
 
 	/** Muestra u oculta el botón según el permiso, la IA y la preferencia del navegador. */
@@ -4129,14 +4221,23 @@
 		const show = buddyAvailable() && !buddyHidden();
 		if (!show && buddy.open) buddyToggle(false);
 		root.hidden = !show;
+		buddy.three?.setVisible(show);
+		if (show) buddyLoad3D(root);
 	}
 
 	function buddyMood(mood, ms = 0) {
 		const root = $("#buddy");
 		if (!root) return;
 		clearTimeout(buddy.moodTimer);
-		root.dataset.mood = mood;
-		if (ms) buddy.moodTimer = setTimeout(() => { root.dataset.mood = buddy.probing || buddy.waitTest ? "thinking" : "idle"; }, ms);
+		const set = (m) => {
+			root.dataset.mood = m;
+			buddy.three?.setMood(m);
+			const label = $("#buddy-status span"), status = tr(BUDDY_MOODS[m] || BUDDY_MOODS.idle);
+			if (label) label.textContent = status;
+			$("#buddy-fab")?.setAttribute("aria-label", `${tr("Abrir Trace Buddy")} · ${status}`);
+		};
+		set(mood);
+		if (ms) buddy.moodTimer = setTimeout(() => set(buddy.probing || buddy.waitTest || buddy.chatting ? "thinking" : "idle"), ms);
 	}
 
 	function buddySetHidden(hidden) {
@@ -4150,15 +4251,30 @@
 		if (S.view === "settings") renderSettings(true);
 	}
 
+	/** La barra bajo la cabecera: la IA que responde de verdad (o el motor local) y el test que se está viendo. */
+	function buddyContext() {
+		const bar = $("#buddy-context");
+		if (!bar) return;
+		const llm = buddyCanChat();
+		const mode = llm ? `${tr("IA conectada")} · <span data-no-i18n>${esc(S.config.ai_model || S.config.ai_provider)}</span>` : tr("Motor local");
+		const t = S.view === "tests" && S.test ? S.test : null;
+		const what = t ? `<span class="buddy-context-test" data-no-i18n title="${esc(t.name)}">${esc(t.name)}</span>`
+			: S.run ? `<span class="buddy-context-test" data-no-i18n>${esc(S.run.name)}</span>` : "";
+		bar.innerHTML = `<span class="buddy-mode ${llm ? "llm" : "local"}">${mode}</span>${what}`;
+	}
+
 	function buddyToggle(open) {
 		const panel = $("#buddy-panel"), fab = $("#buddy-fab");
 		if (!panel || buddy.open === open) return;
 		buddy.open = open;
 		fab.setAttribute("aria-expanded", String(open));
+		buddy.three?.setPanel(open);
 		fab.classList.toggle("active", open);
 		clearTimeout(buddy.closeTimer);
 		if (open) {
+			buddyThoughtHide();
 			fab.classList.remove("news");
+			buddyContext();
 			panel.hidden = false;
 			requestAnimationFrame(() => panel.classList.add("open")); // un cuadro después, para que la transición corra
 			if (!buddy.greeted) {
@@ -4175,6 +4291,11 @@
 
 	const BUDDY_TYPING = `<span class="buddy-typing" aria-hidden="true"><i></i><i></i><i></i></span>`;
 
+	/** El personaje 3D mueve la boca un rato, según lo largo de lo que dice. */
+	function buddyTalk(el) {
+		buddy.three?.talk(Math.min(4, 0.8 + (el.textContent || "").length / 70));
+	}
+
 	/** Agrega una burbuja y la devuelve (para completarla después con buddyFill). */
 	function buddySay(html, from = "bot") {
 		buddy.msgs.push({ html, from });
@@ -4184,14 +4305,17 @@
 		el.className = `buddy-msg ${from}`;
 		el.innerHTML = html;
 		log.appendChild(el);
+		if (from === "bot" && !html.includes("buddy-typing")) buddyTalk(el);
 		log.scrollTop = log.scrollHeight;
 		return el;
 	}
 
-	/** Completa una burbuja que estaba "escribiendo…"; con el panel cerrado, el botón avisa que hay respuesta. */
-	function buddyFill(el, html) {
-		if (el && el === el.parentNode?.lastElementChild) { el.innerHTML = html; el.classList.remove("waiting"); }
-		else { el?.remove(); buddySay(html); } // si hubo mensajes después, la respuesta va al final, donde se está mirando
+	/** Completa una burbuja que estaba "escribiendo…"; con el panel cerrado, el botón avisa que hay respuesta.
+	 * Una respuesta a una pregunta va al final, donde se está mirando, si hubo mensajes después; un aviso que no
+	 * responde a nada (el estado de la IA, inPlace) se queda donde empezó, para no meterse entre pregunta y respuesta. */
+	function buddyFill(el, html, inPlace = false) {
+		if (el?.isConnected && (inPlace || el === el.parentNode.lastElementChild)) { el.innerHTML = html; el.classList.remove("waiting"); buddyTalk(el); }
+		else { el?.remove(); buddySay(html); }
 		const log = $("#buddy-log");
 		if (log) log.scrollTop = log.scrollHeight;
 		if (!buddy.open) $("#buddy-fab")?.classList.add("news");
@@ -4199,6 +4323,7 @@
 
 	function buddyAsk(id, label) {
 		buddySay(esc(label), "me");
+		buddy.three?.nod();
 		({ explain: buddyExplain, first: buddyFirst, probe: () => buddyProbe(true), connect: buddyConnect, security: buddySecurity, shots: buddyShots }[id] || (() => {}))();
 	}
 
@@ -4217,14 +4342,14 @@
 		}
 		buddy.probing = false;
 		$$("[data-buddy-ask=probe]").forEach((b) => (b.disabled = false));
-		buddyFill(el, buddyProbeText(r));
+		buddyFill(el, buddyProbeText(r), !force); // la del saludo queda bajo el saludo; "¿Funciona la IA?" responde a esa pregunta
 		buddyMood(r.ok ? "success" : r.state === "off" ? "idle" : "error", 2600);
 	}
 
 	/** La respuesta de /ui/ai/probe en palabras simples. */
 	function buddyProbeText(r) {
 		const aiLink = `<a href="#" data-view-link="settings" data-set-tab="ai">${tr("Ajustes → Inteligencia artificial")}</a>`;
-		if (r.state === "off") return tr("La IA está apagada en este servidor.") + ` ${aiLink}`;
+		if (r.state === "off") return tr("Mi IA está apagada en este servidor.") + ` ${aiLink}`;
 		if (r.state === "local") {
 			return `<b>${tr("Uso el motor local de reglas")}</b> <span data-no-i18n>(${esc(r.model)})</span>. `
 				+ tr("Diagnostico los fallos sin que nada salga del servidor, pero todavía no puedo conversar libremente. Para chatear conmigo, configura Ollama (un modelo en tu red) en")
@@ -4232,12 +4357,48 @@
 		}
 		const name = esc(tr(BUDDY_PROVIDERS[r.provider] || r.provider || ""));
 		if (r.ok) {
-			return `<span class="buddy-ok">✓</span> ${tr("La IA responde:")} <b data-no-i18n>${name}</b> · <span data-no-i18n>${esc(r.model)}</span> · `
-				+ tr("respondió en {t}", { t: fmtDur(r.ms) });
+			return `<span class="buddy-ok">✓</span> ${tr("¡Estoy conectado! Pienso con")} <b data-no-i18n>${name}</b> · <span data-no-i18n>${esc(r.model)}</span> · `
+				+ tr("respondí en {t}", { t: fmtDur(r.ms) });
 		}
 		const why = BUDDY_HINTS[r.hint] ? tr(BUDDY_HINTS[r.hint]) : `<span data-no-i18n>${esc(r.error || "")}</span>`;
 		const tryModel = r.suggest ? ` ${tr("Prueba con el modelo {m}.", { m: r.suggest })}` : "";
 		return `<span class="buddy-bad">✗</span> ${tr("No pude conectar con")} <b data-no-i18n>${name}</b>${r.model ? ` <span data-no-i18n>(${esc(r.model)})</span>` : ""}: ${why}${esc(tryModel)} ${tr("Revisa")} ${aiLink}.`;
+	}
+
+	function buddyGrow(el) {
+		el.style.height = "auto";
+		el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
+	}
+
+	/** Una pregunta libre: va con la evidencia del test (o la ejecución) que se está viendo y las últimas
+	 * respuestas de la conversación. El servidor la pasa por la redacción antes de enviarla al modelo. */
+	async function buddyChatSend() {
+		const input = $("#buddy-input"), text = input?.value.trim();
+		if (!text || buddy.chatting) return;
+		input.value = "";
+		buddyGrow(input);
+		buddySay(esc(text), "me");
+		buddy.three?.nod();
+		buddy.chat.push({ role: "user", text });
+		buddy.chatting = true;
+		$("#buddy-chat .buddy-send").disabled = true;
+		const el = buddySay(BUDDY_TYPING);
+		el?.classList.add("waiting");
+		buddyMood("thinking");
+		const testId = S.view === "tests" && S.test ? S.test.id : 0;
+		try {
+			const r = await apiSend("POST", "/api/v1/ui/ai/chat", { run_id: S.runId || 0, test_id: testId, lang: I18N.lang, messages: buddy.chat.slice(-8) });
+			buddy.chat.push({ role: "assistant", text: r.answer });
+			buddyFill(el, `<div class="buddy-answer" data-no-i18n>${esc(r.answer).replace(/\n/g, "<br>")}</div>`);
+			buddyMood("success", 2000);
+		} catch (err) {
+			buddy.chat.pop(); // la pregunta sin respuesta no queda en el historial que viaja al modelo
+			buddyFill(el, `${tr("No pude responder:")} <span data-no-i18n>${esc(err.message)}</span>`);
+			buddyMood("error", 2600);
+		}
+		buddy.chatting = false;
+		$("#buddy-chat .buddy-send").disabled = false;
+		input.focus();
 	}
 
 	function buddyExplain() {
@@ -4263,6 +4424,7 @@
 	}
 
 	function buddyTestLoaded(t) {
+		if (buddy.open) buddyContext();
 		if (buddy.waitTest !== t.id || t.triage?.state === "PENDING") return;
 		const el = buddy.waitEl;
 		buddy.waitTest = buddy.waitEl = null;
@@ -4276,7 +4438,8 @@
 			return tr("Este fallo no tiene diagnóstico automático.") + (tri?.error ? ` <span data-no-i18n>${esc(tri.error)}</span>` : "")
 				+ ` ${tr("Mira el error y los pasos del test, o usa Re-analizar en la vista IA.")}`;
 		}
-		const who = tri.provider === "builtin" ? tr("Según el motor local de reglas") : tr("Según la IA");
+		const who = tri.provider === "builtin" ? tr("Lo analicé con mis reglas locales")
+			: `${tr("Lo analicé con")} <span data-no-i18n>${esc(S.config.ai_model || tri.provider || "")}</span>`;
 		return `<b data-no-i18n>${esc(t.name)}</b> <span class="ai-cat ${esc(tri.category)}">${esc(tri.category)}</span>
 			<p data-no-i18n>${esc(tri.summary)}</p>${tri.suggestion ? `<p class="buddy-next" data-no-i18n>→ ${esc(tri.suggestion)}</p>` : ""}
 			<small>${who}${tri.rule ? ` · <span data-no-i18n>${esc(tri.rule)}</span>` : ""}</small>${buddyLangNote(t)}`;
