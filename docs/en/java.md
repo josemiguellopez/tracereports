@@ -12,7 +12,7 @@ To use it without publishing, include it as a Gradle *composite build* (like the
 // settings.gradle.kts
 includeBuild("../path/to/tracereports/client/java")
 // build.gradle.kts
-dependencies { testImplementation("tracereports:tracereports-java:0.3.0") }
+dependencies { testImplementation("tracereports:tracereports-java:0.4.0") }
 ```
 
 With Maven: `cd client/java && ./gradlew publishToMavenLocal` (it lands in `~/.m2`) or
