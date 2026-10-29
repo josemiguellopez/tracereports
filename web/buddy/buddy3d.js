@@ -29,11 +29,14 @@ const FACES = {
 	stars: { eyes: "star", mouth: "grin" },
 	love: { eyes: "heart", mouth: "grin" },
 	shy: { eyes: "shy", mouth: "wavy", blush: true },
+	shush: { eyes: "wink", mouth: "o" }, // "shhh": un guiño y la boquita en o
+	proud: { eyes: "arc", mouth: "side" }, // seguro de sí mismo
 };
 const MOOD_FACE = { idle: "normal", thinking: "focused", success: "stars", error: "worried" };
 
 // Gestos: cuánto duran (s). Cada uno mueve brazos, cabeza y cuerpo en step().
-const GESTURES = { wave: 2.2, nod: 0.9, thumbs: 1.8, facepalm: 1.8, scratch: 2.4, chin: 2.4, jump: 1.0, spinJoy: 1.2, stretch: 2.2, lookAround: 3.0, yawn: 2.0 };
+const GESTURES = { wave: 2.2, nod: 0.9, thumbs: 1.8, facepalm: 1.8, scratch: 2.4, chin: 2.4, jump: 1.0, spinJoy: 1.2, stretch: 2.2, lookAround: 3.0, yawn: 2.0,
+	shush: 1.9, proud: 2.2 };
 
 /** Monta el personaje en container (un elemento con tamaño). Devuelve sus controles, o null sin WebGL. */
 export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = false, onEvent = () => {} } = {}) {
@@ -469,6 +472,8 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		case "wave": rz = 2.4 + Math.sin(t * 14) * 0.35; rx = -0.2; break;
 		case "thumbs": rz = 0.32 + b * 1.6; rx = -b * 1.1; thumbOn = b; break;
 		case "facepalm": rz = 0.32 + b * 2.25; rx = -b * 1.35; break;
+		case "shush": rz = 0.32 + b * 1.85; rx = -b * 1.5; break; // la mano a la "boca" del visor
+		case "proud": rz = -0.62; rx = -1.42; lz = 0.62; lx = -1.22; break; // brazos cruzados
 		case "scratch": rz = 2.7; rx = -0.5 + Math.sin(t * 18) * 0.12; break;
 		case "chin": rz = 1.9; rx = -1.0; break;
 		case "stretch": rz = 0.32 + b * 2.6; lz = -0.32 - b * 2.6; break;
@@ -664,6 +669,13 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		/** Asiente (cuando le hacen una pregunta). */
 		nod() { st.asleep = false; st.idleFor = 0; gesture("nod"); show("curious", 0.9); },
 		wave() { gesture("wave"); },
+		/** Un gesto con su expresión (para acompañar lo que dice): act("shush", "shush"). */
+		act(name, faceName, secs = 1.8) {
+			st.asleep = false;
+			st.idleFor = 0;
+			gesture(name);
+			if (faceName) show(faceName, secs);
+		},
 		/** Con el panel abierto mira hacia la conversación. */
 		setPanel(open) { st.panel = open; st.idleFor = 0; st.asleep = false; if (open) gesture("wave"); },
 		setVisible(v) { st.visible = v; setRunning(v && !document.hidden); },

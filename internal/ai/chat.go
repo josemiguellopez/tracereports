@@ -46,10 +46,28 @@ func CleanChat(msgs []ChatMessage) ([]ChatMessage, error) {
 	return out, nil
 }
 
+// ChatExtra is what the chat adds to the evidence of the run or test.
+type ChatExtra struct {
+	// Calls: the failed calls of the test being viewed, as cURL with secrets replaced (repro.Curl) and
+	// the start of each response: enough to explain how to reproduce them.
+	Calls string
+	// Shown: what the UI attaches below the answer, built from the report and not by the model ("curl",
+	// "mock"): the model refers to it instead of writing it again.
+	Shown []string
+}
+
+// chatTools tells the model what TraceReports already offers, so it points there instead of guessing.
+const chatTools = `What TraceReports offers for the test being viewed (point to it by name when it helps):
+- Network tab: every call, with "Copy as cURL" (Postman imports a cURL: Import → Raw text, paste it).
+- "Generate mock of the failed backend", under the test error: a stub with the real response for WireMock,
+  a Playwright route or a Cypress intercept, to reproduce the failure without the backend.
+- The Lab (Network → a call → Lab): resends the call to check whether it still fails.
+- The AI view: my diagnosis of the run, and Re-analyze. Escalate: a summary for business, QA or dev.`
+
 // Chat answers a free question in Trace Buddy, with the evidence of the run or test being viewed
 // (f; nil when no run is open). Only with an LLM; the prompt goes through the redaction like every
 // other call (generate), so neither the evidence nor what the user typed carries secrets.
-func (a *Analyzer) Chat(ctx context.Context, f *Facts, scope, lang string, msgs []ChatMessage) (string, error) {
+func (a *Analyzer) Chat(ctx context.Context, f *Facts, scope, lang string, msgs []ChatMessage, extra ChatExtra) (string, error) {
 	if !a.UsesLLM() {
 		return "", ErrChatNeedsLLM
 	}
@@ -68,6 +86,14 @@ func (a *Analyzer) Chat(ctx context.Context, f *Facts, scope, lang string, msgs 
 	if f != nil {
 		evidence = f.promptBlock(scope)
 	}
+	if extra.Calls != "" {
+		evidence += "\nFailed calls of this test as cURL (secrets replaced by $VARIABLES or ***):\n" + extra.Calls
+	}
+	shown := ""
+	if len(extra.Shown) > 0 {
+		shown = "Below your answer the interface shows, built from the report: " + strings.Join(extra.Shown, " and ") +
+			". Refer to it (\"below you have…\") and explain how to use it; do not write it again.\n"
+	}
 	var conv strings.Builder
 	for _, m := range msgs {
 		who := "User"
@@ -83,15 +109,18 @@ engineers understand failed tests, decide what to check first and use TraceRepor
 Answer in %s, in plain language and briefly: at most 6 sentences, or a short list. Base the answer on the
 evidence below and on general testing knowledge; do not invent data that is not there. When the evidence
 does not answer the question, say so and point to where to look in the report (Steps, Network, Console,
-Replay, the AI view, Errors). Do not name the labels of the evidence (the user does not see them): the
-per-test triage is "el diagnóstico de la IA" in Spanish, "the AI diagnosis" in English. In a follow-up, do not repeat what you already said:
-add what is new. Only answer questions about testing, test automation, this report or TraceReports;
+Replay, the AI view, Errors). Speak in first person, as Trace Buddy: the per-test triage is your own
+diagnosis ("mi diagnóstico" in Spanish, "my diagnosis" in English); never say "the AI suggests". Do not
+name the labels of the evidence (the user does not see them). In a follow-up, do not repeat what you already
+said: add what is new. Only answer questions about testing, test automation, this report or TraceReports;
 politely decline anything else. Never ask for or repeat passwords, tokens or API keys.
 
+%s
+%s
 Evidence (%s):
 %s
 Conversation (answer the last message of the user):
-%s`, language, scope, evidence, conv.String())
+%s`, language, chatTools, shown, scope, evidence, conv.String())
 	text, err := a.generate(ctx, UsageChat, prompt, map[string]any{
 		"type": "object", "properties": map[string]any{"answer": map[string]any{"type": "string"}}, "required": []string{"answer"},
 	})

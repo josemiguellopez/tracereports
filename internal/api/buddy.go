@@ -5,10 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/repro"
 )
 
 // probeTTL keeps a probe answer for a short while: opening and closing Trace Buddy, or several
@@ -103,6 +105,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		TestID   int64            `json:"test_id"`
 		Lang     string           `json:"lang"`
 		Messages []ai.ChatMessage `json:"messages"`
+		Tools    []string         `json:"tools"` // lo que la web mostrará bajo la respuesta: curl, mock
 	}
 	if !decode(w, r, &in) {
 		return
@@ -117,6 +120,8 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var facts *ai.Facts
+	var extra ai.ChatExtra
+	var curl string // el de la primera llamada que falló: la web lo muestra con "Copiar" si se lo pidieron
 	scope := "run"
 	if in.RunID > 0 {
 		if facts, err = ai.BuildFacts(s.Store, s.shots(), in.RunID, in.TestID); respondErr(w, err, "run or test") {
@@ -124,6 +129,15 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		}
 		if in.TestID > 0 {
 			scope = "test"
+			if extra.Calls, curl, err = s.chatCalls(in.TestID); err != nil {
+				serverError(w, err)
+				return
+			}
+		}
+	}
+	for _, t := range in.Tools { // lo que la web va a mostrar bajo la respuesta (armado del reporte, no por el modelo)
+		if (t == "curl" && curl != "") || t == "mock" {
+			extra.Shown = append(extra.Shown, map[string]string{"curl": "the cURL of the failed call, ready for Postman", "mock": "a mock of the failed backend"}[t])
 		}
 	}
 	if !s.chat.allow(time.Now()) {
@@ -132,7 +146,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
-	answer, err := s.AI.Chat(ctx, facts, scope, in.Lang, msgs)
+	answer, err := s.AI.Chat(ctx, facts, scope, in.Lang, msgs, extra)
 	if err != nil {
 		msg := s.redactor().Text(err.Error())
 		if errors.Is(err, context.DeadlineExceeded) {
@@ -142,5 +156,32 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": msg, "hint": hint})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"answer": answer, "provider": s.AI.Provider(), "model": s.AI.Model()})
+	writeJSON(w, http.StatusOK, map[string]any{"answer": answer, "provider": s.AI.Provider(), "model": s.AI.Model(), "curl": curl})
 }
+
+// chatCalls are the failed calls of a test for the chat: each as cURL (repro.Curl: secrets become
+// $VARIABLES or ***) with the start of its response, also masked. curl is the first one's command.
+func (s *Server) chatCalls(testID int64) (calls, curl string, err error) {
+	conns, err := s.Store.ListNetworkErrors(testID, chatMaxCalls)
+	if err != nil {
+		return "", "", err
+	}
+	policy := s.redactor()
+	var b strings.Builder
+	for i := range conns {
+		c := &conns[i]
+		cmd := repro.Curl(c, policy)
+		if i == 0 {
+			curl = cmd
+		}
+		outcome := fmt.Sprintf("HTTP %d", c.Status)
+		if c.Failed || c.Status == 0 {
+			outcome = "no response (" + c.ErrorText + ")"
+		}
+		fmt.Fprintf(&b, "%s\n→ %s. Response: %s\n", cmd, outcome, clipText(strings.Join(strings.Fields(policy.Text(c.ResponseBody)), " "), 400))
+	}
+	return b.String(), curl, nil
+}
+
+// chatMaxCalls: the failed calls of a test that go to the model (the first ones are the cause).
+const chatMaxCalls = 3

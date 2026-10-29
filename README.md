@@ -58,6 +58,27 @@ language over the **REST API**: [pick your language](#2-run-an-example-in-your-l
   <sub>A real run of the <a href="examples/orangehrm">OrangeHRM example suite</a> with simulated backend failures, in the Pixel theme.</sub>
 </p>
 
+## Meet Trace Buddy: your senior QA buddy, powered by AI
+
+<p align="center">
+  <img src="./.github/assets/trace-buddy.gif" alt="Trace Buddy, a 3D hooded QA hacker, explains why a checkout test failed and hands over the cURL for Postman, then changes his outfit when the theme changes" width="100%" />
+</p>
+
+Debugging a red test at 2 a.m. doesn't have to be a lonely job. **Trace Buddy** lives in the corner of every
+report: a little hooded QA hacker, in 3D, who has read the whole run and is happy to talk it through with you.
+
+- **Ask him anything about the failure**, in plain words. He answers from the report's evidence: the steps, the
+  network calls, the console and his own diagnosis. No copy-pasting logs into a chat.
+- **He hands you the real thing, not a guess**: the failed call as a **cURL ready for Postman** and a **mock of the
+  broken backend** (WireMock, Playwright or Cypress), built from what the browser recorded, with secrets masked.
+- **He has feelings.** He follows your cursor, frowns while he thinks, celebrates a green run, worries about a red
+  one, blushes if you stare, falls asleep if you leave him alone… and changes his outfit (behind a censor, of
+  course) every time you change the theme.
+- **🔒 No telemetry · 🏠 Self-hosted · 🛡️ Your data is never shared.** He lives on your server, not in someone
+  else's cloud, and says so himself. He thinks with **your own model** (Ollama) or only the providers you allow,
+  only admins can talk to him, and secrets are masked before anything leaves. Without an LLM he still explains each
+  failure with the local rules engine and tells you when your AI is up.
+
 ## The problem
 
 It's 9 a.m. and the nightly run has 15 red tests. Time to open the backend logs, rerun locally and

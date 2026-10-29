@@ -59,6 +59,28 @@ cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en
   <sub>Una ejecución real de la <a href="examples/orangehrm">suite de ejemplo de OrangeHRM</a> con fallos de backend simulados, en el tema Pixel.</sub>
 </p>
 
+## Conoce a Trace Buddy: tu QA senior con IA, siempre contigo
+
+<p align="center">
+  <img src="./.github/assets/trace-buddy-es.gif" alt="Trace Buddy, un pequeño hacker de QA en 3D con capucha, explica por qué falló un test de checkout y entrega el cURL para Postman; luego se cambia de ropa al cambiar el tema" width="100%" />
+</p>
+
+Depurar un test en rojo a las 2 de la mañana no tiene por qué ser un trabajo solitario. **Trace Buddy** vive en
+la esquina de cada reporte: un pequeño hacker de QA con capucha, en 3D, que ya leyó toda la ejecución y está feliz
+de revisarla contigo.
+
+- **Pregúntale lo que quieras del fallo**, con tus palabras. Responde con la evidencia del reporte: los pasos, las
+  llamadas de red, la consola y su propio diagnóstico. Nada de copiar y pegar logs en un chat.
+- **Te entrega lo real, no una suposición**: la llamada que falló como **cURL listo para Postman** y un **mock del
+  backend roto** (WireMock, Playwright o Cypress), armados con lo que grabó el navegador y con los secretos ocultos.
+- **Tiene sentimientos.** Sigue tu cursor, frunce el ceño mientras piensa, celebra una ejecución en verde, se
+  preocupa con una en rojo, se sonroja si lo miras mucho, se duerme si lo dejas solo… y se cambia de ropa (detrás de
+  una censura, claro) cada vez que cambias el tema.
+- **🔒 Sin telemetría · 🏠 Self-hosted · 🛡️ Tus datos no se comparten.** Vive en tu servidor, no en la nube de
+  otro, y te lo dice él mismo. Piensa con **tu propio modelo** (Ollama) o solo con los proveedores que permitas, solo
+  quien administra puede hablarle y los secretos se ocultan antes de que algo salga. Sin un LLM igual explica cada
+  fallo con el motor local de reglas y te avisa si tu IA está funcionando.
+
 ## El problema
 
 Son las 9 de la mañana y la ejecución nocturna tiene 15 tests en rojo. Toca abrir los logs del

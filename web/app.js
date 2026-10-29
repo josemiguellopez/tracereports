@@ -4101,6 +4101,16 @@
 			if (e.target.closest("[data-buddy-quiet]")) { buddyQuiet(); return; }
 			if (e.target.closest("[data-buddy-close]")) { buddyToggle(false); return; }
 			if (e.target.closest("[data-buddy-hide]")) { buddySetHidden(true); return; }
+			const copyBtn = e.target.closest("[data-buddy-copy]");
+			if (copyBtn) { copyText(copyBtn.closest(".buddy-tool").querySelector(".buddy-code").textContent, copyBtn); return; }
+			const fmt = e.target.closest("[data-buddy-mock-fmt]");
+			if (fmt && buddy.mockConn) {
+				const card = fmt.closest("[data-buddy-mock]");
+				card.querySelectorAll("[data-buddy-mock-fmt]").forEach((b) => b.classList.toggle("on", b === fmt));
+				card.querySelector(".buddy-code").textContent = CF.MockGenerator.generate(fmt.dataset.buddyMockFmt, buddy.mockConn);
+				return;
+			}
+			if (e.target.closest("[data-buddy-mock-open]") && buddy.mockConn) { openMockFor(buddy.mockConn); return; }
 			const ask = e.target.closest("[data-buddy-ask]");
 			if (ask) { buddyAsk(ask.dataset.buddyAsk, ask.textContent); return; }
 			const open = e.target.closest("[data-buddy-test]");
@@ -4146,6 +4156,8 @@
 			tr("Ando un poco aburrido… ¿revisamos algo juntos?"),
 			tr("¿Sabías que puedo explicarte un fallo con un clic?"),
 			tr("Pssst… pásame el mouse por encima."),
+			tr("Sin telemetría: lo que veo aquí, aquí se queda 🤐"),
+			tr("Vivo en tu servidor, no en la nube. Tus datos no se comparten con nadie 🔒"),
 		];
 		if (buddy.thoughts === 0) return chatter[0];
 		const pool = context.length && Math.random() < 0.65 ? context : chatter;
@@ -4157,9 +4169,13 @@
 		buddy.thoughtTimer = setTimeout(buddyThink, 75000 + Math.random() * 45000);
 		const root = $("#buddy");
 		if (!root || root.hidden || buddy.open || document.hidden || buddyIsQuiet() || buddy.chatting || buddy.probing) return;
-		buddySpeak(buddyThoughtText(), 7000);
+		const text = buddyThoughtText();
+		buddySpeak(text, 7000);
 		buddy.thoughts = (buddy.thoughts || 0) + 1;
-		buddy.three?.wave();
+		// cada frase con su gesto: "shhh" para la telemetría, brazos cruzados para cuidar tus datos
+		if (text.includes("🤐")) buddy.three?.act("shush", "shush");
+		else if (text.includes("🔒")) buddy.three?.act("proud", "proud");
+		else buddy.three?.wave();
 	}
 
 	/** Dice algo en el globo (un pensamiento o una reacción), con la boca moviéndose. */
@@ -4365,6 +4381,38 @@
 		return `<span class="buddy-bad">✗</span> ${tr("No pude conectar con")} <b data-no-i18n>${name}</b>${r.model ? ` <span data-no-i18n>(${esc(r.model)})</span>` : ""}: ${why}${esc(tryModel)} ${tr("Revisa")} ${aiLink}.`;
 	}
 
+	// palabras que piden una herramienta del reporte: el cURL de la llamada que falló o un mock de ese backend
+	const BUDDY_TOOL_WORDS = {
+		curl: /\b(curl|postman|insomnia|replic\w*|reproduc\w*|request|solicitud|petici[oó]n|endpoint|llamada)\b/i,
+		mock: /\b(mock\w*|stub\w*|wiremock|simul\w*|intercept\w*)\b/i,
+	};
+	function buddyToolsFor(text, testId) {
+		if (!testId) return [];
+		return Object.keys(BUDDY_TOOL_WORDS).filter((k) => BUDDY_TOOL_WORDS[k].test(text));
+	}
+
+	/** El cURL de la llamada que falló, como lo arma "Copiar como cURL" (secretos como $VARIABLES). */
+	function buddyCurlCard(curl) {
+		return `<div class="buddy-tool"><b>${tr("cURL de la llamada que falló")}</b>
+			<pre class="buddy-code" data-no-i18n>${esc(curl)}</pre>
+			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-copy>${icon("i-copy")}${tr("Copiar")}</button></div>
+			<small>${tr("En Postman: Import → Raw text → pega el cURL. Cambia las variables como $TOKEN por su valor real.")}</small></div>`;
+	}
+
+	/** Un mock del backend que falló (el mismo generador del botón "Generar mock"), con sus formatos. */
+	async function buddyMockCard(testId) {
+		const list = await loadNetwork(testId).catch(() => []);
+		const conn = list.find((c) => isNetError(c) && c.status) || list.find(isNetError);
+		if (!conn) return "";
+		buddy.mockConn = conn;
+		const first = CF.MockGenerator.FORMATS.find((f) => f.id === "wiremock") || CF.MockGenerator.FORMATS[0];
+		return `<div class="buddy-tool" data-buddy-mock><b>${tr("Mock del backend que falló")}</b> <span class="m-hint" data-no-i18n>${esc(conn.method)} ${esc(conn.status || "")}</span>
+			<div class="buddy-tool-formats">${CF.MockGenerator.FORMATS.map((f) => `<button type="button" class="buddy-tool-fmt ${f.id === first.id ? "on" : ""}" data-buddy-mock-fmt="${f.id}" data-no-i18n>${esc(f.label)}</button>`).join("")}</div>
+			<pre class="buddy-code" data-no-i18n>${esc(CF.MockGenerator.generate(first.id, conn))}</pre>
+			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-copy>${icon("i-copy")}${tr("Copiar")}</button>
+				<button class="buddy-tool-btn" type="button" data-buddy-mock-open>${tr("Abrir el generador")}</button></div></div>`;
+	}
+
 	function buddyGrow(el) {
 		el.style.height = "auto";
 		el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
@@ -4386,10 +4434,13 @@
 		el?.classList.add("waiting");
 		buddyMood("thinking");
 		const testId = S.view === "tests" && S.test ? S.test.id : 0;
+		const tools = buddyToolsFor(text, testId);
 		try {
-			const r = await apiSend("POST", "/api/v1/ui/ai/chat", { run_id: S.runId || 0, test_id: testId, lang: I18N.lang, messages: buddy.chat.slice(-8) });
+			const r = await apiSend("POST", "/api/v1/ui/ai/chat", { run_id: S.runId || 0, test_id: testId, lang: I18N.lang, messages: buddy.chat.slice(-8), tools });
 			buddy.chat.push({ role: "assistant", text: r.answer });
 			buddyFill(el, `<div class="buddy-answer" data-no-i18n>${esc(r.answer).replace(/\n/g, "<br>")}</div>`);
+			if (tools.includes("curl") && r.curl) buddySay(buddyCurlCard(r.curl));
+			if (tools.includes("mock")) { const card = await buddyMockCard(testId); if (card) buddySay(card); }
 			buddyMood("success", 2000);
 		} catch (err) {
 			buddy.chat.pop(); // la pregunta sin respuesta no queda en el historial que viaja al modelo
