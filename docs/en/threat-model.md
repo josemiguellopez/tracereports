@@ -55,7 +55,7 @@ a build dependency); a **host or backup thief** with a copy of `DATA_DIR`.
 | **MCP server** (`tracereports mcp`) | An agent with too much power | Local over stdio, no network listener; reads with the ingest token or the read-only login when they exist, not the admin credentials | With only the admin token configured, it uses it |
 | **Exports and static reports** (ZIP, `tracereports report`) | Evidence leaving the server | Exports require read access; the ZIP is **decrypted** by design (whoever exports could already see it) | `tracereports report` writes its files for the user only (`0700`/`0600`); once copied or published, treat its output as the evidence itself |
 | **Client offline recordings and mirror** | Evidence on the CI disk | Replay is limited to ingest endpoints; folders `0700` and files `0600` (Linux, macOS) in the four clients | Recordings are written **before** server-side redaction |
-| **Supply chain** | Tampered binary or image; vulnerable dependency | Signed releases (cosign keyless), SBOM and SLSA provenance (#36); govulncheck and CodeQL on every pull request; Scorecard weekly and on `main`; third-party actions pinned by commit SHA (GitHub's own `actions/*` by version tag); single static binary, no CGO | |
+| **Supply chain** | Tampered binary or image; vulnerable dependency | Signed releases (cosign keyless), SBOM and SLSA provenance (#36); govulncheck and CodeQL on every pull request; Scorecard weekly and on `main`; every action pinned by commit SHA, base images by digest and Python build tools by hash; single static binary, no CGO | |
 | **Container** | Escape or persistence after a compromise | Non-root distroless image, read-only root filesystem, `cap_drop: ALL`, `no-new-privileges` (hardened compose) | |
 
 ## Residual risks

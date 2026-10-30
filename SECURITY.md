@@ -58,7 +58,8 @@ Every release since this policy was added is **signed without keys** with
 [Sigstore cosign](https://docs.sigstore.dev/) (the identity is the `release.yml` workflow of this
 repository, recorded in the public transparency log), ships an **SBOM** (SPDX) and a **SLSA
 provenance** attestation. You need [cosign](https://docs.sigstore.dev/cosign/system_config/installation/)
-2.x or later; `gh` (GitHub CLI) for the provenance.
+3.x or later (2.x verifies `checksums.txt` but does not find the image signature: it says "no signatures
+found"); `gh` (GitHub CLI) for the provenance.
 
 ```bash
 VERSION=0.6.1   # the version you downloaded, without the "v"
