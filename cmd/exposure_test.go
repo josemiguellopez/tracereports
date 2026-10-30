@@ -46,7 +46,7 @@ func TestCheckExposureMatrix(t *testing.T) {
 					label := fmt.Sprintf("bind=%q creds=%s insecure=%v docker=%v", bind, name, insecure, docker)
 					switch {
 					case isLoopback(bind) || protected || insecure:
-						if err != nil || !reflect.DeepEqual(binds, []string{bind}) {
+						if err != nil || !reflect.DeepEqual(binds, bindAddrs(bind)) {
 							t.Errorf("%s: debe escuchar en %q: %v %v", label, bind, binds, err)
 						}
 					case bind == "" && !docker:
@@ -193,7 +193,19 @@ func TestServerOnTheNetworkWithTokenOrInsecure(t *testing.T) {
 	}
 }
 
-// demo y selftest siguen arrancando sin credenciales: escuchan en 127.0.0.1.
+// 127.0.0.1 y localhost escuchan también en ::1 (solo este equipo); el resto, tal cual.
+func TestBindAddrs(t *testing.T) {
+	for bind, want := range map[string][]string{
+		"127.0.0.1": localBinds, " LocalHost ": localBinds,
+		"::1": {"::1"}, "127.0.0.2": {"127.0.0.2"}, "0.0.0.0": {"0.0.0.0"}, "": {""}, "192.168.1.10": {"192.168.1.10"},
+	} {
+		if got := bindAddrs(bind); !reflect.DeepEqual(got, want) {
+			t.Errorf("bindAddrs(%q) = %v, quiero %v", bind, got, want)
+		}
+	}
+}
+
+// demo y selftest siguen arrancando sin credenciales: escuchan en 127.0.0.1 y ::1.
 func TestDemoEnvStillStartsWithoutCredentials(t *testing.T) {
 	restoreEnv(t)
 	port, err := freePort(0, 8450)
@@ -201,7 +213,7 @@ func TestDemoEnvStillStartsWithoutCredentials(t *testing.T) {
 		t.Fatal(err)
 	}
 	demoEnv(t.TempDir(), port, false)
-	if binds, err := checkExposure(exposureFromEnv()); err != nil || !reflect.DeepEqual(binds, []string{"127.0.0.1"}) {
+	if binds, err := checkExposure(exposureFromEnv()); err != nil || !reflect.DeepEqual(binds, localBinds) {
 		t.Fatalf("demo: %v %v", binds, err)
 	}
 	startServer(t, fmt.Sprintf("127.0.0.1:%d", port))
