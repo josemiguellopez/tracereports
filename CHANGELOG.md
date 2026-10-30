@@ -6,6 +6,11 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-10-30
+
+Python client 0.5.1, JavaScript client 0.4.1 and Java client 0.4.1. The server is the same as 0.6.1; it is
+released again so the server and client versions stay together.
+
 ### Changed
 
 - **Python, JavaScript and Java clients**: their console messages (the pytest plugin, the Playwright reporter,
@@ -502,7 +507,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.6.1...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/josemiguellopez/tracereports/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/josemiguellopez/tracereports/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/josemiguellopez/tracereports/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/josemiguellopez/tracereports/compare/v0.4.0...v0.5.0
