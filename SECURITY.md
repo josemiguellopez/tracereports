@@ -62,7 +62,7 @@ provenance** attestation. You need [cosign](https://docs.sigstore.dev/cosign/sys
 found"); `gh` (GitHub CLI) for the provenance.
 
 ```bash
-VERSION=0.6.1   # the version you downloaded, without the "v"
+VERSION=0.6.2   # the version you downloaded, without the "v"
 IDENTITY='^https://github\.com/josemiguellopez/tracereports/\.github/workflows/release\.yml@refs/tags/v'
 ISSUER=https://token.actions.githubusercontent.com
 ```
