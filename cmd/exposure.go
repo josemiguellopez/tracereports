@@ -73,11 +73,11 @@ See docs/en/configuration.md#security.`
 func checkExposure(e exposure) ([]string, error) {
 	switch {
 	case isLoopback(e.bind) || e.token || e.uiLogin:
-		return []string{e.bind}, nil
+		return bindAddrs(e.bind), nil
 	case e.insecure:
 		slog.Warn("TRACEREPORTS_INSECURE=1: listening on the network without a token or login; anyone who reaches this port can read and change the reports",
 			"bind", e.bind)
-		return []string{e.bind}, nil
+		return bindAddrs(e.bind), nil
 	case e.bind == "" && !e.docker:
 		slog.Warn("no TRACEREPORTS_TOKEN nor UI login: listening only on this machine (127.0.0.1 and ::1); to open it to the network set credentials (see docs: configuration → Security)")
 		return localBinds, nil
@@ -92,6 +92,17 @@ func checkExposure(e exposure) ([]string, error) {
 		local = "\nIn Docker the server listens on every interface of the container, even when the port is published\nonly on 127.0.0.1: pass the credentials with the .env (docker compose) or --env-file / -e (docker run).\n"
 	}
 	return nil, fmt.Errorf(errExposed, where, local)
+}
+
+// bindAddrs is where TRACEREPORTS_BIND listens. 127.0.0.1 and localhost also take ::1: still only
+// this machine, and without it a client on Windows waits ~2 s per connection to "localhost" (it
+// tries ::1 first) and the pytest plugin loses evidence on the way.
+func bindAddrs(bind string) []string {
+	switch strings.ToLower(strings.TrimSpace(bind)) {
+	case "127.0.0.1", "localhost":
+		return localBinds
+	}
+	return []string{bind}
 }
 
 // listen opens the server's listeners. A loopback address that does not exist on this machine (::1

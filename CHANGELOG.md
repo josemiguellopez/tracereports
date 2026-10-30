@@ -6,6 +6,28 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-30
+
+Server only: the clients did not change (Python 0.5.0, JavaScript 0.4.0, Java 0.4.0 and Go stay as they are).
+
+### Fixed
+
+- **Windows, `http://localhost`**: with `TRACEREPORTS_BIND=127.0.0.1` or `localhost` (what `tracereports demo`
+  sets) the server listened only on IPv4. Windows tries `::1` first, so every client connection waited ~2 s
+  before falling back: the tests ran several times slower and the pytest plugin could lose evidence. Both
+  values now also listen on `::1`, still only this machine (12 tests against the demo: 30.6 s → 0.23 s).
+- The demo recordings no longer show the temporary path of the machine that recorded them in their stack
+  traces.
+
+### Security
+
+- Each release also attaches its SLSA provenance as `tracereports_X.Y.Z.intoto.jsonl`, so it can be verified
+  with `gh attestation verify --bundle` without GitHub's attestation API (see SECURITY.md).
+- The CI and release workflows pin every action by commit, the Docker base images by digest and the Python
+  build and test tools by hash; the Gradle wrappers are checked against Gradle's official checksums on every
+  push.
+- The project reached the OpenSSF Best Practices **passing** level; its badge is in the README.
+
 ## [0.6.0] - 2026-10-29
 
 Server 0.6.0 with Python client 0.5.0, JavaScript client 0.4.0 and Java client 0.4.0 (they cover
@@ -473,7 +495,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/josemiguellopez/tracereports/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/josemiguellopez/tracereports/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/josemiguellopez/tracereports/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/josemiguellopez/tracereports/compare/v0.3.0...v0.4.0
