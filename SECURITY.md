@@ -61,7 +61,7 @@ provenance** attestation. You need [cosign](https://docs.sigstore.dev/cosign/sys
 2.x or later; `gh` (GitHub CLI) for the provenance.
 
 ```bash
-VERSION=0.6.0   # the version you downloaded, without the "v"
+VERSION=0.6.1   # the version you downloaded, without the "v"
 IDENTITY='^https://github\.com/josemiguellopez/tracereports/\.github/workflows/release\.yml@refs/tags/v'
 ISSUER=https://token.actions.githubusercontent.com
 ```
@@ -76,7 +76,7 @@ sha256sum --check --ignore-missing checksums.txt     # macOS: shasum -a 256 --ch
 gh attestation verify tracereports_${VERSION}_linux_amd64.tar.gz --repo josemiguellopez/tracereports
 ```
 
-Releases after 0.6.0 also attach that provenance as `tracereports_${VERSION}.intoto.jsonl`, so it
+Since 0.6.1, releases also attach that provenance as `tracereports_${VERSION}.intoto.jsonl`, so it
 can be checked without querying GitHub's attestation API:
 
 ```bash
