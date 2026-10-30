@@ -1,0 +1,7 @@
+# dependencias de los tests del cliente Python (ci.yml). ci.txt (con hashes) se regenera en Linux:
+#   docker run --rm -v "$PWD/.github/requirements:/req" -w /req python:3.12-slim sh -c \
+#     "pip install pip-tools && pip-compile --strip-extras --generate-hashes --allow-unsafe -o ci.txt ci.in"
+pytest
+pytest-xdist
+playwright
+selenium

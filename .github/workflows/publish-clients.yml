@@ -24,13 +24,13 @@ jobs:
       contents: read   # los permisos del job reemplazan a los globales
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - run: pip install build
+      - run: pip install --require-hashes -r .github/requirements/build.txt
       - run: python -m build client/python
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
         with:
           packages-dir: client/python/dist
 
@@ -43,11 +43,11 @@ jobs:
       contents: read   # los permisos del job reemplazan a los globales
       id-token: write
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
-          node-version: 22
+          # Trusted Publishing necesita npm 11.5.1 o superior: viene incluido en Node 24
+          node-version: 24
           registry-url: https://registry.npmjs.org
-      - run: npm install -g npm@latest   # Trusted Publishing necesita npm 11.5.1 o superior
       - run: npm publish --access public
         working-directory: client/js

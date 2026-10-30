@@ -1,0 +1,2 @@
+# construir el paquete del cliente Python (publish-clients.yml); build.txt se regenera igual que ci.txt
+build
