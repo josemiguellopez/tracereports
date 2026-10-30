@@ -1,14 +1,14 @@
 """
-Reenvía la evidencia que quedó en la cola local (spool) porque el servidor no respondía:
+Resends the evidence left in the local queue (spool) because the server did not answer:
 
     python -m tracereports.resend ./tracereports-spool
     python -m tracereports.resend ./tracereports-spool --url http://tracereports:8080 --timeout 120
 
-Cada evento lleva su clave de idempotencia: reenviarlo dos veces no duplica nada. Un spool más
-grande que la cola se reenvía por tandas. Lo que no se pueda enviar ahora vuelve a la misma carpeta.
+Every event carries its idempotency key: resending it twice duplicates nothing. A spool larger
+than the queue is resent in batches. What cannot be sent now goes back to the same folder.
 
-Código de salida: 0 solo si no queda ningún evento pendiente en la carpeta; 1 si queda evidencia
-(sin enviar, en archivos que otro proceso está reenviando, o ilegibles) o el servidor rechazó algo.
+Exit code: 0 only if no event is left in the folder; 1 if evidence is left (unsent, in files
+another process is resending, or unreadable) or the server rejected something.
 """
 
 from __future__ import annotations
@@ -25,14 +25,14 @@ from .transport import spool_files
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(prog="python -m tracereports.resend", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("spool_dir", help="carpeta del spool (TRACEREPORTS_SPOOL_DIR)")
-    parser.add_argument("--url", default=None, help="URL del servidor (default: $TRACEREPORTS_URL o http://localhost:8080)")
-    parser.add_argument("--timeout", type=float, default=120.0, help="segundos máximos reenviando")
+    parser.add_argument("spool_dir", help="spool folder (TRACEREPORTS_SPOOL_DIR)")
+    parser.add_argument("--url", default=None, help="server URL (default: $TRACEREPORTS_URL or http://localhost:8080)")
+    parser.add_argument("--timeout", type=float, default=120.0, help="maximum seconds spent resending")
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(message)s")
 
     if not any(spool_files(args.spool_dir).values()):
-        print(f"No hay eventos pendientes en {args.spool_dir}.")
+        print(f"No pending events in {args.spool_dir}.")
         return 0
 
     cr = TraceReports(args.url, spool_dir=args.spool_dir)
@@ -48,14 +48,14 @@ def main(argv=None) -> int:
     sender.drain_to_spool()  # lo que no salió vuelve al spool
     d = cr.delivery
     left = spool_files(args.spool_dir)
-    print(f"Reenviados {d['sent']} de {loaded} eventos cargados · rechazados por el servidor {d['rejected']} · "
-          f"vuelven al spool {d['spooled']}.")
+    print(f"Resent {d['sent']} of {loaded} loaded events; rejected by the server {d['rejected']}; "
+          f"back to the spool {d['spooled']}.")
     if left["pending"]:
-        print(f"Quedan {left['pending']} archivos sin reenviar en {args.spool_dir} (el servidor no respondió o se acabó el tiempo).")
+        print(f"{left['pending']} files left to resend in {args.spool_dir} (the server did not answer or the time ran out).")
     if left["claimed"]:
-        print(f"{left['claimed']} archivos los está reenviando otro proceso (o quedaron de uno que terminó: se retoman solos).")
+        print(f"{left['claimed']} files are being resent by another process (or were left by one that ended: they are picked up again).")
     if left["unreadable"]:
-        print(f"{left['unreadable']} archivos ilegibles quedaron como *.unreadable: revísalos a mano.")
+        print(f"{left['unreadable']} unreadable files were left as *.unreadable: check them by hand.")
     return 0 if not any(left.values()) and d["rejected"] == 0 else 1
 
 

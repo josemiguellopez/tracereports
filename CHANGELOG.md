@@ -6,6 +6,12 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Python client**: the pytest plugin, `python -m tracereports.resend` and the client warnings speak English and
+  only use ASCII, so the Windows console no longer shows `atenci?n`. The texts the plugin writes into the
+  report itself do not change.
+
 ## [0.6.1] - 2026-10-30
 
 Server only: the clients did not change (Python 0.5.0, JavaScript 0.4.0, Java 0.4.0 and Go stay as they are).

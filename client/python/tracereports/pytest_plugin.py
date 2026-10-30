@@ -76,18 +76,18 @@ def _truthy(value):
 
 def pytest_addoption(parser):
     group = parser.getgroup("tracereports", "TraceReports")
-    group.addoption("--tracereports", action="store_true", help="reportar la ejecución a TraceReports")
-    group.addoption("--tracereports-url", default=None, help="URL del servidor (default: $TRACEREPORTS_URL o http://localhost:8080)")
-    group.addoption("--tracereports-run", default=None, help="nombre de la ejecución (default: $TRACEREPORTS_RUN_NAME o la carpeta del proyecto)")
-    group.addoption("--tracereports-env", default=None, help="ambiente: navegador, entorno, versión... (default: $TRACEREPORTS_ENV)")
-    group.addoption("--tracereports-project", default=None, help="proyecto (default: $TRACEREPORTS_PROJECT o la carpeta raíz)")
-    group.addoption("--tracereports-no-network", action="store_true", help="no capturar la red del backend con Playwright")
-    group.addoption("--tracereports-no-screenshots", action="store_true", help="no tomar captura de pantalla al fallar (datos sensibles en pantalla)")
-    group.addoption("--tracereports-no-dom", action="store_true", help="no enviar el snapshot del DOM al fallar")
-    group.addoption("--tracereports-zip", default=None, metavar="DIR", help="al terminar, guardar el reporte en ZIP en DIR (útil como artefacto de CI)")
-    group.addoption("--tracereports-spool", default=None, metavar="DIR", help="carpeta donde guardar la evidencia que no se pudo enviar (default: $TRACEREPORTS_SPOOL_DIR)")
-    group.addoption("--tracereports-offline", default=None, metavar="DIR", help="grabar la evidencia en DIR sin usar un servidor (reporte con `tracereports report DIR`)")
-    group.addoption("--tracereports-strict", action="store_true", help="falla la sesión si parte de la evidencia no llegó al servidor (default: $TRACEREPORTS_STRICT)")
+    group.addoption("--tracereports", action="store_true", help="report the run to TraceReports")
+    group.addoption("--tracereports-url", default=None, help="server URL (default: $TRACEREPORTS_URL or http://localhost:8080)")
+    group.addoption("--tracereports-run", default=None, help="run name (default: $TRACEREPORTS_RUN_NAME or the project folder)")
+    group.addoption("--tracereports-env", default=None, help="environment: browser, stage, version... (default: $TRACEREPORTS_ENV)")
+    group.addoption("--tracereports-project", default=None, help="project (default: $TRACEREPORTS_PROJECT or the root folder)")
+    group.addoption("--tracereports-no-network", action="store_true", help="do not capture the backend network with Playwright")
+    group.addoption("--tracereports-no-screenshots", action="store_true", help="do not take a screenshot on failure (sensitive data on screen)")
+    group.addoption("--tracereports-no-dom", action="store_true", help="do not send the DOM snapshot on failure")
+    group.addoption("--tracereports-zip", default=None, metavar="DIR", help="at the end, save the report as a ZIP in DIR (useful as a CI artifact)")
+    group.addoption("--tracereports-spool", default=None, metavar="DIR", help="folder for the evidence that could not be sent (default: $TRACEREPORTS_SPOOL_DIR)")
+    group.addoption("--tracereports-offline", default=None, metavar="DIR", help="record the evidence in DIR without a server (report with `tracereports report DIR`)")
+    group.addoption("--tracereports-strict", action="store_true", help="fail the session if part of the evidence did not reach the server (default: $TRACEREPORTS_STRICT)")
 
 
 def pytest_configure(config):
@@ -181,7 +181,7 @@ class TraceReportsPlugin:
             return
         if not self.cr.run_id:
             if self.cr.enabled:
-                self.problems.append("no se pudo crear la ejecución en el servidor")
+                self.problems.append("could not create the run on the server")
             self._apply_strict(session)
             return
         if self.cr.run_created:
@@ -199,12 +199,12 @@ class TraceReportsPlugin:
                 else:
                     self.cr._sender.close()
         if self.cr.recording and self.cr.run_id < 0 and self.cr.offline_mode in ("auto", "both"):
-            self.problems.append(f"sin servidor: la evidencia quedó grabada en {self.cr.offline_dir}")
+            self.problems.append(f"no server: the evidence was recorded in {self.cr.offline_dir}")
         lost = self.cr.delivery_problems() + self.worker_problems
         if lost:
-            self.problems.append(f"{lost} eventos de evidencia no llegaron al servidor")
+            self.problems.append(f"{lost} evidence events did not reach the server")
         if self.crashed_workers:
-            self.problems.append(f"workers caídos: {', '.join(map(str, self.crashed_workers))} (ejecución incompleta)")
+            self.problems.append(f"crashed workers: {', '.join(map(str, self.crashed_workers))} (incomplete run)")
         self._apply_strict(session)
 
     def _apply_strict(self, session):
@@ -217,11 +217,11 @@ class TraceReportsPlugin:
         if self.cr.recording and self.cr.run_id > 0:
             terminalreporter.write_line(f"TraceReports: {self.cr.report_url}")
             where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir}`"
-            terminalreporter.write_line(f"TraceReports copia local: {where}")
+            terminalreporter.write_line(f"TraceReports local copy: {where}")
         elif self.cr.recording:
-            where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir} -o reporte`"
-            terminalreporter.write_line(f"TraceReports (sin servidor): evidencia en {self.cr.offline_dir}; reporte: {where}; "
-                                        f"para subirla: `tracereports push {self.cr.offline_dir}`")
+            where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir} -o report`"
+            terminalreporter.write_line(f"TraceReports (no server): evidence in {self.cr.offline_dir}; report: {where}; "
+                                        f"to upload it: `tracereports push {self.cr.offline_dir}`")
         elif self.cr.run_id:
             terminalreporter.write_line(f"TraceReports: {self.cr.base_url}/#run={self.cr.run_id}&view=dashboard")
         if getattr(self, "zip_path", None):
@@ -229,8 +229,8 @@ class TraceReportsPlugin:
         d = self.cr.delivery
         if self.problems:
             detail = ", ".join(f"{k}={d[k]}" for k in ("sent", "retried", "rejected", "dropped", "spooled", "lost", "unregistered_tests") if d[k])
-            terminalreporter.write_line(f"TraceReports: atención: {'; '.join(self.problems)} ({detail})"
-                                        + (" — --tracereports-strict: la sesión falla" if self.strict else ""),
+            terminalreporter.write_line(f"TraceReports: warning: {'; '.join(self.problems)}" + (f" ({detail})" if detail else "")
+                                        + (" - --tracereports-strict: the session fails" if self.strict else ""),
                                         yellow=True)
 
     # ─── cada test ─────────────────────────────────────────────────────────

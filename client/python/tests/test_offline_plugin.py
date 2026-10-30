@@ -24,7 +24,7 @@ def test_plugin_records_when_the_server_rejects_the_token(pytester, monkeypatch)
                                 "--tracereports-run", "Sin servidor", "-p", "no:cacheprovider",
                                 f"--tracereports-offline={rec}")
     result.assert_outcomes(passed=1, failed=1)
-    result.stdout.fnmatch_lines(["*TraceReports (sin servidor): evidencia en *rec*"])
+    result.stdout.fnmatch_lines(["*TraceReports (no server): evidence in *rec*"])
     lines = []
     for name in os.listdir(rec):
         if name.startswith("events-"):
@@ -45,7 +45,7 @@ def test_plugin_auto_fallback_is_a_problem_in_strict_mode(pytester, monkeypatch)
                                 "--tracereports-strict", "-p", "no:cacheprovider")
     # el test pasó, pero la evidencia no llegó al servidor: en modo estricto la sesión falla
     assert result.ret != 0
-    result.stdout.fnmatch_lines(["*sin servidor: la evidencia quedó grabada en*"])
+    result.stdout.fnmatch_lines(["*no server: the evidence was recorded in*"])
 
 
 def test_plugin_with_xdist_workers_records_one_run(pytester, monkeypatch):

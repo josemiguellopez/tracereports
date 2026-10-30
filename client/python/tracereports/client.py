@@ -271,7 +271,7 @@ class TraceReports:
         if self._sender.spool_dir and self.enabled:
             resent = self._sender.load_spool()
             if resent:
-                log.info("tracereports: reenviando %d eventos guardados de una ejecución anterior", resent)
+                log.info("tracereports: resending %d events saved by a previous run", resent)
         res = self._request("POST", "/api/v1/runs", payload)
         if not res and self.enabled and self.offline_mode in ("auto", "both") and not self.recording:
             # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
