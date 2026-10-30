@@ -229,7 +229,7 @@ def attach_listeners(
         cdp.on("Network.requestWillBeSent", _on_cdp_request_will_be_sent)
     except Exception as e:
         if logger:
-            logger.debug(f"Sin sesión CDP para el fallback de postData (¿navegador no Chromium?): {e}")
+            logger.debug(f"No CDP session for the postData fallback (not a Chromium browser?): {e}")
 
 
 def conexiones_del_test(page):
@@ -291,7 +291,7 @@ def reportar_red(page, cr, test_id=None, esperar_en_vuelo_ms=2000, logger=None, 
     capturadas = getattr(page, "_network_evidence", None)
     if capturadas is None:
         if logger:
-            logger.warning("reportar_red: el page no tiene attach_listeners() — no hay captura de red")
+            logger.warning("reportar_red: the page has no attach_listeners(); the network is not captured")
         return None
 
     desde = getattr(page, "_network_reported_idx", 0)
@@ -313,7 +313,7 @@ def reportar_red(page, cr, test_id=None, esperar_en_vuelo_ms=2000, logger=None, 
             resumen["archivo"] = ruta
         except OSError as e:
             if logger:
-                logger.warning(f"No se pudo guardar la evidencia de red local: {e}")
+                logger.warning(f"Could not save the local network evidence: {e}")
     if nuevas:
         cr.attach_network(nuevas, test_id=test_id)
     consola = getattr(page, "_console_evidence", None)

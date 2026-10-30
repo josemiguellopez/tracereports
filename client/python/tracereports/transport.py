@@ -126,13 +126,13 @@ class Sender:
                 log.debug("tracereports: %s %s -> HTTP %s (se reintenta)", item.method, item.path, err.code)
                 return "retry", None
             if err.code == 401:
-                detail += (" (configura el token: TraceReports(token=...), la variable TRACEREPORTS_TOKEN"
-                           " o TRACEREPORTS_TOKEN en el .env del proyecto)")
+                detail += (" (set the token: TraceReports(token=...), the TRACEREPORTS_TOKEN variable"
+                           " or TRACEREPORTS_TOKEN in the project .env)")
             log.warning("tracereports: %s %s -> HTTP %s %s", item.method, item.path, err.code, detail)
             return "reject", None
         except (urllib.error.URLError, OSError, ValueError) as err:
             if not self.server_down():
-                log.warning("tracereports: %s %s falló: %s", item.method, item.path, err)
+                log.warning("tracereports: %s %s failed: %s", item.method, item.path, err)
             self._down_until = time.time() + CIRCUIT_SECONDS
             return "retry", None
 
@@ -179,8 +179,8 @@ class Sender:
             if not self._fits(1, len(body)):
                 self.stats["dropped"] += 1
                 if self.stats["dropped"] == 1:
-                    log.warning("tracereports: la cola de envío está llena (%d eventos / %d MB); se descartan "
-                                "los eventos nuevos hasta que el servidor responda", self.max_items, self.max_bytes >> 20)
+                    log.warning("tracereports: the send queue is full (%d events / %d MB); new events are dropped "
+                                "until the server answers", self.max_items, self.max_bytes >> 20)
                 return False
             self._q.append(item)
             self._bytes += len(body)
@@ -331,17 +331,17 @@ class Sender:
                     for it in items:
                         it.fate = "spooled"
                         self._settle(it)  # ya está en el spool nuevo: el de origen puede irse
-                log.warning("tracereports: %d eventos sin enviar quedaron en %s (reenvío: python -m tracereports.resend %s)",
+                log.warning("tracereports: %d unsent events were left in %s (resend: python -m tracereports.resend %s)",
                             len(items), self.spool_dir, self.spool_dir)
                 return len(items)
             except OSError as err:
-                log.warning("tracereports: no se pudo escribir la cola local %s: %s", self.spool_dir, err)
+                log.warning("tracereports: could not write the local queue %s: %s", self.spool_dir, err)
         with self._cv:
             self.stats["lost"] += len(items)
             for it in items:
                 it.fate = "lost"
-        log.warning("tracereports: %d eventos de evidencia no se pudieron enviar y se perdieron "
-                    "(configura TRACEREPORTS_SPOOL_DIR para guardarlos y reenviarlos después)", len(items))
+        log.warning("tracereports: %d evidence events could not be sent and were lost "
+                    "(set TRACEREPORTS_SPOOL_DIR to keep them and resend them later)", len(items))
         return len(items)
 
     def load_spool(self, spool_dir: Optional[str] = None) -> int:
@@ -379,7 +379,7 @@ class Sender:
                 with open(claimed, encoding="utf-8") as fh:
                     items = [_Item.from_json(line) for line in fh if line.strip()]
             except (OSError, ValueError, KeyError) as err:
-                log.warning("tracereports: spool ilegible %s: %s", base, err)
+                log.warning("tracereports: unreadable spool %s: %s", base, err)
                 bad = f"{base}.unreadable"
                 try:
                     os.replace(claimed, bad)
@@ -416,7 +416,7 @@ class Sender:
                     self._write_file(rest, items[k:])
                     self._write_file(claimed, items[:k])
                 except OSError as err:
-                    log.warning("tracereports: no se pudo dividir el spool %s: %s", base, err)
+                    log.warning("tracereports: could not split the spool %s: %s", base, err)
                     with self._cv:
                         self._reserved_items -= k
                         self._reserved_bytes -= size
