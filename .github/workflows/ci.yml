@@ -102,7 +102,7 @@ jobs:
       # versiones fijadas por hash (.github/requirements); el cliente es local y no tiene dependencias
       - run: |
           pip install --require-hashes -r .github/requirements/ci.txt
-          pip install --no-deps ./client/python
+          pip install --no-deps -e ./client/python
       # navegadores reales: las capturas enmascaradas se verifican en los píxeles (test_mask.py)
       - run: python -m playwright install --with-deps chromium
       - run: pytest client/python/tests
@@ -170,8 +170,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # cada gradle-wrapper.jar del repo es uno publicado por Gradle (checksum oficial), antes de ejecutarlo
-      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
           distribution: temurin

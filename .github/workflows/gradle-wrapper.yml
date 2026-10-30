@@ -1,0 +1,21 @@
+name: Gradle wrapper
+
+# Cada gradle-wrapper.jar del repo es uno publicado por Gradle (checksum oficial). Va aparte de CI para
+# terminar en segundos: OpenSSF Scorecard solo acepta los .jar si este workflow ya pasó en el último commit.
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate Gradle wrappers
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: gradle/actions/wrapper-validation@8da46b539cd8fe6ab27ca75128919a18d757604c # v6.4.1
