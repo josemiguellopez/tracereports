@@ -66,7 +66,7 @@ public final class SeleniumEvidence {
                     ((JavascriptExecutor) driver).executeScript(Mask.COVER_JS, selector, Mask.COLOR, Mask.OVERLAY_ATTR);
                     covered = true;
                 } catch (RuntimeException e) {
-                    System.err.println("tracereports: no se pudo tapar " + selector + " antes de la captura: " + e.getMessage());
+                    System.err.println("tracereports: could not cover " + selector + " before the screenshot: " + e.getMessage());
                     return null;
                 }
             }

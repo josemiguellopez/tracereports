@@ -20,12 +20,12 @@ export class Mirror {
     fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
     this.locked(() => {
       const marker = path.join(directory, MARKER);
-      if (fs.existsSync(marker) && JSON.parse(fs.readFileSync(marker)).raw_removed) throw new Error("la carpeta solo contiene el reporte; usa otra carpeta");
+      if (fs.existsSync(marker) && JSON.parse(fs.readFileSync(marker)).raw_removed) throw new Error("the folder only contains the report; use another folder");
       this.recorder = new Recorder(directory);
       this.status = `status-${process.pid}-${this.recorder.tag}.json`;
       this.write(this.status, { complete: false, reason: "active" });
       const m = JSON.parse(fs.readFileSync(marker));
-      if (m.mirror && m.mirror.server !== server) throw new Error("la carpeta pertenece a otro servidor");
+      if (m.mirror && m.mirror.server !== server) throw new Error("the folder belongs to another server");
       m.mirror ||= { server, runs: [], complete: false };
       m.mirror.complete = false;
       this.write(MARKER, m);
@@ -39,10 +39,10 @@ export class Mirror {
       } else {
         try {
           local = Number(fs.readFileSync(mapping, "utf8"));
-          if (!Number.isSafeInteger(local) || local >= 0) throw new Error("id local inválido");
+          if (!Number.isSafeInteger(local) || local >= 0) throw new Error("invalid local id");
         } catch (err) {
           this.failed = true;
-          console.warn(`tracereports: falta el id local de la ejecución #${runId}: ${err.message}`);
+          console.warn(`tracereports: missing local id for run #${runId}: ${err.message}`);
         }
       }
       if (local) this.runs.set(runId, local);
@@ -57,7 +57,7 @@ export class Mirror {
         if (n >= 50) {
           let stale = false;
           try { stale = Date.now() - fs.statSync(lock).mtimeMs > STALE_LOCK_MS; } catch { /* ya no existe */ }
-          if (!stale) throw new Error(`${lock} lo tiene otro proceso (bórralo si ninguna ejecución usa esta carpeta)`);
+          if (!stale) throw new Error(`${lock} is held by another process (delete it if no run uses this folder)`);
           try { fs.rmdirSync(lock); } catch { /* otro proceso lo retiró antes */ }
           n = 0; // huérfano: se retira y se vuelve a intentar
         }
@@ -83,7 +83,7 @@ export class Mirror {
 
   diskError(err) {
     this.failed = true;
-    if (!this.disabled) console.warn(`tracereports: se detuvo la copia local en ${this.directory}: ${err.message}`);
+    if (!this.disabled) console.warn(`tracereports: stopped local copy in ${this.directory}: ${err.message}`);
     this.disabled = true;
   }
 

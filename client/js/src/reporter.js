@@ -181,18 +181,18 @@ export default class TraceReportsReporter {
     const problems = this.cr.deliveryProblems() + (this.cr.recording && this.cr.runId < 0 && ["auto", "both"].includes(this.cr.offlineMode) ? 1 : 0);
     if (this.cr.recording && this.cr.runId > 0) {
       console.log(`TraceReports: ${this.cr.reportUrl}`);
-      console.log(`TraceReports copia local: ${this.cr.offlineReport || `tracereports report ${this.cr.offlineDir}`}`);
+      console.log(`TraceReports local copy: ${this.cr.offlineReport || `tracereports report ${this.cr.offlineDir}`}`);
     } else if (this.cr.recording) {
-      console.log(`TraceReports (sin servidor): evidencia en ${this.cr.offlineDir}; reporte: ` +
-        (this.cr.reportUrl || `\`tracereports report ${this.cr.offlineDir} -o reporte\``) +
-        `; para subirla: \`tracereports push ${this.cr.offlineDir}\``);
+      console.log(`TraceReports (no server): evidence in ${this.cr.offlineDir}; report: ` +
+        (this.cr.reportUrl || `\`tracereports report ${this.cr.offlineDir} -o report\``) +
+        `; to upload it: \`tracereports push ${this.cr.offlineDir}\``);
     } else if (this.cr.runId) console.log(`TraceReports: ${this.cr.reportUrl}`);
     if (problems && (!this.cr.recording || this.cr.runId > 0)) {
       const d = this.cr.delivery;
-      console.warn(`TraceReports: atención: ${problems - d.runNotClosed} eventos de evidencia no llegaron al servidor ` +
-        `(enviados ${d.sent}, rechazados ${d.rejected}, descartados ${d.dropped}, perdidos ${d.lost})` +
-        (d.runNotClosed ? "; el servidor no confirmó el cierre de la ejecución: quedó abierta" : "") +
-        (this.strict ? " — TRACEREPORTS_STRICT: la corrida falla" : ""));
+      console.warn(`TraceReports: warning: ${problems - d.runNotClosed} evidence events did not reach the server ` +
+        `(sent ${d.sent}, rejected ${d.rejected}, dropped ${d.dropped}, lost ${d.lost})` +
+        (d.runNotClosed ? "; the server did not confirm that the run finished: it stays open" : "") +
+        (this.strict ? " - TRACEREPORTS_STRICT: the run fails" : ""));
     }
     if (this.strict && (problems || (this.cr.enabled && !this.cr.runId)) && result.status === "passed") {
       return { status: "failed" };

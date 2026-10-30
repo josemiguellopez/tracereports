@@ -60,11 +60,11 @@ export class Sender {
         return { kind: "ok", data: text ? JSON.parse(text) : {} };
       }
       if (RETRYABLE.has(res.status)) return { kind: "retry" };
-      const hint = res.status === 401 ? " (configura el token: new TraceReports({ token }), la variable TRACEREPORTS_TOKEN o TRACEREPORTS_TOKEN en el .env del proyecto)" : "";
+      const hint = res.status === 401 ? " (set the token: new TraceReports({ token }), the TRACEREPORTS_TOKEN variable or TRACEREPORTS_TOKEN in the project .env)" : "";
       console.warn(`tracereports: ${item.method} ${item.path} -> HTTP ${res.status} ${text.slice(0, 300)}${hint}`);
       return { kind: "reject" };
     } catch (err) {
-      if (!this.serverDown()) console.warn(`tracereports: ${item.method} ${item.path} falló: ${err.cause?.code || err.message}`);
+      if (!this.serverDown()) console.warn(`tracereports: ${item.method} ${item.path} failed: ${err.cause?.code || err.message}`);
       this.downUntil = Date.now() + limits.circuitMs;
       return { kind: "retry" };
     }
@@ -92,7 +92,7 @@ export class Sender {
     const size = body?.length ?? 0;
     if (this.pending + 1 > this.maxItems || this.bytes + size > this.maxBytes) {
       if (this.stats.dropped++ === 0) {
-        console.warn(`tracereports: la cola de envío está llena (${this.maxItems} eventos); se descartan los eventos nuevos`);
+        console.warn(`tracereports: the send queue is full (${this.maxItems} events); new events are dropped`);
       }
       return false;
     }
@@ -178,7 +178,7 @@ export class Sender {
     }
     this.notify();
     if (items.length) {
-      console.warn(`tracereports: ${items.length} eventos de evidencia no se pudieron enviar y se perdieron`);
+      console.warn(`tracereports: ${items.length} evidence events could not be sent and were lost`);
     }
     return items.length;
   }

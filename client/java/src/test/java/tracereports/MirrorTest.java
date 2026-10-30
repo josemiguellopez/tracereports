@@ -113,7 +113,7 @@ class MirrorTest {
         org.junit.jupiter.api.Assertions.assertFalse(java.nio.file.Files.exists(old.resolve(".mirror-lock")));
         java.io.IOException err = org.junit.jupiter.api.Assertions.assertThrows(java.io.IOException.class,
                 () -> new Mirror(fresh, "http://server.test", 7, java.util.Map.of("name", "run")));
-        org.junit.jupiter.api.Assertions.assertTrue(err.getMessage().contains("lo tiene otro proceso"), err.getMessage());
+        org.junit.jupiter.api.Assertions.assertTrue(err.getMessage().contains("is held by another process"), err.getMessage());
     }
 
     /** Con offlineBase cada corrida crea su carpeta dentro de la base: la segunda no choca con la primera. */
