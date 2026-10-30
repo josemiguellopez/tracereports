@@ -33,3 +33,11 @@ updates:
     directory: "/"
     schedule: { interval: weekly }
     target-branch: dev
+
+  # .github/requirements: fijados con hashes (pip-compile); Dependabot regenera el .txt
+  - package-ecosystem: pip
+    directories: ["/.github/requirements", "/examples/python-selenium-allure"]
+    schedule: { interval: weekly }
+    target-branch: dev
+    groups:
+      pip: { patterns: ["*"] }

@@ -76,6 +76,14 @@ sha256sum --check --ignore-missing checksums.txt     # macOS: shasum -a 256 --ch
 gh attestation verify tracereports_${VERSION}_linux_amd64.tar.gz --repo josemiguellopez/tracereports
 ```
 
+Releases after 0.6.0 also attach that provenance as `tracereports_${VERSION}.intoto.jsonl`, so it
+can be checked without querying GitHub's attestation API:
+
+```bash
+gh attestation verify tracereports_${VERSION}_linux_amd64.tar.gz --repo josemiguellopez/tracereports \
+  --bundle tracereports_${VERSION}.intoto.jsonl
+```
+
 The SBOM of each archive is the `.spdx.json` file with the same name
 (`tracereports_${VERSION}_linux_amd64.tar.gz.spdx.json`), also covered by `checksums.txt`.
 
