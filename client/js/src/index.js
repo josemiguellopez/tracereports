@@ -28,7 +28,7 @@ import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 import { downloadBinary } from "./binary.js";
 
-export const VERSION = "0.4.0";
+export const VERSION = "0.4.1";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
 
@@ -133,12 +133,12 @@ export class TraceReports {
     try {
       this.sender = new Recorder(dir);
     } catch (err) {
-      console.warn(`tracereports: no se pudo grabar en ${dir}: ${err.message}`);
+      console.warn(`tracereports: could not record locally in ${dir}: ${err.message}`);
       return;
     }
     this.offlineDir = dir;
     if (reason) {
-      console.warn(`tracereports: ${reason}; la evidencia se graba en ${dir}`);
+      console.warn(`tracereports: ${reason}; recording the evidence in ${dir}`);
     }
   }
 
@@ -147,7 +147,7 @@ export class TraceReports {
     try {
       this.sender = new Mirror(this.sender, dir, this.baseUrl, runId, payload);
       this.offlineDir = dir;
-    } catch (err) { console.warn(`tracereports: no se pudo iniciar la copia local en ${dir}: ${err.message}`); }
+    } catch (err) { console.warn(`tracereports: could not start local copy in ${dir}: ${err.message}`); }
   }
 
   /** Arma el HTML con el binario instalado o el renderer verificado de la caché. */
@@ -163,7 +163,7 @@ export class TraceReports {
       if (!fs.statSync(index).isFile()) throw Error("renderer did not create index.html");
       this.offlineReport = index;
       if (this.runId > 0) console.warn(`tracereports: server report: ${this.reportUrl}`);
-      console.warn(`tracereports: reporte local: ${this.offlineReport}`);
+      console.warn(`tracereports: local report in ${this.offlineReport}`);
       return this.offlineReport;
     } catch (err) {
       console.warn(`tracereports: local report unavailable (${err.message}); evidence retained in ${this.offlineDir}. ` +
@@ -234,14 +234,14 @@ export class TraceReports {
     let created = res;
     if (!created && this.enabled && ["auto", "both"].includes(this.offlineMode) && !this.recording) {
       // sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
-      this.goOffline(`no se pudo crear la ejecución en ${this.baseUrl} (servidor caído o token incorrecto)`);
+      this.goOffline(`could not create the run at ${this.baseUrl} (server down or wrong token)`);
       if (this.recording) created = await this.request("POST", "/api/v1/runs", payload);
     }
     if (created?.run_id > 0 && this.offlineMode === "both" && !this.recording) this.goMirror(created.run_id, payload);
     this.runId = created?.run_id ?? null;
     this.runCreated = Boolean(this.runId);
     if (this.enabled && !this.runId) {
-      console.warn(`tracereports: no se pudo crear la ejecución en ${this.baseUrl}; los tests siguen sin reporte.`);
+      console.warn(`tracereports: could not create the run at ${this.baseUrl}; tests will continue without reporting.`);
     }
     return this.runId;
   }
@@ -287,8 +287,8 @@ export class TraceReports {
       return res;
     }
     if (this.runNotClosed) {
-      console.warn(`tracereports: el servidor no confirmó el cierre de la ejecución #${this.runId}: quedó abierta ` +
-        `(ciérrala con PATCH ${this.baseUrl}/api/v1/runs/${this.runId}/finish)`);
+      console.warn(`tracereports: the server did not confirm that run #${this.runId} finished: it stays open ` +
+        `(finish it with PATCH ${this.baseUrl}/api/v1/runs/${this.runId}/finish)`);
     }
     return res;
   }
@@ -411,7 +411,7 @@ export class TraceTest {
       }
     }
     if (body.length > 100 << 20) {
-      console.warn(`tracereports: ${name || kind} pesa más de 100 MB: no se adjunta`);
+      console.warn(`tracereports: ${name || kind} is larger than 100 MB: not attached`);
       return false;
     }
     const boundary = `----tracereports${Math.random().toString(16).slice(2)}`;

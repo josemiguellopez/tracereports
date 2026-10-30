@@ -357,7 +357,7 @@ def test_resend_cli_does_not_announce_success_when_evidence_remains(tmp_path, ca
     _big_spool(tmp_path, 3)
     code = resend.main([str(tmp_path), "--url", "http://127.0.0.1:9", "--timeout", "1"])
     out = capsys.readouterr().out
-    assert code == 1 and "No hay eventos pendientes" not in out and "Quedan" in out
+    assert code == 1 and "No pending events" not in out and "files left to resend" in out
     assert len(_items_in(tmp_path)) == 3, "nothing lost"
 
 

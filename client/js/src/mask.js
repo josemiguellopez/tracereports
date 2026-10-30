@@ -90,7 +90,7 @@ export async function seleniumScreenshot(driver) {
         await driver.executeScript(COVER_JS, selector, MASK_COLOR, OVERLAY_ATTR);
         covered = true;
       } catch (err) {
-        console.warn(`tracereports: no se pudo tapar ${JSON.stringify(selector)} antes de la captura: ${err?.message ?? err}`);
+        console.warn(`tracereports: could not cover ${JSON.stringify(selector)} before the screenshot: ${err?.message ?? err}`);
         return null;
       }
     }

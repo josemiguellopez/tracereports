@@ -92,7 +92,7 @@ final class Sender {
                 return new Result(Kind.OK, res.body());
             }
             if (RETRYABLE.contains(code)) return new Result(Kind.RETRY, null);
-            String hint = code == 401 ? " (configura el token: TRACEREPORTS_TOKEN en el entorno o en el .env del proyecto)" : "";
+            String hint = code == 401 ? " (set the token: TRACEREPORTS_TOKEN in the environment or in the project .env)" : "";
             String body = res.body() == null ? "" : res.body();
             LOG.warning("tracereports: " + item.method + " " + item.path + " -> HTTP " + code + " "
                     + body.substring(0, Math.min(300, body.length())) + hint);
@@ -101,7 +101,7 @@ final class Sender {
             Thread.currentThread().interrupt();
             return new Result(Kind.RETRY, null);
         } catch (Exception e) {
-            if (!serverDown()) LOG.warning("tracereports: " + item.method + " " + item.path + " falló: " + e);
+            if (!serverDown()) LOG.warning("tracereports: " + item.method + " " + item.path + " failed: " + e);
             downUntil = System.currentTimeMillis() + circuitMillis;
             return new Result(Kind.RETRY, null);
         }
@@ -151,7 +151,7 @@ final class Sender {
         if (rec != null) return rec.record(method, path, body, contentType) != null;
         if (pending() + 1 > maxItems || bytes + body.length > maxBytes) {
             if (dropped++ == 0) {
-                LOG.warning("tracereports: la cola de envío está llena (" + maxItems + " eventos); se descartan los eventos nuevos");
+                LOG.warning("tracereports: the send queue is full (" + maxItems + " events); new events are dropped");
             }
             return false;
         }
@@ -238,7 +238,7 @@ final class Sender {
         }
         bytes = 0;
         lost += n;
-        if (n > 0) LOG.warning("tracereports: " + n + " eventos de evidencia no se pudieron enviar y se perdieron");
+        if (n > 0) LOG.warning("tracereports: " + n + " evidence events could not be sent and were lost");
         notifyAll();
         return n;
     }

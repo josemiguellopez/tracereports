@@ -25,19 +25,19 @@ final class Mirror {
         try {
             locked(() -> {
                 Path marker = dir.resolve(Recorder.MARKER);
-                if (Files.exists(marker) && Boolean.TRUE.equals(read(marker).get("raw_removed"))) throw new IOException("la carpeta solo contiene el reporte; usa otra carpeta");
+                if (Files.exists(marker) && Boolean.TRUE.equals(read(marker).get("raw_removed"))) throw new IOException("the folder only contains the report; use another folder");
                 recorder = new Recorder(dir);
                 status = "status-" + recorder.pid + "-" + recorder.tag + ".json";
                 write(status, Map.of("complete", false, "reason", "active"));
                 Map<String, Object> m = read(marker);
                 Map<String, Object> mirror = m.containsKey("mirror") ? object(m.get("mirror")) : new LinkedHashMap<>(Map.of("server", server, "runs", new ArrayList<>()));
-                if (!server.equals(mirror.get("server"))) throw new IOException("la carpeta pertenece a otro servidor");
+                if (!server.equals(mirror.get("server"))) throw new IOException("the folder belongs to another server");
                 m.put("mirror", mirror); mirror.put("complete", false); write(Recorder.MARKER, m);
                 Path mapping = dir.resolve("ids/server-" + runId);
                 long local = 0;
                 if (payload != null) {
                     String response = recorder.record("POST", "/api/v1/runs", Json.write(payload).getBytes(StandardCharsets.UTF_8), "application/json");
-                    if (response == null) throw new IOException("no se pudo grabar la ejecución");
+                    if (response == null) throw new IOException("could not record the run");
                     local = Json.number(response, "run_id");
                     PrivateFiles.writeString(mapping, Long.toString(local), StandardOpenOption.CREATE_NEW);
                     List<Object> list = new ArrayList<>((List<?>) mirror.get("runs"));
@@ -46,10 +46,10 @@ final class Mirror {
                 } else {
                     try {
                         local = Long.parseLong(Files.readString(mapping).trim());
-                        if (local >= 0) throw new IllegalArgumentException("id local inválido");
+                        if (local >= 0) throw new IllegalArgumentException("invalid local id");
                     } catch (IOException | IllegalArgumentException e) {
                         failed = true; local = 0;
-                        LOG.warning("tracereports: falta el id local de la ejecución #" + runId + ": " + e);
+                        LOG.warning("tracereports: missing local id for run #" + runId + ": " + e);
                     }
                 }
                 if (local != 0) runs.put(runId, local);
@@ -86,7 +86,7 @@ final class Mirror {
                     boolean stale;
                     try { stale = System.currentTimeMillis() - Files.getLastModifiedTime(lock).toMillis() > STALE_LOCK_MS; }
                     catch (IOException gone) { stale = true; } // ya no existe: se vuelve a intentar
-                    if (!stale) throw new IOException(lock + " lo tiene otro proceso (bórralo si ninguna ejecución usa esta carpeta)");
+                    if (!stale) throw new IOException(lock + " is held by another process (delete it if no run uses this folder)");
                     Files.deleteIfExists(lock); // huérfano: se retira y se vuelve a intentar
                     n = 0;
                 }
@@ -97,7 +97,7 @@ final class Mirror {
     }
     private void diskError(Exception e) {
         failed = true;
-        if (!disabled) LOG.warning("tracereports: se detuvo la copia local en " + dir + ": " + e);
+        if (!disabled) LOG.warning("tracereports: stopped local copy in " + dir + ": " + e);
         disabled = true;
     }
     synchronized String record(String method, String path, byte[] body, String contentType) {
@@ -116,7 +116,7 @@ final class Mirror {
                 if (local != null) path = "/api/v1/" + match.group(1) + "/" + local + path.substring(match.end());
             }
             String response = recorder.record(method, path, body, contentType);
-            if (response == null) throw new IOException("no se pudo escribir la evidencia");
+            if (response == null) throw new IOException("could not write the evidence");
             return response;
         } catch (IOException | RuntimeException e) { diskError(e); return null; }
     }

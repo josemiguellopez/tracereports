@@ -64,18 +64,18 @@ public class TraceReportsExtension implements BeforeEachCallback, AfterTestExecu
             cr.finishRun();
             if (cr.recording() && cr.runId() > 0) {
                 System.out.println("TraceReports: " + cr.reportUrl());
-                System.out.println("TraceReports copia local: " + (cr.offlineReport() != null ? cr.offlineReport()
+                System.out.println("TraceReports local copy: " + (cr.offlineReport() != null ? cr.offlineReport()
                         : "`tracereports report " + cr.offlineDir() + "`"));
             } else if (cr.recording()) {
-                System.out.println("TraceReports (sin servidor): evidencia en " + cr.offlineDir() + "; reporte: "
-                        + (cr.offlineReport() != null ? cr.offlineReport() : "`tracereports report " + cr.offlineDir() + " -o reporte`")
-                        + "; para subirla: `tracereports push " + cr.offlineDir() + "`");
+                System.out.println("TraceReports (no server): evidence in " + cr.offlineDir() + "; report: "
+                        + (cr.offlineReport() != null ? cr.offlineReport() : "`tracereports report " + cr.offlineDir() + " -o report`")
+                        + "; to upload it: `tracereports push " + cr.offlineDir() + "`");
             } else if (cr.runId() != 0) System.out.println("TraceReports: " + cr.reportUrl());
             Delivery d = cr.delivery();
             int lost = d.problems() - d.runNotClosed();
-            if (lost > 0) System.err.println("TraceReports: atención: " + lost + " eventos de evidencia no llegaron al servidor " + d);
+            if (lost > 0) System.err.println("TraceReports: warning: " + lost + " evidence events did not reach the server " + d);
             if (d.runNotClosed() > 0) {
-                System.err.println("TraceReports: atención: el servidor no confirmó el cierre de la ejecución #" + cr.runId() + ": quedó abierta");
+                System.err.println("TraceReports: warning: the server did not confirm that run #" + cr.runId() + " finished: it stays open");
             }
         }
     }

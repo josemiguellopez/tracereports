@@ -95,7 +95,7 @@ def selenium_screenshot(driver: Any) -> Optional[bytes]:
                 driver.execute_script(_COVER_JS, selector, MASK_COLOR, _OVERLAY_ATTR)
                 covered = True
             except Exception as err:  # sin poder tapar no se captura: mejor sin captura que sin máscara
-                log.warning("tracereports: no se pudo tapar %r antes de la captura: %s", selector, err)
+                log.warning("tracereports: could not cover %r before the screenshot: %s", selector, err)
                 return None
         return driver.get_screenshot_as_png()
     except Exception:

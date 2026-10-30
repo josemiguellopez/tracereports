@@ -36,7 +36,7 @@ import java.util.logging.Logger;
  */
 public final class TraceReports {
     private static final Logger LOG = Logger.getLogger("tracereports");
-    public static final String VERSION = "0.4.0";
+    public static final String VERSION = "0.4.1";
 
     final String baseUrl;
     final String token;
@@ -114,18 +114,18 @@ public final class TraceReports {
         try {
             sender.recorder = new Recorder(dir);
         } catch (IOException e) {
-            LOG.warning("tracereports: no se pudo grabar en " + dir + ": " + e);
+            LOG.warning("tracereports: could not record locally in " + dir + ": " + e);
             return;
         }
         if (reason != null) {
-            LOG.warning("tracereports: " + reason + "; la evidencia se graba en " + dir);
+            LOG.warning("tracereports: " + reason + "; recording the evidence in " + dir);
         }
     }
 
     private void goMirror(long id, Map<String, Object> payload) {
         Path dir = offlineExplicit ? offlineBase : Recorder.newSessionDir(offlineBase, offlineName);
         try { sender.mirror = new Mirror(dir, baseUrl, id, payload); }
-        catch (IOException | RuntimeException e) { LOG.warning("tracereports: no se pudo iniciar la copia local en " + dir + ": " + e); }
+        catch (IOException | RuntimeException e) { LOG.warning("tracereports: could not start local copy in " + dir + ": " + e); }
     }
 
     /** Cierra la grabación y arma el reporte con el binario instalado o descargado y verificado. */
@@ -146,7 +146,7 @@ public final class TraceReports {
             if (process.waitFor(300, java.util.concurrent.TimeUnit.SECONDS) && process.exitValue() == 0 && Files.isRegularFile(out.resolve("index.html"))) {
                 offlineReport = out.resolve("index.html");
                 if (runId > 0) LOG.warning("tracereports: server report: " + reportUrl());
-                LOG.warning("tracereports: reporte local en " + offlineReport);
+                LOG.warning("tracereports: local report in " + offlineReport);
                 return;
             }
         } catch (InterruptedException e) {
@@ -242,13 +242,13 @@ public final class TraceReports {
         runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
         if (runId == 0 && enabled && (offlineMode.equals("auto") || offlineMode.equals("both")) && !recording()) {
             // sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
-            goOffline("no se pudo crear la ejecución en " + baseUrl + " (servidor caído o token incorrecto)");
+            goOffline("could not create the run at " + baseUrl + " (server down or wrong token)");
             if (recording()) runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
         }
         if (runId > 0 && offlineMode.equals("both") && !recording()) goMirror(runId, p);
         runCreated = runId != 0;
         if (enabled && runId == 0) {
-            LOG.warning("tracereports: no se pudo crear la ejecución en " + baseUrl + "; los tests siguen sin reporte.");
+            LOG.warning("tracereports: could not create the run at " + baseUrl + "; tests will continue without reporting.");
         }
         return runId;
     }
@@ -294,7 +294,7 @@ public final class TraceReports {
             return;
         }
         if (runNotClosed) {
-            LOG.warning("tracereports: el servidor no confirmó el cierre de la ejecución #" + runId + ": quedó abierta");
+            LOG.warning("tracereports: the server did not confirm that run #" + runId + " finished: it stays open");
         }
     }
 
