@@ -96,7 +96,7 @@ test("disk failure disables local writes once while server delivery continues", 
     fs.mkdirSync(cr.sender.recorder.file); // append to a directory fails on every platform
     await evidence(cr); await cr.finishRun();
     assert.equal(srv.requests.length, 6);
-    assert.equal(warnings.filter(w => w.includes("se detuvo la copia local")).length, 1);
+    assert.equal(warnings.filter(w => w.includes("stopped local copy")).length, 1);
     assert.equal(marker(dir).mirror.complete, false);
   } finally { console.warn = warn; await srv.close(); }
 });
@@ -146,7 +146,7 @@ test("un bloqueo huérfano no impide la copia local", async () => {
   const m = new Mirror(null, old, "http://server.test", 7, { name: "run" });
   assert.ok(m.runs.get(7) < 0);
   assert.ok(!fs.existsSync(path.join(old, ".mirror-lock")));
-  assert.throws(() => new Mirror(null, fresh, "http://server.test", 7, { name: "run" }), /lo tiene otro proceso/);
+  assert.throws(() => new Mirror(null, fresh, "http://server.test", 7, { name: "run" }), /is held by another process/);
   fs.rmSync(base, { recursive: true, force: true });
 });
 
