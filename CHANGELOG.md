@@ -6,6 +6,13 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Client READMEs on PyPI and npm**: the links to the guides (offline mode, local report, the language
+  switch) were relative to the repository and led nowhere on the package pages; they now point to GitHub.
+  Every URL is also on a line of its own, so a viewer that shows the README as plain text no longer glues
+  the closing `)).` to it (`selenium.md)).` returned 404).
+
 ## [0.6.2] - 2026-10-30
 
 Python client 0.5.1, JavaScript client 0.4.1 and Java client 0.4.1. The server is the same as 0.6.1; it is
