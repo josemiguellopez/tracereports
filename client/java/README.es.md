@@ -1,8 +1,8 @@
 # tracereports-java (cliente Java)
 
-🌐 [English](README.md) · **Español**
+🌐 [English][readme-en] · **Español**
 
-Cliente del servidor [TraceReports](../../README.es.md): extensión de JUnit 5 y helpers para
+Cliente del servidor [TraceReports][tracereports]: extensión de JUnit 5 y helpers para
 Selenium y Playwright para Java. Java 17+, sin dependencias en tiempo de ejecución.
 
 ```bash
@@ -13,15 +13,22 @@ Selenium y Playwright para Java. Java 17+, sin dependencias en tiempo de ejecuci
 - **JUnit 5**: `@ExtendWith(TraceReportsExtension.class)` reporta cada test con su resultado; inyecta
   `TraceTest` para agregar pasos, capturas, red, la consola del navegador y traces o videos de Playwright.
 - **Selenium (Chrome, Edge)**: `SeleniumEvidence.options(options)` y `SeleniumEvidence.attach(t, driver)` envían
-  la red (pestaña Red, Lab) y la consola de cada test, y la captura y el DOM al fallar ([guía de Selenium](https://github.com/josemiguellopez/tracereports/blob/main/docs/es/selenium.md)).
+  la red (pestaña Red, Lab) y la consola de cada test, y la captura y el DOM al fallar ([guía de Selenium][selenium]).
 - **Nunca frena ni rompe tus tests**: la evidencia sale en un hilo en segundo plano, con reintentos
   y sin duplicados; los shards pueden unirse a la misma ejecución.
 - **Sin servidor**: si el servidor está caído o rechaza el token, la ejecución se graba en local;
   `tracereports report <carpeta>` arma el reporte HTML y `tracereports push <carpeta>` lo sube después.
   Con `TRACEREPORTS_OFFLINE=both` además guarda esa copia local mientras envía al servidor
-  ([guía del reporte local](../../docs/es/local-report.md)).
+  ([guía del reporte local][local-report]).
 - **Configuración** desde el entorno, propiedades del sistema o el `.env` del proyecto.
 
-Documentación completa: [docs/es/java.md](../../docs/es/java.md).
+Documentación completa: [docs/es/java.md][java].
 
-Sin binario instalado, al cerrar se descarga y verifica el renderer v0.2.0 en la caché del usuario; `TRACEREPORTS_BIN_DOWNLOAD=0` permite trabajar sin internet con un binario instalado o en caché. Ver [modo offline](../../docs/es/offline.md).
+Sin binario instalado, al cerrar se descarga y verifica el renderer v0.2.0 en la caché del usuario; `TRACEREPORTS_BIN_DOWNLOAD=0` permite trabajar sin internet con un binario instalado o en caché. Ver [modo offline][offline].
+
+[readme-en]: https://github.com/josemiguellopez/tracereports/blob/main/client/java/README.md
+[tracereports]: https://github.com/josemiguellopez/tracereports/blob/main/README.es.md
+[selenium]: https://github.com/josemiguellopez/tracereports/blob/main/docs/es/selenium.md
+[local-report]: https://github.com/josemiguellopez/tracereports/blob/main/docs/es/local-report.md
+[java]: https://github.com/josemiguellopez/tracereports/blob/main/docs/es/java.md
+[offline]: https://github.com/josemiguellopez/tracereports/blob/main/docs/es/offline.md
