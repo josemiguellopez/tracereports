@@ -42,7 +42,7 @@ steps to apply it.
 | `TEAMS_WEBHOOK_URL` | — | Sends each run's summary to Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Sends each run's summary to Slack |
 | `PUBLIC_URL` | — | Public URL of the server, for the *View report* button in notifications |
-| `TRACEREPORTS_BIND` | all interfaces; without credentials, only this machine | Address to listen on: `127.0.0.1` serves only this machine (no firewall prompt on Windows). See [Security](#security) |
+| `TRACEREPORTS_BIND` | all interfaces; without credentials, only this machine | Address to listen on: `127.0.0.1` or `localhost` serves only this machine, over IPv4 and IPv6 (`::1`), with no firewall prompt on Windows. See [Security](#security) |
 | `TRACEREPORTS_INSECURE` | — | `1`: start listening on the network **without** a token or login (only in a closed lab network). See [Security](#security) |
 | `NOTIFY_ON` | `always` | `always`, or `failures` to notify only when something failed |
 | `NOTIFY_DETAIL` | `full` | `minimal`: Teams and Slack get only counts, status and the link; no test names, errors, backend URLs or AI text. See [Notifications](#teams-and-slack-notifications) |

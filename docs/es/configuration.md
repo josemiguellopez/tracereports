@@ -42,7 +42,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TEAMS_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Microsoft Teams |
 | `SLACK_WEBHOOK_URL` | — | Envía el resumen de cada ejecución a Slack |
 | `PUBLIC_URL` | — | URL pública del servidor, para el botón *Ver reporte* de las notificaciones |
-| `TRACEREPORTS_BIND` | todas las interfaces; sin credenciales, solo este equipo | Dirección donde escucha: `127.0.0.1` atiende solo a este equipo (sin el aviso del firewall de Windows). Ver [Seguridad](#seguridad) |
+| `TRACEREPORTS_BIND` | todas las interfaces; sin credenciales, solo este equipo | Dirección donde escucha: `127.0.0.1` o `localhost` atiende solo a este equipo, por IPv4 e IPv6 (`::1`), sin el aviso del firewall de Windows. Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_INSECURE` | — | `1`: arranca escuchando en la red **sin** token ni login (solo en una red cerrada de laboratorio). Ver [Seguridad](#seguridad) |
 | `NOTIFY_ON` | `always` | `always`, o `failures` para avisar solo si hubo fallos |
 | `NOTIFY_DETAIL` | `full` | `minimal`: Teams y Slack reciben solo conteos, estado y el link; sin nombres de tests, errores, URLs del backend ni texto de IA. Ver [Notificaciones](#notificaciones-a-teams-y-slack) |
