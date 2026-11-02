@@ -17,7 +17,7 @@ repositories { mavenCentral() }
 
 dependencies {
     compileOnly("org.junit.jupiter:junit-jupiter-api:6.1.3")
-    compileOnly("org.seleniumhq.selenium:selenium-api:4.51.0")
+    compileOnly("org.seleniumhq.selenium:selenium-api:4.52.0")
     compileOnly("com.microsoft.playwright:playwright:1.64.0")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
@@ -27,7 +27,7 @@ dependencies {
     // la captura de Playwright se prueba con un Response simulado (sin navegador)
     testImplementation("com.microsoft.playwright:playwright:1.64.0")
     // el enmascarado de Selenium se prueba con un driver simulado y sus scripts en un navegador real
-    testImplementation("org.seleniumhq.selenium:selenium-api:4.51.0")
+    testImplementation("org.seleniumhq.selenium:selenium-api:4.52.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
