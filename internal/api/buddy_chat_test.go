@@ -83,6 +83,25 @@ func TestBuddyChatAnswersWithTheTestEvidence(t *testing.T) {
 	}
 }
 
+// Un XPath que compara texto: la versión tolerante la arma TraceReports y el modelo la recibe para
+// explicarla en vez de escribirla.
+func TestBuddyChatTolerantXPath(t *testing.T) {
+	clearAIEnv(t)
+	srv, _ := newTestServer(t)
+	q := "mejora este xpath //option[normalize-space(text())='Salinas Alexis'] por contains"
+	want := "//option[contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÜÑ', 'abcdefghijklmnopqrstuvwxyzáéíóúüñ'), 'salinas alexis')]"
+	var out struct{ Answer, XPath string }
+	mock, prompts := fakeOllama(t, "Abajo tienes la versión tolerante.")
+	srv.AI.SetConfig(ai.Config{Provider: "ollama", BaseURL: mock.URL, Model: "llama3.1"})
+	rec := call(t, srv, "POST", "/api/v1/ui/ai/chat", chatBody(0, 0, q))
+	if json.Unmarshal(rec.Body.Bytes(), &out); rec.Code != http.StatusOK || out.XPath != want {
+		t.Fatalf("con LLM: %d %s", rec.Code, rec.Body)
+	}
+	if p := prompts(); len(p) != 1 || !strings.Contains(p[0], want) {
+		t.Fatalf("el modelo recibe la versión tolerante: %q", p)
+	}
+}
+
 // Sin un LLM (motor local) no hay chat; las preguntas mal formadas no gastan IA.
 func TestBuddyChatNeedsAnLLMAndAQuestion(t *testing.T) {
 	clearAIEnv(t)

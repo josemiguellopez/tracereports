@@ -16,6 +16,9 @@ Call log:
 		"org.openqa.selenium.TimeoutException: Expected condition failed: waiting for presence of element located by: By.xpath: //button[@id='go'] (tried for 5 second(s))": `//button[@id='go']`,
 		"NoSuchElementException: By.cssSelector: input[name='user']":                                                                                                        `input[name='user']`,
 		`AssertionError: 3 != 4`: ``,
+		"Esperando elemento con selector //option[normalize-space(text())='salinas alexis'] (3 intentos)": `//option[normalize-space(text())='salinas alexis']`,
+		"xpath //div[@id='x']/span[contains(., 'a b')], después de 3 intentos":                             `//div[@id='x']/span[contains(., 'a b')]`,
+		`Get "http://api.local/x": dial tcp: lookup api.local: no such host`:                              ``,
 	}
 	for in, want := range cases {
 		if got := ExtractSelector(in); got != want {
@@ -24,6 +27,32 @@ Call log:
 	}
 	if !LooksLikeLocatorFailure(`waiting for locator("#x")`) || LooksLikeLocatorFailure("AssertionError: 3 != 4") {
 		t.Error("LooksLikeLocatorFailure")
+	}
+}
+
+func TestTolerantXPath(t *testing.T) {
+	low := "translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÜÑ', 'abcdefghijklmnopqrstuvwxyzáéíóúüñ')"
+	cases := map[string]string{
+		"//option[normalize-space(text())='Salinas  Alexis']": "//option[contains(" + low + ", 'salinas alexis')]",
+		`//button[text()="Guardar"]`:                           "//button[contains(" + low + ", 'guardar')]",
+		"//a[contains(text(), 'Ver más')]/span":               "//a[contains(" + low + ", 'ver más')]/span",
+		"//li[.=\"O'Brien\"]":                                 "//li[contains(" + low + `, "o'brien")]`,
+		"//div[@id='x']":                                      "",
+	}
+	for in, want := range cases {
+		if got := TolerantXPath(in); got != want {
+			t.Errorf("TolerantXPath(%q)\n got %q\nwant %q", in, got, want)
+		}
+	}
+	finds := map[string]string{
+		"mejora este xpath //option[normalize-space(text())='salinas alexis'] para que funcione": "//option[normalize-space(text())='salinas alexis']",
+		`por contains: "(//tr[td='a b'])[2]"`: "(//tr[td='a b'])[2]",
+		"mira https://shop.local/x y dime":    "",
+	}
+	for in, want := range finds {
+		if got := FindXPath(in); got != want {
+			t.Errorf("FindXPath(%q) = %q, want %q", in, got, want)
+		}
 	}
 }
 

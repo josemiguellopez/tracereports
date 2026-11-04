@@ -376,6 +376,8 @@
 		"Las sugerencias de la IA se verifican con la evidencia del reporte.": "AI suggestions are checked against the report's evidence.", "Tu pregunta": "Your question",
 		"No pude responder:": "I couldn't answer:", "cURL de la llamada que falló": "cURL of the failed call", "Mock del backend que falló": "Mock of the failed backend",
 		"En Postman: Import → Raw text → pega el cURL. Cambia las variables como $TOKEN por su valor real.": "In Postman: Import → Raw text → paste the cURL. Replace variables like $TOKEN with their real value.",
+		"XPath más tolerante": "More tolerant XPath",
+		"Encuentra el elemento aunque cambien las mayúsculas, haya espacios de más o texto alrededor. Si armas el XPath con una variable, pásala en minúsculas.": "It finds the element even if the case changes or there are extra spaces or text around it. If you build the XPath from a variable, pass it in lowercase.",
 		"Abrir el generador": "Open the generator", "Preguntas a Trace Buddy": "Questions to Trace Buddy",
 		"¿Por qué no hay capturas?": "Why are there no screenshots?",
 		"Este servidor no guarda capturas (TRACEREPORTS_SCREENSHOTS=off).": "This server keeps no screenshots (TRACEREPORTS_SCREENSHOTS=off).",

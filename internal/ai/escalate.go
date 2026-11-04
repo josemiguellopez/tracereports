@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
 	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 )
@@ -99,6 +100,7 @@ type Facts struct {
 	AISummary   string        `json:"ai_summary,omitempty"`
 	AISuggest   string        `json:"ai_suggestion,omitempty"`
 	LocatorPick string        `json:"locator_pick,omitempty"`
+	NoRule      bool          `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
 	Steps       []string      `json:"steps,omitempty"`
 	Screenshot  string        `json:"screenshot,omitempty"` // URL relativa de la captura del fallo
 	ShotCaption string        `json:"shot_caption,omitempty"`
@@ -225,6 +227,7 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 		f.ReportPath = fmt.Sprintf("#run=%d&view=tests&test=%d", runID, t.ID)
 		if t.Triage != nil && t.Triage.State == "DONE" {
 			f.Category, f.AISummary, f.AISuggest, f.LocatorPick = t.Triage.Category, t.Triage.Summary, t.Triage.Suggestion, t.Triage.LocatorPick
+			f.NoRule = t.Triage.Provider == ProviderBuiltin && t.Triage.Rule == builtin.DefaultRule
 		}
 		start := 0
 		if len(t.Logs) > 10 {
@@ -314,7 +317,9 @@ func (f *Facts) promptBlock(scope string) string {
 	}
 	if scope == "test" {
 		fmt.Fprintf(&b, "\nFailed test: %s (tags: %s)\nDescription: %s\nError: %s\n", f.TestName, f.TestTags, f.TestDesc, f.Error)
-		if f.Category != "" {
+		if f.NoRule { // su consejo ("configura un proveedor de IA…") no le sirve al LLM que lee esto
+			b.WriteString("Per-test triage: inconclusive (no rule of the local rules engine explains it): diagnose it yourself from the error and the steps.\n")
+		} else if f.Category != "" {
 			fmt.Fprintf(&b, "Per-test AI triage: [%s] %s Suggestion: %s\n", f.Category, f.AISummary, f.AISuggest)
 		}
 		if f.LocatorPick != "" {

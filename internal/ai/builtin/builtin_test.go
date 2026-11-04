@@ -55,6 +55,8 @@ func TestRules(t *testing.T) {
 		{"playwright waiting for locator", Input{Error: `TimeoutError: Page.click: Timeout 3000ms exceeded. Call log: - waiting for locator("#add-to-cart")`}, "locator_not_found", CategoryLocator},
 		{"selenium no such element", Input{Error: `NoSuchElementException: no such element: Unable to locate element: {"method":"css selector","selector":"#add-to-cart"}`}, "locator_not_found", CategoryLocator},
 		{"selector en el paso", Input{FailedStep: `no such element: Unable to locate element: {"selector":"#pay"}`}, "locator_not_found", CategoryLocator},
+		{"espera propia con xpath", Input{Error: "TimeoutException: Message: ", FailedStep: "Esperando elemento con selector //option[normalize-space(text())='salinas alexis'] (3 intentos)"}, "locator_not_found", CategoryLocator},
+		{"espera propia sin timeout", Input{Error: "AssertionError: no se pudo esperar el elemento", FailedStep: "esperar elemento xpath //div[@id='x'] después de 3 intentos"}, "locator_not_found", CategoryLocator},
 		// assertion
 		{"pytest assert", Input{Error: "AssertionError: assert 3 == 4"}, "assertion", CategoryLogic},
 		{"jest expected/received", Input{Error: "Error: expect(received).toBe(expected)\n\nExpected: 4\nReceived: 3"}, "assertion", CategoryLogic},

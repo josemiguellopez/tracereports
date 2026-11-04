@@ -10,12 +10,28 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/locator"
 	"github.com/josemiguellopez/tracereports/internal/repro"
 )
 
 // probeTTL keeps a probe answer for a short while: opening and closing Trace Buddy, or several
 // admins at once, do not pay one provider call each.
 const probeTTL = 20 * time.Second
+
+// How long the probe waits for the provider. A local model (Ollama, an OpenAI-compatible server) is
+// loaded into memory on the first call after a while idle: a 14B one takes over 30 s on its own.
+var (
+	probeWaitCloud = 30 * time.Second
+	probeWaitLocal = 2 * time.Minute
+)
+
+// waitText is a wait as the probe error says it: "30 s", "2 minutes".
+func waitText(d time.Duration) string {
+	if d >= time.Minute && d%time.Minute == 0 {
+		return fmt.Sprintf("%d minutes", d/time.Minute)
+	}
+	return fmt.Sprintf("%d s", int(d.Seconds()))
+}
 
 // probeCache is the last answer of aiProbe, for the configuration it was made with.
 type probeCache struct {
@@ -50,14 +66,18 @@ func (s *Server) aiProbe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.probe.body)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	wait := probeWaitCloud
+	if c.Provider == "ollama" || c.Provider == "openai_compatible" {
+		wait = probeWaitLocal
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), wait)
 	defer cancel()
 	took, err := s.AI.Test(ctx, c)
 	body := map[string]any{"ok": err == nil, "state": "llm", "provider": c.Provider, "model": s.AI.Model()}
 	if err != nil {
 		msg := s.redactor().Text(err.Error()) // la key ya viene quitada (ai.call); además, la política
 		if errors.Is(err, context.DeadlineExceeded) {
-			msg = "the provider did not answer in 30 s"
+			msg = fmt.Sprintf("the provider did not answer in %s", waitText(wait))
 		}
 		hint, suggest := ai.Hint(err, c)
 		body["error"], body["hint"], body["suggest"] = msg, hint, suggest
@@ -121,6 +141,13 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	}
 	var facts *ai.Facts
 	var extra ai.ChatExtra
+	// un XPath que compara texto en la pregunta: la versión tolerante la arma TraceReports, no el modelo
+	// (uno local chico la escribe mal o no la escribe); el modelo la recibe para explicarla
+	xpath := locator.TolerantXPath(locator.FindXPath(msgs[len(msgs)-1].Text))
+	if xpath != "" {
+		extra.Shown = append(extra.Shown, "a more tolerant version of that XPath, built by TraceReports: "+xpath+
+			" (contains() over normalize-space(.) lowercased with translate(), so it matches with other case, extra spaces or more text)")
+	}
 	var curl string // el de la primera llamada que falló: la web lo muestra con "Copiar" si se lo pidieron
 	scope := "run"
 	if in.RunID > 0 {
@@ -156,7 +183,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": msg, "hint": hint})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"answer": answer, "provider": s.AI.Provider(), "model": s.AI.Model(), "curl": curl})
+	writeJSON(w, http.StatusOK, map[string]any{"answer": answer, "provider": s.AI.Provider(), "model": s.AI.Model(), "curl": curl, "xpath": xpath})
 }
 
 // chatCalls are the failed calls of a test for the chat: each as cURL (repro.Curl: secrets become

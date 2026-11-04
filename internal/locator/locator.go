@@ -116,7 +116,95 @@ func ExtractSelector(texts ...string) string {
 			return pySeleniumSelector(m[1], m[2]+m[3])
 		}
 	}
+	for _, text := range texts {
+		if x := bareXPath(text); x != "" {
+			return x
+		}
+	}
 	return ""
+}
+
+// xpathCue: the word that announces a selector in the messages of a team's own wait helpers
+// ("Esperando elemento con selector //option[...] (3 intentos)", "xpath //div[@id='x'] not found").
+var xpathCue = regexp.MustCompile(`(?i)\b(?:selector|locator|localizador|xpath|element|elemento)\b[^/\n]{0,30}?(//[A-Za-z*(])`)
+
+// bareXPath is an absolute XPath written without quotes after a cue word. It ends at the first space
+// outside brackets, parentheses and quotes, so a predicate with text ("salinas alexis") stays whole.
+func bareXPath(text string) string {
+	m := xpathCue.FindStringSubmatchIndex(text)
+	if m == nil {
+		return ""
+	}
+	return scanXPath(text, m[2])
+}
+
+// xpathStart: where an XPath begins in free text (a chat question): "//" or "(//" after the start, a
+// space or a quote, never the "//" of a URL ("http://").
+var xpathStart = regexp.MustCompile(`(?:^|[\s"'“])(\(?//[A-Za-z*(@.])`)
+
+// FindXPath is the first XPath written in a free text, such as a question to Trace Buddy.
+func FindXPath(text string) string {
+	m := xpathStart.FindStringSubmatchIndex(text)
+	if m == nil {
+		return ""
+	}
+	return strings.TrimRight(scanXPath(text, m[2]), `"'”`)
+}
+
+// scanXPath reads the XPath that starts at start: up to the first space or unbalanced closing
+// outside brackets, parentheses and quotes.
+func scanXPath(text string, start int) string {
+	depth := 0
+	var quote rune
+	for i, r := range text[start:] {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == '[' || r == '(':
+			depth++
+		case r == ']' || r == ')':
+			if depth == 0 {
+				return text[start : start+i]
+			}
+			depth--
+		case unicode.IsSpace(r) && depth == 0:
+			return strings.TrimRight(text[start:start+i], ".,;:")
+		}
+	}
+	return strings.TrimRight(text[start:], ".,;:")
+}
+
+// xpathTextTest: a comparison of an element's text in an XPath, exact or with contains():
+// normalize-space(text())='x', text()="x", .='x', contains(text(), 'x'), contains(normalize-space(.), 'x').
+var xpathTextTest = regexp.MustCompile(`contains\(\s*(?:normalize-space\(\s*(?:text\(\)|\.)?\s*\)|text\(\)|\.)\s*,\s*(?:'([^']*)'|"([^"]*)")\s*\)` +
+	`|(?:normalize-space\(\s*(?:text\(\)|\.)?\s*\)|text\(\)|\.)\s*=\s*(?:'([^']*)'|"([^"]*)")`)
+
+// The letters translate() lowers, Spanish ones included (XPath 1.0 has no lower-case()).
+const (
+	xpathUpper = "ABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÜÑ"
+	xpathLower = "abcdefghijklmnopqrstuvwxyzáéíóúüñ"
+)
+
+// TolerantXPath rewrites the text comparisons of an XPath so they still match when the text changes
+// case, has extra spaces or more text around it: contains() over the lowercased normalize-space(.).
+// Only XPath 1.0 (Selenium and browsers have nothing newer). "" when it has no text comparison.
+func TolerantXPath(xpath string) string {
+	if !xpathTextTest.MatchString(xpath) {
+		return ""
+	}
+	return xpathTextTest.ReplaceAllStringFunc(xpath, func(m string) string {
+		g := xpathTextTest.FindStringSubmatch(m)
+		value := strings.ToLower(strings.Join(strings.Fields(g[1]+g[2]+g[3]+g[4]), " "))
+		lit := "'" + value + "'"
+		if strings.Contains(value, "'") {
+			lit = `"` + value + `"`
+		}
+		return fmt.Sprintf("contains(translate(normalize-space(.), '%s', '%s'), %s)", xpathUpper, xpathLower, lit)
+	})
 }
 
 // pySeleniumSelector writes a Selenium for Python locator as the CSS or XPath it means.
@@ -140,7 +228,8 @@ func LooksLikeLocatorFailure(text string) bool {
 	t := strings.ToLower(text)
 	for _, k := range []string{"waiting for locator", "waiting for get_by", "waiting for getby", "no such element",
 		"unable to locate element", "element not found", "nosuchelement", "stale element", "strict mode violation",
-		"not visible", "timeout esperando", "no se encontró el elemento"} {
+		"not visible", "timeout esperando", "no se encontró el elemento", "waiting for element", "esperando elemento",
+		"esperando el elemento", "esperar elemento", "esperar el elemento", "could not find element", "no se pudo encontrar el elemento"} {
 		if strings.Contains(t, k) {
 			return true
 		}
