@@ -2601,8 +2601,52 @@
 		return html;
 	}
 
+	/** El resumen con formato para pegar en un chat (Teams, Slack): negritas, listas y bloques de código
+	 * como HTML, que es lo que esas apps respetan al pegar (el Markdown pegado queda con los ** a la vista). */
+	function escChatHTML(e) {
+		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
+		const p = (html) => `<p>${html}</p>`, b = (s) => `<b>${esc(s)}</b>`;
+		const list = (tag, xs) => `<${tag}>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</${tag}>`;
+		const out = [p(`${b((L[e.severity] || e.severity).toUpperCase())} · ${b(e.title)}`), p(esc(e.headline))];
+		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && out.push(p(`${b(k + ":")} ${esc(v)}`)));
+		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
+			out.push(p(b(L.calls + ":")), list("ul", f.network.map((n) => `${n.method} ${n.path} → ${n.outcome}${n.duration_ms ? ` (${n.duration_ms} ms)` : ""}`)));
+		}
+		if (e.evidence?.length) out.push(p(b(L.evidence + ":")), list("ul", e.evidence));
+		if (e.next_steps?.length) out.push(p(b(L.next + ":")), list("ol", e.next_steps));
+		if (e.owner) out.push(p(`${b(L.owner + ":")} ${esc(e.owner)}`));
+		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join(""));
+		out.push(p(`${esc(`${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`)}<br>
+			<a href="${esc(escReportURL(e))}">${esc(L.report)}</a>`));
+		return out.join("");
+	}
+
+	/** Copia con formato (text/html) y su versión en texto: la app donde se pega elige. Sin la Clipboard
+	 * API (TraceReports abierto por HTTP en la red, no en localhost) va por el evento copy, que sí funciona. */
+	async function copyRich(html, text) {
+		if (navigator.clipboard?.write && window.ClipboardItem) {
+			try {
+				await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })]);
+				return true;
+			} catch { /* sin permiso: el evento copy */ }
+		}
+		return copyViaEvent({ "text/html": html, "text/plain": text });
+	}
+
+	function copyViaEvent(data) {
+		const fill = (ev) => { Object.entries(data).forEach(([k, v]) => ev.clipboardData.setData(k, v)); ev.preventDefault(); };
+		document.addEventListener("copy", fill);
+		let ok = false;
+		try { ok = document.execCommand("copy"); } catch { /* sin portapapeles */ }
+		document.removeEventListener("copy", fill);
+		return ok;
+	}
+
 	async function toDataURL(src) {
-		const blob = await (await fetch(src)).blob();
+		return blobToDataURL(await (await fetch(src)).blob());
+	}
+
+	function blobToDataURL(blob) {
 		return new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; r.readAsDataURL(blob); });
 	}
 
@@ -2643,20 +2687,41 @@
 		const e = S.esc.data;
 		if (!e) return;
 		try {
-			if (kind === "plain" || kind === "slack" || kind === "md") { CF.copyText(escText(e, kind), btn); return; }
+			if (kind === "plain" || kind === "md") { CF.copyText(escText(e, kind), btn); return; }
+			if (kind === "teams-copy" || kind === "slack") {
+				// con formato: Teams y Slack muestran los ** o * del texto tal cual al pegarlo
+				const ok = await copyRich(escChatHTML(e), escText(e, kind === "slack" ? "slack" : "plain"));
+				flash(btn, ok ? tr("¡Copiado!") : tr("No se pudo"), ok); return;
+			}
 			if (kind === "email") {
-				const html = await escEmailHTML(e);
-				if (!navigator.clipboard?.write || !window.ClipboardItem) { CF.copyText(escText(e, "plain"), btn); return; }
-				await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([escText(e, "plain")], { type: "text/plain" }) })]);
-				flash(btn, tr("¡Copiado!")); return;
+				const ok = await copyRich(await escEmailHTML(e), escText(e, "plain"));
+				flash(btn, ok ? tr("¡Copiado!") : tr("No se pudo"), ok); return;
+			}
+			if (kind === "png" && navigator.clipboard?.write && window.ClipboardItem) {
+				// la imagen va como promesa dentro del ClipboardItem: el navegador guarda el permiso del clic
+				// mientras se dibuja (si se espera antes, el permiso vence y la copia falla)
+				btn.disabled = true;
+				try {
+					await navigator.clipboard.write([new ClipboardItem({ "image/png": cardToPNG($("#esc-card")) })]);
+					btn.disabled = false;
+					flash(btn, tr("¡Imagen copiada!")); return;
+				} catch { btn.disabled = false; /* abajo: como HTML o descarga */ }
 			}
 			if (kind === "png" || kind === "png-dl") {
 				btn.disabled = true;
 				const blob = await cardToPNG($("#esc-card"));
 				btn.disabled = false;
-				if (kind === "png" && navigator.clipboard?.write && window.ClipboardItem) {
-					await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-					flash(btn, tr("¡Imagen copiada!")); return;
+				if (kind === "png") {
+					// sin Clipboard API (HTTP en la red): la imagen dentro de un HTML, que Teams y Outlook pegan
+					const url = await blobToDataURL(blob);
+					if (copyViaEvent({ "text/html": `<img src="${url}" alt="${esc(e.title)}">`, "text/plain": escText(e, "plain") })) {
+						flash(btn, tr("¡Imagen copiada!"));
+						if (!window.isSecureContext) {
+							S.esc.msg = { ok: true, text: tr("TraceReports está abierto por HTTP, así que el navegador no deja copiar imágenes directamente: la copié con formato. Si al pegar no aparece, usa el botón PNG o abre TraceReports con HTTPS.") };
+							renderEscalate();
+						}
+						return;
+					}
 				}
 				const a = document.createElement("a");
 				a.href = URL.createObjectURL(blob);
@@ -2711,19 +2776,20 @@
 		const e = st.data;
 		const cfg = S.config;
 		const share = e ? `<div class="esc-share" role="toolbar" aria-label="${tr("Compartir")}">
-				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Copiar")}</span>
-					<button class="cf-btn cf-btn-sm" data-esc-share="plain" data-tip="${tr("Texto simple, para un correo o cualquier chat")}">${icon("i-copy")}${tr("Texto")}</button>
-					<button class="cf-btn cf-btn-sm" data-esc-share="slack" data-tip="${tr("Con el formato de Slack (*negritas*)")}">${icon("i-copy")}Slack</button>
-					<button class="cf-btn cf-btn-sm" data-esc-share="md" data-tip="${tr("Markdown: Teams, Jira, GitHub, Confluence")}">${icon("i-copy")}Teams / Markdown</button>
-					<button class="cf-btn cf-btn-sm" data-esc-share="email" data-tip="${tr("Con formato y la captura, para pegar en Outlook o Gmail")}">${icon("i-copy")}${tr("Correo")}</button>
+				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Copiar para")}</span>
+					<button class="cf-btn cf-btn-sm" data-esc-share="teams-copy" data-tip="${tr("Con negritas, listas y código, para pegar en un chat o canal de Teams")}">${icon("i-teams")}Teams</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="slack" data-tip="${tr("Con negritas, listas y código, para pegar en Slack")}">${icon("i-slack")}Slack</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="email" data-tip="${tr("Con formato y la captura, para pegar en Outlook o Gmail")}">${icon("i-mail")}${tr("Correo")}</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="md" data-tip="${tr("Markdown, para Jira, GitHub, GitLab o Confluence")}">${icon("i-markdown")}Markdown</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="plain" data-tip="${tr("Texto simple, sin formato")}">${icon("i-copy")}${tr("Texto")}</button>
 				</div>
 				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Imagen")}</span>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png" data-tip="${tr("Copia la tarjeta como imagen para pegarla en Teams, Slack o una presentación")}">${icon("i-camera")}${tr("Copiar imagen")}</button>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png-dl" data-tip="${tr("Descarga la tarjeta como PNG")}">${icon("i-download")}PNG</button>
 				</div>
-				${cfg.teams || cfg.slack ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Enviar")}</span>
-					${cfg.teams ? `<button class="cf-btn cf-btn-sm cf-btn-primary" data-esc-share="teams" data-tip="${tr("Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)")}">${icon("i-megaphone")}Teams</button>` : ""}
-					${cfg.slack ? `<button class="cf-btn cf-btn-sm cf-btn-primary" data-esc-share="slack-send" data-tip="${tr("Publica el resumen en el canal de Slack configurado (SLACK_WEBHOOK_URL)")}">${icon("i-megaphone")}Slack</button>` : ""}
+				${cfg.teams || cfg.slack ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Enviar al canal")}</span>
+					${cfg.teams ? `<button class="cf-btn cf-btn-sm esc-send" data-esc-share="teams" data-tip="${tr("Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)")}">${icon("i-teams")}Teams</button>` : ""}
+					${cfg.slack ? `<button class="cf-btn cf-btn-sm esc-send" data-esc-share="slack-send" data-tip="${tr("Publica el resumen en el canal de Slack configurado (SLACK_WEBHOOK_URL)")}">${icon("i-slack")}Slack</button>` : ""}
 				</div>` : ""}
 				${cfg.trackers?.length ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Ticket")}</span>
 					${cfg.trackers.map((k) => `<button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(k.id)}" data-tip="${tr("Crea un ticket en {t} con este resumen, la captura y el link al reporte. Si el mismo test ya tiene uno, te muestra ese en vez de duplicarlo.", { t: k.name })}">${icon("i-bug")}${esc(k.name)}</button>`).join("")}

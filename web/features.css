@@ -261,6 +261,8 @@ mark.cf-masked { background: color-mix(in srgb, var(--color-danger) 22%, transpa
 .autoscroll-toggle .sw::after { content: ""; position: absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: var(--color-text-muted); transition: transform var(--motion-fast), background var(--motion-fast); }
 .autoscroll-toggle[aria-checked="true"] .sw { background: var(--color-success); }
 .autoscroll-toggle[aria-checked="true"] .sw::after { transform: translateX(13px); background: #fff; }
+/* con Trace Buddy en la esquina, el switch se corre a su izquierda para que no lo tape */
+body:has(.buddy:not([hidden])) .autoscroll-toggle { right: 150px; bottom: 34px; }
 
 @media (max-width: 900px) {
 	.tt-player { grid-template-columns: minmax(0, 1fr); }
@@ -268,6 +270,8 @@ mark.cf-masked { background: color-mix(in srgb, var(--color-danger) 22%, transpa
 	.tt-help { display: none; }
 	.loc-item { grid-template-columns: minmax(0, 1fr); }
 	.autoscroll-toggle { bottom: 72px; right: 12px; }
+	/* en el teléfono el panel abierto ocupa todo el ancho sobre Trace Buddy: el switch va a la izquierda, debajo */
+	body:has(.buddy:not([hidden])) .autoscroll-toggle { right: auto; left: 12px; bottom: 72px; }
 }
 
 /* acciones del panel de error (mock del backend que falló) */
@@ -669,6 +673,9 @@ body[data-theme="pixel"] .ai-hint { font-size: 18px; }
 	background: var(--color-surface); border: 1px solid var(--color-border); }
 .esc-share-group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .esc-share-lbl { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); margin-right: 2px; }
+/* publicar en el canal: se distingue de copiar sin tapar los colores del ícono de la app */
+.esc-send { font-weight: 600; border-color: color-mix(in srgb, var(--color-primary) 60%, transparent); }
+.esc-send::after { content: "→"; margin-left: 2px; color: var(--color-primary); }
 .cf-failed { color: var(--color-danger) !important; }
 
 /* La tarjeta se comparte (imagen, correo): diseño claro y fijo en todos los temas. */

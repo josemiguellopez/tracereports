@@ -2,11 +2,13 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
 )
@@ -67,6 +69,34 @@ func TestAIProbeStates(t *testing.T) {
 	}
 	if res := probeBody(t, srv, "/api/v1/ui/ai/probe"); res["model"] != "qwen2.5" || calls.Load() != 3 {
 		t.Fatalf("modelo nuevo: %v (%d llamadas)", res, calls.Load())
+	}
+}
+
+// Un modelo local que se está cargando en memoria (Ollama tras unos minutos sin uso) tarda más que un
+// proveedor en la nube: la prueba le da más tiempo en vez de decir que no conecta.
+func TestAIProbeWaitsForALocalModelToLoad(t *testing.T) {
+	clearAIEnv(t)
+	srv, _ := newTestServer(t)
+	oldCloud, oldLocal := probeWaitCloud, probeWaitLocal
+	t.Cleanup(func() { probeWaitCloud, probeWaitLocal = oldCloud, oldLocal })
+	probeWaitCloud, probeWaitLocal = 50*time.Millisecond, 5*time.Second
+	mock := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(300 * time.Millisecond) // "cargando el modelo"
+		w.Write([]byte(`{"message":{"content":"{\"ok\":true}"}}`))
+	}))
+	defer mock.Close()
+	srv.AI.SetConfig(ai.Config{Provider: "ollama", BaseURL: mock.URL, Model: "qwen2.5-coder:14b"})
+	if res := probeBody(t, srv, "/api/v1/ui/ai/probe"); res["ok"] != true {
+		t.Fatalf("Ollama lento pero vivo: %v", res)
+	}
+	probeWaitLocal = 100 * time.Millisecond
+	if res := probeBody(t, srv, "/api/v1/ui/ai/probe?force=1"); res["ok"] != false || !strings.Contains(fmt.Sprint(res["error"]), "did not answer in") {
+		t.Fatalf("pasado el tope sí avisa: %v", res)
+	}
+	for d, want := range map[time.Duration]string{30 * time.Second: "30 s", 2 * time.Minute: "2 minutes"} {
+		if got := waitText(d); got != want {
+			t.Errorf("waitText(%v) = %q, quería %q", d, got, want)
+		}
 	}
 }
 

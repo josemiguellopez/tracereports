@@ -766,7 +766,9 @@ func (s *Store) setTime(table, column string, id, ms int64) error {
 	return err
 }
 
-// FinishTest closes a test. If status is empty it is derived from the logged steps. A result
+// FinishTest closes a test. If status is empty it is derived from the logged steps, and a PASS
+// with WARNING steps is stored as WARNING (the runner saw no failure, but a step warned) unless it
+// passed after a retry (attempts > 1: that warning is the retry notice). A result
 // that arrives after its run was closed (spool recovery) is accepted and the run aggregate is
 // recomputed in the same transaction: a closed run never stays PASS with a failed test.
 func (s *Store) FinishTest(testID int64, status, errMsg, errTrace string) (*Test, error) {
@@ -802,17 +804,22 @@ func (s *Store) FinishTestChange(testID int64, status, errMsg, errTrace string) 
 	if err != nil {
 		return nil, ResultChange{}, err
 	}
-	if status == "" {
-		var fails, warns int
-		if err := tx.QueryRow(`SELECT COALESCE(SUM(status='FAIL'),0), COALESCE(SUM(status='WARNING'),0) FROM logs WHERE test_id=?`, testID).
-			Scan(&fails, &warns); err != nil {
+	if status == "" || status == "PASS" {
+		var fails, warns, attempts int
+		if err := tx.QueryRow(`SELECT COALESCE(SUM(status='FAIL'),0), COALESCE(SUM(status='WARNING'),0), (SELECT attempts FROM tests WHERE id=?) FROM logs WHERE test_id=?`, testID, testID).
+			Scan(&fails, &warns, &attempts); err != nil {
 			return nil, ResultChange{}, err
 		}
-		status = "PASS"
-		if fails > 0 {
+		switch {
+		case status == "" && fails > 0:
 			status = "FAIL"
-		} else if warns > 0 {
+		case warns > 0 && (status == "" || attempts <= 1):
+			// un PASS con pasos en WARNING se ve como WARNING: si no, la advertencia queda escondida
+			// dentro de un test verde. Un PASS tras reintento sigue PASS: su WARNING es el aviso del
+			// reintento y la vista ya lo marca como "pasó tras reintento"
 			status = "WARNING"
+		case status == "":
+			status = "PASS"
 		}
 	}
 	changed := status != prevStatus || errMsg != prevMsg || errTrace != prevTrace

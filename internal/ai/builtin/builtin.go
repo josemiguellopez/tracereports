@@ -360,7 +360,9 @@ func locatorFailure(in *Input) (bool, string) {
 	if sel == "" {
 		sel = locator.ExtractSelector(in.FailedStep)
 	}
-	return locator.LooksLikeLocatorFailure(text) || visibilityRe.MatchString(text), sel
+	// un timeout esperando un selector conocido (las esperas propias de cada equipo, el
+	// TimeoutException sin mensaje de Selenium) es un elemento que no apareció
+	return locator.LooksLikeLocatorFailure(text) || visibilityRe.MatchString(text) || sel != "" && timeoutRe.MatchString(text), sel
 }
 
 func ruleJSError(in *Input) *match {

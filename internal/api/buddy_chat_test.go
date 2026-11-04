@@ -13,7 +13,8 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/ai"
 )
 
-// fakeOllama answers every call with answer and keeps the prompts it received.
+// fakeOllama answers every call with answer as plain text (the chat asks for no JSON) and keeps the
+// prompts it received.
 func fakeOllama(t *testing.T, answer string) (*httptest.Server, func() []string) {
 	t.Helper()
 	var mu sync.Mutex
@@ -23,14 +24,30 @@ func fakeOllama(t *testing.T, answer string) (*httptest.Server, func() []string)
 		mu.Lock()
 		got = append(got, string(b))
 		mu.Unlock()
-		out, _ := json.Marshal(map[string]any{"message": map[string]any{"content": `{"answer":` + strconvQuote(answer) + `}`}})
+		out, _ := json.Marshal(map[string]any{"message": map[string]any{"content": answer}})
 		w.Write(out)
 	}))
 	t.Cleanup(srv.Close)
 	return srv, func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), got...) }
 }
 
-func strconvQuote(s string) string { b, _ := json.Marshal(s); return string(b) }
+// Una respuesta con código entre comillas dobles llega entera, y la pregunta no le pide JSON al modelo:
+// con JSON, un modelo chico no escapa esas comillas y la respuesta se corta en la primera.
+func TestBuddyChatAnswerWithQuotedCodeArrivesWhole(t *testing.T) {
+	clearAIEnv(t)
+	srv, _ := newTestServer(t)
+	code := "```python\nWebDriverWait(driver, 10).until(EC.element_to_be_clickable((By.XPATH, \"//button[@id='x']\")))\n```"
+	mock, prompts := fakeOllama(t, code+"\nEspera explícita en vez de time.sleep.")
+	srv.AI.SetConfig(ai.Config{Provider: "ollama", BaseURL: mock.URL, Model: "llama3.2:3b"})
+	rec := call(t, srv, "POST", "/api/v1/ui/ai/chat", chatBody(0, 0, "¿cómo espero a que el botón sea clickeable?"))
+	var res struct{ Answer string }
+	if json.Unmarshal(rec.Body.Bytes(), &res); rec.Code != http.StatusOK || !strings.HasPrefix(res.Answer, "```python") || !strings.Contains(res.Answer, `"//button[@id='x']"`) {
+		t.Fatalf("respuesta: %d %s", rec.Code, rec.Body)
+	}
+	if p := prompts(); len(p) != 1 || strings.Contains(p[0], `"format"`) {
+		t.Fatalf("el chat no le pide JSON a Ollama: %.300s", p)
+	}
+}
 
 func chatBody(runID, testID int64, msgs ...string) string {
 	var m []map[string]string

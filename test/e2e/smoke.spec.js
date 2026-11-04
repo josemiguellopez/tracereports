@@ -205,6 +205,31 @@ test("escalar para Desarrollo: detalle técnico con cURL, stack, consola y cómo
 	expect(md).toContain("```bash\ncurl -X POST");
 	expect(md).toContain("```bash\ngit checkout bbb222");
 	expect(md).not.toContain("E2E-SECRET");
+	// Teams: HTML con formato (pegar Markdown en Teams deja los ** a la vista) y texto sin asteriscos
+	await view.locator('[data-esc-share="teams-copy"]').click();
+	await expect(view.locator('[data-esc-share="teams-copy"]')).toContainText("¡Copiado!");
+	const clip = await page.evaluate(async () => {
+		for (let i = 0; ; i++) {
+			try { // el portapapeles de Windows es del sistema: si otra app lo toca entre read() y getType(), se lee de nuevo
+				const [item] = await navigator.clipboard.read();
+				const read = async (t) => (item.types.includes(t) ? (await item.getType(t)).text() : "");
+				return { types: item.types, html: await read("text/html"), text: await read("text/plain") };
+			} catch (err) { if (i === 4) throw err; await new Promise((r) => setTimeout(r, 200)); }
+		}
+	});
+	expect(clip.types).toContain("text/html");
+	expect(clip.html).toContain("<b>");
+	expect(clip.html).toContain("curl -X POST");
+	expect(clip.html).toContain("<b>Detalle técnico:</b>");
+	expect(clip.html).not.toContain("**Detalle técnico"); // los *** de un secreto enmascarado sí pueden aparecer
+	expect(clip.text).not.toContain("**Detalle técnico");
+	expect(clip.html).not.toContain("E2E-SECRET");
+	// la imagen queda en el portapapeles como PNG (no se descarga)
+	const download = page.waitForEvent("download", { timeout: 1500 }).then(() => true, () => false);
+	await view.locator('[data-esc-share="png"]').click();
+	await expect(view.locator('[data-esc-share="png"]')).toContainText("¡Imagen copiada!");
+	expect(await page.evaluate(async () => (await navigator.clipboard.read())[0].types)).toContain("image/png");
+	expect(await download).toBe(false);
 });
 
 test("escalar la ejecución completa para Desarrollo: detalle técnico por test", async ({ page }) => {
