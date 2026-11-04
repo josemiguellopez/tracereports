@@ -142,10 +142,11 @@ func TestFinishRunClosesUnfinishedTests(t *testing.T) {
 	s.FinishTest(ok, "PASS", "", "")
 	lost, _ := s.CreateTestWithMeta(runID, "b", "", "", TestMeta{Key: "b", Worker: "gw1"})
 	run, err := s.FinishRun(runID)
-	if err != nil || !run.Incomplete || run.Status != "FAIL" || run.Failed != 1 {
+	// el worker caído deja su test INTERRUPTED (no es un fallo del producto) y la ejecución incompleta
+	if err != nil || !run.Incomplete || run.Status != "WARNING" || run.Failed != 0 || run.Interrupted != 1 {
 		t.Fatalf("run with an unfinished test: %+v %v", run, err)
 	}
-	if got, _ := s.GetTest(lost); got.Status != "FAIL" || got.ErrorMessage != InterruptedMessage || got.Worker != "gw1" {
+	if got, _ := s.GetTest(lost); got.Status != "INTERRUPTED" || got.ErrorMessage != InterruptedMessage || got.Worker != "gw1" {
 		t.Fatalf("unfinished test: %+v", got)
 	}
 

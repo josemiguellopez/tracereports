@@ -40,10 +40,13 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 - `status` de un paso: `INFO`, `PASS`, `FAIL`, `WARNING`, `SKIP`. `timestamp`: epoch en ms o
   RFC 3339 (opcional, default ahora).
 - `status` de un test: `PASS`, `FAIL`, `WARNING`, `SKIP`, o vacío para deducirlo de los pasos.
-  Un `FAIL` dispara el diagnóstico con IA.
+  Un `FAIL` dispara el diagnóstico con IA. Un `PASS` con un paso `WARNING` se guarda como `WARNING`,
+  salvo con `attempts` > 1 (pasó tras un reintento). El servidor usa además `INTERRUPTED` (no lo envían
+  los clientes): un test que se cortó antes de terminar.
 - Cerrar la ejecución dispara el diagnóstico global y las notificaciones a Teams/Slack. Los tests
-  que sigan en curso se cierran como `FAIL` (*Interrumpido*) y la ejecución queda `incomplete`; con
-  `{"interrupted": true}` también (nunca aparece como exitosa). Cerrar de nuevo una ejecución ya
+  que sigan en curso se cierran como `INTERRUPTED` (ni fallo ni éxito: fuera de la tasa de éxito, de
+  flaky y del gate de Release, y sin diagnóstico con IA) y la ejecución queda `incomplete` (`WARNING`
+  si nada falló); con `{"interrupted": true}` también (nunca aparece como exitosa). Cerrar de nuevo una ejecución ya
   cerrada (reintento, spool) conserva la marca `incomplete` y no repite el diagnóstico ni las
   notificaciones. Un resultado que llega después del cierre se acepta y recalcula el estado de la
   ejecución: nunca queda `PASS` con tests `FAIL` o en curso. Si cambia el resultado (estado o
@@ -177,11 +180,13 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/metrics?days=30&suite=` | Métricas entre ejecuciones terminadas: KPIs (y los del período anterior), serie diaria, tests que más fallan, flaky, más lentos, causas y tags |
 | GET | `/settings` | Ajustes: idioma, proveedor de IA (sin la key: solo sus 4 últimos caracteres), si se pueden editar y por qué no |
 | GET | `/auth/check` | Con `X-TraceReports-Token`: `{token_required, token_sent, token_valid}`. Verifica un token sin escribir nada |
-| GET | `/runs?limit=50` | Ejecuciones con contadores |
+| GET | `/runs?limit=50` | Ejecuciones con contadores (`total`, `passed`, `failed`, `skipped`, `warning`, `running`, `interrupted`, `quarantined`). Una que sigue `RUNNING` trae `idle_ms` (tiempo desde lo último que recibió); una cerrada puede traer `closed_by` (un usuario de la interfaz, `manual` sin login, o `auto` por inactividad) y `close_reason` |
+| GET | `/maintenance?state=&project=&environment=&branch=&older_than_hours=` | Ejecuciones con problemas de todos los proyectos, las más nuevas primero (hasta 200): `state` vacío (en curso o incompletas), `idle` (en curso, sin actividad hace 5 min), `running`, `incomplete`, `manual` (cerradas a mano) o `auto` (cerradas por inactividad). Responde `{runs, idle_warn_ms, stale: {hours, source, editable}}`; `source` es `env`, `ui` o `default` |
 | GET | `/runs/search?...` | Historial paginado para Buscar: `{items, next_cursor, total_estimate}` |
 | GET | `/runs/facets?...` | Valores frecuentes para los filtros de Buscar: proyecto, ambiente, rama y tag |
 | GET | `/runs/{run_id}` | Ejecución con sus tests (incluye `flaky`, `flaky_info`, `net_drift`, contadores de red) y `summary` (diagnóstico) |
-| GET | `/runs/{run_id}/compare?base={id}` | Comparación (`base` default: la ejecución anterior relacionada) |
+| GET | `/runs/{run_id}/compare?base={id}` | Comparación (`base` default: la ejecución anterior relacionada): `base_run`, `base_reason`, `new_failures`, `fixed`, `still_failing`, `changed` (cambió de estado sin un fallo de por medio, p. ej. `PASS` → `SKIP`), `unchanged`, `slower`, `new_tests` (solo en esta), `missing` (solo en la base), `common` (tests en las dos: `0` = no hay nada que comparar) y `base_later` (la base empezó después que esta) |
+| GET | `/runs/{run_id}/baselines` | Hasta 100 ejecuciones terminadas del mismo proyecto y ambiente que pueden ser la base, las más nuevas primero, cada una con `shared` (tests en común con esta) |
 | GET | `/runs/{run_id}/endpoints` | Ranking de endpoints del backend |
 | GET | `/runs/{run_id}/export` | ZIP autocontenido del reporte |
 | GET | `/tests/{test_id}` | Test con pasos y diagnóstico |
@@ -242,7 +247,11 @@ o, en modo local, el mismo equipo del servidor.
 | POST | `/ui/ai/chat` | `{run_id, test_id, lang, messages: [{role, text}]}` | Una pregunta libre a Trace Buddy: `{answer, provider, model}`. Necesita un LLM (`409` con `code: needs_llm` con el motor local). El modelo recibe la evidencia de la ejecución o del test (`run_id`/`test_id`, ambos opcionales) y los últimos 8 turnos de hasta 2000 caracteres, todo pasado por la redacción. Hasta 60 preguntas por hora por servidor (`429`); queda en Uso de la IA como `chat` |
 | POST | `/ui/tests/{test_id}/analyze` | — | `202 {queued}`: vuelve a diagnosticar un test fallido |
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnostica los fallos sin diagnóstico (o todos con `all`) y el resumen de la ejecución |
-| POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Con IA queda en caché y trae `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (cuánto esperó al proveedor, las pausas entre reintentos y lo que tardó TraceReports; `attempts`: cada llamada con `ms`, `ok`, `status`, `reason` y la espera siguiente `wait_ms`/`wait_asked`). Ante un 429/5xx se espera lo que pide el proveedor (`Retry-After`, `retry-after-ms` o el `RetryInfo` de Gemini), hasta 90 s |
+| POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?, no_ai?}` | Resumen para `business`, `qa` o `dev` (`test_id` 0 = la ejecución completa). Una ejecución sin fallos trae `facts.assessment`: el veredicto de QA (`clean`, `observations` o `risks`, calculado por reglas, no por la IA) y sus `signals` (`level` `risk`/`note`, `kind`, `test`, `text`); con riesgos la severidad es `medium`. Si terminó, la IA escribe un resumen de qué se validó (`kind: success`), pero no el veredicto, la severidad ni la evidencia; si su texto describe un fallo se descarta (`ai_skipped: invented_failure`). Una en curso, incompleta o toda omitida se arma sin IA (`ai_skipped: no_failures`). Con IA queda en caché y trae `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (cuánto esperó al proveedor, las pausas entre reintentos y lo que tardó TraceReports; `attempts`: cada llamada con `ms`, `ok`, `status`, `reason` y la espera siguiente `wait_ms`/`wait_asked`). Ante un 429/5xx se espera lo que pide el proveedor (`Retry-After`, `retry-after-ms` o el `RetryInfo` de Gemini), hasta 90 s |
+| POST | `/ui/runs/{run_id}/close` | `{reason}` | Cierra a mano una ejecución `RUNNING`: sus tests sin terminar quedan `INTERRUPTED` con el motivo (redactado, hasta 500 caracteres) y la ejecución registra `closed_by` y `close_reason`. `409` si ya estaba cerrada. Después siguen el diagnóstico y la notificación, como en cualquier cierre |
+| POST | `/ui/runs/close` | `{run_ids, reason}` | Lo mismo para hasta 200 ejecuciones: `{closed, skipped}` (se saltan las ya cerradas o desconocidas) |
+| POST | `/ui/runs/delete` | `{run_ids}` | Elimina hasta 200 ejecuciones **cerradas** con toda su evidencia (capturas y artefactos incluidos; la base se compacta): `{deleted, skipped}`. Una en curso se salta |
+| PUT | `/ui/maintenance/stale` | `{hours}` | El umbral de inactividad del cierre automático (`0` = nunca, hasta 720), sin reiniciar. Necesita el permiso de Ajustes; `409` si lo fija `TRACEREPORTS_STALE_RUN_HOURS` |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Publica el resumen en `teams` o `slack`. Con `PUBLIC_URL` incluye el link y la captura |
 | POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Crea un ticket en `github`, `jira` o `azure` con el resumen (default para `dev`). `201 {ticket}`; si el mismo fallo ya tiene uno, `200 {ticket, existing: true}` (salvo `force`). Si no se sabe si el tracker lo creó, `502 {uncertain: true}` y luego `409` hasta enviar `force`. Ver [Configuración](configuration.md#tickets-en-github-jira-o-azure-devops) |
 | POST | `/ui/summary/weekly` | `{send, lang}` | Resumen de los últimos 7 días: `{summary, sent}`. Con `send: true` lo publica en Teams/Slack |

@@ -38,7 +38,7 @@ func (s *Server) runBaselines(w http.ResponseWriter, r *http.Request) {
 	if _, err := s.Store.GetRun(id); respondErr(w, err, "run") {
 		return
 	}
-	runs, err := s.Store.CompatibleRuns(id, 30)
+	runs, err := s.Store.CompatibleRuns(id, 100) // el selector las filtra por #id, fecha o rama
 	if err != nil {
 		serverError(w, err)
 		return

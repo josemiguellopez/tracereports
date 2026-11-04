@@ -93,12 +93,19 @@ test.describe("los números del reporte", () => {
 		await expect(page.locator("#d-fail")).toHaveText("1");
 		await expect(page.locator("#d-skip")).toHaveText("1");
 		const cmp = page.locator("#compare-card");
-		await expect(cmp).toContainText(`Comparación con #${seed().prev}`);
+		// qué se compara contra qué, y qué significa cada grupo
+		await expect(cmp.locator(".cmp-run.this")).toContainText(`#${seed().run}`);
+		await expect(cmp.locator(".cmp-run.base")).toContainText(`#${seed().prev}`);
 		await expect(cmp.locator(".cmp-chip.new_failures")).toHaveText("1 fallo nuevo");
-		await expect(cmp.locator(".cmp-group.new_failures")).toContainText("test_login_admin");
 		await expect(cmp.locator(".cmp-chip.fixed")).toHaveText("0 arreglados");
-		// el link del fallo nuevo lleva a su detalle
-		await cmp.locator('.cmp-group.new_failures a:has-text("test_login_admin")').click();
+		// el resumen en palabras y, por test, antes → ahora
+		await expect(cmp.locator(".cmp-summary.bad")).toContainText("Hay fallos nuevos: revísalos primero.");
+		const row = cmp.locator(".cmp-row.new_failures", { hasText: "test_login_admin" });
+		await expect(row.locator(".label").first()).toHaveText("pass");
+		await expect(row.locator(".label").last()).toHaveText("fail");
+		await expect(row.locator(".cmp-change-badge")).toHaveText("Empezó a fallar");
+		// la fila lleva a su detalle
+		await row.click();
 		await expect(page.locator("#view-tests")).toBeVisible();
 		await expect(page.locator("#test-detail")).toContainText("test_login_admin");
 	});
@@ -219,7 +226,7 @@ test.describe("privacidad", () => {
 		await page.locator("[data-esc-gen]").click();
 		await expect(page.locator("#esc-card .esc-dev")).toBeVisible();
 		await expectNoSecrets(page, "escalar para Desarrollo");
-		for (const fmt of ["plain", "slack", "md"]) {
+		for (const fmt of ["plain", "slack", "teams-copy", "md"]) {
 			await page.locator(`[data-esc-share="${fmt}"]`).click();
 			const text = await page.evaluate(() => navigator.clipboard.readText());
 			for (const s of SECRETS) expect(text, `copiar ${fmt}`).not.toContain(s);

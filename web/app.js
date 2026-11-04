@@ -4,7 +4,7 @@
 
 	const POLL_MS = 3000;
 	const RUNS_POLL_MS = 10000;
-	const STATUS_ICON = { PASS: "i-pass", FAIL: "i-fail", WARNING: "i-warning", SKIP: "i-skip", INFO: "i-info", RUNNING: "i-running" };
+	const STATUS_ICON = { PASS: "i-pass", FAIL: "i-fail", WARNING: "i-warning", SKIP: "i-skip", INFO: "i-info", RUNNING: "i-running", INTERRUPTED: "i-interrupted" };
 	const AI_LABEL = {
 		LOCATOR_CHANGED: "Locator cambiado",
 		BACKEND_TIMEOUT: "Timeout de backend",
@@ -23,6 +23,9 @@
 		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
+		recents: { q: "", tab: "" },
+		maint: { state: "", project: "", environment: "", branch: "", older: "", data: null, facets: null, loading: false, error: null,
+			selected: new Set(), action: null, msg: null, busy: false },
 		runSearch: { q: "", project: "", environment: "", branch: "", tag: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent", items: [], cursor: "", total: 0, loading: false, error: null, selected: 0, compare: [], facets: {}, timer: 0, newCount: 0 },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
 		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0 },
@@ -117,6 +120,69 @@
 		return () => turns[name] === n;
 	}
 
+	// ---------- recientes ----------
+	// Las últimas ejecuciones con lo que importa para elegir: cómo terminaron, cuántos tests pasaron,
+	// dónde corrieron y hace cuánto. Se filtran por texto (#id, nombre, rama, proyecto) y por estado.
+
+	/** Estado de una ejecución en palabras para la lista: en curso, sin actividad o su resultado. */
+	function runStateLabel(r) {
+		if (r.status === "RUNNING") {
+			const idle = r.idle_ms >= IDLE_WARN_MS;
+			return `<span class="run-state ${idle ? "idle" : "running"}">${icon(idle ? "i-pause" : "i-running")}${idle ? tr("Sin actividad") : tr("En curso")}</span>`;
+		}
+		return `<span class="run-state ${lower(r.status)}">${icon(STATUS_ICON[r.status] || "i-info")}${esc(r.status.charAt(0) + lower(r.status.slice(1)))}</span>`;
+	}
+
+	/** Barra de resultados de los tests (pasan, warning, fallan, otros) y "p/t pasan". */
+	function runBar(r) {
+		const t = r.total || 0;
+		if (!t) return `<span class="run-bar-text">${tr("sin tests")}</span>`;
+		const seg = (n, cls) => (n ? `<i class="${cls}" style="flex:${n}"></i>` : "");
+		const other = t - r.passed - r.failed - (r.warning || 0);
+		return `<span class="run-bar" aria-hidden="true">${seg(r.passed, "pass")}${seg(r.warning || 0, "warning")}${seg(r.failed, "fail")}${seg(other, "other")}</span>
+			<span class="run-bar-text">${tr("{p}/{t} pasan", { p: r.passed, t })}</span>`;
+	}
+
+	function renderRecents() {
+		const list = $("#recents-list");
+		if (!list) return;
+		const x = S.recents;
+		const runs = S.runs.filter((r) => (!x.tab || (x.tab === "FAIL" ? r.failed > 0 || r.status === "FAIL" : r.status === x.tab))
+			&& runMatches(r, x.q, [r.name, r.branch, r.project, r.environment, r.status]));
+		const live = S.runs.filter((r) => r.status === "RUNNING").length;
+		const pill = $("#recents-live");
+		pill.hidden = !live;
+		pill.textContent = live ? tr("{n} en curso", { n: live }) : "";
+		$$("[data-recents-tab]").forEach((b) => b.setAttribute("aria-pressed", String(b.dataset.recentsTab === x.tab)));
+		list.innerHTML = runs.length ? runs.map((r) => runRow(r, `data-recent-run="${r.id}"`, r.id === S.runId)).join("")
+			: `<p class="recents-empty">${tr("Ninguna de las últimas {n} ejecuciones coincide.", { n: S.runs.length })}</p>`;
+	}
+
+	/** Si una ejecución coincide con lo escrito: "#12" busca ese número exacto; cualquier otro texto
+	 * (también "12" sin #, que puede ser parte de una fecha), en los campos dados. */
+	function runMatches(r, query, fields) {
+		const q = lower((query || "").trim());
+		if (!q) return true;
+		if (/^#\d+$/.test(q)) return String(r.id) === q.slice(1);
+		return String(r.id) === q || fields.some((v) => lower(v || "").includes(q));
+	}
+
+	/** Una ejecución como fila elegible (Recientes, el selector de la comparación): estado, nombre,
+	 * #id y contexto, barra de resultados, hace cuánto y cuánto duró. */
+	function runRow(r, attrs, current, withDate = false) {
+		// en el selector de la comparación todas son del mismo proyecto y ambiente: basta la rama
+		const ctx = (withDate ? [r.branch] : [r.project, r.environment, r.branch]).filter(Boolean).map(esc).join(" · ");
+		const dur = r.ended_at ? fmtDuration(r.ended_at - r.started_at) : "";
+		// candidata de la comparación: cuántos tests comparte con la que se ve (0 = otra suite)
+		const shared = r.shared === undefined ? "" : r.shared
+			? `<span class="cmp-shared">${tr("{n} test(s) en común", { n: r.shared })}</span>` : `<span class="cmp-shared none">${tr("sin tests en común")}</span>`;
+		return `<button type="button" role="option" class="recent-row ${current ? "current" : ""} ${r.shared === 0 ? "nocommon" : ""}" aria-selected="${!!current}" ${attrs}>
+			<span class="recent-state">${runStateLabel(r)}</span>
+			<span class="recent-main"><b data-no-i18n>${esc(r.name)}</b><small><span data-no-i18n>#${r.id}${ctx ? ` · ${ctx}` : ""}</span>${shared ? ` · ${shared}` : ""}</small></span>
+			<span class="recent-side">${runBar(r)}<small>${withDate ? `${esc(fmtDateTime(r.started_at))} · ` : ""}${esc(relativeRun(r.started_at))}${dur ? ` · ${dur}` : ""}</small></span>
+		</button>`;
+	}
+
 	async function loadRuns() {
 		const current = turn("runs");
 		let runs;
@@ -130,9 +196,8 @@
 		S.runs = runs;
 		const sel = $("#run-select");
 		sel.innerHTML = S.runs.map((r) =>
-			`<option value="${r.id}">#${r.id} · ${esc(r.name)}${r.status === "RUNNING" ? " (en curso)" : r.incomplete ? " (incompleta)" : ""}${r.branch ? ` · ${esc(r.branch)}` : ""} — ${fmtDateTime(r.started_at)}</option>`).join("");
-		const recents = $("#recents-list");
-		if (recents) recents.innerHTML = S.runs.map((r) => `<button role="option" data-recent-run="${r.id}"><span class="search-state ${lower(r.status)}" style="--c:var(--${lower(r.status)})"></span><span><b>${esc(r.name)}</b><small>${esc(r.branch || r.environment || "")}</small></span><small>${esc(relativeRun(r.started_at))}</small></button>`).join("");
+			`<option value="${r.id}">#${r.id} · ${esc(r.name)}${r.status === "RUNNING" ? (r.idle_ms >= IDLE_WARN_MS ? ` (${tr("sin actividad hace {t}", { t: fmtIdle(r.idle_ms) })})` : " (en curso)") : r.incomplete ? " (incompleta)" : ""}${r.branch ? ` · ${esc(r.branch)}` : ""} — ${fmtDateTime(r.started_at)}</option>`).join("");
+		renderRecents();
 		// A shared link can point to an older run which is no longer in the compact list.
 		if (!S.runId) S.runId = S.runs[0]?.id ?? null;
 		// al reconstruir las opciones el select muestra la primera (la más nueva): vuelve a la que se ve
@@ -153,7 +218,9 @@
 		}
 		if (!current() || id !== S.runId) return; // ya se eligió otra ejecución
 		if (S.run && JSON.stringify(S.run) !== JSON.stringify(run)) invalidateEscalation();
+		if (S.run?.id !== run.id || run.status !== "RUNNING") S.closeRun = null;
 		S.run = run;
+		S.runLoadedAt = Date.now();
 		if (S.testId && !S.run.tests.some((t) => t.id === S.testId)) S.testId = null;
 		if (!S.testId && S.run.tests.length) S.testId = S.run.tests[0].id;
 		renderHeader();
@@ -224,7 +291,7 @@
 	}
 
 	// vistas que no dependen de la ejecución elegida
-	const GLOBAL_VIEWS = new Set(["search", "metrics", "settings"]);
+	const GLOBAL_VIEWS = new Set(["search", "metrics", "maintenance", "settings"]);
 
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
@@ -244,7 +311,7 @@
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
 		({ search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
-			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
+			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
 	}
 
 	// ---------- run explorer ----------
@@ -369,6 +436,8 @@
 	function renderTests() {
 		const tests = filteredTests();
 		$("#tests-count").textContent = tests.length === S.run.tests.length ? tests.length : `${tests.length} / ${S.run.tests.length}`;
+		// el filtro de interrumpidos solo aparece cuando hay alguno (o está elegido)
+		$("#status-filters [data-status=INTERRUPTED]").hidden = !S.run.interrupted && S.status !== "INTERRUPTED";
 		$$("#status-filters button").forEach((b) => b.classList.toggle("active", b.dataset.status === S.status));
 		setHTML($("#test-collection"), tests.length ? tests.map(testItem).join("") : `<li class="collection-empty">No hay tests que coincidan con el filtro.</li>`);
 		renderTestDetail();
@@ -414,6 +483,9 @@
 			${t.error_trace ? `<details><summary>Ver stack trace</summary><pre>${esc(t.error_trace)}</pre></details>` : ""}
 			${t.network_errors ? `<div class="error-actions"><button class="cf-btn cf-btn-sm cf-btn-mock" data-mock-first data-tip="Crea un stub con la respuesta de la primera llamada que falló, para reproducir este fallo en local sin el backend real">${icon("i-bolt")}Generar mock del backend que falló</button></div>` : ""}
 			${verdictBlock(t)}
+		</div>` : t.status === "INTERRUPTED" && t.error_message ? `<div class="card error-block interrupted-block">
+			<pre class="error-msg">${esc(t.error_message)}</pre>
+			<p class="m-hint">${tr("No alcanzó a terminar: no cuenta como fallo ni como éxito, y la IA no lo analiza.")}</p>
 		</div>` : "";
 
 		// La captura va dentro de "Detalle", debajo del texto del step.
@@ -858,7 +930,7 @@
 			<div class="card rel-banner ${cls}"><div class="rel-title">${tr(title)}</div><p>${tr(sub)}</p>
 				<div class="rel-rate">${tr("Tasa de éxito")}: <b>${Number(d.pass_rate).toLocaleString()}%</b></div></div>
 			<div class="card rel-checks"><h5>${tr("Criterios")}</h5><ul>${checks}</ul></div>
-			<div class="card"><h5>${tr("Funcionalidades")}</h5><div class="rel-features">${features}</div></div>`);
+			<div class="card rel-features-card"><h5>${tr("Funcionalidades")}</h5><div class="rel-features">${features}</div></div>`);
 	}
 
 	/** Panel con lo que cambió en una llamada fallida frente a la última vez que el test pasó. */
@@ -1596,10 +1668,82 @@
 			${summaryBody(sum, false)}`);
 	}
 
+	// una ejecución en curso que lleva este tiempo sin recibir nada probablemente quedó colgada
+	const IDLE_WARN_MS = 5 * 60 * 1000;
+
+	/** Cuánto lleva sin recibir datos la ejecución en curso: lo que midió el servidor más lo que pasó
+	 * desde que se cargó (una ejecución muerta no manda eventos que la recarguen). */
+	const runIdleMs = (r) => (r?.status === "RUNNING" ? (r.idle_ms || 0) + (Date.now() - (S.runLoadedAt || Date.now())) : 0);
+
+	const fmtIdle = (ms) => {
+		const m = Math.max(1, Math.floor(ms / 60000));
+		return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+	};
+
+	/** Quién cerró la ejecución, en palabras. */
+	function closedByText(r) {
+		if (r.closed_by === "auto") return tr("Se cerró sola por inactividad");
+		if (r.closed_by === "manual") return tr("Cerrada manualmente");
+		return tr("Cerrada manualmente por {u}", { u: r.closed_by });
+	}
+
+	const CLOSE_REASONS = ["Cancelado manualmente", "Se cayó la máquina o el CI", "Otro"];
+
+	function closeRunForm() {
+		const m = S.closeRun?.msg;
+		return `<form class="close-run-form" data-close-run-form>
+			<label class="field"><span class="field-label">${tr("Motivo")}</span>
+				<select name="reason">${CLOSE_REASONS.map((r) => `<option value="${r}">${tr(r)}</option>`).join("")}</select></label>
+			<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span>
+				<input name="detail" maxlength="400" placeholder="${tr("Ej.: detuve la suite desde el IDE")}"></label>
+			<p>${tr("Los tests que siguen en curso quedarán como Interrumpido: no cuentan como fallo ni disparan la IA. Si después llega su resultado real, se acepta.")}</p>
+			${m ? `<p class="set-msg err" role="status">${esc(m)}</p>` : ""}
+			<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary">${icon("i-interrupted")}${tr("Cerrar ejecución")}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-close-run-cancel>${tr("Cancelar")}</button></div>
+		</form>`;
+	}
+
+	async function closeRunByHand(form) {
+		const d = new FormData(form);
+		const detail = String(d.get("detail") || "").trim();
+		const reason = tr(String(d.get("reason"))) + (detail ? `: ${detail}` : "");
+		form.querySelector("[type=submit]").disabled = true;
+		try {
+			await apiSend("POST", `/api/v1/ui/runs/${S.run.id}/close`, { reason });
+			S.closeRun = null;
+			await loadRun();
+		} catch (err) {
+			S.closeRun = { msg: err.message };
+			renderRunBanner();
+		}
+	}
+
 	function renderRunBanner() {
 		const el = $("#run-banner");
-		const sum = S.run?.summary;
-		const show = S.view === "tests" && sum?.state === "DONE" && S.run.failed > 0;
+		const r = S.run, sum = r?.summary;
+		const idle = runIdleMs(r);
+		el.classList.remove("idle", "cut");
+		if (r?.status === "RUNNING" && (idle >= IDLE_WARN_MS || S.closeRun)) {
+			el.hidden = false;
+			el.classList.add("idle");
+			setHTML(el, `<span class="banner-icon">${icon("i-pause")}</span>
+				<span class="banner-text"><b>${tr("Sin actividad hace {t}", { t: fmtIdle(idle) })}</b>
+					<small>${tr("Sigue en curso, pero no recibe datos: el proceso de los tests pudo detenerse sin avisar (Stop del IDE, terminal cerrada, CI cancelado).")}</small></span>
+				${canAct() && !S.closeRun ? `<button class="cf-btn cf-btn-sm" data-close-run-open>${icon("i-interrupted")}${tr("Cerrar ejecución…")}</button>` : ""}
+				${S.closeRun ? closeRunForm() : ""}`);
+			return;
+		}
+		if (r && r.status !== "RUNNING" && r.interrupted > 0) {
+			el.hidden = false;
+			el.classList.add("cut");
+			const who = r.closed_by ? closedByText(r) : tr("La ejecución se cortó antes de terminar");
+			setHTML(el, `<span class="banner-icon">${icon("i-interrupted")}</span>
+				<span class="banner-text"><b>${esc(who)}</b>${r.close_reason ? ` · <span data-no-i18n>${esc(r.close_reason)}</span>` : ""}
+					<small>${tr("{n} test(s) quedaron como Interrumpido: no cuentan como fallo.", { n: r.interrupted })}</small></span>
+				<a href="#" data-banner-interrupted>${tr("Ver interrumpidos →")}</a>`);
+			return;
+		}
+		const show = S.view === "tests" && sum?.state === "DONE" && r.failed > 0;
 		el.hidden = !show;
 		if (!show) return;
 		setHTML(el, `<span class="banner-icon">${icon("i-spark")}</span><span class="banner-text"><b>${esc(sum.headline)}</b></span>
@@ -1642,32 +1786,130 @@
 	/** "1 fallo nuevo" / "3 fallos nuevos" (las traducciones son por regex sobre el número). */
 	const plural = (n, one, many) => `${n} ${n === 1 ? one : many}`;
 
+	/** Una de las dos ejecuciones de la comparación: cuál es, cómo terminó, cuándo y sus resultados. */
+	function cmpRunCard(r, label, extra = "") {
+		const own = r.id === S.run.id;
+		return `<div class="cmp-run ${own ? "this" : "base"}"><small>${tr(label)}</small>
+			<div class="cmp-run-id">${own ? `<b>#${r.id}</b>` : `<a href="#run=${r.id}&view=dashboard"><b>#${r.id}</b></a>`}${runStateLabel(r)}</div>
+			<span class="cmp-run-when">${esc(fmtDateTime(r.started_at))}${r.branch ? ` · <span data-no-i18n>${esc(r.branch)}</span>` : ""}</span>
+			<div class="cmp-run-bar">${runBar(r)}</div>${extra}</div>`;
+	}
+
+	/** Las ejecuciones con que se puede comparar, filtradas por #id, fecha, nombre o rama. */
+	function cmpPickerRows() {
+		const bases = S.insights.baselines || [];
+		// primero las que comparten tests: una de otra suite no sirve para comparar
+		const rows = bases.filter((b) => runMatches(b, S.insights.pickQ, [b.name, b.branch, b.status, fmtDateTime(b.started_at)]))
+			.sort((x, y) => (y.shared > 0) - (x.shared > 0));
+		return rows.length ? rows.map((b) => runRow(b, `data-cmp-choose="${b.id}"`, S.insights.base === b.id || (!S.insights.base && S.insights.compare?.base_run?.id === b.id), true)).join("")
+			: `<p class="recents-empty">${tr("Ninguna ejecución coincide.")}</p>`;
+	}
+
+	function cmpPicker() {
+		const bases = S.insights.baselines || [];
+		const green = bases.find((b) => b.status === "PASS" && b.shared > 0);
+		return `<div class="cmp-picker" role="dialog" aria-label="${tr("Elegir con qué comparar")}">
+			<div class="cmp-picker-head">
+				<label class="recents-filter"><svg><use href="#i-search"/></svg><input data-cmp-q type="search" autocomplete="off" value="${esc(S.insights.pickQ || "")}"
+					placeholder="${tr("Buscar por #id, fecha (2026-11-03) o rama")}" aria-label="${tr("Buscar ejecución")}"></label>
+				<div class="cmp-quick">
+					<button type="button" class="cf-btn cf-btn-sm" data-cmp-choose="0" aria-pressed="${!S.insights.base}">${tr("La anterior (automática)")}</button>
+					${green ? `<button type="button" class="cf-btn cf-btn-sm" data-cmp-choose="${green.id}" aria-pressed="${S.insights.base === green.id}">${icon("i-pass")}${tr("La última que pasó entera (#{n})", { n: green.id })}</button>` : ""}
+					<button type="button" class="link-btn" data-cmp-pick-close>${tr("Cerrar")}</button>
+				</div>
+			</div>
+			<div class="cmp-picker-list" role="listbox">${cmpPickerRows()}</div>
+			<p class="m-hint">${tr("Las {n} ejecuciones terminadas más recientes del mismo proyecto y ambiente.", { n: bases.length })}</p>
+		</div>`;
+	}
+
+	// cómo cambió cada test en común: [grupo de la comparación, clase, texto del cambio]
+	const CMP_CHANGES = [["new_failures", "new_failures", "Empezó a fallar"], ["still_failing", "still", "Sigue fallando"],
+		["fixed", "fixed", "Se arregló"], ["changed", "changed", "Cambió de estado"], ["unchanged", "same", "Igual"]];
+
+	/** La comparación en una o dos frases, calculada (no la escribe una IA): qué se pudo comparar y qué
+	 * cambió. tone: bad (fallos nuevos), good (solo arreglos), none (nada en común), same. */
+	function cmpSummary(c, a, b) {
+		if (!c.common) {
+			return { tone: "none", icon: "i-info", html: `<b>${tr("No hay nada que comparar.")}</b> ${esc(tr("#{a} y #{b} no ejecutaron ningún test en común: #{b} es otra suite ({n}).", { a: a.id, b: b.id, n: b.name }))}
+				<br>${tr("Elige con «Cambiar» una ejecución de la misma suite, por ejemplo con el mismo nombre.")}` };
+		}
+		const n = (k) => (c[k] || []).length;
+		const parts = [[n("new_failures"), "{n} empezó a fallar", "{n} empezaron a fallar"], [n("fixed"), "{n} se arregló", "{n} se arreglaron"],
+			[n("still_failing"), "{n} sigue fallando", "{n} siguen fallando"], [n("changed"), "{n} cambió de estado", "{n} cambiaron de estado"],
+			[n("unchanged"), "{n} sin cambios", "{n} sin cambios"]]
+			.filter(([k]) => k).map(([k, one, many]) => tr(k === 1 ? one : many, { n: k }));
+		const extra = [n("new_tests") && tr("{n} solo corrió ahora", { n: n("new_tests") }), n("missing") && tr("{n} no corrió esta vez", { n: n("missing") })].filter(Boolean);
+		let html = `${esc(tr("De los {n} test(s) que corrieron en las dos:", { n: c.common }))} <b>${esc(parts.join(", "))}</b>.`;
+		if (extra.length) html += ` ${esc(tr("Además, {x}.", { x: extra.join(" y ") }))}`;
+		if (c.base_later) html += `<br><small>${esc(tr("Ojo: #{b} es posterior a esta ejecución, así que «antes» es la más nueva.", { b: b.id }))}</small>`;
+		const tone = n("new_failures") ? "bad" : n("fixed") ? "good" : "same";
+		const lead = { bad: tr("Hay fallos nuevos: revísalos primero."), good: tr("Mejoró: hay tests arreglados y ningún fallo nuevo."), same: tr("No hay fallos nuevos.") }[tone];
+		return { tone, icon: { bad: "i-fail", good: "i-pass", same: "i-check" }[tone], html: `<b>${esc(lead)}</b> ${html}` };
+	}
+
+	/** Cada test que corrió en las dos: su estado antes y ahora, y qué cambió. Los cambios primero. */
+	function cmpTable(c, a, b) {
+		const slow = new Map((c.slower || []).map((i) => [i.test_id, i]));
+		const rows = CMP_CHANGES.flatMap(([key, cls, label]) => (c[key] || []).map((i) => {
+			const s = slow.get(i.test_id);
+			return `<tr class="cmp-row ${cls}" data-goto="${i.test_id}">
+				<td class="cmp-name" data-no-i18n>${esc(i.name)}</td>
+				<td>${statusLabel(i.base_status || "")}</td><td aria-hidden="true">→</td><td>${statusLabel(i.status)}</td>
+				<td><span class="cmp-change-badge ${cls}">${tr(label)}</span>${s ? `<small class="cmp-slow">${tr("más lento")}: ${fmtDuration(s.base_duration_ms)} → ${fmtDuration(s.duration_ms)}</small>` : ""}</td>
+			</tr>`;
+		})).join("");
+		return `<div class="cmp-table-wrap"><table class="cmp-table">
+			<thead><tr><th>Test</th><th>${tr("Antes")} <span data-no-i18n>#${b.id}</span></th><th></th><th>${tr("Ahora")} <span data-no-i18n>#${a.id}</span></th><th>${tr("Cambio")}</th></tr></thead>
+			<tbody>${rows}</tbody></table></div>`;
+	}
+
+	/** Tests que corrieron en una sola de las dos (plegado: no se pueden comparar). */
+	function cmpOnly(items, cls, label, desc) {
+		if (!items?.length) return "";
+		return `<details class="cmp-only ${cls}"><summary>${esc(label)} <span>${items.length}</span></summary><p class="cmp-desc">${esc(desc)}</p>
+			${items.map((i) => (cls === "missing" ? `<span class="cmp-only-item" data-no-i18n>${esc(i.name)}</span>` : `<a data-goto="${i.test_id}" data-no-i18n>${esc(i.name)}</a>`)).join("")}</details>`;
+	}
+
+	/** La pregunta para Trace Buddy: el resumen calculado y cada test, para que lo explique con sus palabras. */
+	function cmpQuestion(c, a, b) {
+		const line = (i) => `- ${i.name}: ${i.base_status || "—"} → ${i.status}`;
+		const changed = CMP_CHANGES.slice(0, 4).flatMap(([key]) => (c[key] || []).map(line));
+		const text = [`Explícame en palabras simples esta comparación de ejecuciones y qué debería revisar primero.`,
+			`Ahora: #${a.id} (${a.status}, ${a.passed}/${a.total} pasan, ${fmtDateTime(a.started_at)}). Antes: #${b.id} (${b.status}, ${b.passed}/${b.total} pasan, ${fmtDateTime(b.started_at)}).`,
+			`Tests en común: ${c.common}. Fallos nuevos: ${c.new_failures.length}. Arreglados: ${c.fixed.length}. Siguen fallando: ${c.still_failing.length}. Cambiaron de estado: ${(c.changed || []).length}. Sin cambios: ${c.unchanged.length}. Solo ahora: ${c.new_tests.length}. No corrieron esta vez: ${c.missing.length}.`,
+			changed.length ? `Cambios (antes → ahora):\n${changed.join("\n")}` : ""].filter(Boolean).join("\n");
+		return text.length > 1900 ? `${text.slice(0, 1900)}…` : text;
+	}
+
 	function renderInsights() {
 		const { compare, endpoints } = S.insights;
-		const list = (items, cls, label) => items?.length ? `<div class="cmp-group ${cls}"><h6>${label} <span>${items.length}</span></h6>
-			${items.map((i) => `<a data-goto="${i.test_id}">${esc(i.name)}${i.base_duration_ms && cls === "slower"
-				? ` <small>${fmtDuration(i.base_duration_ms)} → ${fmtDuration(i.duration_ms)}</small>` : ""}</a>`).join("")}</div>` : "";
-		let cmp = `<h5>Comparación</h5><div class="placeholder">Cargando…</div>`;
+		const head = `<div class="cmp-head"><h5>${tr("¿Qué cambió frente a otra ejecución?")}</h5>
+			${compare?.base_run && compare.common && canAct() && buddyCanChat() ? `<button type="button" class="cf-btn cf-btn-sm cmp-ai" data-cmp-ai data-tip="${tr("Trace Buddy te explica esta comparación con sus palabras y qué revisar primero.")}">${icon("i-spark")}${tr("Explícamelo")}</button>` : ""}</div>`;
+		let cmp = `${head}<div class="placeholder">Cargando…</div>`;
 		const bases = S.insights.baselines || [];
-		const picker = bases.length ? `<label class="cmp-base"><span>Comparar con</span>
-			<select id="cmp-base"><option value="0" ${!S.insights.base ? "selected" : ""}>Automática</option>
-				${bases.map((b) => `<option value="${b.id}" ${S.insights.base === b.id ? "selected" : ""}>#${b.id} · ${esc(b.name)}${b.branch ? ` · ${esc(b.branch)}` : ""} — ${fmtDateTime(b.started_at)}</option>`).join("")}</select></label>` : "";
+		const change = bases.length ? `<button type="button" class="cf-btn cf-btn-sm cmp-change" data-cmp-pick aria-expanded="${!!S.insights.picking}">${icon("i-search")}${tr("Cambiar")}</button>` : "";
 		if (compare) {
-			cmp = !compare.base_run
-				? `<h5>Comparación</h5>${picker}<div class="placeholder">No hay una ejecución anterior del mismo proyecto y ambiente con estos tests: no hay con qué comparar.</div>`
-				: `<h5>Comparación con <a href="#run=${compare.base_run.id}&view=dashboard">#${compare.base_run.id}</a> <small>${fmtDateTime(compare.base_run.started_at)}${compare.base_run.branch ? ` · ${esc(compare.base_run.branch)}` : ""}</small></h5>
-					${picker}${compare.base_reason ? `<p class="m-hint cmp-reason">${esc(BASE_REASON[compare.base_reason] || "")}</p>` : ""}
-					<div class="cmp-chips">
-						<span class="cmp-chip new_failures">${plural(compare.new_failures.length, "fallo nuevo", "fallos nuevos")}</span>
-						<span class="cmp-chip fixed">${plural(compare.fixed.length, "arreglado", "arreglados")}</span>
-						<span class="cmp-chip still">${plural(compare.still_failing.length, "sigue fallando", "siguen fallando")}</span>
-						<span class="cmp-chip slower">${plural(compare.slower.length, "más lento", "más lentos")}</span>
+			const b = compare.base_run;
+			const sum = b && cmpSummary(compare, S.run, b);
+			cmp = !b
+				? `${head}<div class="cmp-vs">${cmpRunCard(S.run, "Esta ejecución")}</div>
+					${S.insights.picking ? cmpPicker() : change}
+					<div class="placeholder">No hay una ejecución anterior del mismo proyecto y ambiente con estos tests: no hay con qué comparar.</div>`
+				: `${head}
+					<div class="cmp-vs">${cmpRunCard(S.run, "Esta ejecución")}<span class="cmp-vs-sep" aria-hidden="true">vs</span>${cmpRunCard(b, compare.base_later ? "Comparada con (posterior)" : "Comparada con", change)}</div>
+					${compare.base_reason ? `<p class="m-hint cmp-reason">${esc(BASE_REASON[compare.base_reason] || "")}</p>` : ""}
+					${S.insights.picking ? cmpPicker() : ""}
+					<div class="cmp-summary ${sum.tone}" role="note">${icon(sum.icon)}<div>${sum.html}</div></div>
+					${!compare.common ? "" : `<div class="cmp-chips">
+						<span class="cmp-chip new_failures" data-tip="${esc(tr("Pasaban en #{b} y ahora fallan: lo primero que revisar.", { b: b.id }))}">${plural(compare.new_failures.length, "fallo nuevo", "fallos nuevos")}</span>
+						<span class="cmp-chip fixed" data-tip="${esc(tr("Fallaban en #{b} y ahora pasan.", { b: b.id }))}">${plural(compare.fixed.length, "arreglado", "arreglados")}</span>
+						<span class="cmp-chip still" data-tip="${esc(tr("Fallan en las dos ejecuciones: no es algo nuevo.", { b: b.id }))}">${plural(compare.still_failing.length, "sigue fallando", "siguen fallando")}</span>
+						<span class="cmp-chip slower" data-tip="${esc(tr("Tardaron bastante más que en #{b}.", { b: b.id }))}">${plural(compare.slower.length, "más lento", "más lentos")}</span>
 					</div>
-					${!compare.new_failures.length && !compare.fixed.length && !compare.still_failing.length && !compare.slower.length
-						? `<div class="cmp-same">${icon("i-check")}Sin cambios: los mismos resultados que la ejecución #${compare.base_run.id}.</div>` : ""}
-					${list(compare.new_failures, "new_failures", "Fallos nuevos")}${list(compare.fixed, "fixed", "Arreglados")}
-					${list(compare.still_failing, "still", "Siguen fallando")}${list(compare.slower, "slower", "Más lentos")}
-					${list(compare.new_tests, "new_tests", "Tests nuevos")}`;
+					${cmpTable(compare, S.run, b)}`}
+					${cmpOnly(compare.new_tests, "new_tests", tr("Solo en esta ejecución"), tr("No corrieron en #{b}: no hay con qué compararlos.", { b: b.id }))}
+					${cmpOnly(compare.missing, "missing", tr("No corrieron esta vez"), tr("Corrieron en #{b}, pero no en esta ejecución.", { b: b.id }))}`;
 		}
 		setHTML($("#compare-card"), cmp);
 
@@ -1800,8 +2042,9 @@
 		$("#test-legend").innerHTML = `<span><b>${r.passed}</b> Test(s) correcto(s)</span><span><b>${r.failed}</b> Test(s) fallado(s), <b>${r.total - r.passed - r.failed}</b> otro(s)</span>`;
 		$("#step-legend").innerHTML = `<span><b>${ss.PASS || 0}</b> paso(s) correcto(s)</span><span><b>${ss.FAIL || 0}</b> paso(s) fallado(s), <b>${stepTotal - (ss.PASS || 0) - (ss.FAIL || 0)}</b> otro(s)</span>`;
 
-		const C = ["--pass", "--fail", "--warning", "--skip", "--running", "--info"].map(cssVar);
-		donut("test-analysis", ["Pass", "Fail", "Warning", "Skip", window.TraceReportsI18n.t("En curso")], [r.passed, r.failed, r.warning, r.skipped, r.running], C.slice(0, 5));
+		const C = ["--pass", "--fail", "--warning", "--skip", "--running", "--info", "--interrupted"].map(cssVar);
+		donut("test-analysis", ["Pass", "Fail", "Warning", "Skip", window.TraceReportsI18n.t("En curso"), "Interrupted"],
+			[r.passed, r.failed, r.warning, r.skipped, r.running, r.interrupted || 0], [...C.slice(0, 5), C[6]]);
 		donut("step-analysis", ["Pass", "Fail", "Warning", "Skip", "Info"], ["PASS", "FAIL", "WARNING", "SKIP", "INFO"].map((k) => ss[k] || 0), [C[0], C[1], C[2], C[3], C[5]]);
 
 		renderRunSummary();
@@ -1813,6 +2056,8 @@
 			...(r.branch ? [["Rama", r.branch]] : []),
 			...(r.commit ? [["Commit", r.commit.slice(0, 12)]] : []),
 			["Estado", r.incomplete ? `${r.status} · incompleta (tests sin terminar o ejecución interrumpida)` : r.status],
+			...(r.interrupted ? [["Interrumpidos", `${r.interrupted} · no cuentan como fallo`]] : []),
+			...(r.closed_by ? [["Cerrada", closedByText(r) + (r.close_reason ? ` · ${r.close_reason}` : "")]] : []),
 			["Comienzo", fmtDateTime(r.started_at)],
 			["Fin", r.ended_at ? fmtDateTime(r.ended_at) : "en curso"],
 			...(netTotal ? [["Conexiones de red", `${netTotal} capturadas · ${netErrors} con error`]] : []),
@@ -1929,6 +2174,7 @@
 	// ---------- events ----------
 	function bindEvents() {
 		bindMetricsEvents();
+		bindMaintenance();
 		bindSettingsEvents();
 		bindAIEscalateEvents();
 		// cambio de idioma: lo que se dibuja en canvas (gráficos) no pasa por el DOM
@@ -1941,7 +2187,22 @@
 		$$(".side-nav a").forEach((a) => a.addEventListener("click", (e) => { e.preventDefault(); setView(a.dataset.view); }));
 
 		$("#run-select").addEventListener("change", (e) => switchRun(Number(e.target.value)));
-		$("#recents-list").addEventListener("click", (e) => { const row = e.target.closest("[data-recent-run]"); if (row) { $("#recents-control").removeAttribute("open"); switchRun(Number(row.dataset.recentRun)); } });
+		$("#recents-list").addEventListener("click", (e) => { const row = e.target.closest("[data-recent-run]"); if (row) { $("#recents-control").removeAttribute("open"); switchRun(Number(row.dataset.recentRun)).then(renderRecents); } });
+		$("#recents-control").addEventListener("toggle", (e) => { if (e.target.open) { renderRecents(); $("#recents-filter").focus(); } });
+		$("#recents-filter").addEventListener("input", (e) => { S.recents.q = e.target.value; renderRecents(); });
+		$("#recents-filter").addEventListener("keydown", (e) => {
+			if (e.key === "Enter") $("#recents-list [data-recent-run]")?.click(); // la primera que coincide
+			if (e.key === "ArrowDown") { e.preventDefault(); $("#recents-list [data-recent-run]")?.focus(); }
+			if (e.key === "Escape") $("#recents-control").removeAttribute("open");
+		});
+		$("#recents-list").addEventListener("keydown", (e) => {
+			const rows = $$("#recents-list [data-recent-run]"), i = rows.indexOf(document.activeElement);
+			if (e.key === "ArrowDown" && i < rows.length - 1) { e.preventDefault(); rows[i + 1].focus(); }
+			if (e.key === "ArrowUp") { e.preventDefault(); (i > 0 ? rows[i - 1] : $("#recents-filter")).focus(); }
+			if (e.key === "Escape") $("#recents-control").removeAttribute("open");
+		});
+		$$("[data-recents-tab]").forEach((b) => b.addEventListener("click", () => { S.recents.tab = b.dataset.recentsTab; renderRecents(); }));
+		$("[data-recents-all]").addEventListener("click", () => { $("#recents-control").removeAttribute("open"); setView("search"); });
 		$("#recents-search").addEventListener("click", () => setView("search"));
 		$("#run-search-input").addEventListener("input", (e) => { S.runSearch.q = e.target.value; scheduleRunSearch(); });
 		$("#search-filters").addEventListener("change", (e) => { const key = e.target.dataset.searchFilter; if (!key) return; S.runSearch[key] = e.target.value; scheduleRunSearch(); });
@@ -1954,6 +2215,19 @@
 			if (e.target.closest("[data-search-clear]")) { Object.assign(S.runSearch, { q: "", project: "", environment: "", branch: "", tag: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent" }); scheduleRunSearch(); }
 		});
 		$("#search-saved").addEventListener("change", (e) => { const item = savedRunSearches()[Number(e.target.value)]; if (!item) return; Object.assign(S.runSearch, item.query, { items: [], cursor: "", selected: 0 }); scheduleRunSearch(); e.target.value = ""; });
+		$("#run-banner").addEventListener("click", (e) => {
+			if (e.target.closest("[data-close-run-open]")) { S.closeRun = {}; renderRunBanner(); $("[data-close-run-form] select")?.focus(); return; }
+			if (e.target.closest("[data-close-run-cancel]")) { S.closeRun = null; renderRunBanner(); return; }
+			if (e.target.closest("[data-banner-interrupted]")) { e.preventDefault(); S.status = "INTERRUPTED"; setView("tests"); }
+		});
+		$("#run-banner").addEventListener("submit", (e) => {
+			const f = e.target.closest("[data-close-run-form]");
+			if (!f) return;
+			e.preventDefault();
+			closeRunByHand(f);
+		});
+		// una ejecución muerta no manda eventos: el "sin actividad hace…" se actualiza solo (sin pisar el formulario)
+		setInterval(() => { if (S.run?.status === "RUNNING" && !S.closeRun && !GLOBAL_VIEWS.has(S.view)) renderRunBanner(); }, 30000);
 		$("#search-chips").addEventListener("click", (e) => { const b = e.target.closest("[data-search-remove]"); if (!b) return; const key = b.dataset.searchRemove; S.runSearch[key] = key === "incomplete" || key === "flaky" ? false : ""; scheduleRunSearch(); });
 		// la casilla está dentro de una etiqueta que corta el click: se escucha change
 		$("#run-search-results").addEventListener("change", (e) => {
@@ -1970,8 +2244,25 @@
 		$("#search-new-runs").addEventListener("click", () => { S.runSearch.newCount = 0; loadRunSearch(); });
 		$("#run-search-results").addEventListener("click", (e) => { if (e.target.closest("[data-search-retry]")) loadRunSearch(); });
 		$("#new-run-badge").addEventListener("click", (e) => switchRun(Number(e.currentTarget.dataset.run)));
-		$("#compare-card").addEventListener("change", (e) => {
-			if (e.target.id === "cmp-base") chooseBase(Number(e.target.value));
+		$("#compare-card").addEventListener("click", (e) => {
+			if (e.target.closest("[data-cmp-pick]")) { S.insights.picking = !S.insights.picking; renderInsights(); $("[data-cmp-q]")?.focus(); return; }
+			if (e.target.closest("[data-cmp-ai]")) {
+				const c = S.insights.compare;
+				if (c?.base_run) buddyAsk(cmpQuestion(c, S.run, c.base_run));
+				return;
+			}
+			if (e.target.closest("[data-cmp-pick-close]")) { S.insights.picking = false; renderInsights(); return; }
+			const pick = e.target.closest("[data-cmp-choose]");
+			if (pick) { S.insights.picking = false; S.insights.pickQ = ""; chooseBase(Number(pick.dataset.cmpChoose)); }
+		});
+		$("#compare-card").addEventListener("input", (e) => {
+			if (!e.target.matches("[data-cmp-q]")) return;
+			S.insights.pickQ = e.target.value;
+			$("#compare-card .cmp-picker-list").innerHTML = cmpPickerRows(); // solo la lista: el campo conserva el foco
+		});
+		$("#compare-card").addEventListener("keydown", (e) => {
+			if (e.key === "Escape" && S.insights.picking) { S.insights.picking = false; renderInsights(); }
+			if (e.key === "Enter" && e.target.matches("[data-cmp-q]")) $("#compare-card .cmp-picker-list [data-cmp-choose]")?.click();
 		});
 
 		$("#test-collection").addEventListener("click", async (e) => {
@@ -2339,7 +2630,9 @@
 			tech: "Detalle técnico", branch: "Rama", test: "Test", attempts: "Intentos", stack: "Error y stack trace", repro: "Reproducir en local",
 			response: "Respuesta", console: "Consola del navegador", artifacts: "Trace y video", logs: "Ver logs", trace: "Ver traza", copy: "Copiar",
 			baseline: "La última vez que el test pasó (ejecución #{r}) respondió HTTP {s}", other_ctx: " · en otra rama o ambiente",
-			more: "… {n} líneas más en el reporte", clipped: "Respuesta recortada: completa en el reporte" },
+			more: "… {n} líneas más en el reporte", clipped: "Respuesta recortada: completa en el reporte",
+			qa_verdict: "Veredicto de QA", qa_clean: "Pasó limpio", qa_observations: "Pasó con observaciones", qa_risks: "Pasó con riesgos",
+			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación" },
 		en: { critical: "Critical severity", high: "High severity", medium: "Medium severity", low: "Low severity",
 			business: "Business", qa: "QA", dev: "Development", what: "What happened", impact: "Impact", cause: "Likely cause",
 			evidence: "Evidence", next: "Next steps", owner: "Suggested owner", calls: "Backend calls that failed",
@@ -2349,8 +2642,20 @@
 			tech: "Technical detail", branch: "Branch", test: "Test", attempts: "Attempts", stack: "Error and stack trace", repro: "Run it locally",
 			response: "Response", console: "Browser console", artifacts: "Trace and video", logs: "View logs", trace: "View trace", copy: "Copy",
 			baseline: "The last time the test passed (run #{r}) it answered HTTP {s}", other_ctx: " · on another branch or environment",
-			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report" },
+			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report",
+			qa_verdict: "QA verdict", qa_clean: "Passed clean", qa_observations: "Passed with observations", qa_risks: "Passed with risks",
+			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation" },
 	};
+
+	/** El veredicto de QA de una ejecución sin fallos (lo calcula el servidor): cómo pasó y sus señales. */
+	function escVerdictHTML(e, L) {
+		const a = e.facts.assessment;
+		if (!a) return "";
+		const signals = (a.signals || []).map((s) => `<li class="esc-signal ${esc(s.level)}"><span class="esc-signal-lvl">${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}</span>${esc(s.text)}</li>`).join("");
+		return `<section class="esc-verdict ${esc(a.verdict)}"><h3>${esc(L.qa_verdict)}</h3>
+			<p class="esc-verdict-badge">${esc(L[`qa_${a.verdict}`] || a.verdict)}</p>
+			${signals ? `<ul>${signals}</ul>` : `<p>${esc(L.qa_clean_desc)}</p>`}</section>`;
+	}
 	const escFmt = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
 	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}:${S.esc.evidence}`;
 	/** Sin IA: elegido por la persona, o porque no hay IA configurada. */
@@ -2401,6 +2706,8 @@
 			if (current() && escKey() === key) {
 				S.esc.data = data;
 				if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
+				if (data.ai_skipped === "no_failures") S.esc.msg = { ok: true, text: tr("Esta ejecución todavía no terminó completa: el resumen se armó con los datos del reporte, sin IA, para que no invente un problema que no existe.") };
+				if (data.ai_skipped === "invented_failure") S.esc.msg = { ok: true, text: tr("La IA describió un fallo que esta ejecución no tiene, así que se descartó su texto y el resumen se armó con los datos del reporte.") };
 			}
 		} catch (err) {
 			if (current() && escKey() === key) S.esc.msg = { ok: false, text: err.message };
@@ -2488,6 +2795,7 @@
 			<h2 class="esc-title">${esc(e.title)}</h2>
 			<p class="esc-headline">${esc(e.headline)}</p>
 			<dl class="esc-meta">${meta.map(([k, v]) => `<div>${k ? `<dt>${esc(k)}</dt>` : ""}<dd>${esc(v)}</dd></div>`).join("")}</dl>
+			${escVerdictHTML(e, L)}
 			${f.screenshot ? `<figure class="esc-shot"><img src="${esc(f.screenshot)}" alt="${esc(L.shot)}"><figcaption>${esc(L.shot)}${f.shot_caption ? ` · ${esc(f.shot_caption)}` : ""}</figcaption></figure>` : ""}
 			<div class="esc-grid">
 				<section><h3>${esc(L.what)}</h3><p>${esc(e.what_happened)}</p></section>
@@ -2544,6 +2852,12 @@
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const B = (s) => (style === "slack" ? `*${s}*` : style === "md" ? `**${s}**` : s);
 		const lines = [`${style === "plain" ? `[${(L[e.severity] || e.severity).toUpperCase()}]` : `${B(L[e.severity] || e.severity)} ·`} ${B(e.title)}`, e.headline, ""];
+		const qa = f.assessment;
+		if (qa) {
+			lines.push(`${B(L.qa_verdict + ":")} ${L[`qa_${qa.verdict}`] || qa.verdict}`);
+			(qa.signals || []).forEach((s) => lines.push(`• [${s.level === "risk" ? L.qa_risk : L.qa_note}] ${s.text}`));
+			lines.push("");
+		}
 		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
 		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
 			lines.push("", B(L.calls + ":"));
@@ -2569,6 +2883,8 @@
 			<div style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.05em">${esc(L[e.severity])} · ${esc(L[e.audience])}</div>
 			<h2 style="margin:6px 0 4px;font-size:20px;color:#1c2833">${esc(e.title)}</h2>${p(e.headline)}
 			<p style="margin:10px 0 0;font-size:12px;color:#78909c">${esc(L.run)}: ${esc(f.run_name)} · ${esc(f.env || "—")} · ${esc(fmtDateTime(f.started_at))} · ${esc(escFmt(L.failed, { f: f.failed, t: f.total }))}</p>
+			${f.assessment ? h3(`${L.qa_verdict}: ${L[`qa_${f.assessment.verdict}`] || f.assessment.verdict}`)
+				+ (f.assessment.signals?.length ? `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.assessment.signals.map((s) => `<li><b>${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}:</b> ${esc(s.text)}</li>`).join("")}</ul>` : p(L.qa_clean_desc)) : ""}
 			${shot ? `<img src="${shot}" alt="${esc(L.shot)}" style="margin-top:14px;max-width:100%;border:1px solid #e0e0e0;border-radius:6px">` : ""}
 			${h3(L.what)}${p(e.what_happened)}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
 			${e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length) ? h3(L.calls) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.network.map((n) => `<li><code>${esc(n.method)} ${esc(n.path)}</code> → ${esc(n.outcome)}</li>`).join("")}</ul>` : ""}
@@ -2601,8 +2917,57 @@
 		return html;
 	}
 
+	/** El resumen con formato para pegar en un chat (Teams, Slack): negritas, listas y bloques de código
+	 * como HTML, que es lo que esas apps respetan al pegar (el Markdown pegado queda con los ** a la vista). */
+	function escChatHTML(e) {
+		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
+		const p = (html) => `<p>${html}</p>`, b = (s) => `<b>${esc(s)}</b>`;
+		const list = (tag, xs) => `<${tag}>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</${tag}>`;
+		const out = [p(`${b((L[e.severity] || e.severity).toUpperCase())} · ${b(e.title)}`), p(esc(e.headline))];
+		const qa = f.assessment;
+		if (qa) {
+			out.push(p(`${b(L.qa_verdict + ":")} ${esc(L[`qa_${qa.verdict}`] || qa.verdict)}`));
+			if (qa.signals?.length) out.push(list("ul", qa.signals.map((s) => `[${s.level === "risk" ? L.qa_risk : L.qa_note}] ${s.text}`)));
+		}
+		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && out.push(p(`${b(k + ":")} ${esc(v)}`)));
+		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
+			out.push(p(b(L.calls + ":")), list("ul", f.network.map((n) => `${n.method} ${n.path} → ${n.outcome}${n.duration_ms ? ` (${n.duration_ms} ms)` : ""}`)));
+		}
+		if (e.evidence?.length) out.push(p(b(L.evidence + ":")), list("ul", e.evidence));
+		if (e.next_steps?.length) out.push(p(b(L.next + ":")), list("ol", e.next_steps));
+		if (e.owner) out.push(p(`${b(L.owner + ":")} ${esc(e.owner)}`));
+		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join(""));
+		out.push(p(`${esc(`${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`)}<br>
+			<a href="${esc(escReportURL(e))}">${esc(L.report)}</a>`));
+		return out.join("");
+	}
+
+	/** Copia con formato (text/html) y su versión en texto: la app donde se pega elige. Sin la Clipboard
+	 * API (TraceReports abierto por HTTP en la red, no en localhost) va por el evento copy, que sí funciona. */
+	async function copyRich(html, text) {
+		if (navigator.clipboard?.write && window.ClipboardItem) {
+			try {
+				await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([text], { type: "text/plain" }) })]);
+				return true;
+			} catch { /* sin permiso: el evento copy */ }
+		}
+		return copyViaEvent({ "text/html": html, "text/plain": text });
+	}
+
+	function copyViaEvent(data) {
+		const fill = (ev) => { Object.entries(data).forEach(([k, v]) => ev.clipboardData.setData(k, v)); ev.preventDefault(); };
+		document.addEventListener("copy", fill);
+		let ok = false;
+		try { ok = document.execCommand("copy"); } catch { /* sin portapapeles */ }
+		document.removeEventListener("copy", fill);
+		return ok;
+	}
+
 	async function toDataURL(src) {
-		const blob = await (await fetch(src)).blob();
+		return blobToDataURL(await (await fetch(src)).blob());
+	}
+
+	function blobToDataURL(blob) {
 		return new Promise((ok, fail) => { const r = new FileReader(); r.onload = () => ok(r.result); r.onerror = fail; r.readAsDataURL(blob); });
 	}
 
@@ -2643,20 +3008,41 @@
 		const e = S.esc.data;
 		if (!e) return;
 		try {
-			if (kind === "plain" || kind === "slack" || kind === "md") { CF.copyText(escText(e, kind), btn); return; }
+			if (kind === "plain" || kind === "md") { CF.copyText(escText(e, kind), btn); return; }
+			if (kind === "teams-copy" || kind === "slack") {
+				// con formato: Teams y Slack muestran los ** o * del texto tal cual al pegarlo
+				const ok = await copyRich(escChatHTML(e), escText(e, kind === "slack" ? "slack" : "plain"));
+				flash(btn, ok ? tr("¡Copiado!") : tr("No se pudo"), ok); return;
+			}
 			if (kind === "email") {
-				const html = await escEmailHTML(e);
-				if (!navigator.clipboard?.write || !window.ClipboardItem) { CF.copyText(escText(e, "plain"), btn); return; }
-				await navigator.clipboard.write([new ClipboardItem({ "text/html": new Blob([html], { type: "text/html" }), "text/plain": new Blob([escText(e, "plain")], { type: "text/plain" }) })]);
-				flash(btn, tr("¡Copiado!")); return;
+				const ok = await copyRich(await escEmailHTML(e), escText(e, "plain"));
+				flash(btn, ok ? tr("¡Copiado!") : tr("No se pudo"), ok); return;
+			}
+			if (kind === "png" && navigator.clipboard?.write && window.ClipboardItem) {
+				// la imagen va como promesa dentro del ClipboardItem: el navegador guarda el permiso del clic
+				// mientras se dibuja (si se espera antes, el permiso vence y la copia falla)
+				btn.disabled = true;
+				try {
+					await navigator.clipboard.write([new ClipboardItem({ "image/png": cardToPNG($("#esc-card")) })]);
+					btn.disabled = false;
+					flash(btn, tr("¡Imagen copiada!")); return;
+				} catch { btn.disabled = false; /* abajo: como HTML o descarga */ }
 			}
 			if (kind === "png" || kind === "png-dl") {
 				btn.disabled = true;
 				const blob = await cardToPNG($("#esc-card"));
 				btn.disabled = false;
-				if (kind === "png" && navigator.clipboard?.write && window.ClipboardItem) {
-					await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
-					flash(btn, tr("¡Imagen copiada!")); return;
+				if (kind === "png") {
+					// sin Clipboard API (HTTP en la red): la imagen dentro de un HTML, que Teams y Outlook pegan
+					const url = await blobToDataURL(blob);
+					if (copyViaEvent({ "text/html": `<img src="${url}" alt="${esc(e.title)}">`, "text/plain": escText(e, "plain") })) {
+						flash(btn, tr("¡Imagen copiada!"));
+						if (!window.isSecureContext) {
+							S.esc.msg = { ok: true, text: tr("TraceReports está abierto por HTTP, así que el navegador no deja copiar imágenes directamente: la copié con formato. Si al pegar no aparece, usa el botón PNG o abre TraceReports con HTTPS.") };
+							renderEscalate();
+						}
+						return;
+					}
 				}
 				const a = document.createElement("a");
 				a.href = URL.createObjectURL(blob);
@@ -2711,19 +3097,20 @@
 		const e = st.data;
 		const cfg = S.config;
 		const share = e ? `<div class="esc-share" role="toolbar" aria-label="${tr("Compartir")}">
-				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Copiar")}</span>
-					<button class="cf-btn cf-btn-sm" data-esc-share="plain" data-tip="${tr("Texto simple, para un correo o cualquier chat")}">${icon("i-copy")}${tr("Texto")}</button>
-					<button class="cf-btn cf-btn-sm" data-esc-share="slack" data-tip="${tr("Con el formato de Slack (*negritas*)")}">${icon("i-copy")}Slack</button>
-					<button class="cf-btn cf-btn-sm" data-esc-share="md" data-tip="${tr("Markdown: Teams, Jira, GitHub, Confluence")}">${icon("i-copy")}Teams / Markdown</button>
-					<button class="cf-btn cf-btn-sm" data-esc-share="email" data-tip="${tr("Con formato y la captura, para pegar en Outlook o Gmail")}">${icon("i-copy")}${tr("Correo")}</button>
+				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Copiar para")}</span>
+					<button class="cf-btn cf-btn-sm" data-esc-share="teams-copy" data-tip="${tr("Con negritas, listas y código, para pegar en un chat o canal de Teams")}">${icon("i-teams")}Teams</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="slack" data-tip="${tr("Con negritas, listas y código, para pegar en Slack")}">${icon("i-slack")}Slack</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="email" data-tip="${tr("Con formato y la captura, para pegar en Outlook o Gmail")}">${icon("i-mail")}${tr("Correo")}</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="md" data-tip="${tr("Markdown, para Jira, GitHub, GitLab o Confluence")}">${icon("i-markdown")}Markdown</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="plain" data-tip="${tr("Texto simple, sin formato")}">${icon("i-copy")}${tr("Texto")}</button>
 				</div>
 				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Imagen")}</span>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png" data-tip="${tr("Copia la tarjeta como imagen para pegarla en Teams, Slack o una presentación")}">${icon("i-camera")}${tr("Copiar imagen")}</button>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png-dl" data-tip="${tr("Descarga la tarjeta como PNG")}">${icon("i-download")}PNG</button>
 				</div>
-				${cfg.teams || cfg.slack ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Enviar")}</span>
-					${cfg.teams ? `<button class="cf-btn cf-btn-sm cf-btn-primary" data-esc-share="teams" data-tip="${tr("Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)")}">${icon("i-megaphone")}Teams</button>` : ""}
-					${cfg.slack ? `<button class="cf-btn cf-btn-sm cf-btn-primary" data-esc-share="slack-send" data-tip="${tr("Publica el resumen en el canal de Slack configurado (SLACK_WEBHOOK_URL)")}">${icon("i-megaphone")}Slack</button>` : ""}
+				${cfg.teams || cfg.slack ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Enviar al canal")}</span>
+					${cfg.teams ? `<button class="cf-btn cf-btn-sm esc-send" data-esc-share="teams" data-tip="${tr("Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)")}">${icon("i-teams")}Teams</button>` : ""}
+					${cfg.slack ? `<button class="cf-btn cf-btn-sm esc-send" data-esc-share="slack-send" data-tip="${tr("Publica el resumen en el canal de Slack configurado (SLACK_WEBHOOK_URL)")}">${icon("i-slack")}Slack</button>` : ""}
 				</div>` : ""}
 				${cfg.trackers?.length ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Ticket")}</span>
 					${cfg.trackers.map((k) => `<button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(k.id)}" data-tip="${tr("Crea un ticket en {t} con este resumen, la captura y el link al reporte. Si el mismo test ya tiene uno, te muestra ese en vez de duplicarlo.", { t: k.name })}">${icon("i-bug")}${esc(k.name)}</button>`).join("")}
@@ -2859,6 +3246,189 @@
 		}
 		m.loading = false;
 		if (S.view === "metrics") renderMetrics();
+	}
+
+	// ---------- mantenimiento ----------
+	// Las ejecuciones con problemas de todos los proyectos, para cerrarlas o borrarlas en lote, y el
+	// umbral del cierre automático por inactividad.
+	const MAINT_STATES = [
+		["", "Con problemas", "En curso o incompletas, de todos los proyectos."],
+		["idle", "Sin actividad", "En curso, pero sin recibir datos hace más de 5 minutos: probablemente el proceso de los tests se detuvo."],
+		["running", "En curso", "Todas las que siguen abiertas, reciban datos o no."],
+		["incomplete", "Incompletas", "Cerradas con tests sin terminar: por Ctrl+C, un worker caído, a mano o por inactividad."],
+		["manual", "Cerradas a mano", "Las que alguien cerró desde la interfaz, con su motivo."],
+		["auto", "Cerradas por inactividad", "Las que se cerraron solas al pasar el tiempo sin actividad."],
+	];
+	const MAINT_OLDER = [["", "Cualquier fecha"], ["1", "Más de 1 hora"], ["24", "Más de 1 día"], ["168", "Más de 7 días"], ["720", "Más de 30 días"]];
+	const STALE_CHOICES = [0.5, 1, 2, 6, 12, 24, 48, 0];
+	const staleText = (h) => (h === 0 ? tr("Nunca") : h < 1 ? `${Math.round(h * 60)} min` : `${h} h`);
+
+	async function loadMaintenance() {
+		const m = S.maint;
+		m.loading = true;
+		const p = new URLSearchParams();
+		if (m.state) p.set("state", m.state);
+		["project", "environment", "branch"].forEach((k) => { if (m[k]) p.set(k, m[k]); });
+		if (m.older) p.set("older_than_hours", m.older);
+		try {
+			const [data, facets] = await Promise.all([api(`/api/v1/maintenance?${p}`), m.facets || api("/api/v1/runs/facets").catch(() => ({}))]);
+			const ids = new Set(data.runs.map((r) => r.id));
+			Object.assign(m, { data, facets, error: null, selected: new Set([...m.selected].filter((id) => ids.has(id))) });
+		} catch (err) {
+			m.error = err.message;
+		}
+		m.loading = false;
+		if (S.view === "maintenance") renderMaintenance();
+	}
+
+	function maintRow(r, act) {
+		const m = S.maint, warn = S.maint.data?.idle_warn_ms || IDLE_WARN_MS;
+		const live = r.status === "RUNNING"
+			? (r.idle_ms >= warn ? `<small class="maint-idle">${tr("sin actividad hace {t}", { t: fmtIdle(r.idle_ms) })}</small>` : `<small>${tr("recibiendo datos")}</small>`)
+			: r.incomplete ? `<small>${tr("incompleta")}</small>` : "";
+		const tests = [`${r.total} tests`, r.running && tr("{n} en curso", { n: r.running }), r.interrupted && tr("{n} interrumpidos", { n: r.interrupted }), r.failed && tr("{n} fallidos", { n: r.failed })].filter(Boolean).join(" · ");
+		const ctx = [r.project, r.environment, r.branch].filter(Boolean).map(esc).join(" · ") || "—";
+		return `<tr class="${m.selected.has(r.id) ? "on" : ""}">
+			${act ? `<td><input type="checkbox" data-maint-pick="${r.id}" ${m.selected.has(r.id) ? "checked" : ""} aria-label="${tr("Elegir")} #${r.id}"></td>` : ""}
+			<td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a></td>
+			<td data-no-i18n>${ctx}</td>
+			<td>${statusLabel(r.status)} ${live}</td>
+			<td>${tests}</td>
+			<td>${fmtDateTime(r.started_at)}</td>
+			<td>${r.closed_by ? `${esc(closedByText(r))}${r.close_reason ? `<small data-no-i18n>${esc(r.close_reason)}</small>` : ""}` : "—"}</td>
+		</tr>`;
+	}
+
+	function maintAction(sel) {
+		const m = S.maint;
+		if (m.action === "close") {
+			const n = sel.filter((r) => r.status === "RUNNING").length;
+			return `<form class="card maint-confirm" data-maint-close-form>
+				<label class="field"><span class="field-label">${tr("Motivo")}</span>
+					<select name="reason">${CLOSE_REASONS.map((r) => `<option value="${r}">${tr(r)}</option>`).join("")}</select></label>
+				<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span><input name="detail" maxlength="400"></label>
+				<p>${tr("Se cerrarán {n} ejecución(es) en curso: sus tests sin terminar quedarán como Interrumpido. Las ya cerradas no cambian.", { n })}</p>
+				<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary" ${m.busy ? "disabled" : ""}>${icon("i-interrupted")}${tr("Cerrar {n} ejecución(es)", { n })}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></form>`;
+		}
+		if (m.action === "delete") {
+			const n = sel.filter((r) => r.status !== "RUNNING").length;
+			return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${tr("Eliminar ejecuciones")}">
+				<p><b>${tr("Se eliminarán {n} ejecución(es) con toda su evidencia: pasos, capturas, red y diagnósticos. No se puede deshacer.", { n })}</b></p>
+				<p>${tr("Las que siguen en curso no se eliminan: ciérralas primero.")}</p>
+				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-maint-delete ${m.busy ? "disabled" : ""}>${tr("Eliminar {n} ejecución(es)", { n })}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></div>`;
+		}
+		return "";
+	}
+
+	function renderMaintenance() {
+		const el = $("#view-maintenance"), m = S.maint;
+		if (!m.data && !m.loading && !m.error) loadMaintenance();
+		const act = canAct();
+		const runs = m.data?.runs || [];
+		const sel = runs.filter((r) => m.selected.has(r.id));
+		const st = m.data?.stale;
+		const facet = (key, label) => `<label class="m-suite"><span>${tr(label)}</span><select data-maint-filter="${key}"><option value="">${tr("Todos")}</option>
+			${(m.facets?.[key] || []).map((x) => `<option value="${esc(x.value)}" ${x.value === m[key] ? "selected" : ""} data-no-i18n>${esc(x.value)}</option>`).join("")}</select></label>`;
+		const choices = st ? [...new Set([...STALE_CHOICES, st.hours])] : [];
+		const stale = st ? `<div class="card maint-stale">
+				<span class="maint-stale-icon">${icon("i-pause")}</span>
+				<div class="maint-stale-text"><b>${tr("Cierre automático por inactividad")}</b>
+					<p>${tr("Una ejecución en curso que deja de recibir datos se cierra sola, y sus tests sin terminar quedan como Interrumpido.")}</p>
+					${st.source === "env" ? `<small>${tr("Lo fija TRACEREPORTS_STALE_RUN_HOURS en el servidor.")}</small>` : ""}</div>
+				<label class="m-suite"><span>${tr("Cerrar tras")}</span><select data-maint-stale ${st.editable && act ? "" : "disabled"}>
+					${choices.map((h) => `<option value="${h}" ${h === st.hours ? "selected" : ""}>${staleText(h)}</option>`).join("")}</select></label>
+			</div>` : "";
+		const table = m.error ? `<div class="card placeholder">${tr("No se pudo cargar: {e}", { e: m.error })}</div>`
+			: !m.data ? `<div class="card placeholder">${tr("Cargando…")}</div>`
+			: !runs.length ? `<div class="card m-empty">${icon("i-pass")}<h5>${tr("Nada que revisar")}</h5><p>${tr("No hay ejecuciones con este filtro.")}</p></div>`
+			: `<div class="card maint-list">
+				${act ? `<div class="maint-bulk" role="toolbar" aria-label="${tr("Acciones en lote")}">
+					<span>${tr("{n} de {t} elegidas", { n: sel.length, t: runs.length })}</span>
+					<button class="cf-btn cf-btn-sm" data-maint-act="close" ${sel.some((r) => r.status === "RUNNING") ? "" : "disabled"}>${icon("i-interrupted")}${tr("Cerrar como interrumpidas…")}</button>
+					<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-maint-act="delete" ${sel.some((r) => r.status !== "RUNNING") ? "" : "disabled"}>${icon("i-close")}${tr("Eliminar…")}</button>
+				</div>${maintAction(sel)}` : ""}
+				<div class="maint-scroll"><table class="maint-table"><thead><tr>
+					${act ? `<th><input type="checkbox" data-maint-all ${sel.length && sel.length === runs.length ? "checked" : ""} aria-label="${tr("Elegir todas")}"></th>` : ""}
+					<th>${tr("Ejecución")}</th><th>${tr("Proyecto · ambiente · rama")}</th><th>${tr("Estado")}</th><th>Tests</th><th>${tr("Inicio")}</th><th>${tr("Cierre")}</th>
+				</tr></thead><tbody>${runs.map((r) => maintRow(r, act)).join("")}</tbody></table></div>
+			</div>`;
+		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Mantenimiento")}</h4>
+				<p class="page-sub">${tr("Las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos. Ciérralas como interrumpidas o elimina las que eran pruebas.")}</p></div></div>
+			${stale}
+			<div class="m-filters" role="toolbar" aria-label="${tr("Filtros de mantenimiento")}">
+				<div class="seg" role="group" aria-label="${tr("Estado")}">${MAINT_STATES.map(([id, label, tip]) =>
+					`<button data-maint-state="${id}" aria-pressed="${m.state === id}" data-tip="${esc(tr(tip))}">${tr(label)}</button>`).join("")}</div>
+				${facet("project", "Proyecto")}${facet("environment", "Ambiente")}${facet("branch", "Rama")}
+				<label class="m-suite"><span>${tr("Antigüedad")}</span><select data-maint-filter="older">
+					${MAINT_OLDER.map(([v, label]) => `<option value="${v}" ${v === m.older ? "selected" : ""}>${tr(label)}</option>`).join("")}</select></label>
+			</div>
+			${m.msg ? `<p class="set-msg ${m.msg.ok ? "ok" : "err"}" role="status">${esc(m.msg.text)}</p>` : ""}
+			${table}`);
+	}
+
+	async function maintRun(path, body, done) {
+		const m = S.maint;
+		m.busy = true;
+		renderMaintenance();
+		try {
+			const r = await apiSend("POST", path, body);
+			m.msg = { ok: true, text: done(r) };
+			const gone = path.endsWith("/delete") && body.run_ids.includes(S.runId);
+			Object.assign(m, { action: null, selected: new Set() });
+			if (gone) Object.assign(S, { runId: null, run: null, testId: null, test: null });
+			await loadRuns();
+			if (S.runId && (gone || body.run_ids.includes(S.runId))) await loadRun().catch(() => {});
+		} catch (err) {
+			m.msg = { ok: false, text: err.message };
+		}
+		m.busy = false;
+		await loadMaintenance();
+		renderView();
+	}
+
+	function bindMaintenance() {
+		const el = $("#view-maintenance"), m = S.maint;
+		el.addEventListener("click", (e) => {
+			const st = e.target.closest("[data-maint-state]");
+			if (st) { Object.assign(m, { state: st.dataset.maintState, msg: null, action: null }); loadMaintenance(); renderMaintenance(); return; }
+			const a = e.target.closest("[data-maint-act]");
+			if (a) { m.action = a.dataset.maintAct; m.msg = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-maint-cancel]")) { m.action = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-maint-delete]")) {
+				const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status !== "RUNNING").map((r) => r.id);
+				maintRun("/api/v1/ui/runs/delete", { run_ids: ids }, (r) => tr("Se eliminaron {n} ejecución(es).", { n: r.deleted }));
+			}
+		});
+		el.addEventListener("change", async (e) => {
+			const pick = e.target.closest("[data-maint-pick]");
+			if (pick) { const id = Number(pick.dataset.maintPick); pick.checked ? m.selected.add(id) : m.selected.delete(id); renderMaintenance(); return; }
+			if (e.target.closest("[data-maint-all]")) {
+				m.selected = e.target.checked ? new Set((m.data?.runs || []).map((r) => r.id)) : new Set();
+				renderMaintenance(); return;
+			}
+			const f = e.target.closest("[data-maint-filter]");
+			if (f) { m[f.dataset.maintFilter] = f.value; m.msg = null; loadMaintenance(); return; }
+			const stale = e.target.closest("[data-maint-stale]");
+			if (stale) {
+				try {
+					const s = await apiSend("PUT", "/api/v1/ui/maintenance/stale", { hours: Number(stale.value) });
+					m.data.stale = s;
+					m.msg = { ok: true, text: s.hours ? tr("Listo: se cerrarán solas tras {t} sin actividad.", { t: staleText(s.hours) }) : tr("Listo: el cierre automático quedó apagado.") };
+				} catch (err) { m.msg = { ok: false, text: err.message }; }
+				renderMaintenance();
+			}
+		});
+		el.addEventListener("submit", (e) => {
+			const f = e.target.closest("[data-maint-close-form]");
+			if (!f) return;
+			e.preventDefault();
+			const d = new FormData(f), detail = String(d.get("detail") || "").trim();
+			const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status === "RUNNING").map((r) => r.id);
+			maintRun("/api/v1/ui/runs/close", { run_ids: ids, reason: tr(String(d.get("reason"))) + (detail ? `: ${detail}` : "") },
+				(r) => tr("Se cerraron {n} ejecución(es) como interrumpidas.", { n: r.closed }));
+		});
 	}
 
 	function renderMetrics() {
@@ -4420,6 +4990,16 @@
 
 	/** Una pregunta libre: va con la evidencia del test (o la ejecución) que se está viendo y las últimas
 	 * respuestas de la conversación. El servidor la pasa por la redacción antes de enviarla al modelo. */
+	/** Abre Trace Buddy y le hace una pregunta armada por la interfaz (p. ej. "Explícamelo" de la comparación). */
+	async function buddyAsk(text) {
+		if (!buddyCanChat()) return;
+		buddyToggle(true);
+		const input = $("#buddy-input");
+		if (!input || buddy.chatting) return;
+		input.value = text;
+		await buddyChatSend();
+	}
+
 	async function buddyChatSend() {
 		const input = $("#buddy-input"), text = input?.value.trim();
 		if (!text || buddy.chatting) return;
@@ -4645,6 +5225,7 @@
 	async function init() {
 		applyTheme(initialTheme(), false);
 		$(".nav-global").hidden = !!STATIC; // las métricas cruzan ejecuciones: no van en el ZIP
+		$(".nav-maint").hidden = !!STATIC; // mantenimiento actúa sobre el servidor
 		// exportado: Escalar y Release van ya calculados (los reportes de versiones anteriores no los traen)
 		$(".nav-server").hidden = !!STATIC && !STATIC.escalations;
 		$(".nav-release").hidden = !!STATIC && !STATIC.release;

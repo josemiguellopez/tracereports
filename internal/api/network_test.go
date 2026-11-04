@@ -3,6 +3,7 @@ package api
 import (
 	"archive/zip"
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/db"
@@ -26,7 +28,15 @@ func newTestServer(t *testing.T) (*Server, int64) {
 	runID, _ := store.CreateRun("Red", "")
 	testID, _ := store.CreateTest(runID, "Login", "", "")
 	t.Setenv("GEMINI_API_KEY", "")
-	return &Server{Store: store, AI: ai.New(store), ScreenshotsDir: dir, Web: fstest.MapFS{
+	analyzer := ai.New(store)
+	// lo que un test dejó corriendo en segundo plano (el diagnóstico de una ejecución que cerró) termina
+	// antes de cerrar la base: si no, sigue escribiendo logs mientras corre el test siguiente (-race)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		analyzer.Wait(ctx)
+	})
+	return &Server{Store: store, AI: analyzer, ScreenshotsDir: dir, Web: fstest.MapFS{
 		"index.html": {Data: []byte("<!-- tracereports:static-data -->")}, "style.css": {}, "app.js": {},
 	}}, testID
 }

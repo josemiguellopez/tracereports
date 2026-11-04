@@ -3,9 +3,13 @@ package api
 import (
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/josemiguellopez/tracereports/internal/db"
 )
 
 func newRunWithTest(t *testing.T, srv *Server, opts ...reqOpt) (runID, testID int64) {
@@ -40,8 +44,11 @@ func TestStaleRunsAreClosedOnlyWithoutRealActivity(t *testing.T) {
 	if run.Status == "RUNNING" || !run.Incomplete || run.EndedAt == nil {
 		t.Fatalf("abandoned run closed as incomplete: %+v", run)
 	}
-	if tt, _ := srv.Store.GetTest(abandonedTest); tt.Status != "FAIL" {
-		t.Fatalf("its RUNNING test is an interrupted failure: %+v", tt.Status)
+	if tt, _ := srv.Store.GetTest(abandonedTest); tt.Status != "INTERRUPTED" || !strings.Contains(tt.ErrorMessage, "sin recibir datos") {
+		t.Fatalf("its RUNNING test is interrupted, saying why: %s %q", tt.Status, tt.ErrorMessage)
+	}
+	if run.ClosedBy != db.ClosedByInactivity || run.Interrupted != 1 || run.Failed != 0 {
+		t.Fatalf("closed by inactivity, without counting a failure: %+v", run)
 	}
 	for _, id := range []int64{alive, offline} {
 		if r, _ := srv.Store.GetRun(id); r.Status != "RUNNING" {
@@ -67,6 +74,48 @@ func TestStaleRunsAreClosedOnlyWithoutRealActivity(t *testing.T) {
 	}
 }
 
+// Cerrar a mano desde la interfaz: solo administración, con el motivo (sin secretos) y quién; una
+// ejecución ya cerrada responde 409.
+func TestCloseRunByHandFromTheUI(t *testing.T) {
+	srv, _ := newTestServer(t)
+	runID, testID := newRunWithTest(t, srv)
+	srv.Auth = Auth{UIUser: "admin", UIPass: "clave-admin", ViewerUser: "equipo", ViewerPass: "clave-lectura"}
+	path := fmt.Sprintf("/api/v1/ui/runs/%d/close", runID)
+	body := `{"reason":"se cayó el CI, token=Sup3rSecreto123456"}`
+	if rec := call(t, srv, "POST", path, body, basicAuth("equipo", "clave-lectura")); rec.Code != http.StatusForbidden {
+		t.Fatalf("read-only user: %d", rec.Code)
+	}
+	rec := call(t, srv, "POST", path, body, basicAuth("admin", "clave-admin"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("close: %d %s", rec.Code, rec.Body)
+	}
+	var run db.Run
+	json.Unmarshal(rec.Body.Bytes(), &run)
+	if run.Status != "WARNING" || !run.Incomplete || run.Interrupted != 1 || run.ClosedBy != "admin" || !strings.Contains(run.CloseReason, "se cayó el CI") {
+		t.Fatalf("closed run: %s", rec.Body)
+	}
+	if strings.Contains(rec.Body.String(), "Sup3rSecreto123456") {
+		t.Fatal("the reason goes through the redaction")
+	}
+	if tt, _ := srv.Store.GetTest(testID); tt.Status != "INTERRUPTED" {
+		t.Fatalf("its RUNNING test: %s", tt.Status)
+	}
+	if rec := call(t, srv, "POST", path, `{}`, basicAuth("admin", "clave-admin")); rec.Code != http.StatusConflict {
+		t.Fatalf("second close: %d", rec.Code)
+	}
+	if rec := call(t, srv, "POST", "/api/v1/ui/runs/99999/close", `{}`, basicAuth("admin", "clave-admin")); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown run: %d", rec.Code)
+	}
+}
+
+func TestIdleText(t *testing.T) {
+	for d, want := range map[time.Duration]string{20 * time.Second: "1 min", 45 * time.Minute: "45 min", 24 * time.Hour: "24 h", 90 * time.Minute: "1 h 30 min"} {
+		if got := idleText(d); got != want {
+			t.Errorf("idleText(%v) = %q, want %q", d, got, want)
+		}
+	}
+}
+
 func TestCloseIfIdleRechecksInsideTheTransaction(t *testing.T) {
 	srv, _ := newTestServer(t)
 	runID, _ := newRunWithTest(t, srv)
@@ -79,7 +128,7 @@ func TestCloseIfIdleRechecksInsideTheTransaction(t *testing.T) {
 	// llega algo justo entre listar y cerrar
 	time.Sleep(5 * time.Millisecond)
 	srv.Store.TouchRun(runID)
-	if closed, _, err := srv.Store.CloseIfIdle(runID, cutoff); err != nil || closed {
+	if closed, _, err := srv.Store.CloseIfIdle(runID, cutoff, db.InterruptedMessage); err != nil || closed {
 		t.Fatalf("a run that just got activity must not be closed: %v %v", closed, err)
 	}
 }

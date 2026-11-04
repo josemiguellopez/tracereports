@@ -116,7 +116,53 @@ func ExtractSelector(texts ...string) string {
 			return pySeleniumSelector(m[1], m[2]+m[3])
 		}
 	}
+	for _, text := range texts {
+		if x := bareXPath(text); x != "" {
+			return x
+		}
+	}
 	return ""
+}
+
+// xpathCue: the word that announces a selector in the messages of a team's own wait helpers
+// ("Esperando elemento con selector //option[...] (3 intentos)", "xpath //div[@id='x'] not found").
+var xpathCue = regexp.MustCompile(`(?i)\b(?:selector|locator|localizador|xpath|element|elemento)\b[^/\n]{0,30}?(//[A-Za-z*(])`)
+
+// bareXPath is an absolute XPath written without quotes after a cue word. It ends at the first space
+// outside brackets, parentheses and quotes, so a predicate with text ("salinas alexis") stays whole.
+func bareXPath(text string) string {
+	m := xpathCue.FindStringSubmatchIndex(text)
+	if m == nil {
+		return ""
+	}
+	return scanXPath(text, m[2])
+}
+
+// scanXPath reads the XPath that starts at start: up to the first space or unbalanced closing
+// outside brackets, parentheses and quotes.
+func scanXPath(text string, start int) string {
+	depth := 0
+	var quote rune
+	for i, r := range text[start:] {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == '[' || r == '(':
+			depth++
+		case r == ']' || r == ')':
+			if depth == 0 {
+				return text[start : start+i]
+			}
+			depth--
+		case unicode.IsSpace(r) && depth == 0:
+			return strings.TrimRight(text[start:start+i], ".,;:")
+		}
+	}
+	return strings.TrimRight(text[start:], ".,;:")
 }
 
 // pySeleniumSelector writes a Selenium for Python locator as the CSS or XPath it means.
@@ -140,7 +186,8 @@ func LooksLikeLocatorFailure(text string) bool {
 	t := strings.ToLower(text)
 	for _, k := range []string{"waiting for locator", "waiting for get_by", "waiting for getby", "no such element",
 		"unable to locate element", "element not found", "nosuchelement", "stale element", "strict mode violation",
-		"not visible", "timeout esperando", "no se encontró el elemento"} {
+		"not visible", "timeout esperando", "no se encontró el elemento", "waiting for element", "esperando elemento",
+		"esperando el elemento", "esperar elemento", "esperar el elemento", "could not find element", "no se pudo encontrar el elemento"} {
 		if strings.Contains(t, k) {
 			return true
 		}

@@ -2,9 +2,9 @@ const { test, expect } = require("@playwright/test");
 
 const seed = () => JSON.parse(process.env.E2E_SEED);
 
-async function createSearchRun(request, name, project, status = "PASS") {
+async function createSearchRun(request, name, project, status = "PASS", key = `${name}-key`) {
 	const run = await (await request.post("/api/v1/runs", { data: { name, project, environment: "qa", branch: "search-e2e" } })).json();
-	const test = await (await request.post(`/api/v1/runs/${run.run_id}/tests`, { data: { name: `${name} test`, category: "search, exact-tag", key: `${name}-key` } })).json();
+	const test = await (await request.post(`/api/v1/runs/${run.run_id}/tests`, { data: { name: `${name} test`, category: "search, exact-tag", key } })).json();
 	await request.patch(`/api/v1/tests/${test.test_id}/finish`, { data: { status } });
 	await request.patch(`/api/v1/runs/${run.run_id}/finish`, { data: {} });
 	return run.run_id;
@@ -44,8 +44,9 @@ test("la cabecera conserva Recientes y el enlace a Buscar", async ({ page }) => 
 
 test("la vista previa abre el reporte y compara (con la anterior o con la marcada)", async ({ page, request }) => {
 	const token = `preview-${Date.now()}`;
-	const older = await createSearchRun(request, `${token} old`, token, "PASS");
-	const newer = await createSearchRun(request, `${token} new`, token, "FAIL");
+	// el mismo test en las dos: la comparación automática encuentra la anterior
+	const older = await createSearchRun(request, `${token} old`, token, "PASS", `${token}-shared`);
+	const newer = await createSearchRun(request, `${token} new`, token, "FAIL", `${token}-shared`);
 	await page.goto(`/#view=search&project=${encodeURIComponent(token)}`);
 	await page.locator(`[data-search-run="${newer}"]`).click();
 	const preview = page.locator("#run-search-preview");
@@ -60,7 +61,7 @@ test("la vista previa abre el reporte y compara (con la anterior o con la marcad
 	await expect(preview.locator("[data-search-compare-open]")).toBeEnabled();
 	await preview.locator("[data-search-compare-open]").click();
 	await expect(page).toHaveURL(/view=dashboard/);
-	await expect(page.locator("#compare-card")).toContainText(`#${older}`);
+	await expect(page.locator("#compare-card .cmp-run.base")).toContainText(`#${older}`);
 	// Comparar con la marcada en la lista
 	await page.goto(`/#view=search&project=${encodeURIComponent(token)}`);
 	await page.locator(`[data-search-compare="${older}"]`).check();
@@ -68,5 +69,5 @@ test("la vista previa abre el reporte y compara (con la anterior o con la marcad
 	await expect(preview.locator("[data-search-compare-open]")).toContainText(`#${older}`);
 	await preview.locator("[data-search-compare-open]").click();
 	await expect(page.locator("#report-name")).toHaveText(`${token} new`);
-	await expect(page.locator("#compare-card")).toContainText(`#${older}`);
+	await expect(page.locator("#compare-card .cmp-run.base")).toContainText(`#${older}`);
 });
