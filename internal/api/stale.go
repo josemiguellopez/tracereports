@@ -1,9 +1,12 @@
 package api
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/josemiguellopez/tracereports/internal/db"
 )
 
 // trackActivity records, after each successful write of a client to a run (/runs/{id}/...,
@@ -27,9 +30,21 @@ func (s *Server) trackActivity(next http.Handler) http.Handler {
 	})
 }
 
+// idleText is an inactivity as the interrupted tests explain it: "45 min", "24 h", "1 h 30 min".
+func idleText(d time.Duration) string {
+	m := int(d.Round(time.Minute) / time.Minute)
+	switch {
+	case m < 60:
+		return fmt.Sprintf("%d min", max(m, 1))
+	case m%60 == 0:
+		return fmt.Sprintf("%d h", m/60)
+	}
+	return fmt.Sprintf("%d h %d min", m/60, m%60)
+}
+
 // CloseStaleRuns closes, as incomplete, the runs still RUNNING that received nothing for idle
 // (the client died without calling finish). It is the same close as an interrupted finish: the
-// tests left RUNNING become interrupted failures, and the run diagnosis and the Teams/Slack
+// tests left RUNNING become INTERRUPTED, and the run diagnosis and the Teams/Slack
 // notice follow once. Evidence or a finish arriving later is accepted as late evidence. Returns
 // how many runs it closed.
 func (s *Server) CloseStaleRuns(idle time.Duration) (int, error) {
@@ -40,7 +55,7 @@ func (s *Server) CloseStaleRuns(idle time.Duration) (int, error) {
 	}
 	closed := 0
 	for _, id := range ids {
-		ok, first, err := s.Store.CloseIfIdle(id, cutoff)
+		ok, first, err := s.Store.CloseIfIdle(id, cutoff, db.IdleMessage(idleText(idle)))
 		if err != nil {
 			slog.Error("stale runs: close", "run_id", id, "err", err)
 			continue

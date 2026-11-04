@@ -295,6 +295,7 @@ func (s *Store) CompatibleRuns(runID int64, limit int) ([]Run, error) {
 		       COALESCE(SUM(t.status='SKIP'),0),
 		       COALESCE(SUM(t.status='WARNING'),0),
 		       COALESCE(SUM(t.status='RUNNING'),0),
+		       COALESCE(SUM(t.status='INTERRUPTED'),0),
 		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
 		FROM (SELECT c.id FROM runs c
 		      WHERE c.id != ? AND c.status != 'RUNNING'
@@ -312,7 +313,7 @@ func (s *Store) CompatibleRuns(runID int64, limit int) ([]Run, error) {
 		var r Run
 		if err := rows.Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
 			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete,
-			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Quarantined); err != nil {
+			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Interrupted, &r.Quarantined); err != nil {
 			return nil, err
 		}
 		r.deriveStatus()

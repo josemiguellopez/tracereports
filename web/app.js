@@ -4,7 +4,7 @@
 
 	const POLL_MS = 3000;
 	const RUNS_POLL_MS = 10000;
-	const STATUS_ICON = { PASS: "i-pass", FAIL: "i-fail", WARNING: "i-warning", SKIP: "i-skip", INFO: "i-info", RUNNING: "i-running" };
+	const STATUS_ICON = { PASS: "i-pass", FAIL: "i-fail", WARNING: "i-warning", SKIP: "i-skip", INFO: "i-info", RUNNING: "i-running", INTERRUPTED: "i-interrupted" };
 	const AI_LABEL = {
 		LOCATOR_CHANGED: "Locator cambiado",
 		BACKEND_TIMEOUT: "Timeout de backend",
@@ -23,6 +23,8 @@
 		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
+		maint: { state: "", project: "", environment: "", branch: "", older: "", data: null, facets: null, loading: false, error: null,
+			selected: new Set(), action: null, msg: null, busy: false },
 		runSearch: { q: "", project: "", environment: "", branch: "", tag: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent", items: [], cursor: "", total: 0, loading: false, error: null, selected: 0, compare: [], facets: {}, timer: 0, newCount: 0 },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
 		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0 },
@@ -130,7 +132,7 @@
 		S.runs = runs;
 		const sel = $("#run-select");
 		sel.innerHTML = S.runs.map((r) =>
-			`<option value="${r.id}">#${r.id} · ${esc(r.name)}${r.status === "RUNNING" ? " (en curso)" : r.incomplete ? " (incompleta)" : ""}${r.branch ? ` · ${esc(r.branch)}` : ""} — ${fmtDateTime(r.started_at)}</option>`).join("");
+			`<option value="${r.id}">#${r.id} · ${esc(r.name)}${r.status === "RUNNING" ? (r.idle_ms >= IDLE_WARN_MS ? ` (${tr("sin actividad hace {t}", { t: fmtIdle(r.idle_ms) })})` : " (en curso)") : r.incomplete ? " (incompleta)" : ""}${r.branch ? ` · ${esc(r.branch)}` : ""} — ${fmtDateTime(r.started_at)}</option>`).join("");
 		const recents = $("#recents-list");
 		if (recents) recents.innerHTML = S.runs.map((r) => `<button role="option" data-recent-run="${r.id}"><span class="search-state ${lower(r.status)}" style="--c:var(--${lower(r.status)})"></span><span><b>${esc(r.name)}</b><small>${esc(r.branch || r.environment || "")}</small></span><small>${esc(relativeRun(r.started_at))}</small></button>`).join("");
 		// A shared link can point to an older run which is no longer in the compact list.
@@ -153,7 +155,9 @@
 		}
 		if (!current() || id !== S.runId) return; // ya se eligió otra ejecución
 		if (S.run && JSON.stringify(S.run) !== JSON.stringify(run)) invalidateEscalation();
+		if (S.run?.id !== run.id || run.status !== "RUNNING") S.closeRun = null;
 		S.run = run;
+		S.runLoadedAt = Date.now();
 		if (S.testId && !S.run.tests.some((t) => t.id === S.testId)) S.testId = null;
 		if (!S.testId && S.run.tests.length) S.testId = S.run.tests[0].id;
 		renderHeader();
@@ -224,7 +228,7 @@
 	}
 
 	// vistas que no dependen de la ejecución elegida
-	const GLOBAL_VIEWS = new Set(["search", "metrics", "settings"]);
+	const GLOBAL_VIEWS = new Set(["search", "metrics", "maintenance", "settings"]);
 
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
@@ -244,7 +248,7 @@
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
 		({ search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
-			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
+			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
 	}
 
 	// ---------- run explorer ----------
@@ -369,6 +373,8 @@
 	function renderTests() {
 		const tests = filteredTests();
 		$("#tests-count").textContent = tests.length === S.run.tests.length ? tests.length : `${tests.length} / ${S.run.tests.length}`;
+		// el filtro de interrumpidos solo aparece cuando hay alguno (o está elegido)
+		$("#status-filters [data-status=INTERRUPTED]").hidden = !S.run.interrupted && S.status !== "INTERRUPTED";
 		$$("#status-filters button").forEach((b) => b.classList.toggle("active", b.dataset.status === S.status));
 		setHTML($("#test-collection"), tests.length ? tests.map(testItem).join("") : `<li class="collection-empty">No hay tests que coincidan con el filtro.</li>`);
 		renderTestDetail();
@@ -414,6 +420,9 @@
 			${t.error_trace ? `<details><summary>Ver stack trace</summary><pre>${esc(t.error_trace)}</pre></details>` : ""}
 			${t.network_errors ? `<div class="error-actions"><button class="cf-btn cf-btn-sm cf-btn-mock" data-mock-first data-tip="Crea un stub con la respuesta de la primera llamada que falló, para reproducir este fallo en local sin el backend real">${icon("i-bolt")}Generar mock del backend que falló</button></div>` : ""}
 			${verdictBlock(t)}
+		</div>` : t.status === "INTERRUPTED" && t.error_message ? `<div class="card error-block interrupted-block">
+			<pre class="error-msg">${esc(t.error_message)}</pre>
+			<p class="m-hint">${tr("No alcanzó a terminar: no cuenta como fallo ni como éxito, y la IA no lo analiza.")}</p>
 		</div>` : "";
 
 		// La captura va dentro de "Detalle", debajo del texto del step.
@@ -1596,10 +1605,82 @@
 			${summaryBody(sum, false)}`);
 	}
 
+	// una ejecución en curso que lleva este tiempo sin recibir nada probablemente quedó colgada
+	const IDLE_WARN_MS = 5 * 60 * 1000;
+
+	/** Cuánto lleva sin recibir datos la ejecución en curso: lo que midió el servidor más lo que pasó
+	 * desde que se cargó (una ejecución muerta no manda eventos que la recarguen). */
+	const runIdleMs = (r) => (r?.status === "RUNNING" ? (r.idle_ms || 0) + (Date.now() - (S.runLoadedAt || Date.now())) : 0);
+
+	const fmtIdle = (ms) => {
+		const m = Math.max(1, Math.floor(ms / 60000));
+		return m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ""}`;
+	};
+
+	/** Quién cerró la ejecución, en palabras. */
+	function closedByText(r) {
+		if (r.closed_by === "auto") return tr("Se cerró sola por inactividad");
+		if (r.closed_by === "manual") return tr("Cerrada manualmente");
+		return tr("Cerrada manualmente por {u}", { u: r.closed_by });
+	}
+
+	const CLOSE_REASONS = ["Cancelado manualmente", "Se cayó la máquina o el CI", "Otro"];
+
+	function closeRunForm() {
+		const m = S.closeRun?.msg;
+		return `<form class="close-run-form" data-close-run-form>
+			<label class="field"><span class="field-label">${tr("Motivo")}</span>
+				<select name="reason">${CLOSE_REASONS.map((r) => `<option value="${r}">${tr(r)}</option>`).join("")}</select></label>
+			<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span>
+				<input name="detail" maxlength="400" placeholder="${tr("Ej.: detuve la suite desde el IDE")}"></label>
+			<p>${tr("Los tests que siguen en curso quedarán como Interrumpido: no cuentan como fallo ni disparan la IA. Si después llega su resultado real, se acepta.")}</p>
+			${m ? `<p class="set-msg err" role="status">${esc(m)}</p>` : ""}
+			<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary">${icon("i-interrupted")}${tr("Cerrar ejecución")}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-close-run-cancel>${tr("Cancelar")}</button></div>
+		</form>`;
+	}
+
+	async function closeRunByHand(form) {
+		const d = new FormData(form);
+		const detail = String(d.get("detail") || "").trim();
+		const reason = tr(String(d.get("reason"))) + (detail ? `: ${detail}` : "");
+		form.querySelector("[type=submit]").disabled = true;
+		try {
+			await apiSend("POST", `/api/v1/ui/runs/${S.run.id}/close`, { reason });
+			S.closeRun = null;
+			await loadRun();
+		} catch (err) {
+			S.closeRun = { msg: err.message };
+			renderRunBanner();
+		}
+	}
+
 	function renderRunBanner() {
 		const el = $("#run-banner");
-		const sum = S.run?.summary;
-		const show = S.view === "tests" && sum?.state === "DONE" && S.run.failed > 0;
+		const r = S.run, sum = r?.summary;
+		const idle = runIdleMs(r);
+		el.classList.remove("idle", "cut");
+		if (r?.status === "RUNNING" && (idle >= IDLE_WARN_MS || S.closeRun)) {
+			el.hidden = false;
+			el.classList.add("idle");
+			setHTML(el, `<span class="banner-icon">${icon("i-pause")}</span>
+				<span class="banner-text"><b>${tr("Sin actividad hace {t}", { t: fmtIdle(idle) })}</b>
+					<small>${tr("Sigue en curso, pero no recibe datos: el proceso de los tests pudo detenerse sin avisar (Stop del IDE, terminal cerrada, CI cancelado).")}</small></span>
+				${canAct() && !S.closeRun ? `<button class="cf-btn cf-btn-sm" data-close-run-open>${icon("i-interrupted")}${tr("Cerrar ejecución…")}</button>` : ""}
+				${S.closeRun ? closeRunForm() : ""}`);
+			return;
+		}
+		if (r && r.status !== "RUNNING" && r.interrupted > 0) {
+			el.hidden = false;
+			el.classList.add("cut");
+			const who = r.closed_by ? closedByText(r) : tr("La ejecución se cortó antes de terminar");
+			setHTML(el, `<span class="banner-icon">${icon("i-interrupted")}</span>
+				<span class="banner-text"><b>${esc(who)}</b>${r.close_reason ? ` · <span data-no-i18n>${esc(r.close_reason)}</span>` : ""}
+					<small>${tr("{n} test(s) quedaron como Interrumpido: no cuentan como fallo.", { n: r.interrupted })}</small></span>
+				<a href="#" data-banner-interrupted>${tr("Ver interrumpidos →")}</a>`);
+			return;
+		}
+		const show = S.view === "tests" && sum?.state === "DONE" && r.failed > 0;
 		el.hidden = !show;
 		if (!show) return;
 		setHTML(el, `<span class="banner-icon">${icon("i-spark")}</span><span class="banner-text"><b>${esc(sum.headline)}</b></span>
@@ -1800,8 +1881,9 @@
 		$("#test-legend").innerHTML = `<span><b>${r.passed}</b> Test(s) correcto(s)</span><span><b>${r.failed}</b> Test(s) fallado(s), <b>${r.total - r.passed - r.failed}</b> otro(s)</span>`;
 		$("#step-legend").innerHTML = `<span><b>${ss.PASS || 0}</b> paso(s) correcto(s)</span><span><b>${ss.FAIL || 0}</b> paso(s) fallado(s), <b>${stepTotal - (ss.PASS || 0) - (ss.FAIL || 0)}</b> otro(s)</span>`;
 
-		const C = ["--pass", "--fail", "--warning", "--skip", "--running", "--info"].map(cssVar);
-		donut("test-analysis", ["Pass", "Fail", "Warning", "Skip", window.TraceReportsI18n.t("En curso")], [r.passed, r.failed, r.warning, r.skipped, r.running], C.slice(0, 5));
+		const C = ["--pass", "--fail", "--warning", "--skip", "--running", "--info", "--interrupted"].map(cssVar);
+		donut("test-analysis", ["Pass", "Fail", "Warning", "Skip", window.TraceReportsI18n.t("En curso"), "Interrupted"],
+			[r.passed, r.failed, r.warning, r.skipped, r.running, r.interrupted || 0], [...C.slice(0, 5), C[6]]);
 		donut("step-analysis", ["Pass", "Fail", "Warning", "Skip", "Info"], ["PASS", "FAIL", "WARNING", "SKIP", "INFO"].map((k) => ss[k] || 0), [C[0], C[1], C[2], C[3], C[5]]);
 
 		renderRunSummary();
@@ -1813,6 +1895,8 @@
 			...(r.branch ? [["Rama", r.branch]] : []),
 			...(r.commit ? [["Commit", r.commit.slice(0, 12)]] : []),
 			["Estado", r.incomplete ? `${r.status} · incompleta (tests sin terminar o ejecución interrumpida)` : r.status],
+			...(r.interrupted ? [["Interrumpidos", `${r.interrupted} · no cuentan como fallo`]] : []),
+			...(r.closed_by ? [["Cerrada", closedByText(r) + (r.close_reason ? ` · ${r.close_reason}` : "")]] : []),
 			["Comienzo", fmtDateTime(r.started_at)],
 			["Fin", r.ended_at ? fmtDateTime(r.ended_at) : "en curso"],
 			...(netTotal ? [["Conexiones de red", `${netTotal} capturadas · ${netErrors} con error`]] : []),
@@ -1929,6 +2013,7 @@
 	// ---------- events ----------
 	function bindEvents() {
 		bindMetricsEvents();
+		bindMaintenance();
 		bindSettingsEvents();
 		bindAIEscalateEvents();
 		// cambio de idioma: lo que se dibuja en canvas (gráficos) no pasa por el DOM
@@ -1954,6 +2039,19 @@
 			if (e.target.closest("[data-search-clear]")) { Object.assign(S.runSearch, { q: "", project: "", environment: "", branch: "", tag: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent" }); scheduleRunSearch(); }
 		});
 		$("#search-saved").addEventListener("change", (e) => { const item = savedRunSearches()[Number(e.target.value)]; if (!item) return; Object.assign(S.runSearch, item.query, { items: [], cursor: "", selected: 0 }); scheduleRunSearch(); e.target.value = ""; });
+		$("#run-banner").addEventListener("click", (e) => {
+			if (e.target.closest("[data-close-run-open]")) { S.closeRun = {}; renderRunBanner(); $("[data-close-run-form] select")?.focus(); return; }
+			if (e.target.closest("[data-close-run-cancel]")) { S.closeRun = null; renderRunBanner(); return; }
+			if (e.target.closest("[data-banner-interrupted]")) { e.preventDefault(); S.status = "INTERRUPTED"; setView("tests"); }
+		});
+		$("#run-banner").addEventListener("submit", (e) => {
+			const f = e.target.closest("[data-close-run-form]");
+			if (!f) return;
+			e.preventDefault();
+			closeRunByHand(f);
+		});
+		// una ejecución muerta no manda eventos: el "sin actividad hace…" se actualiza solo (sin pisar el formulario)
+		setInterval(() => { if (S.run?.status === "RUNNING" && !S.closeRun && !GLOBAL_VIEWS.has(S.view)) renderRunBanner(); }, 30000);
 		$("#search-chips").addEventListener("click", (e) => { const b = e.target.closest("[data-search-remove]"); if (!b) return; const key = b.dataset.searchRemove; S.runSearch[key] = key === "incomplete" || key === "flaky" ? false : ""; scheduleRunSearch(); });
 		// la casilla está dentro de una etiqueta que corta el click: se escucha change
 		$("#run-search-results").addEventListener("change", (e) => {
@@ -2925,6 +3023,189 @@
 		}
 		m.loading = false;
 		if (S.view === "metrics") renderMetrics();
+	}
+
+	// ---------- mantenimiento ----------
+	// Las ejecuciones con problemas de todos los proyectos, para cerrarlas o borrarlas en lote, y el
+	// umbral del cierre automático por inactividad.
+	const MAINT_STATES = [
+		["", "Con problemas", "En curso o incompletas, de todos los proyectos."],
+		["idle", "Sin actividad", "En curso, pero sin recibir datos hace más de 5 minutos: probablemente el proceso de los tests se detuvo."],
+		["running", "En curso", "Todas las que siguen abiertas, reciban datos o no."],
+		["incomplete", "Incompletas", "Cerradas con tests sin terminar: por Ctrl+C, un worker caído, a mano o por inactividad."],
+		["manual", "Cerradas a mano", "Las que alguien cerró desde la interfaz, con su motivo."],
+		["auto", "Cerradas por inactividad", "Las que se cerraron solas al pasar el tiempo sin actividad."],
+	];
+	const MAINT_OLDER = [["", "Cualquier fecha"], ["1", "Más de 1 hora"], ["24", "Más de 1 día"], ["168", "Más de 7 días"], ["720", "Más de 30 días"]];
+	const STALE_CHOICES = [0.5, 1, 2, 6, 12, 24, 48, 0];
+	const staleText = (h) => (h === 0 ? tr("Nunca") : h < 1 ? `${Math.round(h * 60)} min` : `${h} h`);
+
+	async function loadMaintenance() {
+		const m = S.maint;
+		m.loading = true;
+		const p = new URLSearchParams();
+		if (m.state) p.set("state", m.state);
+		["project", "environment", "branch"].forEach((k) => { if (m[k]) p.set(k, m[k]); });
+		if (m.older) p.set("older_than_hours", m.older);
+		try {
+			const [data, facets] = await Promise.all([api(`/api/v1/maintenance?${p}`), m.facets || api("/api/v1/runs/facets").catch(() => ({}))]);
+			const ids = new Set(data.runs.map((r) => r.id));
+			Object.assign(m, { data, facets, error: null, selected: new Set([...m.selected].filter((id) => ids.has(id))) });
+		} catch (err) {
+			m.error = err.message;
+		}
+		m.loading = false;
+		if (S.view === "maintenance") renderMaintenance();
+	}
+
+	function maintRow(r, act) {
+		const m = S.maint, warn = S.maint.data?.idle_warn_ms || IDLE_WARN_MS;
+		const live = r.status === "RUNNING"
+			? (r.idle_ms >= warn ? `<small class="maint-idle">${tr("sin actividad hace {t}", { t: fmtIdle(r.idle_ms) })}</small>` : `<small>${tr("recibiendo datos")}</small>`)
+			: r.incomplete ? `<small>${tr("incompleta")}</small>` : "";
+		const tests = [`${r.total} tests`, r.running && tr("{n} en curso", { n: r.running }), r.interrupted && tr("{n} interrumpidos", { n: r.interrupted }), r.failed && tr("{n} fallidos", { n: r.failed })].filter(Boolean).join(" · ");
+		const ctx = [r.project, r.environment, r.branch].filter(Boolean).map(esc).join(" · ") || "—";
+		return `<tr class="${m.selected.has(r.id) ? "on" : ""}">
+			${act ? `<td><input type="checkbox" data-maint-pick="${r.id}" ${m.selected.has(r.id) ? "checked" : ""} aria-label="${tr("Elegir")} #${r.id}"></td>` : ""}
+			<td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a></td>
+			<td data-no-i18n>${ctx}</td>
+			<td>${statusLabel(r.status)} ${live}</td>
+			<td>${tests}</td>
+			<td>${fmtDateTime(r.started_at)}</td>
+			<td>${r.closed_by ? `${esc(closedByText(r))}${r.close_reason ? `<small data-no-i18n>${esc(r.close_reason)}</small>` : ""}` : "—"}</td>
+		</tr>`;
+	}
+
+	function maintAction(sel) {
+		const m = S.maint;
+		if (m.action === "close") {
+			const n = sel.filter((r) => r.status === "RUNNING").length;
+			return `<form class="card maint-confirm" data-maint-close-form>
+				<label class="field"><span class="field-label">${tr("Motivo")}</span>
+					<select name="reason">${CLOSE_REASONS.map((r) => `<option value="${r}">${tr(r)}</option>`).join("")}</select></label>
+				<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span><input name="detail" maxlength="400"></label>
+				<p>${tr("Se cerrarán {n} ejecución(es) en curso: sus tests sin terminar quedarán como Interrumpido. Las ya cerradas no cambian.", { n })}</p>
+				<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary" ${m.busy ? "disabled" : ""}>${icon("i-interrupted")}${tr("Cerrar {n} ejecución(es)", { n })}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></form>`;
+		}
+		if (m.action === "delete") {
+			const n = sel.filter((r) => r.status !== "RUNNING").length;
+			return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${tr("Eliminar ejecuciones")}">
+				<p><b>${tr("Se eliminarán {n} ejecución(es) con toda su evidencia: pasos, capturas, red y diagnósticos. No se puede deshacer.", { n })}</b></p>
+				<p>${tr("Las que siguen en curso no se eliminan: ciérralas primero.")}</p>
+				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-maint-delete ${m.busy ? "disabled" : ""}>${tr("Eliminar {n} ejecución(es)", { n })}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></div>`;
+		}
+		return "";
+	}
+
+	function renderMaintenance() {
+		const el = $("#view-maintenance"), m = S.maint;
+		if (!m.data && !m.loading && !m.error) loadMaintenance();
+		const act = canAct();
+		const runs = m.data?.runs || [];
+		const sel = runs.filter((r) => m.selected.has(r.id));
+		const st = m.data?.stale;
+		const facet = (key, label) => `<label class="m-suite"><span>${tr(label)}</span><select data-maint-filter="${key}"><option value="">${tr("Todos")}</option>
+			${(m.facets?.[key] || []).map((x) => `<option value="${esc(x.value)}" ${x.value === m[key] ? "selected" : ""} data-no-i18n>${esc(x.value)}</option>`).join("")}</select></label>`;
+		const choices = st ? [...new Set([...STALE_CHOICES, st.hours])] : [];
+		const stale = st ? `<div class="card maint-stale">
+				<span class="maint-stale-icon">${icon("i-pause")}</span>
+				<div class="maint-stale-text"><b>${tr("Cierre automático por inactividad")}</b>
+					<p>${tr("Una ejecución en curso que deja de recibir datos se cierra sola, y sus tests sin terminar quedan como Interrumpido.")}</p>
+					${st.source === "env" ? `<small>${tr("Lo fija TRACEREPORTS_STALE_RUN_HOURS en el servidor.")}</small>` : ""}</div>
+				<label class="m-suite"><span>${tr("Cerrar tras")}</span><select data-maint-stale ${st.editable && act ? "" : "disabled"}>
+					${choices.map((h) => `<option value="${h}" ${h === st.hours ? "selected" : ""}>${staleText(h)}</option>`).join("")}</select></label>
+			</div>` : "";
+		const table = m.error ? `<div class="card placeholder">${tr("No se pudo cargar: {e}", { e: m.error })}</div>`
+			: !m.data ? `<div class="card placeholder">${tr("Cargando…")}</div>`
+			: !runs.length ? `<div class="card m-empty">${icon("i-pass")}<h5>${tr("Nada que revisar")}</h5><p>${tr("No hay ejecuciones con este filtro.")}</p></div>`
+			: `<div class="card maint-list">
+				${act ? `<div class="maint-bulk" role="toolbar" aria-label="${tr("Acciones en lote")}">
+					<span>${tr("{n} de {t} elegidas", { n: sel.length, t: runs.length })}</span>
+					<button class="cf-btn cf-btn-sm" data-maint-act="close" ${sel.some((r) => r.status === "RUNNING") ? "" : "disabled"}>${icon("i-interrupted")}${tr("Cerrar como interrumpidas…")}</button>
+					<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-maint-act="delete" ${sel.some((r) => r.status !== "RUNNING") ? "" : "disabled"}>${icon("i-close")}${tr("Eliminar…")}</button>
+				</div>${maintAction(sel)}` : ""}
+				<div class="maint-scroll"><table class="maint-table"><thead><tr>
+					${act ? `<th><input type="checkbox" data-maint-all ${sel.length && sel.length === runs.length ? "checked" : ""} aria-label="${tr("Elegir todas")}"></th>` : ""}
+					<th>${tr("Ejecución")}</th><th>${tr("Proyecto · ambiente · rama")}</th><th>${tr("Estado")}</th><th>Tests</th><th>${tr("Inicio")}</th><th>${tr("Cierre")}</th>
+				</tr></thead><tbody>${runs.map((r) => maintRow(r, act)).join("")}</tbody></table></div>
+			</div>`;
+		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Mantenimiento")}</h4>
+				<p class="page-sub">${tr("Las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos. Ciérralas como interrumpidas o elimina las que eran pruebas.")}</p></div></div>
+			${stale}
+			<div class="m-filters" role="toolbar" aria-label="${tr("Filtros de mantenimiento")}">
+				<div class="seg" role="group" aria-label="${tr("Estado")}">${MAINT_STATES.map(([id, label, tip]) =>
+					`<button data-maint-state="${id}" aria-pressed="${m.state === id}" data-tip="${esc(tr(tip))}">${tr(label)}</button>`).join("")}</div>
+				${facet("project", "Proyecto")}${facet("environment", "Ambiente")}${facet("branch", "Rama")}
+				<label class="m-suite"><span>${tr("Antigüedad")}</span><select data-maint-filter="older">
+					${MAINT_OLDER.map(([v, label]) => `<option value="${v}" ${v === m.older ? "selected" : ""}>${tr(label)}</option>`).join("")}</select></label>
+			</div>
+			${m.msg ? `<p class="set-msg ${m.msg.ok ? "ok" : "err"}" role="status">${esc(m.msg.text)}</p>` : ""}
+			${table}`);
+	}
+
+	async function maintRun(path, body, done) {
+		const m = S.maint;
+		m.busy = true;
+		renderMaintenance();
+		try {
+			const r = await apiSend("POST", path, body);
+			m.msg = { ok: true, text: done(r) };
+			const gone = path.endsWith("/delete") && body.run_ids.includes(S.runId);
+			Object.assign(m, { action: null, selected: new Set() });
+			if (gone) Object.assign(S, { runId: null, run: null, testId: null, test: null });
+			await loadRuns();
+			if (S.runId && (gone || body.run_ids.includes(S.runId))) await loadRun().catch(() => {});
+		} catch (err) {
+			m.msg = { ok: false, text: err.message };
+		}
+		m.busy = false;
+		await loadMaintenance();
+		renderView();
+	}
+
+	function bindMaintenance() {
+		const el = $("#view-maintenance"), m = S.maint;
+		el.addEventListener("click", (e) => {
+			const st = e.target.closest("[data-maint-state]");
+			if (st) { Object.assign(m, { state: st.dataset.maintState, msg: null, action: null }); loadMaintenance(); renderMaintenance(); return; }
+			const a = e.target.closest("[data-maint-act]");
+			if (a) { m.action = a.dataset.maintAct; m.msg = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-maint-cancel]")) { m.action = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-maint-delete]")) {
+				const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status !== "RUNNING").map((r) => r.id);
+				maintRun("/api/v1/ui/runs/delete", { run_ids: ids }, (r) => tr("Se eliminaron {n} ejecución(es).", { n: r.deleted }));
+			}
+		});
+		el.addEventListener("change", async (e) => {
+			const pick = e.target.closest("[data-maint-pick]");
+			if (pick) { const id = Number(pick.dataset.maintPick); pick.checked ? m.selected.add(id) : m.selected.delete(id); renderMaintenance(); return; }
+			if (e.target.closest("[data-maint-all]")) {
+				m.selected = e.target.checked ? new Set((m.data?.runs || []).map((r) => r.id)) : new Set();
+				renderMaintenance(); return;
+			}
+			const f = e.target.closest("[data-maint-filter]");
+			if (f) { m[f.dataset.maintFilter] = f.value; m.msg = null; loadMaintenance(); return; }
+			const stale = e.target.closest("[data-maint-stale]");
+			if (stale) {
+				try {
+					const s = await apiSend("PUT", "/api/v1/ui/maintenance/stale", { hours: Number(stale.value) });
+					m.data.stale = s;
+					m.msg = { ok: true, text: s.hours ? tr("Listo: se cerrarán solas tras {t} sin actividad.", { t: staleText(s.hours) }) : tr("Listo: el cierre automático quedó apagado.") };
+				} catch (err) { m.msg = { ok: false, text: err.message }; }
+				renderMaintenance();
+			}
+		});
+		el.addEventListener("submit", (e) => {
+			const f = e.target.closest("[data-maint-close-form]");
+			if (!f) return;
+			e.preventDefault();
+			const d = new FormData(f), detail = String(d.get("detail") || "").trim();
+			const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status === "RUNNING").map((r) => r.id);
+			maintRun("/api/v1/ui/runs/close", { run_ids: ids, reason: tr(String(d.get("reason"))) + (detail ? `: ${detail}` : "") },
+				(r) => tr("Se cerraron {n} ejecución(es) como interrumpidas.", { n: r.closed }));
+		});
 	}
 
 	function renderMetrics() {
@@ -4711,6 +4992,7 @@
 	async function init() {
 		applyTheme(initialTheme(), false);
 		$(".nav-global").hidden = !!STATIC; // las métricas cruzan ejecuciones: no van en el ZIP
+		$(".nav-maint").hidden = !!STATIC; // mantenimiento actúa sobre el servidor
 		// exportado: Escalar y Release van ya calculados (los reportes de versiones anteriores no los traen)
 		$(".nav-server").hidden = !!STATIC && !STATIC.escalations;
 		$(".nav-release").hidden = !!STATIC && !STATIC.release;

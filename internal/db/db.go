@@ -128,6 +128,10 @@ func Open(path string) (*Store, error) {
 		{"idempotency", "run_id", "INTEGER REFERENCES runs(id) ON DELETE CASCADE"},
 		// hora del servidor de la última escritura recibida: cierre de ejecuciones abandonadas
 		{"runs", "last_activity", "INTEGER NOT NULL DEFAULT 0"},
+		// tests cortados (estado INTERRUPTED) y quién cerró la ejecución y por qué
+		{"runs", "interrupted", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "closed_by", "TEXT NOT NULL DEFAULT ''"},
+		{"runs", "close_reason", "TEXT NOT NULL DEFAULT ''"},
 		// un ticket se reutiliza solo en el mismo proyecto y destino del tracker
 		{"tickets", "project", "TEXT"},
 		{"tickets", "target", "TEXT NOT NULL DEFAULT ''"},
@@ -165,6 +169,10 @@ func Open(path string) (*Store, error) {
 	if err := backfillIdempotencyRuns(sqldb); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate idempotency: %w", err)
+	}
+	if err := migrateInterrupted(sqldb); err != nil {
+		sqldb.Close()
+		return nil, fmt.Errorf("migrate interrupted tests: %w", err)
 	}
 	return &Store{db: dbHandle{sqldb}}, nil
 }
@@ -227,6 +235,9 @@ type Counters struct {
 	Skipped int `json:"skipped"`
 	Warning int `json:"warning"`
 	Running int `json:"running"`
+	// Interrupted: tests that never finished because the run was cut (closed by hand, by inactivity
+	// or by the client): neither a failure nor a pass.
+	Interrupted int `json:"interrupted"`
 	// Quarantined: failed tests whose quarantine was active when the run was counted; they are
 	// part of Failed but do not make the run FAIL.
 	Quarantined int `json:"quarantined"`
@@ -244,6 +255,12 @@ type Run struct {
 	// Incomplete: the run was closed with tests that never finished (crashed worker,
 	// cancellation) or the client reported an interruption.
 	Incomplete bool `json:"incomplete"`
+	// IdleMs: for a run still RUNNING, how long since it last received anything (server time).
+	IdleMs int64 `json:"idle_ms,omitempty"`
+	// ClosedBy and CloseReason: who closed it from the interface and why ("auto" when it was
+	// closed for inactivity); empty when the client closed it.
+	ClosedBy    string `json:"closed_by,omitempty"`
+	CloseReason string `json:"close_reason,omitempty"`
 	Counters
 }
 
@@ -378,14 +395,12 @@ func countersOf(q querier, runID int64) (Counters, error) {
 		       COALESCE(SUM(t.status='SKIP'),0),
 		       COALESCE(SUM(t.status='WARNING'),0),
 		       COALESCE(SUM(t.status='RUNNING'),0),
+		       COALESCE(SUM(t.status='INTERRUPTED'),0),
 		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
 		FROM tests t JOIN runs r ON r.id = t.run_id WHERE t.run_id = ?`, NowMs(), runID).
-		Scan(&c.Total, &c.Passed, &c.Failed, &c.Skipped, &c.Warning, &c.Running, &c.Quarantined)
+		Scan(&c.Total, &c.Passed, &c.Failed, &c.Skipped, &c.Warning, &c.Running, &c.Interrupted, &c.Quarantined)
 	return c, err
 }
-
-// InterruptedMessage is the error of the tests a run was closed without (they never finished).
-const InterruptedMessage = "Interrumpido: el test no terminó antes de cerrar la ejecución (worker caído, timeout o cancelación)."
 
 // FinishRun closes a run and persists consolidated counters.
 func (s *Store) FinishRun(runID int64) (*Run, error) { return s.FinishRunWith(runID, false) }
@@ -421,14 +436,14 @@ func refreshClosedRun(q querier, runID int64) error {
 	if err != nil {
 		return err
 	}
-	_, err = q.Exec(`UPDATE runs SET status=?, total=?, passed=?, failed=?, skipped=?, warning=? WHERE id=?`,
-		runStatus(c, incomplete), c.Total, c.Passed, c.Failed, c.Skipped, c.Warning, runID)
+	_, err = q.Exec(`UPDATE runs SET status=?, total=?, passed=?, failed=?, skipped=?, warning=?, interrupted=? WHERE id=?`,
+		runStatus(c, incomplete), c.Total, c.Passed, c.Failed, c.Skipped, c.Warning, c.Interrupted, runID)
 	return err
 }
 
-// FinishRunWith closes a run. Tests still RUNNING are closed as FAIL with InterruptedMessage and
-// the run is marked incomplete (also when the client reports interrupted): an unfinished run
-// never looks successful.
+// FinishRunWith closes a run. Tests still RUNNING are closed as INTERRUPTED with
+// InterruptedMessage and the run is marked incomplete (also when the client reports interrupted):
+// an unfinished run never looks successful, and a cut test is not counted as a product failure.
 func (s *Store) FinishRunWith(runID int64, interrupted bool) (*Run, error) {
 	run, _, err := s.CloseRun(runID, interrupted)
 	return run, err
@@ -444,7 +459,7 @@ func (s *Store) CloseRun(runID int64, interrupted bool) (run *Run, first bool, e
 		return nil, false, err
 	}
 	defer tx.Rollback()
-	if first, err = closeRunTx(tx, runID, interrupted); err != nil {
+	if first, err = closeRunTx(tx, runID, interrupted, InterruptedMessage); err != nil {
 		return nil, false, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -454,8 +469,9 @@ func (s *Store) CloseRun(runID int64, interrupted bool) (run *Run, first bool, e
 	return run, first, err
 }
 
-// closeRunTx closes a run inside tx; first is true when it had not been closed before.
-func closeRunTx(tx txHandle, runID int64, interrupted bool) (first bool, err error) {
+// closeRunTx closes a run inside tx; first is true when it had not been closed before. The tests
+// still RUNNING become INTERRUPTED with message as their error.
+func closeRunTx(tx txHandle, runID int64, interrupted bool, message string) (first bool, err error) {
 	var ended sql.NullInt64
 	var wasIncomplete bool
 	err = tx.QueryRow(`SELECT ended_at, incomplete FROM runs WHERE id=?`, runID).Scan(&ended, &wasIncomplete)
@@ -465,8 +481,8 @@ func closeRunTx(tx txHandle, runID int64, interrupted bool) (first bool, err err
 	if err != nil {
 		return false, err
 	}
-	res, err := tx.Exec(`UPDATE tests SET status='FAIL', ended_at=?, error_message=? WHERE run_id=? AND status='RUNNING'`,
-		NowMs(), InterruptedMessage, runID)
+	res, err := tx.Exec(`UPDATE tests SET status='INTERRUPTED', ended_at=?, error_message=? WHERE run_id=? AND status='RUNNING'`,
+		NowMs(), message, runID)
 	if err != nil {
 		return false, err
 	}
@@ -479,8 +495,8 @@ func closeRunTx(tx txHandle, runID int64, interrupted bool) (first bool, err err
 		return false, err
 	}
 	_, err = tx.Exec(`UPDATE runs SET status=?, ended_at=COALESCE(ended_at, ?), total=?, passed=?, failed=?, skipped=?, warning=?,
-		incomplete=? WHERE id=?`,
-		runStatus(c, incomplete), NowMs(), c.Total, c.Passed, c.Failed, c.Skipped, c.Warning, incomplete, runID)
+		interrupted=?, incomplete=? WHERE id=?`,
+		runStatus(c, incomplete), NowMs(), c.Total, c.Passed, c.Failed, c.Skipped, c.Warning, c.Interrupted, incomplete, runID)
 	if err != nil {
 		return false, err
 	}
@@ -490,10 +506,12 @@ func closeRunTx(tx txHandle, runID int64, interrupted bool) (first bool, err err
 // GetRun returns a run with live counters.
 func (s *Store) GetRun(runID int64) (*Run, error) {
 	var r Run
-	err := s.db.QueryRow(`SELECT id, name, environment, status, started_at, ended_at, project, branch, commit_sha, framework, incomplete
+	var activity int64
+	err := s.db.QueryRow(`SELECT id, name, environment, status, started_at, ended_at, project, branch, commit_sha, framework, incomplete,
+		last_activity, closed_by, close_reason
 		FROM runs WHERE id=?`, runID).
 		Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
-			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete)
+			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -504,7 +522,15 @@ func (s *Store) GetRun(runID int64) (*Run, error) {
 		return nil, err
 	}
 	r.deriveStatus()
+	r.setIdle(activity)
 	return &r, nil
+}
+
+// setIdle fills IdleMs for a run still open, from the server time of its last activity.
+func (r *Run) setIdle(lastActivity int64) {
+	if r.Status == "RUNNING" && lastActivity > 0 {
+		r.IdleMs = max(NowMs()-lastActivity, 0)
+	}
 }
 
 // deriveStatus recomputes the status of a closed run from its live counters, the same rule
@@ -518,19 +544,24 @@ func (r *Run) deriveStatus() {
 }
 
 // ListRuns returns the most recent runs with live counters.
-func (s *Store) ListRuns(limit int) ([]Run, error) {
+func (s *Store) ListRuns(limit int) ([]Run, error) { return s.listRunsWhere("1", nil, limit) }
+
+// listRunsWhere is ListRuns for the runs that match where (a condition on runs r, with its args).
+func (s *Store) listRunsWhere(where string, args []any, limit int) ([]Run, error) {
 	rows, err := s.db.Query(`
 		SELECT r.id, r.name, r.environment, r.status, r.started_at, r.ended_at,
-		       r.project, r.branch, r.commit_sha, r.framework, r.incomplete,
+		       r.project, r.branch, r.commit_sha, r.framework, r.incomplete, r.last_activity, r.closed_by, r.close_reason,
 		       COUNT(t.id),
 		       COALESCE(SUM(t.status='PASS'),0),
 		       COALESCE(SUM(t.status='FAIL'),0),
 		       COALESCE(SUM(t.status='SKIP'),0),
 		       COALESCE(SUM(t.status='WARNING'),0),
 		       COALESCE(SUM(t.status='RUNNING'),0),
+		       COALESCE(SUM(t.status='INTERRUPTED'),0),
 		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
 		FROM runs r LEFT JOIN tests t ON t.run_id = r.id
-		GROUP BY r.id ORDER BY r.id DESC LIMIT ?`, NowMs(), limit)
+		WHERE `+where+`
+		GROUP BY r.id ORDER BY r.id DESC LIMIT ?`, append(append([]any{NowMs()}, args...), limit)...)
 	if err != nil {
 		return nil, err
 	}
@@ -538,11 +569,14 @@ func (s *Store) ListRuns(limit int) ([]Run, error) {
 	runs := []Run{}
 	for rows.Next() {
 		var r Run
+		var activity int64
 		if err := rows.Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
-			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Quarantined); err != nil {
+			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason,
+			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Interrupted, &r.Quarantined); err != nil {
 			return nil, err
 		}
 		r.deriveStatus()
+		r.setIdle(activity)
 		runs = append(runs, r)
 	}
 	return runs, rows.Err()

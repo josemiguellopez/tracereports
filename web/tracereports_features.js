@@ -137,7 +137,7 @@
 	}
 
 	// ─── Time-Travel Step Replay ─────────────────────────────────────────────
-	const STATUS_ICON = { PASS: "i-pass", FAIL: "i-fail", WARNING: "i-warning", SKIP: "i-skip", INFO: "i-info" };
+	const STATUS_ICON = { PASS: "i-pass", FAIL: "i-fail", WARNING: "i-warning", SKIP: "i-skip", INFO: "i-info", INTERRUPTED: "i-interrupted" };
 
 	class TimeTravelPlayer {
 		/**

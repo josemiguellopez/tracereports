@@ -38,10 +38,10 @@ func (s *Store) StaleRuns(cutoff int64) ([]int64, error) {
 	return ids, rows.Err()
 }
 
-// CloseIfIdle closes a run as incomplete (its RUNNING tests become interrupted failures) only if
+// CloseIfIdle closes a run as incomplete (its RUNNING tests become INTERRUPTED with message) only if
 // it is still RUNNING and still without activity since cutoff, checked in the same transaction:
 // a write that arrives meanwhile keeps it open. closed reports whether it was closed now.
-func (s *Store) CloseIfIdle(runID, cutoff int64) (closed, first bool, err error) {
+func (s *Store) CloseIfIdle(runID, cutoff int64, message string) (closed, first bool, err error) {
 	tx, err := s.db.Begin()
 	if err != nil {
 		return false, false, err
@@ -51,7 +51,10 @@ func (s *Store) CloseIfIdle(runID, cutoff int64) (closed, first bool, err error)
 	if err := tx.QueryRow(`SELECT status = 'RUNNING' AND last_activity < ? FROM runs WHERE id = ?`, cutoff, runID).Scan(&idle); err != nil || !idle {
 		return false, false, err
 	}
-	if first, err = closeRunTx(tx, runID, true); err != nil {
+	if first, err = closeRunTx(tx, runID, true, message); err != nil {
+		return false, false, err
+	}
+	if _, err := tx.Exec(`UPDATE runs SET closed_by=? WHERE id=?`, ClosedByInactivity, runID); err != nil {
 		return false, false, err
 	}
 	return true, first, tx.Commit()

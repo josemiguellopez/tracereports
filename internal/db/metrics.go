@@ -221,12 +221,13 @@ func (m metricRow) duration() int64 {
 }
 
 // Pass rate, the same in every comparable indicator (KPI, days, runs, tags, release gate):
-// PASS over the tests that ran, that is everything but SKIP. A WARNING ran and did not pass.
+// PASS over the tests that ran, that is everything but SKIP and INTERRUPTED (cut before it
+// finished: it says nothing of the product). A WARNING ran and did not pass.
 type rate struct{ passed, failed, counted int }
 
 func (r *rate) add(status string) {
 	switch status {
-	case "SKIP":
+	case "SKIP", "INTERRUPTED":
 		return
 	case "PASS":
 		r.passed++
