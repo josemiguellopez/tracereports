@@ -24,7 +24,11 @@ const MAX_BLOCK = 90_000_000_000;
 /** Carpeta nueva para una sesión dentro de `base` (no mezcla corridas distintas). */
 export function sessionSlug(name) {
   const ascii = String(name || "").normalize("NFKD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
-  return (ascii.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40).replace(/-+$/g, "") || "run");
+  // las palabras unidas por "-", cortado a 40 y sin guion final: lo mismo que antes, sin las regex de
+  // guiones al borde (cuadr\u00e1ticas con muchos guiones)
+  let slug = ascii.split(/[^a-z0-9]/).filter(Boolean).join("-").slice(0, 40);
+  while (slug.endsWith("-")) slug = slug.slice(0, -1);
+  return slug || "run";
 }
 
 export function newSessionDir(base, name = "") {

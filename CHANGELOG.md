@@ -6,8 +6,10 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
-Server only: the clients do not change. Validated with a team that uses TraceReports in Docker with a local
-Ollama model.
+## [0.7.0] - 2026-11-04
+
+JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated
+with a team that uses TraceReports in Docker with a local Ollama model.
 
 ### Added
 
@@ -58,6 +60,11 @@ Ollama model.
   loading, instead of failing after 30 s.
 - **Auto-scroll toggle** hidden behind Trace Buddy; **Release** cards that overflowed with long feature
   names.
+- **Code scanning**: the code highlighter of the mocks and cURL panels could hang the tab on a long text
+  with many dots and no closing quote (and mishandled strings with an `n`); the view taken from the URL
+  can no longer reach an inherited method; the generated passwords have no modulo bias; the search filter
+  label is escaped. JavaScript client: trimming the server URL and building the offline folder name no
+  longer use regexes that are quadratic on many slashes or dashes (same results).
 - **Client READMEs on PyPI and npm**: the links to the guides (offline mode, local report, the language
   switch) were relative to the repository and led nowhere on the package pages; they now point to GitHub.
   Every URL is also on a line of its own, so a viewer that shows the README as plain text no longer glues
@@ -564,7 +571,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/josemiguellopez/tracereports/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/josemiguellopez/tracereports/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/josemiguellopez/tracereports/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/josemiguellopez/tracereports/compare/v0.5.0...v0.6.0

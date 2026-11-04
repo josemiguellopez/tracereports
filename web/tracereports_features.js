@@ -516,7 +516,9 @@ cy.intercept(${jsStr(m.method)}, ${jsStr(m.glob)}, {
 
 		/** Resalta el código (tokenizador simple) y marca visualmente los valores enmascarados. */
 		highlight(code) {
-			const re = /(\/\/[^\n]*|#[^\n]*)|("(?:\.|[^"\\n])*"|'(?:\.|[^'\\n])*')(\s*:)?|\b(true|false|null|None|True|False)\b|(-?\b\d+(?:\.\d+)?\b)/g;
+			// un escape (\\.) o cualquier carácter que no sea comilla, barra ni salto de línea: las dos ramas
+			// no se solapan (con \. y [^"\\n] un texto con muchos puntos sin comilla de cierre colgaba la pestaña)
+			const re = /(\/\/[^\n]*|#[^\n]*)|("(?:\\.|[^"\\\n])*"|'(?:\\.|[^'\\\n])*')(\s*:)?|\b(true|false|null|None|True|False)\b|(-?\b\d+(?:\.\d+)?\b)/g;
 			let out = "", last = 0;
 			for (const m of code.matchAll(re)) {
 				out += esc(code.slice(last, m.index));

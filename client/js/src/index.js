@@ -28,9 +28,15 @@ import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 import { downloadBinary } from "./binary.js";
 
-export const VERSION = "0.4.1";
+export const VERSION = "0.4.2";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
+/** The URL without its trailing slashes (a loop, not /\/+$/: that regex is quadratic on many slashes). */
+const trimSlashes = (url) => {
+  let end = url.length;
+  while (end > 0 && url[end - 1] === "/") end--;
+  return url.slice(0, end);
+};
 
 // Lotes de red: el servidor acepta hasta 48 MiB por request. Se arma cada lote por los bytes del
 // JSON que realmente se envía (UTF-8, con escapes), hasta NETWORK_BATCH_BYTES y batchSize
@@ -95,7 +101,7 @@ export class TraceReports {
    *   la ejecución no se puede crear; always: grabar sin intentar un servidor; off: nunca
    */
   constructor(opts = {}) {
-    this.baseUrl = (opts.baseUrl || env("URL") || "http://localhost:8080").replace(/\/+$/, "");
+    this.baseUrl = trimSlashes(opts.baseUrl || env("URL") || "http://localhost:8080");
     this.token = opts.token ?? env("TOKEN", "");
     this.enabled = (opts.enabled ?? true) && !truthy(env("DISABLED"));
     this.timeoutMs = opts.timeoutMs ?? 3000;
