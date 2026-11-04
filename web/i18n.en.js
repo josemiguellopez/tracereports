@@ -119,6 +119,7 @@
 		"Buscar por #id, fecha (2026-11-03) o rama": "Search by #id, date (2026-11-03) or branch", "La anterior (automática)": "The previous one (automatic)",
 		"La última que pasó entera (#{n})": "The last fully green one (#{n})",
 		"Las {n} ejecuciones terminadas más recientes del mismo proyecto y ambiente.": "The {n} most recent finished runs of the same project and environment.",
+		"Esta ejecución no tiene fallos: el resumen se armó con los datos del reporte, sin IA, para que no invente un problema que no existe.": "This run has no failures: the summary was built from the report data, without AI, so it does not invent a problem that does not exist.",
 		"Explícamelo": "Explain it", "Trace Buddy te explica esta comparación con sus palabras y qué revisar primero.": "Trace Buddy explains this comparison in plain words and what to check first.",
 		"Comparada con (posterior)": "Compared with (later)", "Solo en esta ejecución": "Only in this run", "No corrieron esta vez": "Did not run this time",
 		"No corrieron en #{b}: no hay con qué compararlos.": "They did not run in #{b}: there is nothing to compare them with.",

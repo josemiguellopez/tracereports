@@ -2692,6 +2692,7 @@
 			if (current() && escKey() === key) {
 				S.esc.data = data;
 				if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
+				if (data.ai_skipped === "no_failures") S.esc.msg = { ok: true, text: tr("Esta ejecución no tiene fallos: el resumen se armó con los datos del reporte, sin IA, para que no invente un problema que no existe.") };
 			}
 		} catch (err) {
 			if (current() && escKey() === key) S.esc.msg = { ok: false, text: err.message };

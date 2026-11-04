@@ -39,7 +39,10 @@ type Escalation struct {
 	Source       string   `json:"source"`          // ai | template
 	Model        string   `json:"model,omitempty"` // modelo que lo escribió
 	AIError      string   `json:"ai_error,omitempty"`
-	CreatedAt    int64    `json:"created_at"`
+	// AISkipped: why the AI was not called although it is configured ("no_failures": nothing to
+	// explain, and a model asked to explain a failure invents one).
+	AISkipped string `json:"ai_skipped,omitempty"`
+	CreatedAt int64  `json:"created_at"`
 	Facts        Facts    `json:"facts"`
 	// Timing is how long an AI summary took, split between the provider and TraceReports (shown
 	// under the card in the UI, not shared). Nil for the template.
@@ -290,7 +293,7 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 
 var audienceGuide = map[string]string{
 	"business": `Audience: business stakeholders and product owners (non-technical).
-- No jargon: no stack traces, selectors, HTTP codes, endpoints or class names. Say "the login service did not respond", not "POST /auth 503".
+- No jargon: no stack traces, selectors, HTTP codes, endpoints or class names: name the service or the step in plain words instead of its method and status code.
 - Focus on impact on users and on the business process, the risk for the release and what is being done.
 - "owner": the area that should act (e.g. "Backend team", "QA automation", "Infrastructure").
 - "next_steps": decisions or follow-ups a manager understands (2-3).`,
@@ -364,6 +367,15 @@ func EscalateTemplate(f *Facts, runID, testID int64, audience, lang string) *Esc
 
 func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, audience, lang string) *Escalation {
 	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
+	if NothingFailed(f, testID) {
+		// sin fallos no hay nada que explicar: un modelo al que se le pide escalar un fallo lo inventa
+		// (un RUT inválido, un servicio caído...). Los datos ya dicen lo que pasó: la plantilla basta.
+		if a.UsesLLM() {
+			e.AISkipped = "no_failures"
+		}
+		templateEscalation(e)
+		return e
+	}
 	if a.UsesLLM() { // el motor local no redacta: la plantilla ya es lo suyo
 		start := time.Now()
 		ctx, calls := withCallTiming(ctx)
@@ -380,6 +392,13 @@ func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, 
 	}
 	templateEscalation(e)
 	return e
+}
+
+// NothingFailed reports whether a run-wide escalation has no failure to explain: tests that ran
+// and none failed (passed, warnings, skipped, still running or cut). Its summary comes from the
+// facts only.
+func NothingFailed(f *Facts, testID int64) bool {
+	return testID == 0 && f.Failed == 0 && f.Total > 0
 }
 
 func (a *Analyzer) escalateAI(ctx context.Context, e *Escalation) error {

@@ -98,3 +98,51 @@ func TestEscalationTimingCountsRetriesAndPauses(t *testing.T) {
 		t.Fatalf("each call: %+v", tm.Attempts)
 	}
 }
+
+// Una ejecución sin fallos (aunque tenga llamadas de red abortadas que no rompieron el flujo) no se
+// le pide a la IA: un modelo al que se le pide escalar un fallo lo inventa. El resumen sale de los
+// datos, y uno inventado que haya quedado en caché de antes ya no se entrega.
+func TestEscalationOfAGreenRunDoesNotAskTheAI(t *testing.T) {
+	clearAIEnv(t)
+	srv, _ := newTestServer(t)
+	var calls atomic.Int32
+	llm := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(escReply))
+	}))
+	defer llm.Close()
+	srv.AI.SetConfig(ai.Config{Provider: "openai", APIKey: "fake-key-123456", BaseURL: llm.URL, Model: "llama3.1:8b"})
+
+	runID, testID := newRunWithTest(t, srv)
+	call(t, srv, "POST", "/api/v1/tests/"+itoa(testID)+"/network",
+		`{"connections":[{"method":"GET","url":"https://app.example/api/foto.png","failed":true,"error_text":"net::ERR_ABORTED"}]}`)
+	call(t, srv, "PATCH", "/api/v1/tests/"+itoa(testID)+"/finish", `{"status":"PASS"}`)
+	call(t, srv, "PATCH", "/api/v1/runs/"+itoa(runID)+"/finish", `{}`)
+
+	// un resumen inventado guardado por una versión anterior
+	facts, err := ai.BuildFacts(srv.Store, srv.shots(), runID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	invented, _ := json.Marshal(ai.Escalation{Title: "Automated test failure in login service", Source: "ai", Severity: "high"})
+	if err := srv.Store.SaveEscalation(runID, 0, "business", "es", factsRevision(facts), string(invented)); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, audience := range []string{"business", "qa", "dev"} {
+		raw, _ := json.Marshal(map[string]any{"run_id": runID, "test_id": 0, "audience": audience, "lang": "es"})
+		rec := call(t, srv, "POST", "/api/v1/ui/escalate", string(raw))
+		var out map[string]any
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		if rec.Code != http.StatusOK || out["source"] != "template" || out["ai_skipped"] != "no_failures" || out["severity"] != "low" {
+			t.Fatalf("%s: %d %s", audience, rec.Code, rec.Body)
+		}
+		if title, _ := out["title"].(string); title == "Automated test failure in login service" {
+			t.Fatalf("%s: the invented cached summary came back", audience)
+		}
+	}
+	if n := calls.Load(); n != 0 {
+		t.Fatalf("the AI was called %d times for a run without failures", n)
+	}
+}
