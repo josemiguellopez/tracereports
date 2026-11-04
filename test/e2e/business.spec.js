@@ -97,11 +97,15 @@ test.describe("los números del reporte", () => {
 		await expect(cmp.locator(".cmp-run.this")).toContainText(`#${seed().run}`);
 		await expect(cmp.locator(".cmp-run.base")).toContainText(`#${seed().prev}`);
 		await expect(cmp.locator(".cmp-chip.new_failures")).toHaveText("1 fallo nuevo");
-		await expect(cmp.locator(".cmp-group.new_failures")).toContainText("test_login_admin");
-		await expect(cmp.locator(".cmp-group.new_failures .cmp-desc")).toHaveText(`Pasaban en #${seed().prev} y ahora fallan: lo primero que revisar.`);
 		await expect(cmp.locator(".cmp-chip.fixed")).toHaveText("0 arreglados");
-		// el link del fallo nuevo lleva a su detalle
-		await cmp.locator('.cmp-group.new_failures a:has-text("test_login_admin")').click();
+		// el resumen en palabras y, por test, antes → ahora
+		await expect(cmp.locator(".cmp-summary.bad")).toContainText("Hay fallos nuevos: revísalos primero.");
+		const row = cmp.locator(".cmp-row.new_failures", { hasText: "test_login_admin" });
+		await expect(row.locator(".label").first()).toHaveText("pass");
+		await expect(row.locator(".label").last()).toHaveText("fail");
+		await expect(row.locator(".cmp-change-badge")).toHaveText("Empezó a fallar");
+		// la fila lleva a su detalle
+		await row.click();
 		await expect(page.locator("#view-tests")).toBeVisible();
 		await expect(page.locator("#test-detail")).toContainText("test_login_admin");
 	});

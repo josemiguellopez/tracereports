@@ -75,7 +75,8 @@ test("Análisis: la comparación muestra las dos ejecuciones y se puede elegir o
 	await expect(cmp.locator(".cmp-run.base")).toContainText(`#${green}`);
 	await expect(cmp.locator(".cmp-run.base .run-state")).toHaveText("Pass");
 	await expect(cmp.locator(".cmp-chip.new_failures")).toHaveText("1 fallo nuevo"); // test_1: pasaba y ahora falla
-	await expect(cmp.locator(".cmp-group.new_tests")).toContainText("test_2"); // no existía en la verde
+	await expect(cmp.locator(".cmp-only.new_tests")).toContainText("test_2"); // no existía en la verde
+	await expect(cmp.locator(".cmp-summary")).toContainText("De los 2 test(s) que corrieron en las dos: 1 empezó a fallar, 1 sin cambios.");
 
 	await cmp.locator("[data-cmp-pick]").click();
 	await expect(cmp.locator("[data-cmp-q]")).toBeFocused();
@@ -88,4 +89,29 @@ test("Análisis: la comparación muestra las dos ejecuciones y se puede elegir o
 	await expect(cmp.locator(".cmp-picker")).toHaveCount(0);
 	await expect(cmp.locator(".cmp-run.base")).toContainText(`#${green}`);
 	await expect(cmp.locator(".cmp-reason")).toContainText("Elegida a mano");
+});
+
+test("Análisis: comparar con otra suite dice que no hay nada que comparar (no 'sin cambios')", async ({ page, request }) => {
+	// otra suite del mismo proyecto y ambiente: ningún test en común con la roja
+	const other = (await (await request.post("/api/v1/runs", { data: { name: `${token} otra suite`, environment: "preproduccion", project: token, branch: "tracereports" } })).json()).run_id;
+	const t = (await (await request.post(`/api/v1/runs/${other}/tests`, { data: { name: "test_de_otra_suite" } })).json()).test_id;
+	await request.patch(`/api/v1/tests/${t}/finish`, { data: { status: "PASS" } });
+	await request.patch(`/api/v1/runs/${other}/finish`, { data: {} });
+	await page.goto(`/#run=${red}&view=dashboard`);
+	const cmp = page.locator("#compare-card");
+	await cmp.locator("[data-cmp-pick]").click();
+	// en el selector, la de otra suite dice que no comparte tests y va al final
+	const rows = cmp.locator(".cmp-picker-list [data-cmp-choose]");
+	await expect(rows.first()).toContainText("en común");
+	await expect(cmp.locator(`.cmp-picker-list [data-cmp-choose="${green}"]`)).toContainText("2 test(s) en común");
+	await cmp.locator("[data-cmp-q]").fill(`#${live}`);
+	await expect(rows).toHaveCount(0); // la que sigue en curso no es candidata
+	await cmp.locator("[data-cmp-q]").fill("");
+	const otherSuite = (await request.get(`/api/v1/runs/${red}/baselines`).then((r) => r.json())).find((b) => b.shared === 0);
+	await expect(cmp.locator(`.cmp-picker-list [data-cmp-choose="${otherSuite.id}"]`)).toContainText("sin tests en común");
+	await cmp.locator(`.cmp-picker-list [data-cmp-choose="${otherSuite.id}"]`).click();
+	await expect(cmp.locator(".cmp-summary.none")).toContainText("No hay nada que comparar.");
+	await expect(cmp).not.toContainText("Sin cambios");
+	await expect(cmp.locator(".cmp-chips")).toHaveCount(0);
+	await expect(cmp.locator(".cmp-table")).toHaveCount(0);
 });

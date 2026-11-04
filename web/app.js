@@ -173,9 +173,12 @@
 		// en el selector de la comparación todas son del mismo proyecto y ambiente: basta la rama
 		const ctx = (withDate ? [r.branch] : [r.project, r.environment, r.branch]).filter(Boolean).map(esc).join(" · ");
 		const dur = r.ended_at ? fmtDuration(r.ended_at - r.started_at) : "";
-		return `<button type="button" role="option" class="recent-row ${current ? "current" : ""}" aria-selected="${!!current}" ${attrs}>
+		// candidata de la comparación: cuántos tests comparte con la que se ve (0 = otra suite)
+		const shared = r.shared === undefined ? "" : r.shared
+			? `<span class="cmp-shared">${tr("{n} test(s) en común", { n: r.shared })}</span>` : `<span class="cmp-shared none">${tr("sin tests en común")}</span>`;
+		return `<button type="button" role="option" class="recent-row ${current ? "current" : ""} ${r.shared === 0 ? "nocommon" : ""}" aria-selected="${!!current}" ${attrs}>
 			<span class="recent-state">${runStateLabel(r)}</span>
-			<span class="recent-main"><b data-no-i18n>${esc(r.name)}</b><small data-no-i18n>#${r.id}${ctx ? ` · ${ctx}` : ""}</small></span>
+			<span class="recent-main"><b data-no-i18n>${esc(r.name)}</b><small><span data-no-i18n>#${r.id}${ctx ? ` · ${ctx}` : ""}</span>${shared ? ` · ${shared}` : ""}</small></span>
 			<span class="recent-side">${runBar(r)}<small>${withDate ? `${esc(fmtDateTime(r.started_at))} · ` : ""}${esc(relativeRun(r.started_at))}${dur ? ` · ${dur}` : ""}</small></span>
 		</button>`;
 	}
@@ -1795,14 +1798,16 @@
 	/** Las ejecuciones con que se puede comparar, filtradas por #id, fecha, nombre o rama. */
 	function cmpPickerRows() {
 		const bases = S.insights.baselines || [];
-		const rows = bases.filter((b) => runMatches(b, S.insights.pickQ, [b.name, b.branch, b.status, fmtDateTime(b.started_at)]));
+		// primero las que comparten tests: una de otra suite no sirve para comparar
+		const rows = bases.filter((b) => runMatches(b, S.insights.pickQ, [b.name, b.branch, b.status, fmtDateTime(b.started_at)]))
+			.sort((x, y) => (y.shared > 0) - (x.shared > 0));
 		return rows.length ? rows.map((b) => runRow(b, `data-cmp-choose="${b.id}"`, S.insights.base === b.id || (!S.insights.base && S.insights.compare?.base_run?.id === b.id), true)).join("")
 			: `<p class="recents-empty">${tr("Ninguna ejecución coincide.")}</p>`;
 	}
 
 	function cmpPicker() {
 		const bases = S.insights.baselines || [];
-		const green = bases.find((b) => b.status === "PASS");
+		const green = bases.find((b) => b.status === "PASS" && b.shared > 0);
 		return `<div class="cmp-picker" role="dialog" aria-label="${tr("Elegir con qué comparar")}">
 			<div class="cmp-picker-head">
 				<label class="recents-filter"><svg><use href="#i-search"/></svg><input data-cmp-q type="search" autocomplete="off" value="${esc(S.insights.pickQ || "")}"
@@ -1818,38 +1823,93 @@
 		</div>`;
 	}
 
+	// cómo cambió cada test en común: [grupo de la comparación, clase, texto del cambio]
+	const CMP_CHANGES = [["new_failures", "new_failures", "Empezó a fallar"], ["still_failing", "still", "Sigue fallando"],
+		["fixed", "fixed", "Se arregló"], ["changed", "changed", "Cambió de estado"], ["unchanged", "same", "Igual"]];
+
+	/** La comparación en una o dos frases, calculada (no la escribe una IA): qué se pudo comparar y qué
+	 * cambió. tone: bad (fallos nuevos), good (solo arreglos), none (nada en común), same. */
+	function cmpSummary(c, a, b) {
+		if (!c.common) {
+			return { tone: "none", icon: "i-info", html: `<b>${tr("No hay nada que comparar.")}</b> ${esc(tr("#{a} y #{b} no ejecutaron ningún test en común: #{b} es otra suite ({n}).", { a: a.id, b: b.id, n: b.name }))}
+				<br>${tr("Elige con «Cambiar» una ejecución de la misma suite, por ejemplo con el mismo nombre.")}` };
+		}
+		const n = (k) => (c[k] || []).length;
+		const parts = [[n("new_failures"), "{n} empezó a fallar", "{n} empezaron a fallar"], [n("fixed"), "{n} se arregló", "{n} se arreglaron"],
+			[n("still_failing"), "{n} sigue fallando", "{n} siguen fallando"], [n("changed"), "{n} cambió de estado", "{n} cambiaron de estado"],
+			[n("unchanged"), "{n} sin cambios", "{n} sin cambios"]]
+			.filter(([k]) => k).map(([k, one, many]) => tr(k === 1 ? one : many, { n: k }));
+		const extra = [n("new_tests") && tr("{n} solo corrió ahora", { n: n("new_tests") }), n("missing") && tr("{n} no corrió esta vez", { n: n("missing") })].filter(Boolean);
+		let html = `${esc(tr("De los {n} test(s) que corrieron en las dos:", { n: c.common }))} <b>${esc(parts.join(", "))}</b>.`;
+		if (extra.length) html += ` ${esc(tr("Además, {x}.", { x: extra.join(" y ") }))}`;
+		if (c.base_later) html += `<br><small>${esc(tr("Ojo: #{b} es posterior a esta ejecución, así que «antes» es la más nueva.", { b: b.id }))}</small>`;
+		const tone = n("new_failures") ? "bad" : n("fixed") ? "good" : "same";
+		const lead = { bad: tr("Hay fallos nuevos: revísalos primero."), good: tr("Mejoró: hay tests arreglados y ningún fallo nuevo."), same: tr("No hay fallos nuevos.") }[tone];
+		return { tone, icon: { bad: "i-fail", good: "i-pass", same: "i-check" }[tone], html: `<b>${esc(lead)}</b> ${html}` };
+	}
+
+	/** Cada test que corrió en las dos: su estado antes y ahora, y qué cambió. Los cambios primero. */
+	function cmpTable(c, a, b) {
+		const slow = new Map((c.slower || []).map((i) => [i.test_id, i]));
+		const rows = CMP_CHANGES.flatMap(([key, cls, label]) => (c[key] || []).map((i) => {
+			const s = slow.get(i.test_id);
+			return `<tr class="cmp-row ${cls}" data-goto="${i.test_id}">
+				<td class="cmp-name" data-no-i18n>${esc(i.name)}</td>
+				<td>${statusLabel(i.base_status || "")}</td><td aria-hidden="true">→</td><td>${statusLabel(i.status)}</td>
+				<td><span class="cmp-change-badge ${cls}">${tr(label)}</span>${s ? `<small class="cmp-slow">${tr("más lento")}: ${fmtDuration(s.base_duration_ms)} → ${fmtDuration(s.duration_ms)}</small>` : ""}</td>
+			</tr>`;
+		})).join("");
+		return `<div class="cmp-table-wrap"><table class="cmp-table">
+			<thead><tr><th>Test</th><th>${tr("Antes")} <span data-no-i18n>#${b.id}</span></th><th></th><th>${tr("Ahora")} <span data-no-i18n>#${a.id}</span></th><th>${tr("Cambio")}</th></tr></thead>
+			<tbody>${rows}</tbody></table></div>`;
+	}
+
+	/** Tests que corrieron en una sola de las dos (plegado: no se pueden comparar). */
+	function cmpOnly(items, cls, label, desc) {
+		if (!items?.length) return "";
+		return `<details class="cmp-only ${cls}"><summary>${esc(label)} <span>${items.length}</span></summary><p class="cmp-desc">${esc(desc)}</p>
+			${items.map((i) => (cls === "missing" ? `<span class="cmp-only-item" data-no-i18n>${esc(i.name)}</span>` : `<a data-goto="${i.test_id}" data-no-i18n>${esc(i.name)}</a>`)).join("")}</details>`;
+	}
+
+	/** La pregunta para Trace Buddy: el resumen calculado y cada test, para que lo explique con sus palabras. */
+	function cmpQuestion(c, a, b) {
+		const line = (i) => `- ${i.name}: ${i.base_status || "—"} → ${i.status}`;
+		const changed = CMP_CHANGES.slice(0, 4).flatMap(([key]) => (c[key] || []).map(line));
+		const text = [`Explícame en palabras simples esta comparación de ejecuciones y qué debería revisar primero.`,
+			`Ahora: #${a.id} (${a.status}, ${a.passed}/${a.total} pasan, ${fmtDateTime(a.started_at)}). Antes: #${b.id} (${b.status}, ${b.passed}/${b.total} pasan, ${fmtDateTime(b.started_at)}).`,
+			`Tests en común: ${c.common}. Fallos nuevos: ${c.new_failures.length}. Arreglados: ${c.fixed.length}. Siguen fallando: ${c.still_failing.length}. Cambiaron de estado: ${(c.changed || []).length}. Sin cambios: ${c.unchanged.length}. Solo ahora: ${c.new_tests.length}. No corrieron esta vez: ${c.missing.length}.`,
+			changed.length ? `Cambios (antes → ahora):\n${changed.join("\n")}` : ""].filter(Boolean).join("\n");
+		return text.length > 1900 ? `${text.slice(0, 1900)}…` : text;
+	}
+
 	function renderInsights() {
 		const { compare, endpoints } = S.insights;
-		const list = (items, cls, label, desc = "") => items?.length ? `<div class="cmp-group ${cls}"><h6>${label} <span>${items.length}</span></h6>
-			${desc ? `<p class="cmp-desc">${esc(desc)}</p>` : ""}
-			${items.map((i) => `<a data-goto="${i.test_id}">${esc(i.name)}${i.base_duration_ms && cls === "slower"
-				? ` <small>${fmtDuration(i.base_duration_ms)} → ${fmtDuration(i.duration_ms)}</small>` : ""}</a>`).join("")}</div>` : "";
-		let cmp = `<h5>${tr("¿Qué cambió frente a otra ejecución?")}</h5><div class="placeholder">Cargando…</div>`;
+		const head = `<div class="cmp-head"><h5>${tr("¿Qué cambió frente a otra ejecución?")}</h5>
+			${compare?.base_run && compare.common && canAct() && buddyCanChat() ? `<button type="button" class="cf-btn cf-btn-sm cmp-ai" data-cmp-ai data-tip="${tr("Trace Buddy te explica esta comparación con sus palabras y qué revisar primero.")}">${icon("i-spark")}${tr("Explícamelo")}</button>` : ""}</div>`;
+		let cmp = `${head}<div class="placeholder">Cargando…</div>`;
 		const bases = S.insights.baselines || [];
 		const change = bases.length ? `<button type="button" class="cf-btn cf-btn-sm cmp-change" data-cmp-pick aria-expanded="${!!S.insights.picking}">${icon("i-search")}${tr("Cambiar")}</button>` : "";
 		if (compare) {
 			const b = compare.base_run;
+			const sum = b && cmpSummary(compare, S.run, b);
 			cmp = !b
-				? `<h5>${tr("¿Qué cambió frente a otra ejecución?")}</h5><div class="cmp-vs">${cmpRunCard(S.run, "Esta ejecución")}</div>
+				? `${head}<div class="cmp-vs">${cmpRunCard(S.run, "Esta ejecución")}</div>
 					${S.insights.picking ? cmpPicker() : change}
 					<div class="placeholder">No hay una ejecución anterior del mismo proyecto y ambiente con estos tests: no hay con qué comparar.</div>`
-				: `<h5>${tr("¿Qué cambió frente a otra ejecución?")}</h5>
-					<div class="cmp-vs">${cmpRunCard(S.run, "Esta ejecución")}<span class="cmp-vs-sep" aria-hidden="true">vs</span>${cmpRunCard(b, "Comparada con", change)}</div>
+				: `${head}
+					<div class="cmp-vs">${cmpRunCard(S.run, "Esta ejecución")}<span class="cmp-vs-sep" aria-hidden="true">vs</span>${cmpRunCard(b, compare.base_later ? "Comparada con (posterior)" : "Comparada con", change)}</div>
 					${compare.base_reason ? `<p class="m-hint cmp-reason">${esc(BASE_REASON[compare.base_reason] || "")}</p>` : ""}
 					${S.insights.picking ? cmpPicker() : ""}
-					<div class="cmp-chips">
+					<div class="cmp-summary ${sum.tone}" role="note">${icon(sum.icon)}<div>${sum.html}</div></div>
+					${!compare.common ? "" : `<div class="cmp-chips">
 						<span class="cmp-chip new_failures" data-tip="${esc(tr("Pasaban en #{b} y ahora fallan: lo primero que revisar.", { b: b.id }))}">${plural(compare.new_failures.length, "fallo nuevo", "fallos nuevos")}</span>
 						<span class="cmp-chip fixed" data-tip="${esc(tr("Fallaban en #{b} y ahora pasan.", { b: b.id }))}">${plural(compare.fixed.length, "arreglado", "arreglados")}</span>
 						<span class="cmp-chip still" data-tip="${esc(tr("Fallan en las dos ejecuciones: no es algo nuevo.", { b: b.id }))}">${plural(compare.still_failing.length, "sigue fallando", "siguen fallando")}</span>
 						<span class="cmp-chip slower" data-tip="${esc(tr("Tardaron bastante más que en #{b}.", { b: b.id }))}">${plural(compare.slower.length, "más lento", "más lentos")}</span>
 					</div>
-					${!compare.new_failures.length && !compare.fixed.length && !compare.still_failing.length && !compare.slower.length
-						? `<div class="cmp-same">${icon("i-check")}Sin cambios: los mismos resultados que la ejecución #${b.id}.</div>` : ""}
-					${list(compare.new_failures, "new_failures", "Fallos nuevos", tr("Pasaban en #{b} y ahora fallan: lo primero que revisar.", { b: b.id }))}
-					${list(compare.fixed, "fixed", "Arreglados", tr("Fallaban en #{b} y ahora pasan.", { b: b.id }))}
-					${list(compare.still_failing, "still", "Siguen fallando", tr("Fallan en las dos ejecuciones: no es algo nuevo.", { b: b.id }))}
-					${list(compare.slower, "slower", "Más lentos", tr("Tardaron bastante más que en #{b}.", { b: b.id }))}
-					${list(compare.new_tests, "new_tests", "Tests nuevos", tr("No existían en #{b}.", { b: b.id }))}`;
+					${cmpTable(compare, S.run, b)}`}
+					${cmpOnly(compare.new_tests, "new_tests", tr("Solo en esta ejecución"), tr("No corrieron en #{b}: no hay con qué compararlos.", { b: b.id }))}
+					${cmpOnly(compare.missing, "missing", tr("No corrieron esta vez"), tr("Corrieron en #{b}, pero no en esta ejecución.", { b: b.id }))}`;
 		}
 		setHTML($("#compare-card"), cmp);
 
@@ -2186,6 +2246,11 @@
 		$("#new-run-badge").addEventListener("click", (e) => switchRun(Number(e.currentTarget.dataset.run)));
 		$("#compare-card").addEventListener("click", (e) => {
 			if (e.target.closest("[data-cmp-pick]")) { S.insights.picking = !S.insights.picking; renderInsights(); $("[data-cmp-q]")?.focus(); return; }
+			if (e.target.closest("[data-cmp-ai]")) {
+				const c = S.insights.compare;
+				if (c?.base_run) buddyAsk(cmpQuestion(c, S.run, c.base_run));
+				return;
+			}
 			if (e.target.closest("[data-cmp-pick-close]")) { S.insights.picking = false; renderInsights(); return; }
 			const pick = e.target.closest("[data-cmp-choose]");
 			if (pick) { S.insights.picking = false; S.insights.pickQ = ""; chooseBase(Number(pick.dataset.cmpChoose)); }
@@ -4895,6 +4960,16 @@
 
 	/** Una pregunta libre: va con la evidencia del test (o la ejecución) que se está viendo y las últimas
 	 * respuestas de la conversación. El servidor la pasa por la redacción antes de enviarla al modelo. */
+	/** Abre Trace Buddy y le hace una pregunta armada por la interfaz (p. ej. "Explícamelo" de la comparación). */
+	async function buddyAsk(text) {
+		if (!buddyCanChat()) return;
+		buddyToggle(true);
+		const input = $("#buddy-input");
+		if (!input || buddy.chatting) return;
+		input.value = text;
+		await buddyChatSend();
+	}
+
 	async function buddyChatSend() {
 		const input = $("#buddy-input"), text = input?.value.trim();
 		if (!text || buddy.chatting) return;
