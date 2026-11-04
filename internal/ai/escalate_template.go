@@ -54,6 +54,12 @@ var tpl = map[string]map[string]string{
 		"ok_step_warn":   "Revisar las advertencias antes de aprobar.",
 		"ok_step_skip":   "Confirmar que los %d tests omitidos se omitieron a propósito.",
 		"owner_none":     "Sin responsable: no hay acciones pendientes",
+		"qa_obs_title":   "%s: pasó con observaciones",
+		"qa_risk_title":  "%s: pasó con riesgos",
+		"qa_headline":    "Ningún test falló, pero la revisión de QA encontró señales que conviene mirar (riesgos: %d · observaciones: %d).",
+		"qa_what":        "Ningún test falló. Al revisar lo que entregaron (red, consola, pasos, reintentos e historial) aparecieron señales que no rompieron los flujos, pero que un QA debería conocer antes de firmar la ejecución.",
+		"qa_impact_obs":  "Los flujos funcionaron y las observaciones no bloquean la versión, pero conviene registrarlas.",
+		"qa_impact_risk": "No hay fallos, pero las señales de riesgo pueden esconder un defecto real o un test poco confiable: conviene revisarlas antes de aprobar la versión.",
 		"run_pending":    "%s: en curso",
 		"pend_headline":  "La ejecución \"%s\" sigue en curso: terminaron %d de %d tests y %d todavía corren.",
 		"pend_what":      "La ejecución todavía no terminó: los resultados son parciales y no muestran el resultado final.",
@@ -120,6 +126,12 @@ var tpl = map[string]map[string]string{
 		"ok_step_warn":   "Review the warnings before approving.",
 		"ok_step_skip":   "Confirm that the %d skipped tests were skipped on purpose.",
 		"owner_none":     "No owner: nothing pending",
+		"qa_obs_title":   "%s: passed with observations",
+		"qa_risk_title":  "%s: passed with risks",
+		"qa_headline":    "No test failed, but the QA review found signals worth a look (risks: %d · observations: %d).",
+		"qa_what":        "No test failed. Reviewing what they delivered (network, console, steps, retries and history) turned up signals that did not break the flows, but that QA should know before signing off the run.",
+		"qa_impact_obs":  "The flows worked and the observations do not block the release, but they are worth recording.",
+		"qa_impact_risk": "There are no failures, but the risk signals can hide a real defect or an unreliable test: review them before approving the release.",
 		"run_pending":    "%s: run in progress",
 		"pend_headline":  "The run \"%s\" is still in progress: %d of %d tests finished and %d are still running.",
 		"pend_what":      "The run has not finished yet: the results are partial and do not show the final outcome.",
@@ -214,6 +226,20 @@ func templateSuccess(e *Escalation, t map[string]string, env string) {
 	}
 	if f.Skipped > 0 {
 		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["ok_step_skip"], f.Skipped))
+	}
+	if as := f.Assessment; as != nil && as.Verdict != VerdictClean {
+		// el veredicto de QA: pasó, pero con observaciones o riesgos que se dicen con sus pruebas
+		risks := as.Count(SignalRisk)
+		key, impact := "qa_obs_title", "qa_impact_obs"
+		if as.Verdict == VerdictRisks {
+			key, impact = "qa_risk_title", "qa_impact_risk"
+		}
+		e.Title = fmt.Sprintf(t[key], clip(f.RunName, 50))
+		e.Headline = fmt.Sprintf(t["qa_headline"], risks, len(as.Signals)-risks)
+		e.WhatHappened, e.Impact = t["qa_what"], t[impact]
+		e.Severity, e.Owner = verdictSeverity(as.Verdict), t["owner_qa"]
+		e.Evidence = successEvidence(e, t)
+		e.NextSteps = as.steps(e.Lang)
 	}
 	e.Source = "template"
 	e.Title = strings.TrimSpace(e.Title)

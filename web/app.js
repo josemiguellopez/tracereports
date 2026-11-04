@@ -2630,7 +2630,9 @@
 			tech: "Detalle técnico", branch: "Rama", test: "Test", attempts: "Intentos", stack: "Error y stack trace", repro: "Reproducir en local",
 			response: "Respuesta", console: "Consola del navegador", artifacts: "Trace y video", logs: "Ver logs", trace: "Ver traza", copy: "Copiar",
 			baseline: "La última vez que el test pasó (ejecución #{r}) respondió HTTP {s}", other_ctx: " · en otra rama o ambiente",
-			more: "… {n} líneas más en el reporte", clipped: "Respuesta recortada: completa en el reporte" },
+			more: "… {n} líneas más en el reporte", clipped: "Respuesta recortada: completa en el reporte",
+			qa_verdict: "Veredicto de QA", qa_clean: "Pasó limpio", qa_observations: "Pasó con observaciones", qa_risks: "Pasó con riesgos",
+			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación" },
 		en: { critical: "Critical severity", high: "High severity", medium: "Medium severity", low: "Low severity",
 			business: "Business", qa: "QA", dev: "Development", what: "What happened", impact: "Impact", cause: "Likely cause",
 			evidence: "Evidence", next: "Next steps", owner: "Suggested owner", calls: "Backend calls that failed",
@@ -2640,8 +2642,20 @@
 			tech: "Technical detail", branch: "Branch", test: "Test", attempts: "Attempts", stack: "Error and stack trace", repro: "Run it locally",
 			response: "Response", console: "Browser console", artifacts: "Trace and video", logs: "View logs", trace: "View trace", copy: "Copy",
 			baseline: "The last time the test passed (run #{r}) it answered HTTP {s}", other_ctx: " · on another branch or environment",
-			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report" },
+			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report",
+			qa_verdict: "QA verdict", qa_clean: "Passed clean", qa_observations: "Passed with observations", qa_risks: "Passed with risks",
+			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation" },
 	};
+
+	/** El veredicto de QA de una ejecución sin fallos (lo calcula el servidor): cómo pasó y sus señales. */
+	function escVerdictHTML(e, L) {
+		const a = e.facts.assessment;
+		if (!a) return "";
+		const signals = (a.signals || []).map((s) => `<li class="esc-signal ${esc(s.level)}"><span class="esc-signal-lvl">${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}</span>${esc(s.text)}</li>`).join("");
+		return `<section class="esc-verdict ${esc(a.verdict)}"><h3>${esc(L.qa_verdict)}</h3>
+			<p class="esc-verdict-badge">${esc(L[`qa_${a.verdict}`] || a.verdict)}</p>
+			${signals ? `<ul>${signals}</ul>` : `<p>${esc(L.qa_clean_desc)}</p>`}</section>`;
+	}
 	const escFmt = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
 	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}:${S.esc.evidence}`;
 	/** Sin IA: elegido por la persona, o porque no hay IA configurada. */
@@ -2692,7 +2706,8 @@
 			if (current() && escKey() === key) {
 				S.esc.data = data;
 				if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
-				if (data.ai_skipped === "no_failures") S.esc.msg = { ok: true, text: tr("Esta ejecución no tiene fallos: el resumen se armó con los datos del reporte, sin IA, para que no invente un problema que no existe.") };
+				if (data.ai_skipped === "no_failures") S.esc.msg = { ok: true, text: tr("Esta ejecución todavía no terminó completa: el resumen se armó con los datos del reporte, sin IA, para que no invente un problema que no existe.") };
+				if (data.ai_skipped === "invented_failure") S.esc.msg = { ok: true, text: tr("La IA describió un fallo que esta ejecución no tiene, así que se descartó su texto y el resumen se armó con los datos del reporte.") };
 			}
 		} catch (err) {
 			if (current() && escKey() === key) S.esc.msg = { ok: false, text: err.message };
@@ -2780,6 +2795,7 @@
 			<h2 class="esc-title">${esc(e.title)}</h2>
 			<p class="esc-headline">${esc(e.headline)}</p>
 			<dl class="esc-meta">${meta.map(([k, v]) => `<div>${k ? `<dt>${esc(k)}</dt>` : ""}<dd>${esc(v)}</dd></div>`).join("")}</dl>
+			${escVerdictHTML(e, L)}
 			${f.screenshot ? `<figure class="esc-shot"><img src="${esc(f.screenshot)}" alt="${esc(L.shot)}"><figcaption>${esc(L.shot)}${f.shot_caption ? ` · ${esc(f.shot_caption)}` : ""}</figcaption></figure>` : ""}
 			<div class="esc-grid">
 				<section><h3>${esc(L.what)}</h3><p>${esc(e.what_happened)}</p></section>
@@ -2836,6 +2852,12 @@
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const B = (s) => (style === "slack" ? `*${s}*` : style === "md" ? `**${s}**` : s);
 		const lines = [`${style === "plain" ? `[${(L[e.severity] || e.severity).toUpperCase()}]` : `${B(L[e.severity] || e.severity)} ·`} ${B(e.title)}`, e.headline, ""];
+		const qa = f.assessment;
+		if (qa) {
+			lines.push(`${B(L.qa_verdict + ":")} ${L[`qa_${qa.verdict}`] || qa.verdict}`);
+			(qa.signals || []).forEach((s) => lines.push(`• [${s.level === "risk" ? L.qa_risk : L.qa_note}] ${s.text}`));
+			lines.push("");
+		}
 		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
 		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
 			lines.push("", B(L.calls + ":"));
@@ -2861,6 +2883,8 @@
 			<div style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.05em">${esc(L[e.severity])} · ${esc(L[e.audience])}</div>
 			<h2 style="margin:6px 0 4px;font-size:20px;color:#1c2833">${esc(e.title)}</h2>${p(e.headline)}
 			<p style="margin:10px 0 0;font-size:12px;color:#78909c">${esc(L.run)}: ${esc(f.run_name)} · ${esc(f.env || "—")} · ${esc(fmtDateTime(f.started_at))} · ${esc(escFmt(L.failed, { f: f.failed, t: f.total }))}</p>
+			${f.assessment ? h3(`${L.qa_verdict}: ${L[`qa_${f.assessment.verdict}`] || f.assessment.verdict}`)
+				+ (f.assessment.signals?.length ? `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.assessment.signals.map((s) => `<li><b>${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}:</b> ${esc(s.text)}</li>`).join("")}</ul>` : p(L.qa_clean_desc)) : ""}
 			${shot ? `<img src="${shot}" alt="${esc(L.shot)}" style="margin-top:14px;max-width:100%;border:1px solid #e0e0e0;border-radius:6px">` : ""}
 			${h3(L.what)}${p(e.what_happened)}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
 			${e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length) ? h3(L.calls) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.network.map((n) => `<li><code>${esc(n.method)} ${esc(n.path)}</code> → ${esc(n.outcome)}</li>`).join("")}</ul>` : ""}
@@ -2900,6 +2924,11 @@
 		const p = (html) => `<p>${html}</p>`, b = (s) => `<b>${esc(s)}</b>`;
 		const list = (tag, xs) => `<${tag}>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</${tag}>`;
 		const out = [p(`${b((L[e.severity] || e.severity).toUpperCase())} · ${b(e.title)}`), p(esc(e.headline))];
+		const qa = f.assessment;
+		if (qa) {
+			out.push(p(`${b(L.qa_verdict + ":")} ${esc(L[`qa_${qa.verdict}`] || qa.verdict)}`));
+			if (qa.signals?.length) out.push(list("ul", qa.signals.map((s) => `[${s.level === "risk" ? L.qa_risk : L.qa_note}] ${s.text}`)));
+		}
 		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && out.push(p(`${b(k + ":")} ${esc(v)}`)));
 		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
 			out.push(p(b(L.calls + ":")), list("ul", f.network.map((n) => `${n.method} ${n.path} → ${n.outcome}${n.duration_ms ? ` (${n.duration_ms} ms)` : ""}`)));

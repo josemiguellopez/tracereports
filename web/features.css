@@ -743,6 +743,16 @@ body[data-theme="pixel"] .ai-hint { font-size: 18px; }
 .esc-path { font-family: Consolas, "Source Code Pro", monospace; color: #37474f; overflow-wrap: anywhere; }
 .esc-st { color: #c62828; font-weight: 700; white-space: nowrap; }
 .esc-ms { color: #78909c; white-space: nowrap; text-align: right; }
+/* veredicto de QA de una ejecución sin fallos: colores fijos, la tarjeta se comparte como imagen */
+.esc-verdict { margin-top: 14px; padding: 12px 14px; border-radius: 10px; border: 1px solid #e3e7eb; border-left: 5px solid var(--v, #2e7d32); background: #fafbfc; }
+.esc-verdict.clean { --v: #2e7d32; } .esc-verdict.observations { --v: #b26a00; } .esc-verdict.risks { --v: #e65100; }
+.esc-verdict h3 { margin: 0 0 4px; }
+.esc-verdict-badge { display: inline-block; margin: 0 0 6px !important; padding: 2px 10px; border-radius: 12px; font-weight: 800; font-size: 13px; color: #fff !important; background: var(--v, #2e7d32); }
+.esc-verdict ul { margin: 4px 0 0; padding-left: 0; list-style: none; display: grid; gap: 5px; }
+.esc-signal { font-size: 13px; color: #37474f; overflow-wrap: anywhere; }
+.esc-signal-lvl { display: inline-block; margin-right: 6px; padding: 0 6px; border-radius: 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+.esc-signal.risk .esc-signal-lvl { background: #fde7dc; color: #b23c00; }
+.esc-signal.note .esc-signal-lvl { background: #fff3d6; color: #8a5a00; }
 .esc-flaky { margin-top: 12px !important; padding: 8px 10px; border-radius: 8px; background: #fff8e1; color: #8a5a00 !important; font-size: 13px; }
 .esc-owner { margin-top: 14px !important; font-size: 13.5px; }
 .esc-owner span { color: #78909c; }

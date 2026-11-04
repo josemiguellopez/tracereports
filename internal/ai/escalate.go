@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"image"
 	_ "image/gif"  // capturas: los formatos que acepta el servidor
@@ -10,6 +11,7 @@ import (
 	_ "image/png"  //
 	"net/url"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -42,6 +44,8 @@ type Escalation struct {
 	// AISkipped: why the AI was not called although it is configured ("no_failures": nothing to
 	// explain, and a model asked to explain a failure invents one).
 	AISkipped string `json:"ai_skipped,omitempty"`
+	// Kind: KindSuccess for an AI summary of a run without failures ("" = of a failure).
+	Kind string `json:"kind,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	Facts        Facts    `json:"facts"`
 	// Timing is how long an AI summary took, split between the provider and TraceReports (shown
@@ -117,6 +121,19 @@ type Facts struct {
 	// Dev: technical detail for the developer (audience dev): the chosen test, or the first failed
 	// tests of the run. Built on every response, never cached nor sent to the AI.
 	Dev []*DevFacts `json:"dev,omitempty"`
+	// Assessment: for a run without failures, the QA verdict (clean, observations, risks) and its
+	// signals, computed from what the tests delivered (assessGreen). Shown on the card.
+	Assessment *Assessment `json:"assessment,omitempty"`
+	// Validated: for a run without failures, what its tests validated (names, descriptions, steps):
+	// what the AI summarizes instead of inventing a failure.
+	Validated []ValidatedFact `json:"-"`
+}
+
+// ValidatedFact is a test of a run without failures, with what it did.
+type ValidatedFact struct {
+	Name, Status, Tags, Description string
+	DurationMs                      int64
+	Steps                           []string
 }
 
 // NetFact is a backend call that failed.
@@ -216,6 +233,14 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 		focus = f.FailedTests[0].ID // la evidencia visual de la ejecución: su primer fallo
 	}
 	if focus == 0 {
+		if testID == 0 && f.Failed == 0 && f.Total > 0 {
+			if err := validatedFacts(store, run, f); err != nil {
+				return nil, err
+			}
+			if f.Assessment, err = assessGreen(store, run); err != nil {
+				return nil, err
+			}
+		}
 		return f, nil
 	}
 	t, err := store.GetTest(focus)
@@ -289,6 +314,36 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 	return f, nil
 }
 
+// maxValidated bounds the tests of a green run described to the AI (the prompt stays short).
+const maxValidated = 12
+
+// validatedFacts fills, for a run without failures, what its tests validated (the first ones, with
+// the start and the end of their steps).
+func validatedFacts(store *db.Store, run *db.RunDetail, f *Facts) error {
+	for _, t := range run.Tests {
+		if len(f.Validated) >= maxValidated {
+			break
+		}
+		full, err := store.GetTest(t.ID)
+		if err != nil {
+			return err
+		}
+		v := ValidatedFact{Name: t.Name, Status: t.Status, Tags: t.Category, Description: clip(t.Description, 300)}
+		if t.EndedAt != nil {
+			v.DurationMs = *t.EndedAt - t.StartedAt
+		}
+		logs := full.Logs
+		if len(logs) > 8 { // el comienzo y el final del flujo
+			logs = append(append([]db.Log{}, logs[:3]...), logs[len(logs)-5:]...)
+		}
+		for _, l := range logs {
+			v.Steps = append(v.Steps, fmt.Sprintf("[%s] %s", l.Status, clip(l.Message, 160)))
+		}
+		f.Validated = append(f.Validated, v)
+	}
+	return nil
+}
+
 // ---- generación ----
 
 var audienceGuide = map[string]string{
@@ -360,38 +415,244 @@ func (f *Facts) promptBlock(scope string) string {
 // EscalateTemplate writes the summary from the facts only, without calling the AI (chosen in the
 // UI to save quota or when the evidence must not leave the company).
 func EscalateTemplate(f *Facts, runID, testID int64, audience, lang string) *Escalation {
-	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
+	e := newEscalation(f, runID, testID, audience, lang)
 	templateEscalation(e)
 	return e
 }
 
-func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, audience, lang string) *Escalation {
+// newEscalation starts an escalation from its facts, with the QA signals in its language (a copy:
+// the facts are not changed).
+func newEscalation(f *Facts, runID, testID int64, audience, lang string) *Escalation {
 	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
+	if as := f.Assessment; as != nil {
+		cp := *as
+		cp.Signals = append([]Signal(nil), as.Signals...)
+		cp.Localize(lang)
+		e.Facts.Assessment = &cp
+	}
+	return e
+}
+
+func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, audience, lang string) *Escalation {
+	e := newEscalation(f, runID, testID, audience, lang)
+	write := a.escalateAI
 	if NothingFailed(f, testID) {
-		// sin fallos no hay nada que explicar: un modelo al que se le pide escalar un fallo lo inventa
-		// (un RUT inválido, un servicio caído...). Los datos ya dicen lo que pasó: la plantilla basta.
-		if a.UsesLLM() {
-			e.AISkipped = "no_failures"
+		// sin fallos no hay fallo que explicar: un modelo al que se le pide escalar uno lo inventa (un
+		// RUT inválido, un servicio caído...). Una ejecución terminada sin fallos se resume como tal
+		// (qué se validó y qué conviene saber); una en curso, incompleta o toda omitida, con los datos.
+		if !finishedGreen(f) || !a.UsesLLM() {
+			if a.UsesLLM() {
+				e.AISkipped = "no_failures"
+			}
+			templateEscalation(e)
+			return e
 		}
-		templateEscalation(e)
-		return e
+		write = a.escalateSuccessAI
 	}
 	if a.UsesLLM() { // el motor local no redacta: la plantilla ya es lo suyo
 		start := time.Now()
 		ctx, calls := withCallTiming(ctx)
-		err := a.escalateAI(ctx, e)
+		err := write(ctx, e)
 		calls.mu.Lock()
 		e.Timing = &AITiming{ProviderMs: calls.provider.Milliseconds(), WaitMs: calls.wait.Milliseconds(), Calls: calls.calls,
 			Attempts: append([]AIAttempt{}, calls.attempts...)}
 		calls.mu.Unlock()
 		e.Timing.Finish(time.Since(start)) // el que llama lo vuelve a cerrar con su propio comienzo
-		if err == nil {
+		switch {
+		case err == nil:
 			return e
+		case errors.Is(err, ErrInventedFailure):
+			e.AISkipped = "invented_failure" // respondió, pero describió un fallo que no existe
+		default:
+			e.AIError = a.redactor().Text(err.Error() + HintText(err, a.Config()))
 		}
-		e.AIError = a.redactor().Text(err.Error() + HintText(err, a.Config()))
 	}
 	templateEscalation(e)
 	return e
+}
+
+// finishedGreen: the run finished complete, without failures, and something ran (not all skipped).
+func finishedGreen(f *Facts) bool {
+	return f.Failed == 0 && f.Total > 0 && f.RunStatus != "RUNNING" && f.Running == 0 && !f.Incomplete && f.Skipped < f.Total
+}
+
+// KindSuccess marks an AI summary written for a run without failures (with the success prompt).
+const KindSuccess = "success"
+
+// successGuide: what each audience wants to know of a run that passed.
+var successGuide = map[string]string{
+	"business": `Audience: business stakeholders (non-technical). Say which business flows were validated, in plain words
+(from the test names, descriptions and steps), what the verdict means for the release and, if there are risks,
+why they matter, without technical jargon.`,
+	"qa": `Audience: QA. Say what was covered (tests and their flows), and explain each risk and observation as a senior
+QA would: why it matters, whether it can hide a real defect, and what to check or harden in the test.`,
+	"dev": `Audience: developers. Summarize what was validated and explain the technical signals (server errors the test
+did not catch, uncaught exceptions, retries, aborted calls, slow tests) with their method and URL when given,
+and what to look at in the code or the backend.`,
+}
+
+// verdictText: the verdict as the AI has to state it.
+var verdictText = map[string]string{
+	VerdictClean:        "PASSED CLEAN: nothing to object.",
+	VerdictObservations: "PASSED WITH OBSERVATIONS: nothing broke the flows, but there are signals worth knowing.",
+	VerdictRisks:        "PASSED WITH RISKS: every test passed, but there are signals a senior QA would not sign off without reviewing.",
+}
+
+// escalateSuccessAI writes, with the AI, the summary of a finished run without failures: what was
+// validated and what is worth knowing. Severity, cause and owner are not the model's to choose:
+// there is no failure. A text that still describes one is rejected (ErrInventedFailure).
+func (a *Analyzer) escalateSuccessAI(ctx context.Context, e *Escalation) error {
+	language := "Spanish"
+	if e.Lang == "en" {
+		language = "English"
+	}
+	verdict := VerdictClean
+	if as := e.Facts.Assessment; as != nil {
+		verdict = as.Verdict
+	}
+	prompt := fmt.Sprintf(`You are a senior QA lead writing the status summary of an automated test run that FINISHED
+WITHOUT FAILURES, to be pasted in Teams, Slack or an email. Write it in %s.
+No test failed: there is NO failure, NO bug and NO incident. Never describe, suggest or invent one, and do not
+invent endpoints, errors, services or data: use only the evidence below. Call the calls with an error
+"aborted" or "with an error", not "failed".
+
+The QA verdict was already decided from the evidence and you must not change it: %s
+Write it in the title with these exact words: "%s". Justify it in the headline with the signals listed
+(risks first). A run that passed with risks or observations is not a plain "everything is fine"; and
+observations are not risks: do not call them risks.
+%s
+
+Fields: "title" (max 80 chars: what was tested and "%s"), "headline" (one sentence with the conclusion),
+"what_happened" (what was validated, from the tests, descriptions and steps), "impact" (what the verdict
+means for the release), "next_steps" (1 to 4 concrete items for the signals; if the verdict is clean, say
+there is nothing to do). The evidence list is added by TraceReports: do not write it.
+
+Evidence:
+%s`, language, verdictText[verdict], verdictLabel(verdict, e.Lang), successGuide[e.Audience], verdictLabel(verdict, e.Lang), e.Facts.successBlock())
+	str := map[string]any{"type": "string"}
+	list := map[string]any{"type": "array", "items": str}
+	text, err := a.generate(ctx, UsageEscalation, prompt, map[string]any{
+		"type":       "object",
+		"properties": map[string]any{"title": str, "headline": str, "what_happened": str, "impact": str, "next_steps": list},
+		"required":   []string{"title", "headline", "what_happened", "impact", "next_steps"},
+	})
+	if err != nil {
+		return err
+	}
+	var out struct {
+		Title, Headline string
+		WhatHappened    string   `json:"what_happened"`
+		Impact          string   `json:"impact"`
+		NextSteps       []string `json:"next_steps"`
+	}
+	if err := json.Unmarshal([]byte(text), &out); err != nil {
+		return fmt.Errorf("decode escalation JSON: %w", err)
+	}
+	all := strings.Join(append([]string{out.Title, out.Headline, out.WhatHappened, out.Impact}, out.NextSteps...), "\n")
+	if strings.TrimSpace(out.Title) == "" || ClaimsFailure(all) {
+		return ErrInventedFailure
+	}
+	t := tpl[e.Lang]
+	if t == nil {
+		t = tpl["es"]
+	}
+	// el veredicto con las palabras del idioma, aunque el modelo lo copie en inglés
+	title := englishVerdict.ReplaceAllString(out.Title, verdictLabel(verdict, e.Lang))
+	e.Title, e.Headline, e.WhatHappened, e.Impact, e.NextSteps = title, out.Headline, out.WhatHappened, out.Impact, out.NextSteps
+	e.Evidence = successEvidence(e, t) // de los datos, nunca del modelo
+	e.Severity, e.RootCause, e.Owner = verdictSeverity(verdict), t["ok_cause"], t["owner_none"]
+	if verdict != VerdictClean || e.Facts.Warning > 0 {
+		e.Owner = t["owner_qa"]
+	}
+	e.Source, e.Model, e.Kind = "ai", a.Model(), KindSuccess
+	return nil
+}
+
+// englishVerdict is the verdict as the prompt states it, copied by a model into a title in another
+// language ("PASSED WITH OBSERVACIONES").
+var englishVerdict = regexp.MustCompile(`(?i)passed\s+(?:with\s+(?:observ\p{L}*|risks?|riesgos?)|clean)`)
+
+// successEvidence is the evidence of a run without failures: its counters and each QA signal.
+func successEvidence(e *Escalation, t map[string]string) []string {
+	f := e.Facts
+	env := f.Env
+	if env == "" {
+		env = "—"
+	}
+	out := []string{fmt.Sprintf(t["ev_run"], f.RunName, env, f.Passed, f.Failed, f.Skipped)}
+	if as := f.Assessment; as != nil {
+		for _, s := range as.Signals {
+			if len(out) == 6 {
+				break
+			}
+			out = append(out, s.Text)
+		}
+	}
+	return out
+}
+
+// verdictSeverity: a run that passed with risks is worth a look (medium); otherwise low.
+func verdictSeverity(verdict string) string {
+	if verdict == VerdictRisks {
+		return "medium"
+	}
+	return "low"
+}
+
+// ErrInventedFailure: the AI described a failure in a run that has none (its text is discarded).
+var ErrInventedFailure = errors.New("the AI described a failure that does not exist in this run, so the summary was built from the data")
+
+// negatedFailure is a failure word that is denied ("sin fallos", "ningún test falló", "0 failed",
+// "no failures"): it does not claim one.
+var negatedFailure = regexp.MustCompile(`(?i)\b(?:no|ni|sin|ning[uú]n[oa]?|ninguno|0|cero|none|zero|without|nothing|never|nunca)\b(?:\W+[\p{L}\d]+){0,3}?\W+(?:fall\p{L}*|fail\p{L}*|bugs?|incident\p{L}*)`)
+
+// callFailure is a network call or resource that errored ("3 llamadas fallaron", "requests failed"),
+// or a test that failed an attempt and then passed ("falló en el primer intento", "failed on the first
+// attempt", "historial: falló 2 de 10"): signals of a green run, not a failure of it.
+var callFailure = regexp.MustCompile(`(?i)\b(?:calls?|llamadas?|requests?|peticiones?|solicitudes?|recursos?|resources?|im[aá]genes|images?|console)(?:\W+[\p{L}\d]+){0,3}?\W+(?:fall\p{L}*|fail\p{L}*)` +
+	`|(?:fall\p{L}*|fail\p{L}*)(?:\W+[\p{L}\d]+){0,4}?\W+(?:intentos?|attempts?|reintent\p{L}*|retr\p{L}*|ejecuciones|runs|historial|history)\b` +
+	`|\b(?:intentos?|attempts?|reintent\p{L}*|retr\p{L}*|historial|history|inestable|flaky|unstable)(?:\W+[\p{L}\d]+){0,4}?\W+(?:fall\p{L}*|fail\p{L}*)`)
+
+// failureWord is a claim of a failure, a bug, an incident or a service down.
+var failureWord = regexp.MustCompile(`(?i)(?:^|[^\p{L}])(?:fall[oó]|fallaron|fallid[oa]s?|fallos?|failed|fails|failures?|bugs?|incidentes?|incidents?|ca[ií]d[oa]s?|is down|went down)(?:[^\p{L}]|$)`)
+
+// ClaimsFailure reports whether a summary of a run without failures still describes one.
+func ClaimsFailure(text string) bool {
+	text = callFailure.ReplaceAllString(negatedFailure.ReplaceAllString(text, " "), " ")
+	return failureWord.MatchString(text)
+}
+
+// successBlock is the evidence of a run without failures for the AI.
+func (f *Facts) successBlock() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "Run: %s · environment: %s · finished: %d tests, %d passed, %d with warnings, %d skipped, 0 failed",
+		f.RunName, f.Env, f.Total, f.Passed, f.Warning, f.Skipped)
+	if f.DurationMs > 0 {
+		fmt.Fprintf(&b, " · took %s", (time.Duration(f.DurationMs) * time.Millisecond).Round(time.Second))
+	}
+	b.WriteString(".\n\nTests:\n")
+	for _, v := range f.Validated {
+		fmt.Fprintf(&b, "- %s [%s]", v.Name, v.Status)
+		if v.Tags != "" {
+			fmt.Fprintf(&b, " · tags: %s", v.Tags)
+		}
+		if v.Description != "" {
+			fmt.Fprintf(&b, " · %s", v.Description)
+		}
+		b.WriteString("\n")
+		for _, s := range v.Steps {
+			fmt.Fprintf(&b, "    %s\n", s)
+		}
+	}
+	if as := f.Assessment; as != nil && len(as.Signals) > 0 {
+		b.WriteString("\nQA signals (none of them made a test fail):\n")
+		for _, s := range as.Signals {
+			fmt.Fprintf(&b, "- [%s] %s\n", strings.ToUpper(s.Level), signalText(s, "en"))
+		}
+	} else {
+		b.WriteString("\nQA signals: none.\n")
+	}
+	return b.String()
 }
 
 // NothingFailed reports whether a run-wide escalation has no failure to explain: tests that ran

@@ -35,6 +35,8 @@ func TestEscalationTemplateFollowsTheRunState(t *testing.T) {
 	s.FinishRun(skipped)
 	green := newRun("green", "PASS", "SKIP")
 	s.FinishRun(green)
+	clean := newRun("clean", "PASS")
+	s.FinishRun(clean)
 	for _, c := range []struct {
 		run                    int64
 		lang, title, what, sev string
@@ -44,8 +46,10 @@ func TestEscalationTemplateFollowsTheRunState(t *testing.T) {
 		{openDone, "en", "open-done: run in progress", "has not finished", "low", "1 passed, 0 failed, 0 skipped"},
 		{incomplete, "en", "incomplete: incomplete run", "interrupted", "medium", "1 passed, 0 failed, 0 skipped"},
 		{skipped, "en", "skipped: every test was skipped", "nothing was tested", "medium", "0 passed, 0 failed, 2 skipped"},
-		{warning, "en", "warning: no failures, 1 with warnings", "1 tests ended with warnings", "low", "1 passed, 0 failed, 0 skipped"},
-		{green, "en", "green: all tests passed", "every tested flow worked", "low", "1 passed, 0 failed, 1 skipped"},
+		// sin fallos, pero con una advertencia o un test omitido: el veredicto de QA lo dice
+		{warning, "en", "warning: passed with observations", "No test failed", "low", "ended with a warning"},
+		{green, "en", "green: passed with observations", "No test failed", "low", "1 of 2 tests was skipped"},
+		{clean, "en", "clean: all tests passed", "every tested flow worked", "low", "1 passed, 0 failed, 0 skipped"},
 		{open, "es", "open: en curso", "todavía no terminó", "low", "1 pasaron, 0 fallaron, 0 omitidos"},
 	} {
 		body, _ := json.Marshal(map[string]any{"run_id": c.run, "audience": "qa", "lang": c.lang, "no_ai": true})
@@ -58,7 +62,7 @@ func TestEscalationTemplateFollowsTheRunState(t *testing.T) {
 		if e.Title != c.title || !strings.Contains(e.WhatHappened, c.what) || e.Severity != c.sev || !strings.Contains(all, c.evidence) {
 			t.Errorf("%s/%s: %s (severity %s)", c.title, c.lang, all, e.Severity)
 		}
-		if c.run != green && (strings.Contains(all, "support approving") || strings.Contains(all, "|All ") || strings.Contains(all, "The only test") || strings.Contains(all, "all tests passed")) {
+		if c.run != clean && (strings.Contains(all, "support approving") || strings.Contains(all, "|All ") || strings.Contains(all, "The only test") || strings.Contains(all, "all tests passed")) {
 			t.Errorf("%s: described as a success: %s", c.title, all)
 		}
 	}
