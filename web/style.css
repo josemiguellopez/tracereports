@@ -23,6 +23,7 @@
 	--skip: #1e90ff;
 	--info: #46bfbd;
 	--running: #8e99a4;
+	--interrupted: #5d6d7e;
 	--started: #66bb6a;
 	--ended: #ef5350;
 	--elapsed: #90a4ae;
@@ -188,6 +189,7 @@ button { font: inherit; color: inherit; }
 .status-filters button.fail.active { background: var(--fail); border-color: var(--fail); }
 .status-filters button.skip.active { background: var(--skip); border-color: var(--skip); }
 .status-filters button.warning.active { background: var(--warning); border-color: var(--warning); }
+.status-filters button.interrupted.active { background: var(--interrupted); border-color: var(--interrupted); }
 .search { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border); border-radius: var(--radius); padding: 0 10px; color: var(--text-muted); background: var(--surface-2); }
 .search:focus-within { border-color: var(--primary); background: var(--surface); }
 .search input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); padding: 7px 0; font: inherit; font-size: 14px; outline: none; }
@@ -220,6 +222,8 @@ button { font: inherit; color: inherit; }
 .label.outline.skip { color: var(--skip); }
 .label.outline.info { color: var(--info); }
 .label.outline.running { color: var(--running); }
+.label.outline.interrupted { color: var(--interrupted); border-style: dashed; }
+.label.interrupted:not(.outline) { background: var(--interrupted); }
 .label.pass:not(.outline) { background: var(--pass); }
 .label.fail:not(.outline) { background: var(--fail); }
 .label.warning:not(.outline) { background: var(--warning); }
@@ -241,6 +245,10 @@ button { font: inherit; color: inherit; }
 
 .error-block { padding: 14px 18px; border-left: 3px solid var(--fail); }
 .error-msg { margin: 0; font-family: var(--font-mono); font-size: 13px; color: var(--fail); white-space: pre-wrap; word-break: break-word; }
+/* un test cortado no es un fallo: gris, no rojo */
+.error-block.interrupted-block { border-left-color: var(--interrupted); }
+.interrupted-block .error-msg { color: var(--text); }
+.interrupted-block .m-hint { margin: 8px 0 0; }
 .error-block details { margin-top: 8px; }
 .error-block summary { cursor: pointer; font-size: 13px; color: var(--text-muted); user-select: none; }
 .error-block pre { margin: 8px 0 0; padding: 12px; max-height: 320px; overflow: auto; background: var(--surface-2); border-radius: var(--radius); font-size: 12px; line-height: 1.45; }
@@ -332,6 +340,7 @@ button { font: inherit; color: inherit; }
 .skip { --c: var(--skip); }
 .info { --c: var(--info); }
 .running { --c: var(--running); }
+.interrupted { --c: var(--interrupted); }
 
 .placeholder { padding: 48px 20px; text-align: center; color: var(--text-muted); }
 
@@ -504,6 +513,19 @@ iframe.preview-html { width: 100%; height: 340px; border: 1px solid var(--border
 .run-banner .banner-icon { color: var(--accent); display: inline-flex; }
 .run-banner .banner-text { flex: 1; min-width: 0; }
 .run-banner a { color: var(--primary); font-weight: 600; white-space: nowrap; text-decoration: none; }
+/* ejecución en curso que dejó de recibir datos, o cerrada con tests cortados */
+.run-banner.idle { border-left-color: var(--warning); flex-wrap: wrap; }
+.run-banner.idle .banner-icon { color: var(--warning); }
+.run-banner.cut { border-left-color: var(--interrupted); }
+.run-banner.cut .banner-icon { color: var(--interrupted); }
+.run-banner .banner-text small { display: block; color: var(--text-muted); }
+.close-run-form { flex-basis: 100%; display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr); gap: 8px 12px; padding-top: 10px; border-top: 1px solid var(--border); }
+.close-run-form .field { display: grid; gap: 4px; }
+.close-run-form select, .close-run-form input { width: 100%; }
+.close-run-form p, .close-run-form .close-run-actions { grid-column: 1 / -1; margin: 0; }
+.close-run-form p { font-size: 13px; color: var(--text-muted); }
+.close-run-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+@media (max-width: 600px) { .close-run-form { grid-template-columns: minmax(0, 1fr); } }
 .run-summary { padding: 18px 22px; margin-bottom: 12px; border-left: 4px solid var(--accent); }
 .sum-head { display: flex; align-items: center; gap: 10px; color: var(--text-muted); }
 .sum-head svg { color: var(--accent); flex: none; }

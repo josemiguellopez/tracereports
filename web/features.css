@@ -110,6 +110,7 @@ mark.cf-masked { background: color-mix(in srgb, var(--color-danger) 22%, transpa
 .cf-spark i.fail { background: var(--color-danger); }
 .cf-spark i.warning { background: var(--color-warning); }
 .cf-spark i.skip { background: var(--color-text-muted); }
+.cf-spark i.interrupted { background: var(--interrupted, #5d6d7e); }
 .cf-tip small { color: color-mix(in srgb, var(--color-tooltip-text) 70%, transparent); }
 
 /* ═════════ AI Locator Recommender ═════════ */

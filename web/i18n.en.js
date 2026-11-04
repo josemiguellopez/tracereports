@@ -97,6 +97,18 @@
 		"El análisis de IA aún no había terminado cuando se exportó este reporte.": "The AI analysis had not finished when this report was exported.",
 		"La ejecución sigue en curso: el diagnóstico se genera al finalizar.": "The run is still going: the diagnosis is generated when it finishes.",
 		"Analizando la ejecución…": "Analyzing the run…", "Ver diagnóstico →": "View diagnosis →",
+		"No alcanzó a terminar: no cuenta como fallo ni como éxito, y la IA no lo analiza.": "It did not get to finish: it counts as neither a failure nor a pass, and the AI does not analyze it.",
+		"Se cerró sola por inactividad": "Closed automatically for inactivity", "Cerrada manualmente": "Closed by hand",
+		"Cerrada manualmente por {u}": "Closed by hand by {u}", "La ejecución se cortó antes de terminar": "The run was cut before it finished",
+		"Cancelado manualmente": "Cancelled by hand", "Se cayó la máquina o el CI": "The machine or the CI went down",
+		"Detalle (opcional)": "Detail (optional)", "Ej.: detuve la suite desde el IDE": "E.g.: I stopped the suite from the IDE",
+		"Los tests que siguen en curso quedarán como Interrumpido: no cuentan como fallo ni disparan la IA. Si después llega su resultado real, se acepta.": "The tests still running will be marked Interrupted: they do not count as failures nor trigger the AI. If their real result arrives later, it is accepted.",
+		"Cerrar ejecución": "Close run", "Cerrar ejecución…": "Close run…",
+		"Sin actividad hace {t}": "No activity for {t}", "sin actividad hace {t}": "no activity for {t}",
+		"Sigue en curso, pero no recibe datos: el proceso de los tests pudo detenerse sin avisar (Stop del IDE, terminal cerrada, CI cancelado).": "It is still running but receives no data: the test process may have stopped without notice (IDE Stop, closed terminal, cancelled CI).",
+		"{n} test(s) quedaron como Interrumpido: no cuentan como fallo.": "{n} test(s) were marked Interrupted: they do not count as failures.",
+		"Ver interrumpidos →": "View interrupted →", "Interrumpidos": "Interrupted", "Cerrada": "Closed",
+		"Tests que no alcanzaron a terminar porque la ejecución se cortó: no cuentan como fallo.": "Tests that did not get to finish because the run was cut: they do not count as failures.",
 		"Diagnóstico de la ejecución": "Run diagnosis",
 
 		// ── locators ──

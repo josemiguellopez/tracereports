@@ -130,6 +130,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/ai/chat", s.aiChat)
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
+		r.Post("/ui/runs/{run_id}/close", s.closeRunByHand)
 		r.Post("/ui/escalate", s.escalate)
 		r.Post("/ui/escalate/send", s.sendEscalation)
 		r.Post("/ui/tickets", s.createTicket)
