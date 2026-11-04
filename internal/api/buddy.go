@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
-	"github.com/josemiguellopez/tracereports/internal/locator"
 	"github.com/josemiguellopez/tracereports/internal/repro"
 )
 
@@ -141,13 +140,6 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	}
 	var facts *ai.Facts
 	var extra ai.ChatExtra
-	// un XPath que compara texto en la pregunta: la versión tolerante la arma TraceReports, no el modelo
-	// (uno local chico la escribe mal o no la escribe); el modelo la recibe para explicarla
-	xpath := locator.TolerantXPath(locator.FindXPath(msgs[len(msgs)-1].Text))
-	if xpath != "" {
-		extra.Shown = append(extra.Shown, "a more tolerant version of that XPath, built by TraceReports: "+xpath+
-			" (contains() over normalize-space(.) lowercased with translate(), so it matches with other case, extra spaces or more text)")
-	}
 	var curl string // el de la primera llamada que falló: la web lo muestra con "Copiar" si se lo pidieron
 	scope := "run"
 	if in.RunID > 0 {
@@ -183,7 +175,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]any{"error": msg, "hint": hint})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"answer": answer, "provider": s.AI.Provider(), "model": s.AI.Model(), "curl": curl, "xpath": xpath})
+	writeJSON(w, http.StatusOK, map[string]any{"answer": answer, "provider": s.AI.Provider(), "model": s.AI.Model(), "curl": curl})
 }
 
 // chatCalls are the failed calls of a test for the chat: each as cURL (repro.Curl: secrets become

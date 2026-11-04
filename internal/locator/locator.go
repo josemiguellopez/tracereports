@@ -138,19 +138,6 @@ func bareXPath(text string) string {
 	return scanXPath(text, m[2])
 }
 
-// xpathStart: where an XPath begins in free text (a chat question): "//" or "(//" after the start, a
-// space or a quote, never the "//" of a URL ("http://").
-var xpathStart = regexp.MustCompile(`(?:^|[\s"'“])(\(?//[A-Za-z*(@.])`)
-
-// FindXPath is the first XPath written in a free text, such as a question to Trace Buddy.
-func FindXPath(text string) string {
-	m := xpathStart.FindStringSubmatchIndex(text)
-	if m == nil {
-		return ""
-	}
-	return strings.TrimRight(scanXPath(text, m[2]), `"'”`)
-}
-
 // scanXPath reads the XPath that starts at start: up to the first space or unbalanced closing
 // outside brackets, parentheses and quotes.
 func scanXPath(text string, start int) string {
@@ -176,35 +163,6 @@ func scanXPath(text string, start int) string {
 		}
 	}
 	return strings.TrimRight(text[start:], ".,;:")
-}
-
-// xpathTextTest: a comparison of an element's text in an XPath, exact or with contains():
-// normalize-space(text())='x', text()="x", .='x', contains(text(), 'x'), contains(normalize-space(.), 'x').
-var xpathTextTest = regexp.MustCompile(`contains\(\s*(?:normalize-space\(\s*(?:text\(\)|\.)?\s*\)|text\(\)|\.)\s*,\s*(?:'([^']*)'|"([^"]*)")\s*\)` +
-	`|(?:normalize-space\(\s*(?:text\(\)|\.)?\s*\)|text\(\)|\.)\s*=\s*(?:'([^']*)'|"([^"]*)")`)
-
-// The letters translate() lowers, Spanish ones included (XPath 1.0 has no lower-case()).
-const (
-	xpathUpper = "ABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÜÑ"
-	xpathLower = "abcdefghijklmnopqrstuvwxyzáéíóúüñ"
-)
-
-// TolerantXPath rewrites the text comparisons of an XPath so they still match when the text changes
-// case, has extra spaces or more text around it: contains() over the lowercased normalize-space(.).
-// Only XPath 1.0 (Selenium and browsers have nothing newer). "" when it has no text comparison.
-func TolerantXPath(xpath string) string {
-	if !xpathTextTest.MatchString(xpath) {
-		return ""
-	}
-	return xpathTextTest.ReplaceAllStringFunc(xpath, func(m string) string {
-		g := xpathTextTest.FindStringSubmatch(m)
-		value := strings.ToLower(strings.Join(strings.Fields(g[1]+g[2]+g[3]+g[4]), " "))
-		lit := "'" + value + "'"
-		if strings.Contains(value, "'") {
-			lit = `"` + value + `"`
-		}
-		return fmt.Sprintf("contains(translate(normalize-space(.), '%s', '%s'), %s)", xpathUpper, xpathLower, lit)
-	})
 }
 
 // pySeleniumSelector writes a Selenium for Python locator as the CSS or XPath it means.

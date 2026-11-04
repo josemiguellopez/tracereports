@@ -30,32 +30,6 @@ Call log:
 	}
 }
 
-func TestTolerantXPath(t *testing.T) {
-	low := "translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZÁÉÍÓÚÜÑ', 'abcdefghijklmnopqrstuvwxyzáéíóúüñ')"
-	cases := map[string]string{
-		"//option[normalize-space(text())='Salinas  Alexis']": "//option[contains(" + low + ", 'salinas alexis')]",
-		`//button[text()="Guardar"]`:                           "//button[contains(" + low + ", 'guardar')]",
-		"//a[contains(text(), 'Ver más')]/span":               "//a[contains(" + low + ", 'ver más')]/span",
-		"//li[.=\"O'Brien\"]":                                 "//li[contains(" + low + `, "o'brien")]`,
-		"//div[@id='x']":                                      "",
-	}
-	for in, want := range cases {
-		if got := TolerantXPath(in); got != want {
-			t.Errorf("TolerantXPath(%q)\n got %q\nwant %q", in, got, want)
-		}
-	}
-	finds := map[string]string{
-		"mejora este xpath //option[normalize-space(text())='salinas alexis'] para que funcione": "//option[normalize-space(text())='salinas alexis']",
-		`por contains: "(//tr[td='a b'])[2]"`: "(//tr[td='a b'])[2]",
-		"mira https://shop.local/x y dime":    "",
-	}
-	for in, want := range finds {
-		if got := FindXPath(in); got != want {
-			t.Errorf("FindXPath(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
 func TestSuggestFindsReplacement(t *testing.T) {
 	snap := Snapshot{Viewport: Size{1366, 768}, Elements: []Element{
 		{Tag: "input", Name: "username", Placeholder: "Username", X: 500, Y: 300, W: 300, H: 40, Visible: true},

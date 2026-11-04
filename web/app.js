@@ -4399,14 +4399,6 @@
 			<small>${tr("En Postman: Import → Raw text → pega el cURL. Cambia las variables como $TOKEN por su valor real.")}</small></div>`;
 	}
 
-	/** La versión tolerante del XPath de la pregunta (contains + minúsculas), armada por el servidor. */
-	function buddyXPathCard(xpath) {
-		return `<div class="buddy-tool"><b>${tr("XPath más tolerante")}</b>
-			<pre class="buddy-code" data-no-i18n>${esc(xpath)}</pre>
-			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-copy>${icon("i-copy")}${tr("Copiar")}</button></div>
-			<small>${tr("Encuentra el elemento aunque cambien las mayúsculas, haya espacios de más o texto alrededor. Si armas el XPath con una variable, pásala en minúsculas.")}</small></div>`;
-	}
-
 	/** Un mock del backend que falló (el mismo generador del botón "Generar mock"), con sus formatos. */
 	async function buddyMockCard(testId) {
 		const list = await loadNetwork(testId).catch(() => []);
@@ -4447,7 +4439,6 @@
 			const r = await apiSend("POST", "/api/v1/ui/ai/chat", { run_id: S.runId || 0, test_id: testId, lang: I18N.lang, messages: buddy.chat.slice(-8), tools });
 			buddy.chat.push({ role: "assistant", text: r.answer });
 			buddyFill(el, `<div class="buddy-answer" data-no-i18n>${esc(r.answer).replace(/\n/g, "<br>")}</div>`);
-			if (r.xpath) buddySay(buddyXPathCard(r.xpath));
 			if (tools.includes("curl") && r.curl) buddySay(buddyCurlCard(r.curl));
 			if (tools.includes("mock")) { const card = await buddyMockCard(testId); if (card) buddySay(card); }
 			buddyMood("success", 2000);
