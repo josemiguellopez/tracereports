@@ -310,8 +310,10 @@
 		document.body.classList.toggle("view-global", global);
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
-		({ search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
-			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease }[S.view] || renderTests)();
+		const views = { search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
+			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease };
+		// la vista viene de la URL (#view=…): solo las propias, nunca un método heredado del objeto
+		(Object.hasOwn(views, S.view) ? views[S.view] : renderTests)();
 	}
 
 	// ---------- run explorer ----------
@@ -352,7 +354,7 @@
 		["project", "environment", "branch", "tag"].forEach((key) => {
 			const el = $(`[data-search-filter="${key}"]`); if (!el) return;
 			const initial = el.options[0]?.textContent || tr("Todos");
-			el.innerHTML = `<option value="">${initial}</option>${(x.facets[key] || []).map((f) => `<option value="${esc(f.value)}">${esc(f.value)} (${f.count})</option>`).join("")}`;
+			el.innerHTML = `<option value="">${esc(initial)}</option>${(x.facets[key] || []).map((f) => `<option value="${esc(f.value)}">${esc(f.value)} (${f.count})</option>`).join("")}`;
 			el.value = x[key] || "";
 		});
 		["status", "from", "to"].forEach((key) => { const el = $(`[data-search-filter="${key}"]`); if (el) el.value = x[key] || ""; });
@@ -3875,7 +3877,15 @@
 	const randHex = (bytes) => [...crypto.getRandomValues(new Uint8Array(bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
 	function randPassword(len = 20) {
 		const cs = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789-_"; // sin caracteres ambiguos ni que rompan un .env
-		return [...crypto.getRandomValues(new Uint32Array(len))].map((n) => cs[n % cs.length]).join("");
+		// sin sesgo: se descartan los bytes del último tramo incompleto (256 no es múltiplo de cs.length)
+		const limit = 256 - (256 % cs.length);
+		let out = "";
+		while (out.length < len) {
+			for (const b of crypto.getRandomValues(new Uint8Array(len * 2))) {
+				if (b < limit && out.length < len) out += cs[b % cs.length];
+			}
+		}
+		return out;
 	}
 
 	const CONN_TABS = [

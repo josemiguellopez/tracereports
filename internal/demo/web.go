@@ -156,12 +156,12 @@ api("/api/products").then((r) => r.json()).then(({ products }) => {
   document.getElementById("products").innerHTML = products.map((p) => '<article class="card product-card"><div class="art" style="background:' + ART[p.id].bg + '">' + ART[p.id].svg + '</div><span class="tag">New season</span><h3>' + p.name + '</h3><div class="row"><span class="price">$' + p.price.toFixed(2) + '</span><a class="btn btn-sm" href="/product/' + p.id + '">View</a></div></article>').join("");
 });`)
 	case strings.HasPrefix(r.URL.Path, "/product/"):
-		id := strings.TrimPrefix(r.URL.Path, "/product/")
-		p := productByID(id)
+		p := productByID(strings.TrimPrefix(r.URL.Path, "/product/"))
 		if p == nil {
 			http.NotFound(w, r)
 			return true
 		}
+		id := p["id"].(string) // el del catálogo, no el texto de la URL
 		art := productArt[id]
 		storePage(w, p["name"].(string), fmt.Sprintf(`<div class="card product">
 <div class="art" style="background:%s">%s</div>
