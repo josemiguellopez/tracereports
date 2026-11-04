@@ -553,6 +553,29 @@ iframe.preview-html { width: 100%; height: 340px; border: 1px solid var(--border
 .insight-card h5 small { font-family: var(--font-ui); font-weight: 400; font-size: 12px; color: var(--text-muted); margin-left: 6px; }
 .insight-card h5 a { color: var(--primary); text-decoration: none; }
 .insight-card .placeholder { padding: 24px 0; }
+/* las dos ejecuciones que se comparan, lado a lado */
+.cmp-vs { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: stretch; gap: 8px; margin-bottom: 8px; }
+.cmp-vs-sep { align-self: center; font-size: 12px; font-weight: 700; color: var(--text-muted); text-transform: uppercase; }
+.cmp-run { min-width: 0; display: grid; gap: 4px; align-content: start; padding: 10px 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface-2); }
+.cmp-run.this { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); }
+.cmp-run > small { font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--text-muted); }
+.cmp-run-id { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cmp-run-id b { font-size: 16px; color: var(--heading); }
+.cmp-run-id a { text-decoration: none; color: var(--primary); }
+.cmp-run-when { font-size: 12px; color: var(--text-muted); overflow-wrap: anywhere; }
+.cmp-run-bar { display: grid; gap: 3px; }
+.cmp-change { justify-self: start; margin-top: 4px; }
+.cmp-desc { margin: -2px 0 4px; font-size: 12px; color: var(--text-muted); }
+/* elegir con qué comparar: buscar entre las anteriores del mismo proyecto y ambiente */
+.cmp-picker { margin: 4px 0 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: 0 8px 22px rgba(0,0,0,.16); }
+.cmp-picker-head { display: grid; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); }
+.cmp-quick { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.cmp-quick [aria-pressed="true"] { border-color: var(--primary); color: var(--primary); }
+.cmp-quick .link-btn { margin-left: auto; }
+.cmp-picker-list { max-height: 300px; overflow: auto; padding: 4px; }
+.cmp-picker .recent-row { grid-template-columns: 92px minmax(0, 1fr) 118px; gap: 8px; }
+.cmp-picker > .m-hint { margin: 0; padding: 6px 10px 8px; border-top: 1px solid var(--border); }
+@media (max-width: 600px) { .cmp-vs { grid-template-columns: minmax(0, 1fr); } .cmp-vs-sep { justify-self: center; } }
 .cmp-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
 .cmp-chip { font-size: 12px; font-weight: 600; padding: 2px 10px; border-radius: 12px; border: 1px solid var(--border); }
 .cmp-chip.new_failures { color: var(--fail); }
@@ -596,9 +619,42 @@ html.i18n-wait body { visibility: hidden; }
 .recents-control { position: relative; font-size: 12px; color: var(--text); }
 .recents-control summary { list-style: none; cursor: pointer; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); padding: 6px 10px; white-space: nowrap; }
 .recents-control summary::-webkit-details-marker { display: none; }
-#recents-list { position: absolute; z-index: 20; right: 0; top: calc(100% + 5px); width: min(360px, calc(100vw - 20px)); max-height: 340px; overflow: auto; padding: 5px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: 0 10px 28px rgba(0,0,0,.22); }
-#recents-list button { width: 100%; display: grid; grid-template-columns: 10px minmax(0,1fr) auto; align-items: center; gap: 8px; border: 0; border-radius: 4px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: 12px; padding: 7px; text-align: left; }
-#recents-list button:hover { background: var(--hover); } #recents-list b, #recents-list small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } #recents-list small { color: var(--text-muted); }
+.recents-control summary { display: inline-flex; align-items: center; gap: 6px; }
+.recents-live { font-size: 11px; font-weight: 600; color: var(--running); padding-left: 6px; border-left: 1px solid var(--border); }
+.recents-live::before { content: "●"; margin-right: 3px; color: var(--pass); }
+/* panel: búsqueda + pestañas + lista; cada fila dice cómo terminó, cuántos pasaron, dónde y cuándo */
+.recents-panel { position: absolute; z-index: 20; right: 0; top: calc(100% + 5px); width: min(560px, calc(100vw - 20px)); display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: 0 10px 28px rgba(0,0,0,.22); }
+.recents-head { display: grid; gap: 8px; padding: 10px; border-bottom: 1px solid var(--border); }
+.recents-filter { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius); padding: 0 8px; background: var(--surface-2); color: var(--text-muted); }
+.recents-filter:focus-within { border-color: var(--primary); }
+.recents-filter svg { width: 14px; height: 14px; flex: none; }
+.recents-filter input { flex: 1; min-width: 0; border: 0; background: transparent; color: var(--text); font: inherit; font-size: 13px; padding: 7px 0; outline: none; }
+.recents-tabs { display: flex; gap: 4px; }
+.recents-tabs button { border: 1px solid var(--border); border-radius: 14px; background: transparent; color: var(--text-muted); font: inherit; font-size: 12px; padding: 2px 10px; cursor: pointer; }
+.recents-tabs button[aria-pressed="true"] { background: var(--primary); border-color: var(--primary); color: #fff; }
+#recents-list { max-height: min(420px, 60vh); overflow: auto; padding: 4px; }
+.recent-row { width: 100%; display: grid; grid-template-columns: 112px minmax(0, 1fr) 132px; align-items: center; gap: 10px; border: 0; border-left: 3px solid transparent; border-radius: 4px; background: transparent; color: var(--text); cursor: pointer; font: inherit; font-size: 12px; padding: 8px; text-align: left; }
+.recent-row:hover, .recent-row:focus-visible { background: var(--hover); outline: none; }
+.recent-row.current { border-left-color: var(--primary); background: var(--surface-2); }
+.recent-main, .recent-side { min-width: 0; display: grid; gap: 3px; }
+.recent-main b, .recent-main small, .recent-side small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.recent-main b { font-size: 13px; color: var(--heading); }
+.recent-main small, .recent-side small { color: var(--text-muted); font-size: 11px; }
+.run-state { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; font-weight: 700; padding: 1px 8px 1px 6px; border-radius: 10px; color: var(--c, var(--text-muted)); background: color-mix(in srgb, var(--c, var(--text-muted)) 14%, transparent); white-space: nowrap; }
+.run-state svg { width: 12px; height: 12px; }
+.run-state.pass { --c: var(--pass); } .run-state.fail { --c: var(--fail); } .run-state.warning { --c: var(--warning); }
+.run-state.skip { --c: var(--skip); } .run-state.running { --c: var(--primary); } .run-state.idle { --c: var(--warning); }
+.run-state.running svg { animation: run-pulse 1.4s ease-in-out infinite; }
+@keyframes run-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { .run-state.running svg { animation: none; } }
+.run-bar { display: flex; height: 6px; border-radius: 3px; overflow: hidden; background: var(--surface-2); }
+.run-bar i { display: block; } .run-bar .pass { background: var(--pass); } .run-bar .fail { background: var(--fail); }
+.run-bar .warning { background: var(--warning); } .run-bar .other { background: var(--running); }
+.run-bar-text { font-size: 11px; color: var(--text); white-space: nowrap; }
+.recents-empty { margin: 0; padding: 18px 10px; text-align: center; color: var(--text-muted); font-size: 13px; }
+.recents-all { border: 0; border-top: 1px solid var(--border); background: transparent; color: var(--primary); font: inherit; font-size: 12px; font-weight: 600; padding: 9px; cursor: pointer; text-align: center; }
+.recents-all:hover { background: var(--hover); }
+@media (max-width: 600px) { .recent-row { grid-template-columns: minmax(0, 1fr) 96px; } .recent-state { grid-column: 1 / -1; } }
 .recents-search:focus-visible, .search-results button:focus-visible, .command-palette button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
 .run-search-view { max-width: 1440px; margin: 0 auto; }
 .search-hero { padding: 20px; margin-bottom: 14px; }
