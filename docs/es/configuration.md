@@ -58,7 +58,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. Cuenta un diagnóstico por **resultado** de cada test: reenviar el mismo resultado, un reinicio o un error del proveedor no gastan otro, y un *Re-analizar* manual no cuenta. `0` = sin límite |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
 | `TRACEREPORTS_LEGACY_DB` | — | Solo si el servidor lo pide al arrancar: `ignore` arranca con una base nueva cuando `DATA_DIR` tiene `#`, `?` o `%` y una versión anterior guardó la base en otra ruta (para conservar los datos, muévela) |
-| `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Cierra como *incompleta* una ejecución que sigue *en curso* sin recibir nada en N horas (el cliente murió sin cerrarla). `0` = nunca. Ver [Ejecuciones abandonadas](#ejecuciones-abandonadas) |
+| `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Cierra como *incompleta* una ejecución que sigue *en curso* sin recibir nada en N horas (el cliente murió sin cerrarla); sus tests sin terminar quedan *Interrumpido*. Admite decimales (`0.5`). `0` = nunca. Sin la variable, se ajusta desde *Mantenimiento*. Ver [Ejecuciones abandonadas](#ejecuciones-abandonadas) |
 
 ## Seguridad
 
@@ -685,14 +685,32 @@ enmascarado de los clientes antes de capturar.
 
 ### Ejecuciones abandonadas
 
-Si el proceso de tests muere sin cerrar la ejecución (job de CI cancelado, máquina perdida), esta
-queda *en curso*. Tras `TRACEREPORTS_STALE_RUN_HOURS` horas (24 por defecto) **sin recibir nada**, el
-servidor la cierra como *incompleta*: los tests que seguían corriendo quedan como fallos
-*interrumpidos* y siguen el diagnóstico y la notificación, una sola vez. La actividad es la hora del
-servidor en que llegó la última escritura, no las horas que envía el cliente: una ejecución larga que
-sigue enviando nunca se cierra, y un cliente offline que sube su grabación tarde no se ve como
-abandonado. Lo que llegue después (un paso, el `finish`) se acepta como evidencia tardía, sin volver
-a notificar. Una vez cerrada, la retención la trata como cualquier otra.
+Si el proceso de tests muere sin cerrar la ejecución (job de CI cancelado, *Stop* del IDE, terminal
+cerrada, máquina perdida), esta queda *en curso*. Tras `TRACEREPORTS_STALE_RUN_HOURS` horas (24 por
+defecto) **sin recibir nada**, el servidor la cierra como *incompleta*: los tests que seguían corriendo
+quedan como **Interrumpido** (`INTERRUPTED`), con un mensaje que dice cuánto tiempo estuvo sin
+actividad, y siguen el diagnóstico y la notificación, una sola vez. La actividad es la hora del servidor
+en que llegó la última escritura, no las horas que envía el cliente: una ejecución larga que sigue
+enviando nunca se cierra, y un cliente offline que sube su grabación tarde no se ve como abandonado.
+Lo que llegue después (un paso, el `finish`) se acepta como evidencia tardía, sin volver a notificar.
+Una vez cerrada, la retención la trata como cualquier otra.
+
+Un test **Interrumpido** no alcanzó a terminar: no cuenta como fallo ni como éxito (queda fuera de la
+tasa de éxito, de flaky y del gate de Release), no lo analiza la IA y la ejecución queda en *Warning*,
+incompleta. Lo mismo pasa con los tests que siguen corriendo cuando el cliente cierra con
+`{"interrupted": true}` (`Ctrl+C`) o cuando un worker se cae. Los tests que versiones anteriores
+cerraron como `FAIL` "Interrumpido…" se convierten a `INTERRUPTED` al iniciar el servidor.
+
+**A mano, sin esperar.** Una ejecución en curso que lleva 5 minutos sin recibir datos muestra *Sin
+actividad hace X min* con el botón **Cerrar ejecución…** (administración): pide un motivo, cierra los
+tests pendientes como Interrumpido y deja registrado quién la cerró y por qué. La vista
+**Mantenimiento** lista las ejecuciones con problemas de todos los proyectos (sin actividad, en curso,
+incompletas, cerradas a mano o por inactividad), filtradas por proyecto, ambiente, rama y antigüedad,
+para cerrarlas o eliminarlas en lote (una ejecución en curso no se elimina: primero se cierra).
+
+**El umbral desde la interfaz.** En Mantenimiento, *Cerrar tras* cambia el umbral (30 min a 48 h, o
+*Nunca*) sin reiniciar el servidor; necesita el mismo permiso que Ajustes. Si el servidor tiene
+`TRACEREPORTS_STALE_RUN_HOURS`, manda la variable y el selector queda bloqueado.
 
 ## Diagnóstico con IA después de un reinicio
 

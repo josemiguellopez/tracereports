@@ -165,7 +165,8 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
     <td width="50%" valign="top">
       <h3>📣 Escala en un clic</h3>
       Un resumen para Negocio, QA o Desarrollo con la captura, las llamadas fallidas y el
-      diagnóstico. Cópialo como texto, Markdown, correo o imagen, o envíalo a Teams o Slack.
+      diagnóstico. Cópialo con formato para Teams o Slack, como Markdown, correo o imagen, o envíalo
+      al canal. Si todo pasó, dice si pasó limpio, con observaciones o con riesgos.
       <br /><br />
       <img src="./.github/assets/escalate.es.png" alt="Resumen de escalamiento para desarrollo con severidad y captura" />
     </td>
@@ -191,7 +192,8 @@ Y además:
 
 - **Flaky o roto.** Historial por test que distingue un test flaky de un fallo persistente.
 - **Regresiones de latencia.** Marca los tests cuya red se volvió más lenta (p95) que en ejecuciones anteriores.
-- **Comparación de ejecuciones.** Fallos nuevos, tests arreglados y tests más lentos frente a la ejecución anterior.
+- **Comparación de ejecuciones.** Esta ejecución junto a la anterior (o la que busques por fecha o #id), un
+  resumen en palabras y, por test, antes → ahora. Si no comparten tests, lo dice.
 - **En vivo.** Los pasos aparecen mientras los tests siguen corriendo.
 - **Métricas.** Tasa de éxito, los tests que más tiempo hacen perder, los flaky y las causas de
   fallo en el tiempo, más un resumen semanal en Teams o Slack.
@@ -219,6 +221,9 @@ Y además:
 - **Cuarentena, dueños y veredictos.** Pon en cuarentena un flaky conocido hasta una fecha, asigna
   dueños como en un archivo CODEOWNERS y clasifica los fallos para que nadie investigue dos veces el
   mismo.
+- **Ejecuciones colgadas y Mantenimiento.** Una ejecución que dejó de recibir datos se cierra a mano
+  con un motivo: sus tests sin terminar quedan *Interrumpido* y no cuentan como fallo. La vista
+  Mantenimiento las cierra o elimina en lote y ajusta el cierre automático.
 
 **En cualquier lugar**
 

@@ -40,10 +40,13 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 - Step `status`: `INFO`, `PASS`, `FAIL`, `WARNING`, `SKIP`. `timestamp`: epoch in ms or
   RFC 3339 (optional, default now).
 - Test `status`: `PASS`, `FAIL`, `WARNING`, `SKIP`, or empty to derive it from the steps.
-  A `FAIL` triggers the AI diagnosis.
+  A `FAIL` triggers the AI diagnosis. A `PASS` with a `WARNING` step is stored as `WARNING`, unless
+  `attempts` > 1 (it passed after a retry). The server also uses `INTERRUPTED` (it is not sent by
+  clients): a test cut before it finished.
 - Closing the run triggers the overall diagnosis and the Teams/Slack notifications. Tests still
-  running are closed as `FAIL` (*Interrupted*) and the run is marked `incomplete`; so is a run
-  closed with `{"interrupted": true}` (it never shows as passed). Closing an already closed run again
+  running are closed as `INTERRUPTED` (neither a failure nor a pass: out of the pass rate, flaky and
+  the release gate, and not diagnosed by the AI) and the run is marked `incomplete` (`WARNING` unless
+  something failed); so is a run closed with `{"interrupted": true}` (it never shows as passed). Closing an already closed run again
   (retry, spool) keeps the `incomplete` mark and does not repeat the diagnosis or the notifications.
   A result that arrives after the close is accepted and recomputes the run status: it never stays
   `PASS` with `FAIL` or still running tests. If the result changes (status or error), the run
@@ -175,11 +178,13 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/metrics?days=30&suite=` | Metrics across finished runs: KPIs (and the previous period's), daily series, most failing, flaky and slowest tests, causes and tags |
 | GET | `/settings` | Settings: language, AI provider (without the key: only its last 4 characters), whether they can be edited and why not |
 | GET | `/auth/check` | With `X-TraceReports-Token`: `{token_required, token_sent, token_valid}`. Checks a token without writing anything |
-| GET | `/runs?limit=50` | Runs with counters |
+| GET | `/runs?limit=50` | Runs with counters (`total`, `passed`, `failed`, `skipped`, `warning`, `running`, `interrupted`, `quarantined`). A run still `RUNNING` carries `idle_ms` (time since it last received anything); a closed one may carry `closed_by` (a UI user, `manual` without a login, or `auto` for inactivity) and `close_reason` |
+| GET | `/maintenance?state=&project=&environment=&branch=&older_than_hours=` | Runs with problems across projects, newest first (up to 200): `state` empty (running or incomplete), `idle` (running, no activity for 5 min), `running`, `incomplete`, `manual` (closed by hand) or `auto` (closed for inactivity). Answers `{runs, idle_warn_ms, stale: {hours, source, editable}}`; `source` is `env`, `ui` or `default` |
 | GET | `/runs/search?...` | Paginated history for Search: `{items, next_cursor, total_estimate}` |
 | GET | `/runs/facets?...` | Frequent filter values for Search: project, environment, branch and tag |
 | GET | `/runs/{run_id}` | Run with its tests (includes `flaky`, `flaky_info`, `net_drift`, network counters) and `summary` (diagnosis) |
-| GET | `/runs/{run_id}/compare?base={id}` | Comparison (`base` default: the related previous run) |
+| GET | `/runs/{run_id}/compare?base={id}` | Comparison (`base` default: the related previous run): `base_run`, `base_reason`, `new_failures`, `fixed`, `still_failing`, `changed` (status changed without a failure, e.g. `PASS` → `SKIP`), `unchanged`, `slower`, `new_tests` (only in this run), `missing` (only in the base), `common` (tests in both: `0` means nothing to compare) and `base_later` (the base started after this run) |
+| GET | `/runs/{run_id}/baselines` | Up to 100 finished runs of the same project and environment that can be the base, newest first, each with `shared` (tests in common with this run) |
 | GET | `/runs/{run_id}/endpoints` | Backend endpoint ranking |
 | GET | `/runs/{run_id}/export` | Self-contained report ZIP |
 | GET | `/tests/{test_id}` | Test with steps and diagnosis |
@@ -240,7 +245,11 @@ in local mode, the server's own machine.
 | POST | `/ui/ai/chat` | `{run_id, test_id, lang, messages: [{role, text}]}` | A free question to Trace Buddy: `{answer, provider, model}`. Needs an LLM (`409` with `code: needs_llm` on the local engine). The model gets the evidence of the run or test (`run_id`/`test_id`, both optional), the last 8 turns of up to 2000 characters, all through the redaction. Up to 60 questions per hour per server (`429`); logged in AI usage as `chat` |
 | POST | `/ui/tests/{test_id}/analyze` | — | `202 {queued}`: diagnoses a failed test again |
 | POST | `/ui/runs/{run_id}/analyze` | `{all?}` | `202 {queued}`: diagnoses the failures without a diagnosis (or all with `all`) and the run summary |
-| POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?}` | Summary for `business`, `qa` or `dev` (`test_id` 0 = the whole run). Cached when written by AI, with `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (time waiting for the provider, pauses between retries and TraceReports' own time; `attempts`: every call with `ms`, `ok`, `status`, `reason` and the following pause `wait_ms`/`wait_asked`). On a 429/5xx it waits what the provider asks (`Retry-After`, `retry-after-ms` or Gemini's `RetryInfo`), up to 90 s |
+| POST | `/ui/escalate` | `{run_id, test_id, audience, lang, regenerate?, no_ai?}` | Summary for `business`, `qa` or `dev` (`test_id` 0 = the whole run). A run without failures carries `facts.assessment`: the QA verdict (`clean`, `observations` or `risks`, computed by rules, not by the AI) and its `signals` (`level` `risk`/`note`, `kind`, `test`, `text`); with risks the severity is `medium`. When it finished, the AI writes a summary of what was validated (`kind: success`) but not the verdict, the severity nor the evidence; if its text describes a failure it is discarded (`ai_skipped: invented_failure`). A run still running, incomplete or all skipped is built without AI (`ai_skipped: no_failures`). Cached when written by AI, with `timing`: `{total_ms, provider_ms, wait_ms, own_ms, calls, attempts}` (time waiting for the provider, pauses between retries and TraceReports' own time; `attempts`: every call with `ms`, `ok`, `status`, `reason` and the following pause `wait_ms`/`wait_asked`). On a 429/5xx it waits what the provider asks (`Retry-After`, `retry-after-ms` or Gemini's `RetryInfo`), up to 90 s |
+| POST | `/ui/runs/{run_id}/close` | `{reason}` | Closes a `RUNNING` run by hand: its unfinished tests become `INTERRUPTED` with the reason (redacted, up to 500 characters) and the run records `closed_by` and `close_reason`. `409` if it is already closed. Then the run diagnosis and the notification follow, as for any close |
+| POST | `/ui/runs/close` | `{run_ids, reason}` | The same for up to 200 runs: `{closed, skipped}` (already closed or unknown ones are skipped) |
+| POST | `/ui/runs/delete` | `{run_ids}` | Deletes up to 200 **closed** runs with all their evidence (screenshots and artifacts included; the database is compacted): `{deleted, skipped}`. A running run is skipped |
+| PUT | `/ui/maintenance/stale` | `{hours}` | The inactivity threshold of the automatic close (`0` = never, up to 720), applied without a restart. Needs the Settings permission; `409` when `TRACEREPORTS_STALE_RUN_HOURS` sets it |
 | POST | `/ui/escalate/send` | `{run_id, test_id, audience, lang, channel}` | Posts the summary to `teams` or `slack`. With `PUBLIC_URL` it includes the link and the screenshot |
 | POST | `/ui/tickets` | `{run_id, test_id, provider, audience, lang, force}` | Creates a ticket in `github`, `jira` or `azure` with the summary (default for `dev`). `201 {ticket}`; if the same failure already has one, `200 {ticket, existing: true}` (unless `force`). If it is unknown whether the tracker created it, `502 {uncertain: true}` and then `409` until `force` is sent. See [Configuration](configuration.md#tickets-in-github-jira-or-azure-devops) |
 | POST | `/ui/summary/weekly` | `{send, lang}` | Summary of the last 7 days: `{summary, sent}`. With `send: true` it posts it to Teams/Slack |
