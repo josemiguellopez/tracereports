@@ -283,7 +283,8 @@ type Usage struct {
 
 // call asks the configured provider for a JSON answer matching schema (standard JSON Schema)
 // and returns the JSON text and the tokens the provider reported (also when the answer is an
-// error after the provider worked: a refusal, an unreadable answer).
+// error after the provider worked: a refusal, an unreadable answer). A nil schema asks for plain
+// text (the chat: code inside JSON breaks small local models at the first unescaped quote).
 func call(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
 	var (
 		text string
@@ -311,7 +312,11 @@ func call(ctx context.Context, client *http.Client, c Config, prompt string, sch
 	}
 	// el texto de una respuesta HTTP 200 tampoco: termina en errores locales ("no es JSON": recortado),
 	// diagnósticos, escalados y resúmenes. Se quita entero, antes de cualquier recorte
-	return cleanJSON(scrubKey(text, c.APIKey)), u, nil
+	text = scrubKey(text, c.APIKey)
+	if schema == nil {
+		return strings.TrimSpace(text), u, nil // texto libre: un bloque de código al inicio es parte de la respuesta
+	}
+	return cleanJSON(text), u, nil
 }
 
 // cleanJSON strips the ```json fences some models add even when asked for raw JSON.
@@ -514,15 +519,15 @@ type geminiPart struct {
 }
 
 func callGemini(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
+	gen := map[string]any{"temperature": 0.2}
+	if schema != nil {
+		gen["responseMimeType"], gen["responseSchema"] = "application/json", geminiSchema(schema)
+	}
 	raw, err := postJSON(ctx, client, "gemini", fmt.Sprintf("%s/v1beta/models/%s:generateContent", c.BaseURL, c.Model),
 		map[string]string{"x-goog-api-key": c.APIKey},
 		geminiRequest{
-			Contents: []geminiContent{{Role: "user", Parts: []geminiPart{{Text: prompt}}}},
-			GenerationConfig: map[string]any{
-				"temperature":      0.2,
-				"responseMimeType": "application/json",
-				"responseSchema":   geminiSchema(schema),
-			},
+			Contents:         []geminiContent{{Role: "user", Parts: []geminiPart{{Text: prompt}}}},
+			GenerationConfig: gen,
 		})
 	if err != nil {
 		return "", Usage{}, err
@@ -568,9 +573,11 @@ func callAnthropic(ctx context.Context, client *http.Client, c Config, prompt st
 		Model:     anthropic.Model(c.Model),
 		MaxTokens: 16000,
 		Messages:  []anthropic.BetaMessageParam{anthropic.NewBetaUserMessage(anthropic.NewBetaTextBlock(prompt))},
-		OutputConfig: anthropic.BetaOutputConfigParam{
+	}
+	if schema != nil {
+		params.OutputConfig = anthropic.BetaOutputConfigParam{
 			Format: anthropic.BetaJSONOutputFormatParam{Schema: closedSchema(schema).(map[string]any)},
-		},
+		}
 	}
 	if claudeFallbackModels[c.Model] {
 		params.Betas = []anthropic.AnthropicBeta{anthropic.AnthropicBetaServerSideFallback2026_07_01}
@@ -671,14 +678,16 @@ func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt strin
 	body := map[string]any{
 		"model":    c.Model,
 		"messages": []map[string]string{{"role": "user", "content": prompt}},
-		"response_format": map[string]any{"type": "json_schema", "json_schema": map[string]any{
+	}
+	if schema != nil {
+		body["response_format"] = map[string]any{"type": "json_schema", "json_schema": map[string]any{
 			"name": "result", "schema": closedSchema(schema),
-		}},
+		}}
 	}
 	started := time.Now()
 	raw, err := postJSON(ctx, client, c.Provider, c.BaseURL+"/chat/completions", headers, body)
 	var se *httpStatusError
-	if errors.As(err, &se) && se.code == http.StatusBadRequest {
+	if schema != nil && errors.As(err, &se) && se.code == http.StatusBadRequest {
 		attemptsFrom(ctx).attempt(time.Since(started), err) // la primera solicitud también fue una llamada
 		// Algunas APIs compatibles no soportan json_schema: JSON simple con el esquema en el prompt.
 		schemaText, _ := json.Marshal(schema)
@@ -721,13 +730,16 @@ func callOpenAI(ctx context.Context, client *http.Client, c Config, prompt strin
 // ---- Ollama (local) ----
 
 func callOllama(ctx context.Context, client *http.Client, c Config, prompt string, schema map[string]any) (string, Usage, error) {
-	raw, err := postJSON(ctx, client, "ollama", c.BaseURL+"/api/chat", nil, map[string]any{
+	body := map[string]any{
 		"model":    c.Model,
 		"messages": []map[string]string{{"role": "user", "content": prompt}},
 		"stream":   false,
-		"format":   schema,
 		"options":  map[string]any{"temperature": 0.2},
-	})
+	}
+	if schema != nil {
+		body["format"] = schema
+	}
+	raw, err := postJSON(ctx, client, "ollama", c.BaseURL+"/api/chat", nil, body)
 	if err != nil {
 		var ne interface{ Timeout() bool }
 		if errors.As(err, &ne) || strings.Contains(err.Error(), "connection refused") {

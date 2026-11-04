@@ -126,6 +126,9 @@ func (n *Notifier) build(runID int64) (*Message, error) {
 	if run.Warning > 0 {
 		m.Stats += fmt.Sprintf(" · %d con advertencia", run.Warning)
 	}
+	if run.Interrupted > 0 {
+		m.Stats += fmt.Sprintf(" · %d interrumpidos", run.Interrupted)
+	}
 	if run.Running > 0 {
 		m.Stats += fmt.Sprintf(" · %d sin terminar", run.Running)
 	}

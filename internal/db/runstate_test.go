@@ -55,7 +55,8 @@ func TestLatePassForInterruptedTestStaysIncomplete(t *testing.T) {
 	s := openTestStore(t)
 	rid, _ := s.CreateRun("interrumpida", "qa")
 	tid, _ := s.CreateTest(rid, "test", "", "")
-	if r, _ := s.FinishRun(rid); r.Status != "FAIL" || !r.Incomplete {
+	// el test cortado no es un fallo del producto: queda INTERRUPTED y la ejecución en WARNING, incompleta
+	if r, _ := s.FinishRun(rid); r.Status != "WARNING" || !r.Incomplete || r.Interrupted != 1 || r.Failed != 0 {
 		t.Fatalf("close with a RUNNING test: %+v", r)
 	}
 	s.FinishTest(tid, "PASS", "", "") // llega tarde desde el spool

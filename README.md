@@ -162,7 +162,8 @@ The AI cause is always shown as a hypothesis, next to the evidence it relies on.
     <td width="50%" valign="top">
       <h3>📣 Escalate in one click</h3>
       A summary for Business, QA or Development with the screenshot, the failed calls and the
-      diagnosis. Copy it as text, Markdown, email or image, or send it to Teams or Slack.
+      diagnosis. Copy it formatted for Teams or Slack, as Markdown, email or image, or send it to the
+      channel. When everything passed, it says whether it passed clean, with observations or with risks.
       <br /><br />
       <img src="./.github/assets/escalate.png" alt="Escalation summary for developers with severity and screenshot" />
     </td>
@@ -188,7 +189,8 @@ And also:
 
 - **Flaky vs. broken.** History per test that tells a flaky test from a persistent failure.
 - **Latency regressions.** Flags tests whose network got slower (p95) than in previous runs.
-- **Run comparison.** New failures, fixed tests and slower tests compared with the previous run.
+- **Run comparison.** This run next to the previous one (or one you search by date or #id), a
+  plain-language summary and, per test, before → now. If they share no tests, it says so.
 - **Live.** Steps show up while the tests are still running.
 - **Metrics.** Pass rate, the tests that waste the most time, flaky tests and failure causes over
   time, plus a weekly summary in Teams or Slack.
@@ -213,6 +215,9 @@ And also:
 - **Pull request comments.** The run summary on the GitHub PR or GitLab MR, updated on every push.
 - **Quarantine, owners and verdicts.** Quarantine a known flaky test until a date, assign owners
   like a CODEOWNERS file and classify failures so nobody investigates the same one twice.
+- **Stuck runs and Maintenance.** A run that stopped receiving data is closed by hand with a reason:
+  its unfinished tests become *Interrupted* and do not count as failures. The Maintenance view
+  closes or deletes them in bulk and sets the automatic close.
 
 **Anywhere**
 

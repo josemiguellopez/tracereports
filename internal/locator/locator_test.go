@@ -16,6 +16,9 @@ Call log:
 		"org.openqa.selenium.TimeoutException: Expected condition failed: waiting for presence of element located by: By.xpath: //button[@id='go'] (tried for 5 second(s))": `//button[@id='go']`,
 		"NoSuchElementException: By.cssSelector: input[name='user']":                                                                                                        `input[name='user']`,
 		`AssertionError: 3 != 4`: ``,
+		"Esperando elemento con selector //option[normalize-space(text())='salinas alexis'] (3 intentos)": `//option[normalize-space(text())='salinas alexis']`,
+		"xpath //div[@id='x']/span[contains(., 'a b')], después de 3 intentos":                             `//div[@id='x']/span[contains(., 'a b')]`,
+		`Get "http://api.local/x": dial tcp: lookup api.local: no such host`:                              ``,
 	}
 	for in, want := range cases {
 		if got := ExtractSelector(in); got != want {

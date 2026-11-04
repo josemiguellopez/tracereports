@@ -58,7 +58,7 @@ steps to apply it.
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. It counts one diagnosis per test **result**: resending the same result, a restart or a provider error do not spend another one, and a manual *Re-analyze* does not count. `0` = no limit |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
 | `TRACEREPORTS_LEGACY_DB` | — | Only if the server asks for it on start: `ignore` starts with a new database when `DATA_DIR` has `#`, `?` or `%` and an older version kept the database elsewhere (move it instead to keep the data) |
-| `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Closes as *incomplete* a run still *in progress* that received nothing for N hours (the client died without closing it). `0` = never. See [Abandoned runs](#abandoned-runs) |
+| `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Closes as *incomplete* a run still *in progress* that received nothing for N hours (the client died without closing it); its unfinished tests become *Interrupted*. Decimals allowed (`0.5`). `0` = never. Without the variable, it is set from *Maintenance*. See [Abandoned runs](#abandoned-runs) |
 
 ## Security
 
@@ -679,14 +679,30 @@ capture.
 
 ### Abandoned runs
 
-If the test process dies without closing the run (cancelled CI job, lost machine), it stays *in
-progress*. After `TRACEREPORTS_STALE_RUN_HOURS` hours (24 by default) **without receiving anything**,
-the server closes it as *incomplete*: the tests still running become *interrupted* failures, and the
-diagnosis and the notification follow, once. Activity is the server time when the last write
-arrived, not the times the client sends: a long run that keeps sending is never closed, and an
-offline client uploading its recording late does not look abandoned. Whatever arrives later (a
-step, the `finish`) is accepted as late evidence, without notifying again. Once closed, retention
-treats it like any other.
+If the test process dies without closing the run (cancelled CI job, IDE *Stop*, closed terminal, lost
+machine), it stays *in progress*. After `TRACEREPORTS_STALE_RUN_HOURS` hours (24 by default) **without
+receiving anything**, the server closes it as *incomplete*: the tests still running become
+**Interrupted** (`INTERRUPTED`), with a message that says how long it was idle, and the diagnosis and
+the notification follow, once. Activity is the server time when the last write arrived, not the times
+the client sends: a long run that keeps sending is never closed, and an offline client uploading its
+recording late does not look abandoned. Whatever arrives later (a step, the `finish`) is accepted as
+late evidence, without notifying again. Once closed, retention treats it like any other.
+
+An **Interrupted** test did not get to finish: it is neither a failure nor a pass (out of the pass
+rate, flaky and the Release gate), the AI does not analyze it and the run stays *Warning*, incomplete.
+The same happens to the tests still running when the client closes with `{"interrupted": true}`
+(`Ctrl+C`) or a worker crashes. Tests that earlier versions closed as `FAIL` "Interrumpido…" are turned
+into `INTERRUPTED` when the server starts.
+
+**By hand, without waiting.** A running run with no data for 5 minutes shows *No activity for X min*
+with a **Close run…** button (admin): it asks for a reason, closes the pending tests as Interrupted and
+records who closed it and why. The **Maintenance** view lists the runs with problems across projects (no
+activity, running, incomplete, closed by hand or for inactivity), filtered by project, environment,
+branch and age, to close or delete them in bulk (a running run is not deleted: close it first).
+
+**The threshold from the interface.** In Maintenance, *Close after* changes the threshold (30 min to
+48 h, or *Never*) without restarting the server; it needs the same permission as Settings. If the server
+has `TRACEREPORTS_STALE_RUN_HOURS`, the variable wins and the selector is locked.
 
 ## AI diagnosis after a restart
 

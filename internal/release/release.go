@@ -131,7 +131,7 @@ func Evaluate(g Gate, d *db.RunDetail, newFailures []string) *Decision {
 	counted, passed := 0, 0
 	for _, t := range d.Tests {
 		q := t.Quarantine != nil && t.Quarantine.Active && t.Status == "FAIL"
-		if t.Status != "SKIP" && !q {
+		if t.Status != "SKIP" && t.Status != "INTERRUPTED" && !q { // un test cortado no dice nada del producto
 			counted++
 			if t.Status == "PASS" {
 				passed++

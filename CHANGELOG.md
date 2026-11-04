@@ -6,8 +6,58 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+Server only: the clients do not change. Validated with a team that uses TraceReports in Docker with a local
+Ollama model.
+
+### Added
+
+- **QA verdict for runs without failures**: Escalate no longer reports a green run as a plain pass. Rules
+  review what each test delivered and say whether it **passed clean**, **with observations** (aborted calls,
+  4xx answers, console errors, warnings, skipped tests, tests much slower than their history) or **with
+  risks** (passed only on retry, a server error the test did not catch, uncaught JavaScript exceptions,
+  unstable history; severity medium). The card, the Teams/Slack/Markdown text and the email show the
+  verdict and each signal, with next steps. With an LLM, a finished green run gets a summary of what was
+  validated (from the test names, descriptions and steps); the model does not choose the verdict, the
+  severity or the evidence, and a text that describes a failure is discarded.
+- **Interrupted status**: tests cut before they finished (`Ctrl+C`, a crashed worker, the inactivity close
+  or a close by hand) are `INTERRUPTED`, not `FAIL`: they are out of the pass rate, flaky and the release
+  gate, are not diagnosed by the AI, and the run stays *Warning*, incomplete. Earlier interrupted failures
+  are migrated once.
+- **Close a stuck run**: a running run with no data for 5 minutes shows *No activity for X min* with
+  *Close run…* (admin), which asks for a reason and records who closed it (`POST /ui/runs/{id}/close`).
+- **Maintenance view**: the runs with problems across projects (no activity, running, incomplete, closed by
+  hand or for inactivity), filtered by project, environment, branch and age, to close or delete them in
+  bulk; the inactivity threshold of the automatic close is set there without a restart
+  (`TRACEREPORTS_STALE_RUN_HOURS` still wins). See [Configuration](docs/en/configuration.md#abandoned-runs).
+- **Comparison you can read**: *this run* next to the base, a plain-language summary, a before → now table
+  per test (started failing, fixed, still failing, status changed, same) and the tests that ran in only one
+  of them; pick the base by searching #id, date, branch or state, with the tests each candidate shares.
+  *Explain it* asks Trace Buddy about the comparison.
+- **Recents**: each run shows its state, #id, project, environment and branch, a results bar, when it ran
+  and how long it took, with a filter, tabs for failed and running runs, and keyboard navigation.
+
+### Changed
+
+- **Warning status**: a test that passes with a `WARNING` step is stored as `WARNING` (a pass after a retry
+  stays `PASS`).
+- **Escalate copy**: *Teams* and *Slack* copy formatted HTML (bold, lists, code) instead of Markdown that
+  showed its asterisks; *Copy image* writes the image to the clipboard, also over plain HTTP on the network
+  where the browser has no Clipboard API. The share bar has the app icons.
+- **Trace Buddy chat**: answers as a senior QA Automation engineer, gives the new selector, wait or code
+  first, and asks the model for plain text (small local models cut answers at the first quote of a code
+  sample inside JSON). Custom waits that log a bare XPath are classified as a broken locator.
+
 ### Fixed
 
+- **Escalate on a run without failures**: the AI was asked to explain "a failed test" and a small model
+  invented one (an invalid RUT, a login service down); it no longer happens, and the invented summaries
+  cached before are not served.
+- **Comparison with another suite** said "no changes" when the runs shared no test, and a test that went
+  from `PASS` to `SKIP` was listed as the same.
+- **Trace Buddy probe**: waits up to 2 minutes for a local model (Ollama, OpenAI-compatible) that is still
+  loading, instead of failing after 30 s.
+- **Auto-scroll toggle** hidden behind Trace Buddy; **Release** cards that overflowed with long feature
+  names.
 - **Client READMEs on PyPI and npm**: the links to the guides (offline mode, local report, the language
   switch) were relative to the repository and led nowhere on the package pages; they now point to GitHub.
   Every URL is also on a line of its own, so a viewer that shows the README as plain text no longer glues

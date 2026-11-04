@@ -260,6 +260,23 @@ type Comparison struct {
 	StillFailing []CompareItem `json:"still_failing"`
 	NewTests     []CompareItem `json:"new_tests"`
 	Slower       []CompareItem `json:"slower"`
+	// Unchanged: tests in both runs with the same outcome (not a failure in either).
+	Unchanged []CompareItem `json:"unchanged"`
+	// Changed: tests whose outcome changed without a failure involved (PASS -> SKIP, SKIP -> PASS...).
+	Changed []CompareItem `json:"changed"`
+	// Missing: tests of the base that did not run this time.
+	Missing []CompareItem `json:"missing"`
+	// Common: how many tests ran in both. 0 = nothing to compare (another suite), whatever the lists say.
+	Common int `json:"common"`
+	// BaseLater: the base started after this run (chosen by hand), so "before" is the newer one.
+	BaseLater bool `json:"base_later,omitempty"`
+}
+
+// BaseCandidate is a run that can be the base of a comparison, with how many tests it shares with the
+// run being compared (0 = another suite: comparing says nothing).
+type BaseCandidate struct {
+	Run
+	Shared int `json:"shared"`
 }
 
 // PreviousRunID returns the most recent earlier finished run of the same context that shares at
@@ -282,8 +299,8 @@ func (s *Store) PreviousRunID(runID int64) (int64, string, error) {
 }
 
 // CompatibleRuns lists the finished runs of the same project and environment (any branch) that
-// can be chosen as the base of a comparison, newest first.
-func (s *Store) CompatibleRuns(runID int64, limit int) ([]Run, error) {
+// can be chosen as the base of a comparison, newest first, with the tests each shares with runID.
+func (s *Store) CompatibleRuns(runID int64, limit int) ([]BaseCandidate, error) {
 	// una sola consulta: las ejecuciones elegidas y sus contadores agrupados (los mismos que
 	// GetRun/countersOf), en vez de una consulta por ejecución
 	rows, err := s.db.Query(`
@@ -295,28 +312,32 @@ func (s *Store) CompatibleRuns(runID int64, limit int) ([]Run, error) {
 		       COALESCE(SUM(t.status='SKIP'),0),
 		       COALESCE(SUM(t.status='WARNING'),0),
 		       COALESCE(SUM(t.status='RUNNING'),0),
-		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
+		       COALESCE(SUM(t.status='INTERRUPTED'),0),
+		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0),
+		       (SELECT COUNT(DISTINCT s.test_key) FROM tests s WHERE s.run_id = r.id
+		          AND s.test_key IN (SELECT test_key FROM tests WHERE run_id = ?))
 		FROM (SELECT c.id FROM runs c
 		      WHERE c.id != ? AND c.status != 'RUNNING'
 		        AND c.project = (SELECT project FROM runs WHERE id = ?) AND c.environment = (SELECT environment FROM runs WHERE id = ?)
 		      ORDER BY c.id DESC LIMIT ?) sel
 		JOIN runs r ON r.id = sel.id
 		LEFT JOIN tests t ON t.run_id = r.id
-		GROUP BY r.id ORDER BY r.id DESC`, NowMs(), runID, runID, runID, limit)
+		GROUP BY r.id ORDER BY r.id DESC`, NowMs(), runID, runID, runID, runID, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	out := []Run{}
+	out := []BaseCandidate{}
 	for rows.Next() {
-		var r Run
+		var b BaseCandidate
+		r := &b.Run
 		if err := rows.Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
 			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete,
-			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Quarantined); err != nil {
+			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Interrupted, &r.Quarantined, &b.Shared); err != nil {
 			return nil, err
 		}
 		r.deriveStatus()
-		out = append(out, r)
+		out = append(out, b)
 	}
 	return out, rows.Err()
 }
@@ -357,7 +378,8 @@ func (s *Store) CompareRuns(runID, baseID int64) (*Comparison, error) {
 	if _, err := s.GetRun(runID); err != nil {
 		return nil, err
 	}
-	c := &Comparison{NewFailures: []CompareItem{}, Fixed: []CompareItem{}, StillFailing: []CompareItem{}, NewTests: []CompareItem{}, Slower: []CompareItem{}}
+	c := &Comparison{NewFailures: []CompareItem{}, Fixed: []CompareItem{}, StillFailing: []CompareItem{}, NewTests: []CompareItem{}, Slower: []CompareItem{},
+		Unchanged: []CompareItem{}, Changed: []CompareItem{}, Missing: []CompareItem{}}
 	if baseID == 0 {
 		var err error
 		if baseID, c.BaseReason, err = s.PreviousRunID(runID); err != nil {
@@ -375,6 +397,9 @@ func (s *Store) CompareRuns(runID, baseID int64) (*Comparison, error) {
 		return nil, err
 	}
 	c.BaseRun = base
+	if run, err := s.GetRun(runID); err == nil {
+		c.BaseLater = base.StartedAt > run.StartedAt
+	}
 	cur, err := s.outcomesByKey(runID)
 	if err != nil {
 		return nil, err
@@ -391,6 +416,7 @@ func (s *Store) CompareRuns(runID, baseID int64) (*Comparison, error) {
 			continue
 		}
 		item.BaseStatus, item.BaseDurationMs = p.status, p.duration
+		c.Common++
 		switch {
 		case o.status == "FAIL" && p.status == "FAIL":
 			c.StillFailing = append(c.StillFailing, item)
@@ -398,6 +424,10 @@ func (s *Store) CompareRuns(runID, baseID int64) (*Comparison, error) {
 			c.NewFailures = append(c.NewFailures, item)
 		case p.status == "FAIL" && (o.status == "PASS" || o.status == "WARNING"):
 			c.Fixed = append(c.Fixed, item)
+		case o.status != p.status:
+			c.Changed = append(c.Changed, item)
+		default:
+			c.Unchanged = append(c.Unchanged, item)
 		}
 		// 50% más lento y al menos 1 s más: evita marcar ruido de milisegundos
 		if o.finished && p.finished && o.status != "FAIL" && p.duration > 0 &&
@@ -405,7 +435,12 @@ func (s *Store) CompareRuns(runID, baseID int64) (*Comparison, error) {
 			c.Slower = append(c.Slower, item)
 		}
 	}
-	for _, list := range [][]CompareItem{c.NewFailures, c.Fixed, c.StillFailing, c.NewTests, c.Slower} {
+	for key, p := range prev {
+		if _, ran := cur[key]; !ran {
+			c.Missing = append(c.Missing, CompareItem{Name: p.name, Key: key, TestID: p.id, BaseStatus: p.status, BaseDurationMs: p.duration})
+		}
+	}
+	for _, list := range [][]CompareItem{c.NewFailures, c.Fixed, c.StillFailing, c.NewTests, c.Slower, c.Unchanged, c.Changed, c.Missing} {
 		sort.Slice(list, func(i, j int) bool { return list[i].TestID < list[j].TestID })
 	}
 	return c, nil

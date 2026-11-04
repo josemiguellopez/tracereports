@@ -17,6 +17,21 @@ import (
 // admins at once, do not pay one provider call each.
 const probeTTL = 20 * time.Second
 
+// How long the probe waits for the provider. A local model (Ollama, an OpenAI-compatible server) is
+// loaded into memory on the first call after a while idle: a 14B one takes over 30 s on its own.
+var (
+	probeWaitCloud = 30 * time.Second
+	probeWaitLocal = 2 * time.Minute
+)
+
+// waitText is a wait as the probe error says it: "30 s", "2 minutes".
+func waitText(d time.Duration) string {
+	if d >= time.Minute && d%time.Minute == 0 {
+		return fmt.Sprintf("%d minutes", d/time.Minute)
+	}
+	return fmt.Sprintf("%d s", int(d.Seconds()))
+}
+
 // probeCache is the last answer of aiProbe, for the configuration it was made with.
 type probeCache struct {
 	mu   sync.Mutex
@@ -50,14 +65,18 @@ func (s *Server) aiProbe(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, s.probe.body)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+	wait := probeWaitCloud
+	if c.Provider == "ollama" || c.Provider == "openai_compatible" {
+		wait = probeWaitLocal
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), wait)
 	defer cancel()
 	took, err := s.AI.Test(ctx, c)
 	body := map[string]any{"ok": err == nil, "state": "llm", "provider": c.Provider, "model": s.AI.Model()}
 	if err != nil {
 		msg := s.redactor().Text(err.Error()) // la key ya viene quitada (ai.call); además, la política
 		if errors.Is(err, context.DeadlineExceeded) {
-			msg = "the provider did not answer in 30 s"
+			msg = fmt.Sprintf("the provider did not answer in %s", waitText(wait))
 		}
 		hint, suggest := ai.Hint(err, c)
 		body["error"], body["hint"], body["suggest"] = msg, hint, suggest

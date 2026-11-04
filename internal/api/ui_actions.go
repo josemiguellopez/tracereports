@@ -158,6 +158,9 @@ func (s *Server) cachedEscalation(ref escalationRef, facts *ai.Facts) (*ai.Escal
 	if err := json.Unmarshal([]byte(raw), &e); err != nil {
 		return nil, err
 	}
+	if e.Source == "ai" && e.Kind != ai.KindSuccess && ai.NothingFailed(facts, ref.TestID) {
+		return nil, nil // escrito como si hubiera un fallo (versiones anteriores): inventaba uno
+	}
 	return &e, nil
 }
 
