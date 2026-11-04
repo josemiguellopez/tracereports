@@ -5,8 +5,8 @@ const { test, expect } = require("@playwright/test");
 
 test.describe.configure({ mode: "serial" });
 
-async function runningRun(request, name) {
-	const run = (await (await request.post("/api/v1/runs", { data: { name, environment: "qa" } })).json()).run_id;
+async function runningRun(request, name, project = "") {
+	const run = (await (await request.post("/api/v1/runs", { data: { name, environment: "qa", project } })).json()).run_id;
 	const login = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "login" } })).json()).test_id;
 	await request.post(`/api/v1/tests/${login}/logs`, { data: { status: "PASS", message: "entra al dashboard" } });
 	await request.patch(`/api/v1/tests/${login}/finish`, { data: { status: "PASS" } });
@@ -74,4 +74,52 @@ test("cerrar una ejecución que sigue en curso desde la API del cliente (Ctrl+C)
 	await expect(page.locator("#test-collection .collection-item", { hasText: "busca cliente" }).locator(".label.interrupted")).toBeVisible();
 	await page.locator('[data-view="dashboard"]').first().click();
 	await expect(page.locator("#env-table")).toContainText("Interrumpidos");
+});
+
+test("Mantenimiento: filtra, cierra y elimina en lote, y ajusta el cierre automático", async ({ page, request }) => {
+	const a = (await runningRun(request, "Mant A", "mant-e2e")).run;
+	const b = (await runningRun(request, "Mant B", "mant-e2e")).run;
+	await page.goto("/#view=maintenance");
+	const view = page.locator("#view-maintenance");
+	await expect(view.locator(".page-title")).toHaveText("Mantenimiento");
+	await view.locator('[data-maint-filter="project"]').selectOption("mant-e2e");
+	await view.locator('[data-maint-state="running"]').click();
+	const rows = view.locator(".maint-table tbody tr");
+	await expect(rows).toHaveCount(2);
+	await expect(rows.first()).toContainText("recibiendo datos");
+
+	// cerrar las dos con un motivo
+	await view.locator("[data-maint-all]").check();
+	await expect(view.locator(".maint-bulk")).toContainText("2 de 2 elegidas");
+	await view.locator('[data-maint-act="close"]').click();
+	const form = view.locator("[data-maint-close-form]");
+	await form.locator('input[name="detail"]').fill("limpieza E2E");
+	await form.locator('button[type="submit"]').click();
+	await expect(view.locator(".set-msg.ok")).toContainText("Se cerraron 2 ejecución(es) como interrumpidas");
+	await expect(view.locator(".maint-table tbody tr")).toHaveCount(0);
+	for (const id of [a, b]) {
+		const r = await (await request.get(`/api/v1/runs/${id}`)).json();
+		expect(r).toMatchObject({ status: "WARNING", interrupted: 1, close_reason: "Cancelado manualmente: limpieza E2E" });
+	}
+
+	// aparecen como cerradas a mano; eliminarlas pide confirmar
+	await view.locator('[data-maint-state="manual"]').click();
+	await expect(rows).toHaveCount(2);
+	await expect(rows.first()).toContainText("Cerrada manualmente");
+	await view.locator("[data-maint-all]").check();
+	await view.locator('[data-maint-act="delete"]').click();
+	await expect(view.locator(".maint-confirm.danger")).toContainText("No se puede deshacer");
+	await view.locator("[data-maint-delete]").click();
+	await expect(view.locator(".set-msg.ok")).toContainText("Se eliminaron 2 ejecución(es)");
+	await expect(view.locator(".m-empty")).toContainText("Nada que revisar");
+	expect((await request.get(`/api/v1/runs/${a}`)).status()).toBe(404);
+
+	// el umbral del cierre automático se guarda desde aquí (y se deja como estaba)
+	const stale = view.locator("[data-maint-stale]");
+	await expect(stale).toHaveValue("24");
+	await stale.selectOption("1");
+	await expect(view.locator(".set-msg.ok")).toContainText("se cerrarán solas tras 1 h sin actividad");
+	expect((await (await request.get("/api/v1/maintenance")).json()).stale).toMatchObject({ hours: 1, source: "ui" });
+	await stale.selectOption("24");
+	await expect(view.locator(".set-msg.ok")).toContainText("tras 24 h");
 });

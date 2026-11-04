@@ -544,7 +544,10 @@ func (r *Run) deriveStatus() {
 }
 
 // ListRuns returns the most recent runs with live counters.
-func (s *Store) ListRuns(limit int) ([]Run, error) {
+func (s *Store) ListRuns(limit int) ([]Run, error) { return s.listRunsWhere("1", nil, limit) }
+
+// listRunsWhere is ListRuns for the runs that match where (a condition on runs r, with its args).
+func (s *Store) listRunsWhere(where string, args []any, limit int) ([]Run, error) {
 	rows, err := s.db.Query(`
 		SELECT r.id, r.name, r.environment, r.status, r.started_at, r.ended_at,
 		       r.project, r.branch, r.commit_sha, r.framework, r.incomplete, r.last_activity, r.closed_by, r.close_reason,
@@ -557,7 +560,8 @@ func (s *Store) ListRuns(limit int) ([]Run, error) {
 		       COALESCE(SUM(t.status='INTERRUPTED'),0),
 		       COALESCE(SUM(t.status='FAIL' AND `+activeQuarantine+`),0)
 		FROM runs r LEFT JOIN tests t ON t.run_id = r.id
-		GROUP BY r.id ORDER BY r.id DESC LIMIT ?`, NowMs(), limit)
+		WHERE `+where+`
+		GROUP BY r.id ORDER BY r.id DESC LIMIT ?`, append(append([]any{NowMs()}, args...), limit)...)
 	if err != nil {
 		return nil, err
 	}

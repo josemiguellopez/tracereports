@@ -14,31 +14,32 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/env"
 )
 
-// startStaleRuns closes, every 15 minutes, the runs left RUNNING without receiving anything for
-// TRACEREPORTS_STALE_RUN_HOURS hours (default 24; 0 = never), as incomplete: they no longer
-// show as "in progress" forever and retention can delete them like any other.
+// startStaleRuns closes, every 15 minutes (or sooner with a short threshold), the runs left
+// RUNNING without receiving anything for the configured hours, as incomplete: they no longer show
+// as "in progress" forever and retention can delete them like any other. The threshold is
+// TRACEREPORTS_STALE_RUN_HOURS, or the one chosen in Mantenimiento (default 24; 0 = never), read
+// on every pass so a change in the interface applies without a restart.
 func startStaleRuns(ctx context.Context, srv interface {
 	CloseStaleRuns(time.Duration) (int, error)
+	StaleRunHours() (float64, string)
 }) {
-	hours := 24.0
 	if v := strings.TrimSpace(env.Get("STALE_RUN_HOURS")); v != "" {
-		h, err := strconv.ParseFloat(v, 64)
-		if err != nil || h < 0 {
-			slog.Warn("TRACEREPORTS_STALE_RUN_HOURS is not a number of hours: using 24", "value", v)
-		} else {
-			hours = h
+		if h, err := strconv.ParseFloat(v, 64); err != nil || h < 0 {
+			slog.Warn("TRACEREPORTS_STALE_RUN_HOURS is not a number of hours: using the one of Mantenimiento or 24", "value", v)
 		}
 	}
-	if hours == 0 {
-		slog.Info("closing of abandoned runs disabled (TRACEREPORTS_STALE_RUN_HOURS=0)")
-		return
+	if hours, source := srv.StaleRunHours(); hours == 0 {
+		slog.Info("closing of abandoned runs disabled", "source", source)
 	}
-	idle := time.Duration(hours * float64(time.Hour))
-	every := min(15*time.Minute, max(idle/4, time.Minute))
 	go func() {
 		for {
-			if _, err := srv.CloseStaleRuns(idle); err != nil {
-				slog.Error("stale runs", "err", err)
+			every := 15 * time.Minute
+			if hours, _ := srv.StaleRunHours(); hours > 0 {
+				idle := time.Duration(hours * float64(time.Hour))
+				every = min(every, max(idle/4, time.Minute))
+				if _, err := srv.CloseStaleRuns(idle); err != nil {
+					slog.Error("stale runs", "err", err)
+				}
 			}
 			select {
 			case <-ctx.Done():
