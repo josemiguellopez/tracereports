@@ -2,7 +2,6 @@ package ai
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -132,19 +131,28 @@ How to answer the last message of the User:
 - Never repeat an earlier answer; if the user says you did not answer, answer the question now.
 - Only testing, test automation, this report or TraceReports; politely decline anything else. Never ask
   for or repeat passwords, tokens, API keys or the contents of .env files.`, chatTools, shown, evidence, conv.String(), language)
-	text, err := a.generate(ctx, UsageChat, prompt, map[string]any{
-		"type": "object", "properties": map[string]any{"answer": map[string]any{"type": "string"}}, "required": []string{"answer"},
-	})
+	// texto libre, no JSON: un modelo local chico no escapa las comillas del código que escribe y la
+	// respuesta queda cortada en la primera ("By.XPATH, "//...)
+	text, err := a.generate(ctx, UsageChat, prompt, nil)
 	if err != nil {
 		return "", err
 	}
-	var out struct {
-		Answer string `json:"answer"`
+	if text = chatAnswer(text); text == "" {
+		return "", errors.New("the model returned an empty answer")
 	}
-	if json.Unmarshal([]byte(text), &out) != nil || strings.TrimSpace(out.Answer) == "" {
-		return "", fmt.Errorf("the model answered, but not with the expected JSON: %.120s", text)
+	return text, nil
+}
+
+// chatAnswer is the model's text without the conversation it copied first: a small model sometimes
+// starts with "User: <the question>" and answers after "Trace Buddy:".
+func chatAnswer(text string) string {
+	text = strings.TrimSpace(text)
+	if strings.HasPrefix(text, "User:") {
+		if i := strings.Index(text, "Trace Buddy:"); i >= 0 {
+			text = text[i:]
+		}
 	}
-	return strings.TrimSpace(out.Answer), nil
+	return strings.TrimSpace(strings.TrimPrefix(text, "Trace Buddy:"))
 }
 
 // clipRunes cuts s to n characters without splitting one (questions in Spanish carry accents).
