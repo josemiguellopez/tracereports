@@ -219,7 +219,7 @@ test.describe("privacidad", () => {
 		await page.locator("[data-esc-gen]").click();
 		await expect(page.locator("#esc-card .esc-dev")).toBeVisible();
 		await expectNoSecrets(page, "escalar para Desarrollo");
-		for (const fmt of ["plain", "slack", "md"]) {
+		for (const fmt of ["plain", "slack", "teams-copy", "md"]) {
 			await page.locator(`[data-esc-share="${fmt}"]`).click();
 			const text = await page.evaluate(() => navigator.clipboard.readText());
 			for (const s of SECRETS) expect(text, `copiar ${fmt}`).not.toContain(s);
