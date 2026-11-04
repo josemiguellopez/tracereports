@@ -1118,6 +1118,9 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .lab-note svg { width: 16px; height: 16px; flex: none; margin-top: 1px; }
 .lab-warn { background: color-mix(in srgb, var(--color-warning) 12%, transparent); color: var(--color-text); }
 .lab-warn svg { color: var(--color-warning); }
+.lab-internal p { margin: 4px 0 8px; }
+.lab-internal code { overflow-wrap: anywhere; }
+.lab-internal-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .lab-result { margin-top: 16px; }
 .lab-verdict { padding: 12px 14px; border-radius: var(--radius); border-left: 4px solid; margin-bottom: 12px; }
 .lab-verdict b { font-size: 15px; }

@@ -148,9 +148,28 @@ func TestLabSendAccess(t *testing.T) {
 	// servidor compartido con login de la UI: solo los hosts del test y TRACEREPORTS_LAB_HOSTS
 	srv.Auth = Auth{UIUser: "qa", UIPass: "pw", Token: "admin-token", IngestToken: "ingest"}
 	remote := []reqOpt{fromAddr("10.0.0.5:4000"), basicAuth("qa", "pw")}
-	if rec := call(t, srv, "POST", "/api/v1/ui/lab/send", body, remote...); rec.Code != 200 {
-		t.Fatalf("shared server, recorded host: %d %s", rec.Code, rec.Body)
+	// el host grabado es interno (127.0.0.1) y no está autorizado: se confirma antes de enviar nada
+	rec := call(t, srv, "POST", "/api/v1/ui/lab/send", body, remote...)
+	if rec.Code != 409 || !strings.Contains(rec.Body.String(), `"code":"internal_host"`) || !strings.Contains(rec.Body.String(), "127.0.0.1") {
+		t.Fatalf("shared server, internal recorded host: %d %s", rec.Code, rec.Body)
 	}
+	if hits.Load() != 0 {
+		t.Fatalf("an unconfirmed internal host is not called, got %d requests", hits.Load())
+	}
+	confirmed := strings.Replace(body, "{", `{"confirm_internal":true,`, 1)
+	if rec := call(t, srv, "POST", "/api/v1/ui/lab/send", confirmed, remote...); rec.Code != 200 {
+		t.Fatalf("shared server, confirmed: %d %s", rec.Code, rec.Body)
+	}
+	// en modo estricto no se llama aunque se confirme; autorizado en TRACEREPORTS_LAB_HOSTS, sin preguntar
+	srv.Lab.Strict = true
+	if rec := call(t, srv, "POST", "/api/v1/ui/lab/send", confirmed, remote...); rec.Code != 403 || !strings.Contains(rec.Body.String(), `"strict":true`) {
+		t.Fatalf("strict: %d %s", rec.Code, rec.Body)
+	}
+	srv.Lab.Hosts = ParseLabHosts("127.0.0.1")
+	if rec := call(t, srv, "POST", "/api/v1/ui/lab/send", body, remote...); rec.Code != 200 {
+		t.Fatalf("trusted internal host: %d %s", rec.Code, rec.Body)
+	}
+	srv.Lab.Strict, srv.Lab.Hosts = false, nil
 	other := fmt.Sprintf(`{"conn_id":%d,"values":{"password":%q},"base_url":"http://intranet.local:9000"}`, id, labPassword)
 	if rec := call(t, srv, "POST", "/api/v1/ui/lab/send", other, remote...); rec.Code != 403 || !strings.Contains(rec.Body.String(), "TRACEREPORTS_LAB_HOSTS") {
 		t.Fatalf("shared server, other host: %d %s", rec.Code, rec.Body)
@@ -170,7 +189,7 @@ func TestLabSendAccess(t *testing.T) {
 	if rec := call(t, srv, "POST", "/api/v1/ui/lab/send", body, remote...); rec.Code != 403 {
 		t.Fatalf("disabled: %d", rec.Code)
 	}
-	rec := call(t, srv, "GET", fmt.Sprintf("/api/v1/network/%d/lab", id), "", remote...)
+	rec = call(t, srv, "GET", fmt.Sprintf("/api/v1/network/%d/lab", id), "", remote...)
 	if !strings.Contains(rec.Body.String(), `"can_send":false`) || !strings.Contains(rec.Body.String(), `"reason":"disabled"`) {
 		t.Fatalf("plan when disabled: %s", rec.Body)
 	}

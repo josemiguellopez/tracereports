@@ -47,6 +47,8 @@ type Options struct {
 	Allow func(*url.URL) error
 	// Transport is the HTTP transport (tests); nil uses a safe default (see dialer).
 	Transport http.RoundTripper
+	// Guard asks for confirmation before reaching internal hosts (a shared server); nil does not.
+	Guard *Guard
 }
 
 // Step is one request the Lab sent.
@@ -136,10 +138,27 @@ func Run(ctx context.Context, p *Plan, opt Options) (*Result, error) {
 			return nil, err
 		}
 	}
+	// hosts internos sin autorizar: se confirman antes de enviar nada (la URL base la eligió la persona)
+	guarded := false
+	if g := opt.Guard; g != nil {
+		check := *g
+		if r.base != nil {
+			check.Trusted = append(append([]string(nil), g.Trusted...), strings.ToLower(r.base.Host))
+		}
+		if hosts := check.internalHosts(ctx, r.urls(target)); len(hosts) > 0 && (!g.Confirmed || g.Strict) {
+			return nil, &ErrInternal{Hosts: hosts, Strict: g.Strict}
+		}
+		guarded, g = !g.Confirmed || g.Strict, &check
+		opt.Guard = g
+	}
 
 	jar, _ := cookiejar.New(nil)
 	tr := opt.Transport
-	if tr == nil {
+	switch {
+	case tr != nil:
+	case guarded:
+		tr = guardedTransport(opt.Guard.Trusted) // también al conectar: un DNS que cambia no se salta el aviso
+	default:
 		tr = safeTransport()
 	}
 	r.client = &http.Client{Jar: jar, Transport: tr, Timeout: stepTimeout,

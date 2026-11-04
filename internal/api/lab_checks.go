@@ -214,6 +214,8 @@ func (s *Server) labVerify(w http.ResponseWriter, r *http.Request) {
 		CheckIDs    []int64           `json:"check_ids"`
 		Values      map[string]string `json:"values"`
 		BaseURL     string            `json:"base_url"`
+		// ConfirmInternal: the person saw the internal hosts (409 internal_host) and verifies anyway
+		ConfirmInternal bool `json:"confirm_internal"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -293,10 +295,15 @@ func (s *Server) labVerify(w http.ResponseWriter, r *http.Request) {
 			base = p.check.BaseURL
 		}
 		cr := checkResult{CheckID: p.check.ID, Name: p.check.Name, Before: beforeOf(p.plan.Original)}
-		res, err := lab.Run(r.Context(), p.plan, lab.Options{Values: in.Values, BaseURL: base, Target: p.target, Allow: s.labAllow(r, p.plan)})
+		res, err := lab.Run(r.Context(), p.plan, lab.Options{Values: in.Values, BaseURL: base, Target: p.target, Allow: s.labAllow(r, p.plan),
+			Guard: s.labGuard(r, in.ConfirmInternal)})
+		var internal *lab.ErrInternal
 		switch {
 		case errors.Is(err, lab.ErrBlocked):
 			writeError(w, http.StatusForbidden, err.Error())
+			return
+		case errors.As(err, &internal):
+			writeInternal(w, internal) // antes de enviar nada: se confirma y se verifica de nuevo
 			return
 		case err != nil:
 			cr.Error = err.Error()
