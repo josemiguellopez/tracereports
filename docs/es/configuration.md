@@ -50,7 +50,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT` | activo | `off` guarda los secretos tal como llegan (no recomendado) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
-| `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
+| `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días, cada 6 h; sin ella, los días elegidos en Mantenimiento (ver [Almacenamiento y retención](#almacenamiento-y-retención)) |
 | `TRACEREPORTS_SCREENSHOTS` | `all` | Qué capturas guarda el servidor: `all`, `failures` (solo de un paso o un test que falló) u `off` (ninguna, tampoco trace ni video). Ver [Capturas de pantalla](#capturas-de-pantalla) |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Un host interno de la lista se llama sin pedir confirmación. Ver [FixLab](fixlab.md#seguridad) |
@@ -713,6 +713,33 @@ para cerrarlas o eliminarlas en lote (una ejecución en curso no se elimina: pri
 **El umbral desde la interfaz.** En Mantenimiento, *Cerrar tras* cambia el umbral (30 min a 48 h, o
 *Nunca*) sin reiniciar el servidor; necesita el mismo permiso que Ajustes. Si el servidor tiene
 `TRACEREPORTS_STALE_RUN_HOURS`, manda la variable y el selector queda bloqueado.
+
+### Almacenamiento y retención
+
+La evidencia vive en la carpeta de datos (`DATA_DIR`; en Docker, el volumen `tracereports-data` montado en
+`/data`): la base SQLite (ejecuciones, pasos, red, DOM) y `screenshots/` (capturas y adjuntos).
+**Mantenimiento → Almacenamiento** muestra:
+
+- el disco de esa carpeta: cuánto está en uso y cuánto queda libre, con un aviso (también en el log, cada
+  6 h) desde el 80 %, que dice cuánto de eso ocupa TraceReports;
+- la evidencia guardada (base y archivos), cuántas ejecuciones y desde cuándo, el crecimiento promedio por
+  día y cuánto duraría el disco a ese ritmo;
+- lo que ocupa cada proyecto (sus archivos más su parte de la base, aproximada);
+- los archivos que ninguna ejecución usa (de borrados interrumpidos o versiones anteriores).
+
+**Retención.** *Conservar* elige cuántos días de ejecuciones se guardan (30, 60, 90, 180, 365 o todo) sin
+reiniciar el servidor; necesita el mismo permiso que Ajustes. Cada 6 horas se borran las ejecuciones
+terminadas más antiguas, con sus capturas, y se compacta la base. `TRACEREPORTS_RETENTION_DAYS` manda sobre
+la interfaz y bloquea el selector. Sin ninguna de las dos no se borra nada (y el servidor lo avisa al
+arrancar).
+
+**Limpiar ahora…** (administración) pregunta cuántos días conservar, muestra primero qué se borraría
+(ejecuciones, tests y el espacio que se liberaría) y borra solo al confirmar. Bajo el selector se ven la
+última limpieza (cuándo, qué y cuánto liberó) y la próxima. Una ejecución en curso nunca se borra.
+
+API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
+(`{"days": N}`, 0 = conservar todo) y `POST /ui/maintenance/retention/run` (`{"days": N}`, o `{}` para la
+retención vigente).
 
 ## Diagnóstico con IA después de un reinicio
 

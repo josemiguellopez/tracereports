@@ -516,6 +516,25 @@ fieldset:disabled .prov-card { cursor: not-allowed; opacity: .7; }
 /* ---- mantenimiento ---- */
 .maintenance { display: flex; flex-direction: column; gap: 14px; }
 .maint-stale { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 16px; padding: 14px 18px; }
+/* Almacenamiento (Mantenimiento) */
+.stor-card { display: grid; gap: 12px; padding: 14px 18px; margin-bottom: 12px; }
+.stor-head { display: flex; align-items: center; gap: 10px; }
+.stor-meter { height: 10px; border-radius: 999px; background: var(--color-surface-2, color-mix(in srgb, var(--color-text) 8%, transparent)); overflow: hidden; }
+.stor-meter i { display: block; height: 100%; background: var(--color-accent); border-radius: inherit; }
+.stor-meter.warn i { background: var(--color-danger); }
+.stor-disk { margin: -4px 0 0; font-size: 13px; color: var(--color-text-muted); }
+.stor-warn { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--color-danger); font-weight: 600; }
+.stor-warn svg { width: 16px; height: 16px; flex: none; }
+.stor-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px 16px; margin: 0; }
+.stor-stats div { min-width: 0; }
+.stor-stats dt { font-size: 12px; color: var(--color-text-muted); }
+.stor-stats dd { margin: 2px 0; font-size: 20px; font-weight: 700; }
+.stor-stats small { font-size: 12px; color: var(--color-text-muted); }
+.stor-projects summary { cursor: pointer; font-size: 13px; }
+.stor-projects .stor-table { margin-top: 8px; }
+.stor-retention { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; border-top: 1px solid var(--color-border); padding-top: 12px; }
+.stor-retention p { flex: 1; min-width: 220px; margin: 0; font-size: 13px; }
+.stor-retention small { display: block; color: var(--color-text-muted); }
 .maint-stale-icon { color: var(--color-warning); display: inline-flex; }
 .maint-stale-icon svg { width: 22px; height: 22px; }
 .maint-stale-text { flex: 1; min-width: 220px; }
@@ -530,10 +549,10 @@ fieldset:disabled .prov-card { cursor: not-allowed; opacity: .7; }
 .maint-confirm p, .maint-confirm .close-run-actions { grid-column: 1 / -1; margin: 0; font-size: 13px; }
 .maint-confirm.danger { border-left: 4px solid var(--color-danger); }
 .maint-scroll { overflow-x: auto; }
-.maint-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-.maint-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); padding: 8px 12px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
-.maint-table td { padding: 9px 12px; border-bottom: 1px solid var(--color-border); vertical-align: top; }
-.maint-table tr:last-child td { border-bottom: 0; }
+.maint-table, .stor-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.maint-table th, .stor-table th { text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .05em; color: var(--color-text-muted); padding: 8px 12px; border-bottom: 1px solid var(--color-border); white-space: nowrap; }
+.maint-table td, .stor-table td { padding: 9px 12px; border-bottom: 1px solid var(--color-border); vertical-align: top; }
+.maint-table tr:last-child td, .stor-table tr:last-child td { border-bottom: 0; }
 .maint-table tr.on td { background: color-mix(in srgb, var(--color-primary) 7%, transparent); }
 .maint-table td small { display: block; color: var(--color-text-muted); font-size: 12px; }
 .maint-table td small.maint-idle { color: var(--color-warning); font-weight: 600; }

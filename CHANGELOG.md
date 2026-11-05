@@ -16,6 +16,14 @@ Python client 0.5.2 (pending release); the other clients do not change.
   run now wait up to 10 s per attempt by default instead of 2 s, so a busy server is not taken for a
   down one; all the attempts together take at most 15 s (or one `TRACEREPORTS_RUN_TIMEOUT` if it is
   longer), so a server that accepts and never answers does not hold every process for 30 s.
+- **Storage in Maintenance**: the disk of the data folder (in use, free, a warning from 80 % that says how
+  much TraceReports takes), the evidence stored (database and files), runs and since when, the growth per
+  day and how long the disk would last, what each project takes and files no run uses.
+- **Retention from the interface**: *Keep* 30, 60, 90, 180, 365 days or everything, applied every 6 hours
+  without a restart (`TRACEREPORTS_RETENTION_DAYS` still wins). **Clean up now…** shows what would be
+  deleted and the space it would free before deleting, and the last and next cleanups are shown. API:
+  `GET /maintenance/storage`, `GET /maintenance/storage/preview`, `PUT /ui/maintenance/retention`,
+  `POST /ui/maintenance/retention/run`.
 
 ### Fixed
 

@@ -92,6 +92,8 @@ type Server struct {
 	probe probeCache
 	// chat limits Trace Buddy's free questions per hour (see buddy.go).
 	chat chatLimiter
+	// retention is the cleanup in progress and the next automatic one (see storage.go).
+	retention retentionState
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -134,6 +136,8 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/runs/close", s.closeRunsByHand)
 		r.Post("/ui/runs/delete", s.deleteRuns)
 		r.Put("/ui/maintenance/stale", s.setStaleHours)
+		r.Put("/ui/maintenance/retention", s.setRetention)
+		r.Post("/ui/maintenance/retention/run", s.runRetention)
 		r.Post("/ui/escalate", s.escalate)
 		r.Post("/ui/escalate/send", s.sendEscalation)
 		r.Post("/ui/tickets", s.createTicket)
@@ -155,6 +159,8 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/search", s.searchRuns)
 		r.Get("/runs/facets", s.runFacets)
 		r.Get("/maintenance", s.maintenance)
+		r.Get("/maintenance/storage", s.storage)
+		r.Get("/maintenance/storage/preview", s.storagePreview)
 		r.Post("/runs", s.createRun)
 		r.Get("/runs/{run_id}", s.getRun)
 		r.Get("/runs/{run_id}/export", s.exportRun)

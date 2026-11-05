@@ -4,13 +4,11 @@ import (
 	"context"
 	"log/slog"
 	"os"
-	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/env"
 )
 
@@ -48,59 +46,6 @@ func startStaleRuns(ctx context.Context, srv interface {
 			}
 		}
 	}()
-}
-
-// startRetention deletes, at startup and then every 6 hours, the runs older than
-// TRACEREPORTS_RETENTION_DAYS days and their screenshots. Without the variable nothing is deleted
-// (and it says so: evidence piles up forever).
-func startRetention(ctx context.Context, store *db.Store, shotsDir string) {
-	raw := strings.TrimSpace(env.Get("RETENTION_DAYS"))
-	days, err := strconv.Atoi(raw)
-	if err != nil || days <= 0 {
-		if raw == "" {
-			slog.Warn("TRACEREPORTS_RETENTION_DAYS not set: runs, screenshots and network captures are kept forever (e.g. TRACEREPORTS_RETENTION_DAYS=90)")
-		} else {
-			slog.Warn("TRACEREPORTS_RETENTION_DAYS is not a positive number of days: nothing is deleted", "value", raw)
-		}
-		return
-	}
-	slog.Info("retention enabled", "days", days)
-	go func() {
-		for {
-			purgeOld(store, shotsDir, days)
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(6 * time.Hour):
-			}
-		}
-	}()
-}
-
-func purgeOld(store *db.Store, shotsDir string, days int) {
-	cutoff := time.Now().AddDate(0, 0, -days).UnixMilli()
-	n, shots, err := store.PurgeRunsBefore(cutoff)
-	if err != nil {
-		slog.Error("retention: purge runs", "err", err)
-		return
-	}
-	removed := 0
-	for _, url := range shots {
-		name := strings.TrimPrefix(url, "/screenshots/")
-		if name == url || name != filepath.Base(name) || strings.HasPrefix(name, ".") {
-			continue
-		}
-		if os.Remove(filepath.Join(shotsDir, name)) == nil {
-			removed++
-		}
-	}
-	if n > 0 {
-		slog.Info("retention: old runs deleted", "runs", n, "screenshots", removed, "older_than_days", days)
-		// lo borrado tampoco queda en el archivo de la base ni en la WAL
-		if err := store.Compact(); err != nil {
-			slog.Error("retention: compact the database", "err", err)
-		}
-	}
 }
 
 // restrictDir leaves dir readable only by the server's user (0700). A folder created by an older
