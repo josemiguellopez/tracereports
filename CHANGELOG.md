@@ -6,6 +6,22 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- **Test history squares**: opening an older run from a square showed only the runs up to it, so you could
+  not move forward again; the strip now also shows the later runs (`GET /tests/{id}/history?newer=N`), with
+  the one you are viewing outlined.
+- **"Watch live" from Metrics** (and from Search, Maintenance or Settings, also choosing a run in Recents)
+  loaded the run behind the view and nothing changed on screen; it now opens the run's tests.
+- **Recents** did not update while open (a run finishing, a test result, runs deleted in Maintenance): it
+  now follows the live events, at most once every 1.5 s, without F5.
+- **Locator drift said "There is no page snapshot"** when the snapshot did arrive and simply no element
+  fit. The card now tells the cases apart: no snapshot; a snapshot without replacements (a text XPath reads
+  as a content or flow check); or a selector that reached the server cut. The broken selector is taken
+  whole from the trace when the stored error message (cut at 300 characters) ended halfway, and an XPath
+  written between quotes in a team's own message ends at its closing quote. `GET /tests/{id}/locator` adds
+  `has_dom`, `dom_elements` and `failed_selector_truncated`.
+
 ## [0.7.0] - 2026-11-04
 
 JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated

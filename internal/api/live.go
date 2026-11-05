@@ -81,6 +81,13 @@ type LocatorReport struct {
 	Screenshot     string               `json:"screenshot,omitempty"`  // captura del fallo (para el bounding box)
 	Viewport       locator.Size         `json:"viewport"`
 	PageURL        string               `json:"page_url,omitempty"`
+	// HasDOM: the client sent the page snapshot (no suggestions then means none fit, not that it
+	// is missing); DOMElements: how many elements it has.
+	HasDOM      bool `json:"has_dom"`
+	DOMElements int  `json:"dom_elements"`
+	// FailedSelectorTruncated: the selector reached the server cut (only its beginning is known), so
+	// no replacements are searched for it.
+	FailedSelectorTruncated bool `json:"failed_selector_truncated,omitempty"`
 }
 
 func (s *Server) locatorReport(t *db.Test) (*LocatorReport, error) {
@@ -88,7 +95,7 @@ func (s *Server) locatorReport(t *db.Test) (*LocatorReport, error) {
 	if err != nil || (failed == "" && len(cands) == 0) {
 		return nil, err
 	}
-	rep := &LocatorReport{FailedSelector: failed, Suggestions: cands}
+	rep := &LocatorReport{FailedSelector: failed, Suggestions: cands, FailedSelectorTruncated: locator.Truncated(failed)}
 	if rep.Suggestions == nil {
 		rep.Suggestions = []locator.Suggestion{}
 	}
@@ -108,6 +115,7 @@ func (s *Server) locatorReport(t *db.Test) (*LocatorReport, error) {
 		var snap locator.Snapshot
 		if json.Unmarshal([]byte(raw), &snap) == nil {
 			rep.Viewport, rep.PageURL = snap.Viewport, snap.URL
+			rep.HasDOM, rep.DOMElements = true, len(snap.Elements)
 		}
 	}
 	return rep, nil

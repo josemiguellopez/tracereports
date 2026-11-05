@@ -263,7 +263,10 @@ in local mode, the server's own machine.
 Related reads: `GET /runs/{run_id}/recurrence` (in how many previous runs of the same suite each
 incident showed up) and `GET /runs/{run_id}/escalation?test=&audience=&lang=` (the saved summary,
 if the evidence did not change since it was written, or `204`). `GET /metrics` also accepts `env`, `tag`, `from` and `to` (`YYYY-MM-DD`), and
-`GET /tests/{test_id}/history` accepts `limit` (up to 60).
+`GET /tests/{test_id}/history` accepts `limit` (up to 60) and `newer` (also up to that many later runs,
+first in the list). `GET /tests/{test_id}/locator` also says `has_dom` and `dom_elements` (whether the
+page snapshot arrived, so no suggestions with a snapshot means none fit) and `failed_selector_truncated`
+(the selector reached the server cut: no replacements are searched).
 
 FixLab (the Lab, checks, Verify and capsules: `/network/{id}/lab`, `/ui/lab/send`, `/ui/lab/checks`,
 `/ui/lab/verify`, `/runs/{run_id}/lab`, `/network/{id}/capsule`, `/runs/{run_id}/lab/capsule`): see

@@ -170,6 +170,7 @@ func (s *Server) deleteRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	if n > 0 {
 		slog.Info("maintenance: runs deleted by hand", "runs", n, "by", s.uiUser(r))
+		s.publish("run", 0, 0, map[string]string{"action": "deleted"}) // las listas abiertas (Recientes) se ponen al día
 		if err := s.Store.Compact(); err != nil {
 			slog.Error("maintenance: compact the database", "err", err)
 		}

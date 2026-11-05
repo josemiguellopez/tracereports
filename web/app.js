@@ -1212,6 +1212,27 @@
 		return lang === "js" ? s.js : s.python;
 	}
 
+	/** El servidor guardó el snapshot de la página de este test (campo explícito; en uno anterior a
+	 * has_dom, el viewport que solo trae el snapshot). */
+	const hasDom = (rep) => (rep.has_dom !== undefined ? !!rep.has_dom : !!(rep.viewport && rep.viewport.w));
+
+	// un XPath que busca texto (contains(normalize-space(.)…), text()=…) suele validar contenido, no ubicar un control
+	const TEXT_XPATH = /^\/\/.*(?:normalize-space\(|text\(\)|contains\(\.\s*,)/;
+
+	/** Por qué no hay reemplazos: selector cortado, snapshot sin candidatos, o sin snapshot. */
+	function locatorEmpty(rep) {
+		if (rep.failed_selector_truncated) {
+			return `<p class="loc-empty">${tr("El selector llegó cortado (el error se guarda con sus primeros caracteres y no traía el selector completo): no se buscan reemplazos para medio selector.")}</p>`;
+		}
+		if (hasDom(rep)) {
+			const content = TEXT_XPATH.test(rep.failed_selector || "");
+			return `<p class="loc-empty">${tr("Hay snapshot de la página, pero ningún elemento sirve de reemplazo para este selector.")} ${content
+				? tr("El selector busca un texto: parece una validación de contenido o de flujo (el dato no estaba en la página), no un selector roto.")
+				: tr("Puede que el elemento no sea interactivo (por ejemplo un div con solo texto) o que el fallo no sea del selector sino del contenido o del flujo.")}</p>`;
+		}
+		return `<p class="loc-empty">No hay snapshot de la página para proponer reemplazos. Los clientes lo envían al fallar (<code>capturar_dom</code> en Python, <code>Test.DOM</code> en Go).</p>`;
+	}
+
 	function locatorCard(t) {
 		const rep = S.loc[locKey(t)];
 		if (!rep) return "";
@@ -1235,7 +1256,7 @@
 			</li>`).join("");
 		return `<details class="loc-card" id="locator-card" ${S.locOpen === false ? "" : "open"}>
 			<summary><span class="loc-badge">${icon("i-crosshair")}Locator drift</span>
-				<span class="loc-title">Selector roto${sugg.length ? ` · ${sugg.length} reemplazo${sugg.length === 1 ? "" : "s"} sugerido${sugg.length === 1 ? "" : "s"}` : ""}</span>
+				<span class="loc-title">${!sugg.length && hasDom(rep) && TEXT_XPATH.test(rep.failed_selector || "") ? tr("Selector de texto sin coincidencias") : "Selector roto"}${sugg.length ? ` · ${sugg.length} reemplazo${sugg.length === 1 ? "" : "s"} sugerido${sugg.length === 1 ? "" : "s"}` : ""}</span>
 				<svg class="chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
 			<div class="loc-body">
 				<dl class="loc-diff"><dt>Fallido</dt><dd><code class="loc-failed">${esc(rep.failed_selector || "(no se pudo extraer del error)")}</code></dd>
@@ -1247,7 +1268,7 @@
 					<div class="loc-lang" role="group" aria-label="Lenguaje del snippet">
 						<button data-loc-lang="python" aria-pressed="${lang === "python"}">Python</button><button data-loc-lang="js" aria-pressed="${lang === "js"}">JS / TS</button>${tool === "selenium" && hasSelenium ? `<button data-loc-lang="java" aria-pressed="${lang === "java"}">Java</button>` : ""}</div></div></div>
 					<ol class="loc-list">${items}</ol>`
-					: `<p class="loc-empty">No hay snapshot de la página para proponer reemplazos. Los clientes lo envían al fallar (<code>capturar_dom</code> en Python, <code>Test.DOM</code> en Go).</p>`}
+					: locatorEmpty(rep)}
 			</div></details>`;
 	}
 
@@ -1303,6 +1324,11 @@
 	let runTimer = null, testTimer = null;
 	const scheduleRun = () => { clearTimeout(runTimer); runTimer = setTimeout(() => loadRun().catch(() => {}), 250); };
 	const scheduleTest = () => { clearTimeout(testTimer); testTimer = setTimeout(() => loadTest().catch(() => {}), 250); };
+	// la lista de ejecuciones (Recientes, el selector) se pone al día con lo que llega en vivo de
+	// cualquiera de ellas: como mucho una vez cada RUNS_REFRESH_MS, también con tests llegando sin parar
+	const RUNS_REFRESH_MS = 1500;
+	let runsTimer = null;
+	const scheduleRuns = () => { if (!runsTimer) runsTimer = setTimeout(() => { runsTimer = null; loadRuns().catch(() => {}); }, RUNS_REFRESH_MS); };
 
 	function setLiveState(state) {
 		S.liveState = state;
@@ -1352,13 +1378,18 @@
 			if (e.test_id === S.testId) appendLiveStep(e.data);
 			return;
 		}
+		// estado y resultados de una ejecución de la lista (cerró, terminó un test): Recientes al día sin F5
+		if ((type === "run" && e.data?.action !== "created") || (type === "test" && S.runs.some((r) => r.id === e.run_id))) scheduleRuns();
 		if (sameRun) scheduleRun();
 		if (e.test_id && e.test_id === S.testId) scheduleTest();
 	}
 
-	/** Cambia a otra ejecución (selector de la barra o aviso de ejecución nueva). */
-	async function switchRun(id) {
+	/** Cambia a otra ejecución (selector de la barra o aviso de ejecución nueva). Desde una vista que
+	 * no es de una ejecución (Métricas, Buscar, Mantenimiento, Ajustes) pasa a sus tests: si no, la
+	 * ejecución se cargaba detrás y en pantalla no cambiaba nada. ``stay`` la carga sin mover de vista. */
+	async function switchRun(id, { stay = false } = {}) {
 		S.runId = id;
+		if (!stay && GLOBAL_VIEWS.has(S.view)) S.view = "tests";
 		$("#run-select").value = String(id);
 		S.testId = null; S.test = null; S.rendered = {};
 		S.newRuns = S.newRuns.filter((x) => x !== id); // ya la está viendo
@@ -1375,7 +1406,7 @@
 	function notifyNewRun(id) {
 		const r = S.runs.find((x) => x.id === id);
 		if (!r || id === S.runId || S.newRuns.includes(id)) return;
-		if (!S.run) { switchRun(id).catch(() => {}); return; }
+		if (!S.run) { switchRun(id, { stay: true }).catch(() => {}); return; }
 		S.newRuns.push(id);
 		S.toastClosed = false; // cada ejecución nueva vuelve a avisar
 		renderNewRuns();
@@ -1444,17 +1475,29 @@
 	}
 
 	// ---------- historial y flaky ----------
+	const HIST_CELLS = 20;
+
+	/** Hasta HIST_CELLS cuadros (de la más nueva a la más vieja) que incluyen el test que se ve: con
+	 * posteriores, la ventana lo deja al centro para poder ir hacia atrás y hacia adelante. */
+	function histWindow(hist, testId) {
+		if (!hist || hist.length <= HIST_CELLS) return hist;
+		const at = Math.max(0, hist.findIndex((h) => h.test_id === testId));
+		const start = Math.min(Math.max(0, at - Math.floor(HIST_CELLS / 2)), hist.length - HIST_CELLS);
+		return hist.slice(start, start + HIST_CELLS);
+	}
+
 	function ensureHistory(t) {
 		const key = `${t.id}:${t.status}`;
 		if (S.hist[key] !== undefined) return;
 		S.hist[key] = null; // cargando
-		api(`/api/v1/tests/${t.id}/history`)
+		// con las posteriores: abierto desde un cuadro viejo, el historial sigue mostrando lo que vino después
+		api(`/api/v1/tests/${t.id}/history?newer=${HIST_CELLS}`)
 			.then((h) => { S.hist[key] = h; if (S.test?.id === t.id) renderTestDetail(); })
 			.catch(() => { S.hist[key] = []; });
 	}
 
 	function historyStrip(t) {
-		const hist = S.hist[`${t.id}:${t.status}`];
+		const hist = histWindow(S.hist[`${t.id}:${t.status}`], t.id);
 		if (!hist || hist.length < 2) return "";
 		const counted = hist.filter((h) => h.status !== "SKIP");
 		const ok = counted.filter((h) => h.status !== "FAIL").length;
@@ -1466,7 +1509,7 @@
 				: `<a class="${cls}" href="#run=${h.run_id}&view=tests&test=${h.test_id}" data-tip="${esc(tip)}"></a>`;
 		}).join("");
 		return `<div class="history">
-			<span class="history-lbl" tabindex="0" data-tip="Resultado de este mismo test en sus últimas ejecuciones del mismo proyecto, ambiente y rama, de la más antigua a la actual. Clic en un cuadro para abrir esa ejecución.">Historial</span><span class="hist-cells">${cells}</span>
+			<span class="history-lbl" tabindex="0" data-tip="Resultado de este mismo test en sus últimas ejecuciones del mismo proyecto, ambiente y rama, de la más antigua a la más nueva; el marcado es el que estás viendo. Clic en un cuadro para abrir esa ejecución.">Historial</span><span class="hist-cells">${cells}</span>
 			<span class="history-rate">${counted.length ? Math.round((ok / counted.length) * 100) : 0}% OK en ${counted.length} ejecuciones</span>
 			${t.key_approx ? `<span class="history-approx" data-tip="Este test se reportó sin identidad propia (key/nodeid): su historial se arma por nombre y puede mezclar tests homónimos de otros archivos.">≈ aproximado</span>` : ""}
 
