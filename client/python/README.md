@@ -19,7 +19,9 @@ pytest --tracereports                     # reports your pytest suite with no co
   `tracereports report <folder>` builds the HTML report and `tracereports push <folder>` uploads it later.
   With `TRACEREPORTS_OFFLINE=both` it also keeps that local copy while sending to the server
   ([local report guide][local-report]).
-- **Configuration** from the environment or the project's `.env` (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
+- **Configuration** from the environment or the project's `.env` (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`,
+  `TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`…). A slow server is retried with the same
+  `Idempotency-Key` (never a second run); a down one switches to local recording at once.
 
 Full documentation: [docs/en/python.md][python].
 

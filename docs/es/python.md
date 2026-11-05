@@ -21,7 +21,13 @@ Solo usa la librería estándar. El cliente nunca rompe ni frena tu suite:
   una sola llamada de más de 40 MiB se envía sin sus bodies, marcada `body_truncated` con su tamaño
   original (`body_size`, en bytes UTF-8);
 - si el servidor no responde, las llamadas que necesitan su respuesta (crear ejecución o test)
-  fallan al instante durante 30 s en vez de esperar su timeout en cada test;
+  fallan al instante durante 30 s en vez de esperar su timeout en cada test. Un servidor caído
+  (conexión rechazada) abre ese circuito al instante; uno que recibió la solicitud pero tarda en
+  responder se reintenta antes con la misma `Idempotency-Key`, así que un servidor ocupado devuelve la
+  misma ejecución en vez de crear otra o dejar una *En curso*;
+- timeouts: `TRACEREPORTS_TIMEOUT` (segundos por solicitud JSON, default 2) y `TRACEREPORTS_RUN_TIMEOUT`
+  (crear y cerrar la ejecución, por intento, default 10 y nunca menos que `TRACEREPORTS_TIMEOUT`; los
+  reintentos juntos duran como mucho 15 s), o `TraceReports(timeout=..., run_timeout=...)`. Súbelos si muchas suites usan el servidor a la vez;
 - `end_run()` espera la cola (`TRACEREPORTS_FLUSH_TIMEOUT`, 30 s) antes de cerrar la ejecución. Lo que
   no se pudo enviar se guarda en `TRACEREPORTS_SPOOL_DIR` para reenviarlo con
   `python -m tracereports.resend <carpeta>`; sin esa carpeta se informa como perdido. El reenvío va
@@ -39,7 +45,8 @@ Solo usa la librería estándar. El cliente nunca rompe ni frena tu suite:
 
 Variables que lee: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACEREPORTS_TOKEN`,
 `TRACEREPORTS_DISABLED=1` (apaga el reporte), `TRACEREPORTS_PROJECT`, `TRACEREPORTS_SPOOL_DIR`,
-`TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_SYNC=1` (envía todo en línea, para depurar) y, para el contexto,
+`TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`, `TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_SYNC=1`
+(envía todo en línea, para depurar) y, para el contexto,
 `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT` (si no están, las de GitHub Actions, GitLab, Azure DevOps,
 Jenkins, Bitbucket o CircleCI, o `git`). Si una variable no está en el entorno, se lee del `.env` del
 proyecto ([detalle](configuration.md#el-env-del-proyecto-en-los-clientes)).

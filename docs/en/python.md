@@ -21,7 +21,13 @@ Standard library only. The client never breaks or slows down your suite:
   single call over 40 MiB is sent without its bodies, marked `body_truncated` with its original size
   (`body_size`, in UTF-8 bytes);
 - when the server does not answer, the calls that need its answer (create run or test) fail fast
-  for 30 s instead of waiting their timeout in every test;
+  for 30 s instead of waiting their timeout in every test. A server that is down (refused connection)
+  opens that circuit at once; a server that accepted the request but is slow to answer is retried
+  first with the same `Idempotency-Key`, so a busy server gives back the same run instead of a second
+  one or a run left *Running*;
+- timeouts: `TRACEREPORTS_TIMEOUT` (seconds per JSON request, default 2) and `TRACEREPORTS_RUN_TIMEOUT`
+  (creating and closing the run, per attempt, default 10 and never shorter than `TRACEREPORTS_TIMEOUT`;
+  the retries together take at most 15 s), or `TraceReports(timeout=..., run_timeout=...)`. Raise them if the server is shared by many suites at once;
 - `end_run()` waits for the queue (`TRACEREPORTS_FLUSH_TIMEOUT`, 30 s) before closing the run. Whatever
   could not be sent is saved in `TRACEREPORTS_SPOOL_DIR` to resend with
   `python -m tracereports.resend <folder>`; without that folder it is reported as lost. Resending
@@ -39,7 +45,8 @@ Standard library only. The client never breaks or slows down your suite:
 
 Variables it reads: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACEREPORTS_TOKEN`,
 `TRACEREPORTS_DISABLED=1` (turns reporting off), `TRACEREPORTS_PROJECT`, `TRACEREPORTS_SPOOL_DIR`,
-`TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_SYNC=1` (sends everything inline, to debug) and, for the context,
+`TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`, `TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_SYNC=1`
+(sends everything inline, to debug) and, for the context,
 `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT` (otherwise the GitHub Actions, GitLab, Azure DevOps, Jenkins,
 Bitbucket or CircleCI variables, or `git`). A variable missing from the environment is read from the
 project's `.env` ([details](configuration.md#the-projects-env-in-the-clients)).

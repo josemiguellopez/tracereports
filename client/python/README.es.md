@@ -20,7 +20,9 @@ pytest --tracereports                     # reporta tu suite de pytest sin cambi
   `tracereports report <carpeta>` arma el reporte HTML y `tracereports push <carpeta>` lo sube después.
   Con `TRACEREPORTS_OFFLINE=both` además guarda esa copia local mientras envía al servidor
   ([guía del reporte local][local-report]).
-- **Configuración** desde el entorno o el `.env` del proyecto (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
+- **Configuración** desde el entorno o el `.env` del proyecto (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`,
+  `TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`…). Un servidor lento se reintenta con la misma
+  `Idempotency-Key` (nunca crea otra ejecución); uno caído pasa a grabar en local al instante.
 
 Documentación completa: [docs/es/python.md][python].
 

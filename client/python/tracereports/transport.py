@@ -18,10 +18,12 @@ from __future__ import annotations
 import base64
 import collections
 import glob
+import http.client
 import itertools
 import json
 import logging
 import os
+import socket
 import threading
 import time
 import urllib.error
@@ -38,6 +40,49 @@ SPOOL_CHUNK_ITEMS = 200          # eventos por archivo de spool
 SPOOL_CHUNK_BYTES = 8 << 20      # bytes por archivo de spool
 SPOOL_STALE_SECONDS = 600.0      # un archivo reclamado que nadie toca en este tiempo se considera abandonado
 SPOOL_HEARTBEAT_SECONDS = 60.0   # cada cuánto el dueño renueva la posesión de sus archivos reclamados
+
+
+class ConnectTimeout(ConnectionError):
+    """No se pudo ni conectar a tiempo: es un servidor caído o inalcanzable, no uno lento. (En Windows
+    un puerto cerrado de localhost no rechaza al instante: el connect tarda ~2 s y puede vencer.)"""
+
+
+def _connect_or_fail(conn_class):
+    class Connection(conn_class):
+        def connect(self):
+            try:
+                super().connect()
+            except (socket.timeout, TimeoutError) as err:
+                raise ConnectTimeout(f"connect timed out: {err}") from err
+    return Connection
+
+
+_HTTPConnection = _connect_or_fail(http.client.HTTPConnection)
+_HTTPSConnection = _connect_or_fail(http.client.HTTPSConnection)
+
+
+class _HTTPHandler(urllib.request.HTTPHandler):
+    def do_open(self, http_class, req, **kw):
+        return super().do_open(_HTTPConnection, req, **kw)
+
+
+class _HTTPSHandler(urllib.request.HTTPSHandler):
+    def do_open(self, http_class, req, **kw):
+        return super().do_open(_HTTPSConnection, req, **kw)
+
+
+# Igual que urlopen (proxies del entorno incluidos), pero un timeout al conectar se distingue de
+# uno esperando la respuesta.
+_opener = urllib.request.build_opener(_HTTPHandler, _HTTPSHandler)
+
+
+def _is_timeout(err: BaseException) -> bool:
+    """El servidor aceptó la conexión pero no respondió a tiempo (puede estar procesándolo), a
+    diferencia de un error de conexión (puerto cerrado, DNS, connect vencido) o de una respuesta
+    inválida. Vale también envuelto en un URLError."""
+    if isinstance(err, urllib.error.URLError) and not isinstance(err, urllib.error.HTTPError):
+        err = err.reason if isinstance(err.reason, BaseException) else err
+    return isinstance(err, (socket.timeout, TimeoutError)) and not isinstance(err, ConnectTimeout)
 
 
 class _SpoolFile:
@@ -108,15 +153,19 @@ class Sender:
             self.stats[key] += n
 
     # ---------------------------------------------------------- un request
-    def _post(self, item: _Item) -> "tuple[str, Optional[dict]]":
-        """Envía una vez. Devuelve ("ok", json) | ("retry", None) | ("reject", None)."""
+    def _post(self, item: _Item, trip_on_timeout: bool = True) -> "tuple[str, Optional[dict]]":
+        """Envía una vez. Devuelve ("ok", json) | ("retry", None) | ("timeout", None) | ("reject", None).
+
+        "timeout": el servidor no respondió a tiempo (puede estar procesándolo). Con
+        ``trip_on_timeout=False`` no abre el circuito: quien llama reintenta con la misma
+        Idempotency-Key y decide abrirlo si se agotan los reintentos."""
         req = urllib.request.Request(
             self.base_url + item.path, data=item.body, method=item.method,
             headers=self._headers({"Content-Type": item.content_type, "Accept": "application/json",
                                    "Idempotency-Key": item.key}),
         )
         try:
-            with urllib.request.urlopen(req, timeout=item.timeout) as resp:
+            with _opener.open(req, timeout=item.timeout) as resp:
                 raw = resp.read()
             self._down_until = 0.0
             return "ok", (json.loads(raw) if raw else {})
@@ -131,27 +180,57 @@ class Sender:
             log.warning("tracereports: %s %s -> HTTP %s %s", item.method, item.path, err.code, detail)
             return "reject", None
         except (urllib.error.URLError, OSError, ValueError) as err:
+            timed_out = _is_timeout(err)
+            if timed_out and not trip_on_timeout:
+                log.debug("tracereports: %s %s timed out after %ss (se reintenta)", item.method, item.path, item.timeout)
+                return "timeout", None
             if not self.server_down():
                 log.warning("tracereports: %s %s failed: %s", item.method, item.path, err)
-            self._down_until = time.time() + CIRCUIT_SECONDS
-            return "retry", None
+            self.trip()
+            return ("timeout" if timed_out else "retry"), None
+
+    def trip(self) -> None:
+        """Abre el circuito: las llamadas síncronas fallan al instante durante CIRCUIT_SECONDS."""
+        self._down_until = time.time() + CIRCUIT_SECONDS
 
     def send_now(self, method: str, path: str, body: bytes, content_type: str, timeout: float,
-                 retries: int = 2) -> Optional[dict]:
+                 retries: int = 2, total: Optional[float] = None) -> Optional[dict]:
         """Request síncrona (se necesita su respuesta: ids de ejecución o test) con reintentos
-        cortos e idempotencia. Con el circuito abierto falla al instante."""
+        cortos e idempotencia. Con el circuito abierto falla al instante.
+
+        Un timeout no abre el circuito hasta agotar los reintentos: el servidor puede estar
+        procesando la request, y el reintento lleva la misma Idempotency-Key, así que recibe la
+        misma respuesta (el mismo run_id) en vez de crear otra. Un error de conexión (puerto
+        cerrado, DNS) sí lo abre al instante: así, sin servidor, el cliente pasa a local rápido.
+
+        ``total``: tope en segundos para todos los intentos juntos (``timeout`` es por intento). El
+        último intento se acorta a lo que queda, así un servidor que acepta y no responde no frena
+        cada proceso ``retries × timeout``."""
         if self.server_down():
             return None
         item = _Item(method, path, body, content_type, timeout)
+        deadline = time.monotonic() + total if total else None
         for attempt in range(retries + 1):
-            kind, res = self._post(item)
+            last = attempt == retries
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining < 0.05:  # sin tiempo para otro intento: cuenta como agotado
+                    self.trip()
+                    break
+                item.timeout = min(timeout, remaining)
+                last = last or item.timeout >= remaining
+            kind, res = self._post(item, trip_on_timeout=last)
             if kind == "ok":
                 self._count("sent")
                 return res
-            if kind == "reject" or self.server_down() or attempt == retries:
+            if kind == "reject" or last or (kind == "retry" and self.server_down()):
                 break
             self._count("retried")
-            time.sleep((0.3, 1.0, 2.0)[min(attempt, 2)])
+            if kind == "retry":  # 5xx/429: backoff; tras un timeout ya se esperó el timeout entero
+                pause = (0.3, 1.0, 2.0)[min(attempt, 2)]
+                if deadline is not None:
+                    pause = min(pause, max(0.0, deadline - time.monotonic()))
+                time.sleep(pause)
         return None
 
     # --------------------------------------------------------------- cola
@@ -211,7 +290,7 @@ class Sender:
                 self._inflight = None
                 if self._claims:
                     self._heartbeat()
-                if kind == "retry":
+                if kind in ("retry", "timeout"):
                     if not item.abandoned:  # si se fue al spool, ya está a salvo
                         item.attempts += 1
                         self.stats["retried"] += 1

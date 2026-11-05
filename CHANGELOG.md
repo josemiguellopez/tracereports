@@ -6,6 +6,26 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+Python client 0.5.2 (pending release); the server and the other clients do not change.
+
+### Added
+
+- **Python client timeouts from the environment**: `TRACEREPORTS_TIMEOUT` (seconds per JSON request,
+  default 2) and `TRACEREPORTS_RUN_TIMEOUT` (creating and closing the run, default 10, never shorter than
+  `TRACEREPORTS_TIMEOUT`), also as `TraceReports(timeout=..., run_timeout=...)`. Creating and closing the
+  run now wait up to 10 s per attempt by default instead of 2 s, so a busy server is not taken for a
+  down one; all the attempts together take at most 15 s (or one `TRACEREPORTS_RUN_TIMEOUT` if it is
+  longer), so a server that accepts and never answers does not hold every process for 30 s.
+
+### Fixed
+
+- **Ghost runs (Python client)**: when the server took longer than the client timeout to create the run,
+  the timeout opened the circuit, the retry never went out and the client switched to local recording,
+  while the server did create the run, which stayed *Running* with 0 tests. A timeout waiting for the
+  answer is now retried with the same `Idempotency-Key` (the server returns the same run, never a second
+  one) and opens the circuit only when the retries run out. A refused or timed-out connection (server
+  down) still opens it at once: without a server the client records locally as fast as before.
+
 ## [0.7.0] - 2026-11-04
 
 JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated

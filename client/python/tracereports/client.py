@@ -77,6 +77,10 @@ log = logging.getLogger("tracereports")
 
 BytesOrPath = Union[bytes, bytearray, str, "os.PathLike[str]"]
 
+# Tope para crear o cerrar la ejecución contando los reintentos (run_timeout es por intento): con un
+# servidor que acepta y no responde, cada proceso (p. ej. 16 workers de xdist) espera esto como mucho.
+RUN_TOTAL_SECONDS = 15.0
+
 _SKIP_EXCEPTION_NAMES = {"SkipTest", "Skipped", "SkipException"}  # unittest, pytest, others
 
 
@@ -93,7 +97,7 @@ class TraceReports:
     def __init__(
         self,
         base_url: Optional[str] = None,
-        timeout: float = 2.0,
+        timeout: Optional[float] = None,
         upload_timeout: float = 5.0,
         enabled: bool = True,
         max_consecutive_failures: int = 3,
@@ -107,10 +111,16 @@ class TraceReports:
         offline: Optional[str] = None,
         offline_base: Optional[str] = None,
         offline_name: Optional[str] = None,
+        run_timeout: Optional[float] = None,
     ) -> None:
         """
         :param base_url: server URL. Defaults to $TRACEREPORTS_URL or http://localhost:8080.
-        :param timeout: seconds per JSON request (keep it short so the browser is never blocked).
+        :param timeout: seconds per JSON request (default $TRACEREPORTS_TIMEOUT or 2; keep it short so
+            the browser is never blocked).
+        :param run_timeout: seconds to create and close the run, which can take longer on a busy server
+            (default $TRACEREPORTS_RUN_TIMEOUT, or 10, or ``timeout`` if it is longer). A timeout is
+            retried with the same Idempotency-Key, so a slow server never ends with two runs; all the
+            attempts together take at most 15 s (or one ``run_timeout`` if it is longer).
         :param upload_timeout: seconds per screenshot upload.
         :param enabled: set False (or $TRACEREPORTS_DISABLED=1) to turn every call into a no-op.
         :param max_consecutive_failures: kept for compatibility; an unreachable server now opens a
@@ -131,7 +141,8 @@ class TraceReports:
             created; "always": record without trying a server; "both": also keep a local copy; "off": never record.
         """
         self.base_url = (base_url or env("URL") or "http://localhost:8080").rstrip("/")
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else _env_float("TIMEOUT", 2.0)
+        self.run_timeout = run_timeout if run_timeout is not None else _env_float("RUN_TIMEOUT", max(10.0, self.timeout))
         self.upload_timeout = upload_timeout
         self.enabled = enabled and env("DISABLED", "") not in ("1", "true", "yes")
         self.max_consecutive_failures = max_consecutive_failures
@@ -272,12 +283,12 @@ class TraceReports:
             resent = self._sender.load_spool()
             if resent:
                 log.info("tracereports: resending %d events saved by a previous run", resent)
-        res = self._request("POST", "/api/v1/runs", payload)
+        res = self._request("POST", "/api/v1/runs", payload, self.run_timeout, self._run_total())
         if not res and self.enabled and self.offline_mode in ("auto", "both") and not self.recording:
             # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
             self._go_offline(f"could not create the run at {self.base_url} (server down or wrong token)")
             if self.recording:
-                res = self._request("POST", "/api/v1/runs", payload)
+                res = self._request("POST", "/api/v1/runs", payload, self.run_timeout)
         if res and res.get("run_id", 0) > 0 and self.offline_mode == "both" and not self.recording:
             self._go_mirror(res["run_id"], payload)
         self.run_id = res.get("run_id") if res else None
@@ -321,11 +332,11 @@ class TraceReports:
         if not rid:
             return None
         payload = {"interrupted": bool(interrupted)}
-        res = self._request("PATCH", f"/api/v1/runs/{rid}/finish", payload)
+        res = self._request("PATCH", f"/api/v1/runs/{rid}/finish", payload, self.run_timeout, self._run_total())
         if res is None and self.enabled:
             # el servidor no respondió: el cierre también va al spool (se reenvía con lo demás)
             sender = self._sender.sender if isinstance(self._sender, Mirror) else self._sender
-            sender.enqueue("PATCH", f"/api/v1/runs/{rid}/finish", json.dumps(payload).encode(), "application/json", self.timeout)
+            sender.enqueue("PATCH", f"/api/v1/runs/{rid}/finish", json.dumps(payload).encode(), "application/json", self.run_timeout)
             self._sender.drain_to_spool()
         if isinstance(self._sender, Mirror):
             self._sender.close(pending == 0 and res is not None and self.delivery_problems() == 0 and not interrupted)
@@ -703,11 +714,17 @@ class TraceReports:
     def _active(self) -> bool:
         return self.enabled
 
-    def _request(self, method: str, path: str, payload: dict) -> Optional[dict]:
+    def _run_total(self) -> float:
+        """Total time to create or close the run, retries included (never less than one attempt)."""
+        return max(RUN_TOTAL_SECONDS, self.run_timeout)
+
+    def _request(self, method: str, path: str, payload: dict, timeout: Optional[float] = None,
+                 total: Optional[float] = None) -> Optional[dict]:
         """Synchronous call whose answer is needed (run/test ids, closing the run)."""
         if not self.enabled:
             return None
-        return self._sender.send_now(method, path, json.dumps(payload).encode(), "application/json", self.timeout)
+        return self._sender.send_now(method, path, json.dumps(payload).encode(), "application/json",
+                                     self.timeout if timeout is None else timeout, total=total)
 
     def _emit(self, method: str, path: str, payload: dict) -> bool:
         return self._emit_raw(method, path, json.dumps(payload).encode(), "application/json", max(self.timeout, 5.0))
