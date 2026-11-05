@@ -50,7 +50,7 @@ steps to apply it.
 | `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
-| `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
+| `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days, every 6 h; without it, the days chosen in Maintenance (see [Storage and retention](#storage-and-retention)) |
 | `TRACEREPORTS_SCREENSHOTS` | `all` | Which screenshots the server keeps: `all`, `failures` (only of a failed step or test) or `off` (none, no trace or video either). See [Screenshots](#screenshots) |
 | `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [FixLab](fixlab.md#security) |
@@ -703,6 +703,33 @@ branch and age, to close or delete them in bulk (a running run is not deleted: c
 **The threshold from the interface.** In Maintenance, *Close after* changes the threshold (30 min to
 48 h, or *Never*) without restarting the server; it needs the same permission as Settings. If the server
 has `TRACEREPORTS_STALE_RUN_HOURS`, the variable wins and the selector is locked.
+
+### Storage and retention
+
+The evidence lives in the data folder (`DATA_DIR`; in Docker, the `tracereports-data` volume mounted at
+`/data`): the SQLite database (runs, steps, network, DOM) and `screenshots/` (screenshots and
+attachments). **Maintenance → Storage** shows:
+
+- the disk of that folder: how much is in use and free, with a warning (also in the log, every 6 h) from
+  80 %, saying how much of it TraceReports takes;
+- the evidence stored (database and files), how many runs and since when, the average growth per day and
+  how long the disk would last at that pace;
+- what each project takes (its files plus its share of the database, approximate);
+- files no run uses (left by interrupted deletions or earlier versions).
+
+**Retention.** *Keep* chooses how many days of runs to keep (30, 60, 90, 180, 365 or everything) without
+restarting the server; it needs the same permission as Settings. Every 6 hours the finished runs older
+than that are deleted with their screenshots and the database is compacted. `TRACEREPORTS_RETENTION_DAYS`
+wins over the interface and locks the selector. Without either, nothing is deleted (and the server says
+so when it starts).
+
+**Clean up now…** (admin) asks how many days to keep, shows first what would be deleted (runs, tests and
+the space it would free) and deletes only after confirming. The last cleanup (when, what and how much it
+freed) and the next one are shown below the selector. A run still in progress is never deleted.
+
+API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
+(`{"days": N}`, 0 = keep everything) and `POST /ui/maintenance/retention/run` (`{"days": N}`, or `{}` for
+the retention in force).
 
 ## AI diagnosis after a restart
 

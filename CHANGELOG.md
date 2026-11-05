@@ -6,6 +6,17 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Storage in Maintenance**: the disk of the data folder (in use, free, a warning from 80 % that says how
+  much TraceReports takes), the evidence stored (database and files), runs and since when, the growth per
+  day and how long the disk would last, what each project takes and files no run uses.
+- **Retention from the interface**: *Keep* 30, 60, 90, 180, 365 days or everything, applied every 6 hours
+  without a restart (`TRACEREPORTS_RETENTION_DAYS` still wins). **Clean up now…** shows what would be
+  deleted and the space it would free before deleting, and the last and next cleanups are shown. API:
+  `GET /maintenance/storage`, `GET /maintenance/storage/preview`, `PUT /ui/maintenance/retention`,
+  `POST /ui/maintenance/retention/run`.
+
 ## [0.7.0] - 2026-11-04
 
 JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated

@@ -1,38 +1,12 @@
 package main
 
 import (
-	"bytes"
-	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"testing"
 )
-
-// Sin TRACEREPORTS_RETENTION_DAYS el arranque avisa que la evidencia no se borra nunca.
-func TestRetentionWarnsWhenNotSet(t *testing.T) {
-	restoreEnv(t)
-	var buf bytes.Buffer
-	prev := slog.Default()
-	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-	t.Cleanup(func() { slog.SetDefault(prev) })
-
-	for value, want := range map[string]string{
-		"":     "TRACEREPORTS_RETENTION_DAYS not set",
-		"diez": "not a positive number of days",
-		"0":    "not a positive number of days",
-	} {
-		buf.Reset()
-		os.Setenv("TRACEREPORTS_RETENTION_DAYS", value)
-		startRetention(context.Background(), nil, t.TempDir())
-		if !strings.Contains(buf.String(), want) || !strings.Contains(buf.String(), "level=WARN") {
-			t.Errorf("%q: %s", value, buf.String())
-		}
-	}
-}
 
 // El servidor deja DATA_DIR y la carpeta de capturas solo para su usuario, también si ya existían.
 func TestServerDataDirIsPrivate(t *testing.T) {

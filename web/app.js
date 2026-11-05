@@ -25,7 +25,9 @@
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
 		recents: { q: "", tab: "" },
 		maint: { state: "", project: "", environment: "", branch: "", older: "", data: null, facets: null, loading: false, error: null,
-			selected: new Set(), action: null, msg: null, busy: false },
+			selected: new Set(), action: null, msg: null, busy: false,
+			// almacenamiento: uso del disco, retención y "Limpiar ahora" (con vista previa)
+			storage: null, storageError: null, clean: null },
 		runSearch: { q: "", project: "", environment: "", branch: "", tag: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent", items: [], cursor: "", total: 0, loading: false, error: null, selected: 0, compare: [], facets: {}, timer: 0, newCount: 0 },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
 		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0 },
@@ -595,7 +597,9 @@
 	function fmtBytes(n) {
 		if (n < 1024) return `${n} B`;
 		if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
-		return `${(n / 1048576).toFixed(1)} MB`;
+		if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`;
+		if (n < 1099511627776) return `${(n / 1073741824).toFixed(1)} GB`;
+		return `${(n / 1099511627776).toFixed(1)} TB`;
 	}
 
 	function loadScript(src) {
@@ -3265,9 +3269,21 @@
 	const STALE_CHOICES = [0.5, 1, 2, 6, 12, 24, 48, 0];
 	const staleText = (h) => (h === 0 ? tr("Nunca") : h < 1 ? `${Math.round(h * 60)} min` : `${h} h`);
 
+	async function loadStorage() {
+		const m = S.maint;
+		try {
+			m.storage = await api("/api/v1/maintenance/storage");
+			m.storageError = null;
+		} catch (err) {
+			m.storageError = err.message;
+		}
+		if (S.view === "maintenance") renderMaintenance();
+	}
+
 	async function loadMaintenance() {
 		const m = S.maint;
 		m.loading = true;
+		loadStorage();
 		const p = new URLSearchParams();
 		if (m.state) p.set("state", m.state);
 		["project", "environment", "branch"].forEach((k) => { if (m[k]) p.set(k, m[k]); });
@@ -3324,6 +3340,81 @@
 		return "";
 	}
 
+	// cuántos días conservar: las opciones del selector (0 = todo)
+	const RETENTION_CHOICES = [0, 30, 60, 90, 180, 365];
+	const retentionText = (d) => (d ? tr("{n} días", { n: d }) : tr("Conservar todo"));
+
+	/** Tarjeta de almacenamiento: disco, lo que ocupa la evidencia, ritmo, proyectos y retención. */
+	function storageCard() {
+		const m = S.maint, st = m.storage;
+		if (m.storageError) return `<div class="card placeholder">${tr("No se pudo leer el almacenamiento: {e}", { e: m.storageError })}</div>`;
+		if (!st) return `<div class="card placeholder">${tr("Midiendo el almacenamiento…")}</div>`;
+		const ret = st.retention, disk = st.disk;
+		const pct = disk ? Math.round(disk.used_percent) : null;
+		const meter = disk ? `<div class="stor-meter ${st.warn ? "warn" : ""}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${esc(tr("Disco en uso"))}">
+				<i style="width:${Math.min(100, pct)}%"></i></div>
+			<p class="stor-disk">${tr("Disco: {p} % en uso · {free} libres de {total}", { p: pct, free: fmtBytes(disk.free), total: fmtBytes(disk.total) })}</p>` : "";
+		const warn = st.warn ? `<p class="stor-warn" role="alert">${icon("i-warning")}${tr("El disco de los datos está al {u} % (más del {p} %) y TraceReports ocupa {b} de él. Si lo que crece es la evidencia, elige cuántos días conservar o limpia ahora; si no, libera espacio en el servidor.", { u: pct, p: st.warn_percent, b: fmtBytes(st.total_bytes) })}</p>` : "";
+		const full = st.days_until_full !== undefined && st.days_until_full < 3650
+			? tr("~{n} días", { n: st.days_until_full }) : st.bytes_per_day ? tr("más de 10 años") : "—";
+		const stats = `<dl class="stor-stats">
+			<div><dt>${tr("Evidencia guardada")}</dt><dd>${fmtBytes(st.total_bytes)}</dd><small>${tr("Base {db} · capturas y adjuntos {files}", { db: fmtBytes(st.db_bytes), files: fmtBytes(st.files_bytes) })}</small></div>
+			<div><dt>${tr("Ejecuciones")}</dt><dd>${st.runs}</dd><small>${st.oldest_run ? tr("desde {d}", { d: fmtDateTime(st.oldest_run) }) : "—"}</small></div>
+			<div><dt>${tr("Ritmo")}</dt><dd>${st.bytes_per_day ? tr("~{b}/día", { b: fmtBytes(st.bytes_per_day) }) : "—"}</dd><small>${tr("promedio desde la ejecución más antigua")}</small></div>
+			<div><dt>${tr("Se llenaría en")}</dt><dd>${disk ? full : "—"}</dd><small>${tr("a este ritmo, sin limpiar")}</small></div>
+		</dl>`;
+		const orphan = st.orphan_bytes > 0 ? `<p class="m-hint">${tr("{b} son archivos que ninguna ejecución usa (de borrados interrumpidos o versiones anteriores).", { b: fmtBytes(st.orphan_bytes) })}</p>` : "";
+		const projects = st.projects?.length ? `<details class="stor-projects"><summary>${tr("Qué ocupa cada proyecto")}</summary>
+			<table class="stor-table"><thead><tr><th>${tr("Proyecto")}</th><th>${tr("Ejecuciones")}</th><th>Tests</th><th>${tr("Espacio (aprox.)")}</th></tr></thead>
+			<tbody>${st.projects.map((p) => `<tr><td data-no-i18n>${esc(p.project || tr("(sin proyecto)"))}</td><td>${p.runs}</td><td>${p.tests}</td><td>${fmtBytes(p.bytes)}</td></tr>`).join("")}</tbody></table>
+			${st.more_projects ? `<small>${tr("y {n} proyecto(s) más", { n: st.more_projects })}</small>` : ""}</details>` : "";
+		const choices = [...new Set([...RETENTION_CHOICES, ret.days])].sort((a, b) => (a || 1e9) - (b || 1e9));
+		const last = ret.last ? tr("Última limpieza: {d} · {r} ejecución(es) · liberó {b}", { d: fmtDateTime(ret.last.at), r: ret.last.runs, b: fmtBytes(ret.last.freed_bytes) }) : tr("Todavía no se limpió nada.");
+		const next = ret.days && ret.next_at ? ` · ${tr("Próxima: {d}", { d: fmtDateTime(ret.next_at) })}` : "";
+		const retention = `<div class="stor-retention">
+			<label class="m-suite"><span>${tr("Conservar")}</span><select data-stor-retention ${ret.editable ? "" : "disabled"}>
+				${choices.map((d) => `<option value="${d}" ${d === ret.days ? "selected" : ""}>${retentionText(d)}</option>`).join("")}</select></label>
+			<p>${ret.days ? tr("Cada {h} h se borran las ejecuciones terminadas de más de {n} días, con sus capturas.", { h: ret.every_hours, n: ret.days }) : tr("Sin retención: la evidencia se guarda para siempre.")}
+				${ret.source === "env" ? `<small>${tr("Lo fija TRACEREPORTS_RETENTION_DAYS en el servidor.")}</small>` : ""}
+				<small>${last}${next}</small></p>
+			${ret.can_run ? `<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-stor-clean ${ret.running || m.clean ? "disabled" : ""}>${icon("i-close")}${ret.running ? tr("Limpiando…") : tr("Limpiar ahora…")}</button>` : ""}
+		</div>`;
+		return `<section class="card stor-card" aria-label="${esc(tr("Almacenamiento"))}">
+			<header class="stor-head"><span class="maint-stale-icon">${icon("i-server")}</span><b>${tr("Almacenamiento")}</b></header>
+			${warn}${meter}${stats}${orphan}${projects}${retention}${cleanConfirm()}
+		</section>`;
+	}
+
+	/** Confirmación de "Limpiar ahora": cuántos días conservar y qué se borraría (vista previa). */
+	function cleanConfirm() {
+		const c = S.maint.clean;
+		if (!c) return "";
+		const p = c.preview;
+		const body = c.error ? `<p class="set-msg err">${esc(c.error)}</p>`
+			: !p ? `<p>${tr("Calculando qué se borraría…")}</p>`
+			: !p.runs ? `<p>${tr("No hay ejecuciones terminadas de más de {n} días: no se borraría nada.", { n: c.days })}</p>`
+			: `<p><b>${tr("Se borrarán {r} ejecución(es) terminadas de más de {n} días ({t} tests) y se liberarán ~{b}. No se puede deshacer.", { r: p.runs, n: c.days, t: p.tests, b: fmtBytes(p.freed_bytes_approx) })}</b></p>`;
+		return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${esc(tr("Limpiar ahora"))}">
+			<label class="m-suite"><span>${tr("Borrar lo de más de")}</span><select data-stor-clean-days>
+				${RETENTION_CHOICES.filter(Boolean).map((d) => `<option value="${d}" ${d === c.days ? "selected" : ""}>${retentionText(d)}</option>`).join("")}</select></label>
+			${body}
+			<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-stor-clean-go ${c.busy || !p?.runs ? "disabled" : ""}>${c.busy ? tr("Limpiando…") : tr("Limpiar")}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-stor-clean-cancel>${tr("Cancelar")}</button></div></div>`;
+	}
+
+	async function previewClean() {
+		const c = S.maint.clean;
+		if (!c) return;
+		Object.assign(c, { preview: null, error: null });
+		renderMaintenance();
+		const days = c.days;
+		try {
+			const p = await api(`/api/v1/maintenance/storage/preview?days=${days}`);
+			if (S.maint.clean === c && c.days === days) c.preview = p;
+		} catch (err) { c.error = err.message; }
+		renderMaintenance();
+	}
+
 	function renderMaintenance() {
 		const el = $("#view-maintenance"), m = S.maint;
 		if (!m.data && !m.loading && !m.error) loadMaintenance();
@@ -3357,7 +3448,8 @@
 				</tr></thead><tbody>${runs.map((r) => maintRow(r, act)).join("")}</tbody></table></div>
 			</div>`;
 		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Mantenimiento")}</h4>
-				<p class="page-sub">${tr("Las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos. Ciérralas como interrumpidas o elimina las que eran pruebas.")}</p></div></div>
+				<p class="page-sub">${tr("Cuánto ocupa la evidencia y cuánto se conserva, y las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos.")}</p></div></div>
+			${storageCard()}
 			${stale}
 			<div class="m-filters" role="toolbar" aria-label="${tr("Filtros de mantenimiento")}">
 				<div class="seg" role="group" aria-label="${tr("Estado")}">${MAINT_STATES.map(([id, label, tip]) =>
@@ -3398,6 +3490,26 @@
 			const a = e.target.closest("[data-maint-act]");
 			if (a) { m.action = a.dataset.maintAct; m.msg = null; renderMaintenance(); return; }
 			if (e.target.closest("[data-maint-cancel]")) { m.action = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-stor-clean]")) {
+				m.clean = { days: m.storage?.retention?.days || 90, preview: null, busy: false };
+				m.msg = null;
+				previewClean();
+				return;
+			}
+			if (e.target.closest("[data-stor-clean-cancel]")) { m.clean = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-stor-clean-go]") && m.clean && !m.clean.busy) {
+				const c = m.clean;
+				c.busy = true;
+				renderMaintenance();
+				apiSend("POST", "/api/v1/ui/maintenance/retention/run", { days: c.days }).then(async (r) => {
+					m.clean = null;
+					m.msg = { ok: true, text: tr("Listo: se borraron {r} ejecución(es) y se liberaron {b}.", { r: r.runs, b: fmtBytes(r.freed_bytes) }) };
+					if (S.runId && !(await api(`/api/v1/runs/${S.runId}`).catch(() => null))) Object.assign(S, { runId: null, run: null, testId: null, test: null });
+					await loadRuns();
+					await loadMaintenance();
+				}).catch((err) => { c.busy = false; c.error = err.message; renderMaintenance(); });
+				return;
+			}
 			if (e.target.closest("[data-maint-delete]")) {
 				const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status !== "RUNNING").map((r) => r.id);
 				maintRun("/api/v1/ui/runs/delete", { run_ids: ids }, (r) => tr("Se eliminaron {n} ejecución(es).", { n: r.deleted }));
@@ -3412,6 +3524,17 @@
 			}
 			const f = e.target.closest("[data-maint-filter]");
 			if (f) { m[f.dataset.maintFilter] = f.value; m.msg = null; loadMaintenance(); return; }
+			const cd = e.target.closest("[data-stor-clean-days]");
+			if (cd && m.clean) { m.clean.days = Number(cd.value); previewClean(); return; }
+			const ret = e.target.closest("[data-stor-retention]");
+			if (ret) {
+				try {
+					const r = await apiSend("PUT", "/api/v1/ui/maintenance/retention", { days: Number(ret.value) });
+					m.msg = { ok: true, text: r.days ? tr("Listo: se conservarán los últimos {n} días; lo más antiguo se borra en la próxima limpieza.", { n: r.days }) : tr("Listo: la evidencia se guarda para siempre.") };
+				} catch (err) { m.msg = { ok: false, text: err.message }; }
+				await loadStorage();
+				return;
+			}
 			const stale = e.target.closest("[data-maint-stale]");
 			if (stale) {
 				try {
