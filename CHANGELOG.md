@@ -25,6 +25,19 @@ Python client 0.5.2 (pending release); the other clients do not change.
   answer is now retried with the same `Idempotency-Key` (the server returns the same run, never a second
   one) and opens the circuit only when the retries run out. A refused or timed-out connection (server
   down) still opens it at once: without a server the client records locally as fast as before.
+- **Test history squares**: opening an older run from a square showed only the runs up to it, so you could
+  not move forward again; the strip now also shows the later runs (`GET /tests/{id}/history?newer=N`), with
+  the one you are viewing outlined.
+- **"Watch live" from Metrics** (and from Search, Maintenance or Settings, also choosing a run in Recents)
+  loaded the run behind the view and nothing changed on screen; it now opens the run's tests.
+- **Recents** did not update while open (a run finishing, a test result, runs deleted in Maintenance): it
+  now follows the live events, at most once every 1.5 s, without F5.
+- **Locator drift said "There is no page snapshot"** when the snapshot did arrive and simply no element
+  fit. The card now tells the cases apart: no snapshot; a snapshot without replacements (a text XPath reads
+  as a content or flow check); or a selector that reached the server cut. The broken selector is taken
+  whole from the trace when the stored error message (cut at 300 characters) ended halfway, and an XPath
+  written between quotes in a team's own message ends at its closing quote. `GET /tests/{id}/locator` adds
+  `has_dom`, `dom_elements` and `failed_selector_truncated`.
 
 ### Security
 

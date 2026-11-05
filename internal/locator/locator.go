@@ -139,16 +139,22 @@ func bareXPath(text string) string {
 }
 
 // scanXPath reads the XPath that starts at start: up to the first space or unbalanced closing
-// outside brackets, parentheses and quotes.
+// outside brackets, parentheses and quotes. Written between quotes ("el elemento '//div[...]' no
+// está"), it also ends at that closing quote: inside the XPath the quotes go within [] or ().
 func scanXPath(text string, start int) string {
 	depth := 0
-	var quote rune
+	var quote, wrap rune
+	if start > 0 && (text[start-1] == '\'' || text[start-1] == '"') {
+		wrap = rune(text[start-1])
+	}
 	for i, r := range text[start:] {
 		switch {
 		case quote != 0:
 			if r == quote {
 				quote = 0
 			}
+		case r == wrap && depth == 0:
+			return text[start : start+i]
 		case r == '\'' || r == '"':
 			quote = r
 		case r == '[' || r == '(':
@@ -179,6 +185,29 @@ func pySeleniumSelector(by, value string) string {
 	default: // CSS_SELECTOR, XPATH, TAG_NAME
 		return value
 	}
+}
+
+// Truncated reports whether a selector was cut before its end (the error message stored only its
+// first characters): a bracket, parenthesis or quote left open. Suggestions for half a selector
+// would compare against the wrong thing.
+func Truncated(sel string) bool {
+	depth := 0
+	var quote rune
+	for _, r := range sel {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == '[' || r == '(':
+			depth++
+		case r == ']' || r == ')':
+			depth--
+		}
+	}
+	return depth > 0 || quote != 0
 }
 
 // LooksLikeLocatorFailure reports whether an error is about an element that was not found.

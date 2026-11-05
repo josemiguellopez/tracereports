@@ -23,6 +23,7 @@ func LocatorCandidates(store *db.Store, t *db.Test) ([]locator.Suggestion, strin
 			text += "\n" + t.Logs[i].Message
 		}
 	}
+	failed = completeSelector(failed, t)
 	if failed == "" && !locator.LooksLikeLocatorFailure(text) {
 		return nil, "", nil
 	}
@@ -43,7 +44,31 @@ func LocatorCandidates(store *db.Store, t *db.Test) ([]locator.Suggestion, strin
 	if err := json.Unmarshal([]byte(raw), &snap); err != nil {
 		return nil, failed, nil // snapshot inválido: sin sugerencias, no es un error del análisis
 	}
+	if locator.Truncated(failed) {
+		return nil, failed, nil // medio selector: compararlo con la página daría reemplazos de otra cosa
+	}
 	return locator.Suggest(failed, snap, maxLocatorCandidates), failed, nil
+}
+
+// completeSelector: error_message is stored cut (300 characters) and a long XPath can end halfway.
+// The same selector, whole, is usually in the trace or in the step that failed.
+func completeSelector(failed string, t *db.Test) string {
+	if failed == "" || !locator.Truncated(failed) {
+		return failed
+	}
+	texts := []string{t.ErrorTrace}
+	for i := len(t.Logs) - 1; i >= 0; i-- {
+		if t.Logs[i].Status == "FAIL" {
+			texts = append(texts, t.Logs[i].Message)
+		}
+	}
+	for _, text := range texts {
+		whole := locator.ExtractSelector(text)
+		if len(whole) > len(failed) && strings.HasPrefix(whole, failed) && !locator.Truncated(whole) {
+			return whole
+		}
+	}
+	return failed
 }
 
 func locatorPromptSection(failed string, cands []locator.Suggestion) string {
