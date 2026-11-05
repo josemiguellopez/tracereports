@@ -188,3 +188,31 @@ test("open dibuja un plan sin vars y nunca se queda en «Preparando el Lab…»"
 	await w.TraceReportsLab.open(625);
 	assert.match(wrap.innerHTML, /No se pudo preparar el Lab/);
 });
+
+// Servidor compartido y host interno sin autorizar: el Lab pregunta antes de enviar. Los hosts vienen
+// de los datos que suben los tests: se escapan. El foco queda en Cancelar (lo seguro).
+test("askInternal pregunta, escapa los hosts y resuelve según el botón", async () => {
+	const evil = `10.0.0.5"><img src=x onerror=alert(1)>`;
+	const made = () => {
+		const el = { innerHTML: "", focused: "", handler: null };
+		el.querySelector = (sel) => ({ focus: () => { el.focused = sel; } });
+		el.addEventListener = (_, fn) => { el.handler = fn; };
+		el.removeEventListener = () => { el.handler = null; };
+		el.click = (answer) => el.handler({ target: { closest: () => ({ dataset: { labInternal: answer } }) } });
+		return el;
+	};
+	const out = made();
+	const asked = L.askInternal(out, [evil, "preprod.interno:8080"]);
+	assert.match(out.innerHTML, /Esta llamada va a la red interna/);
+	assert.match(out.innerHTML, /preprod\.interno:8080/);
+	assert.doesNotMatch(out.innerHTML, /<img/);
+	assert.equal(out.focused, '[data-lab-internal="no"]');
+	out.click("yes");
+	assert.equal(await asked, true);
+	const no = made();
+	const cancelled = L.askInternal(no, ["10.0.0.5"]);
+	no.click("no");
+	assert.equal(await cancelled, false);
+	assert.match(L.internalRefused([evil]), /TRACEREPORTS_LAB_HOSTS/);
+	assert.doesNotMatch(L.internalRefused([evil]), /<img/);
+});

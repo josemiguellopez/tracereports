@@ -272,12 +272,22 @@
 			send.disabled = true;
 			out.innerHTML = `<div class="placeholder">${tr("Enviando…")}</div>`;
 			try {
-				const res = await fetch("/api/v1/ui/lab/send", {
-					method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
-					body: JSON.stringify({ conn_id: p.conn_id, values: values(), base_url: $("[data-lab-base]").value.trim(), request: edited ? current() : null }),
-				});
-				const r = await res.json().catch(() => ({}));
+				const sendOnce = async (confirmInternal) => {
+					const res = await fetch("/api/v1/ui/lab/send", {
+						method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json" },
+						body: JSON.stringify({ conn_id: p.conn_id, values: values(), base_url: $("[data-lab-base]").value.trim(), request: edited ? current() : null,
+							confirm_internal: confirmInternal }),
+					});
+					return [res, await res.json().catch(() => ({}))];
+				};
+				let [res, r] = await sendOnce(false);
+				if (r.code === "internal_host" && !r.strict) {
+					if (!(await askInternal(out, r.hosts))) { out.innerHTML = `<p class="lab-note">${tr("No se envió.")}</p>`; return; }
+					out.innerHTML = `<div class="placeholder">${tr("Enviando…")}</div>`;
+					[res, r] = await sendOnce(true);
+				}
 				if (!res.ok) {
+					if (r.code === "internal_host") { out.innerHTML = internalRefused(r.hosts); return; }
 					for (const n of r.missing || []) wrap.querySelector(`[data-lab-var="${CSS.escape(n)}"]`)?.classList.add("lab-missing");
 					out.innerHTML = `<p class="lab-note lab-warn">${icon("i-warning")}<span>${r.missing ? tr("Falta completar: {v}", { v: esc(r.missing.join(", ")) }) : esc(r.error || res.status)}</span></p>`;
 					return;
@@ -314,10 +324,35 @@
 		const data = await res.json().catch(() => ({}));
 		if (!res.ok) {
 			const err = new Error(data.missing ? tr("Falta completar: {v}", { v: data.missing.join(", ") }) : data.error || String(res.status));
-			err.missing = data.missing;
+			Object.assign(err, { missing: data.missing, code: data.code, hosts: data.hosts, strict: data.strict });
 			throw err;
 		}
 		return data;
+	}
+
+	/** Un servidor compartido no llama sin preguntar a un host de la red interna que no esté autorizado:
+	 * las llamadas las graban los tests, y una "plantada" no debe llegar a la red interna sin que nadie
+	 * lo note. Muestra los hosts y resuelve true si la persona decide enviar igual. */
+	function askInternal(out, hosts) {
+		return new Promise((resolve) => {
+			out.innerHTML = `<div class="lab-note lab-warn lab-internal" role="alertdialog" aria-labelledby="lab-internal-title">${icon("i-warning")}<div>
+				<b id="lab-internal-title">${tr("Esta llamada va a la red interna")}</b>
+				<p>${tr("{h} no está entre los hosts autorizados (TRACEREPORTS_LAB_HOSTS). Las llamadas las graban los tests: confirma que esta la grabó uno de los tuyos antes de enviarla.", { h: `<code data-no-i18n>${esc((hosts || []).join(", "))}</code>` })}</p>
+				<div class="lab-internal-actions"><button type="button" class="cf-btn cf-btn-sm" data-lab-internal="no">${tr("Cancelar")}</button>
+					<button type="button" class="cf-btn cf-btn-sm cf-btn-primary" data-lab-internal="yes">${tr("Enviar de todas formas")}</button></div></div></div>`;
+			out.querySelector('[data-lab-internal="no"]').focus(); // lo seguro, por defecto
+			out.addEventListener("click", function choose(e) {
+				const b = e.target.closest("[data-lab-internal]");
+				if (!b) return;
+				out.removeEventListener("click", choose);
+				resolve(b.dataset.labInternal === "yes");
+			});
+		});
+	}
+
+	/** TRACEREPORTS_LAB_STRICT: el host interno sin autorizar no se llama, ni confirmando. */
+	function internalRefused(hosts) {
+		return `<p class="lab-note lab-warn">${icon("i-warning")}<span>${tr("{h} es de la red interna y este servidor solo llama a los hosts internos autorizados (TRACEREPORTS_LAB_STRICT): agrégalo a TRACEREPORTS_LAB_HOSTS.", { h: `<code data-no-i18n>${esc((hosts || []).join(", "))}</code>` })}</span></p>`;
 	}
 
 	function pathOf(url) {
@@ -403,7 +438,18 @@
 			out.innerHTML = `<div class="placeholder">${tr("Verificando…")}</div>`;
 			try {
 				const values = Object.fromEntries([...wrap.querySelectorAll("[data-lab-var]")].map((i) => [i.dataset.labVar, i.value]));
-				const v = await post("/api/v1/ui/lab/verify", { run_id: opts.runId, incident_key: opts.incidentKey, check_ids: checks.map((c) => c.id), values, base_url: wrap.querySelector("[data-lab-base]").value.trim() });
+				const verify = (confirmInternal) => post("/api/v1/ui/lab/verify", { run_id: opts.runId, incident_key: opts.incidentKey, check_ids: checks.map((c) => c.id), values,
+					base_url: wrap.querySelector("[data-lab-base]").value.trim(), confirm_internal: confirmInternal });
+				let v;
+				try {
+					v = await verify(false);
+				} catch (err) {
+					if (err.code !== "internal_host") throw err;
+					if (err.strict) { out.innerHTML = internalRefused(err.hosts); return; }
+					if (!(await askInternal(out, err.hosts))) { out.innerHTML = `<p class="lab-note">${tr("No se verificó.")}</p>`; return; }
+					out.innerHTML = `<div class="placeholder">${tr("Verificando…")}</div>`;
+					v = await verify(true);
+				}
 				out.innerHTML = verification(v);
 				const byId = Object.fromEntries((typeof v.results === "string" ? JSON.parse(v.results) : v.results || []).map((x) => [x.check_id, x.ok]));
 				checks = checks.map((c) => (c.id in byId ? { ...c, last_ok: byId[c.id] } : c));
@@ -531,5 +577,6 @@
 		http: { label: ".http", ext: "http", type: "text/plain", fn: toHttp },
 	};
 
-	window.TraceReportsLab = { open, verify, verification, labCurl, capsuleCommand, toPostman, toBruno, toHttp, parseHeaders, headersText, verdictInfo, envName, expectText, failureText };
+	window.TraceReportsLab = { open, verify, verification, labCurl, capsuleCommand, toPostman, toBruno, toHttp, parseHeaders, headersText, verdictInfo, envName, expectText, failureText,
+		askInternal, internalRefused };
 })();

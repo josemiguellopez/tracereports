@@ -142,7 +142,14 @@ El Lab hace que el servidor envíe peticiones HTTP, así que se trata como una c
   de la UI o, sin login, solo la máquina del propio servidor. El token de ingesta nunca puede.
 - **A dónde** puede enviar:
   - Desde la máquina del propio servidor, a cualquier host, como tu terminal.
-  - En un servidor compartido, solo a los hosts que llamó el test más `TRACEREPORTS_LAB_HOSTS`.
+  - En un servidor compartido, solo a los hosts que llamó el test más `TRACEREPORTS_LAB_HOSTS`. Esos
+    hosts vienen de datos ingeridos, por eso un host de la **red interna** (una IP privada o este equipo,
+    también un nombre que resuelve a una) que no está en `TRACEREPORTS_LAB_HOSTS` pregunta antes: *Esta
+    llamada va a la red interna*, con *Cancelar* y *Enviar de todas formas*. No se envía nada hasta
+    confirmar, y sin confirmar la conexión también se rechaza al conectar, así un nombre que para entonces
+    resuelve distinto (DNS rebinding) no se salta la pregunta. Los hosts de `TRACEREPORTS_LAB_HOSTS` y la
+    URL base que escribes se llaman sin preguntar; con `TRACEREPORTS_LAB_STRICT=1` un host interno fuera
+    de la lista nunca se llama.
   - **`repro`, `verify` y el MCP** (desde tu equipo, con los secretos de `TRACEREPORTS_LAB_<NOMBRE>`):
     solo a los hosts que llamó el test, los de `TRACEREPORTS_LAB_HOSTS` y, en la CLI, la URL que
     pasas con `-base`. Una cápsula o un plan vienen de datos ingeridos: así nadie con el token de
@@ -162,7 +169,8 @@ El Lab hace que el servidor envíe peticiones HTTP, así que se trata como una c
 | Variable | Por defecto | Qué hace |
 | --- | --- | --- |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab |
-| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por comas (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por comas (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Un host interno de la lista se llama sin preguntar |
+| `TRACEREPORTS_LAB_STRICT` | apagado | `1`: el Lab de un servidor compartido nunca llama a un host interno fuera de `TRACEREPORTS_LAB_HOSTS` (sin esto, lo confirmas) |
 | `TRACEREPORTS_LAB_<NOMBRE>` | — | Valores de las variables para `repro`, `verify` y `mcp` (`TRACEREPORTS_LAB_PASSWORD`) |
 
 ## Límites
@@ -179,10 +187,10 @@ El Lab hace que el servidor envíe peticiones HTTP, así que se trata como una c
 | Método | Ruta | Qué hace |
 | --- | --- | --- |
 | GET | `/api/v1/network/{id}/lab` | El plan: la petición con `{{variables}}`, las variables, el paso de sesión, la respuesta original y si puedes enviar y por qué no |
-| POST | `/api/v1/ui/lab/send` | `{conn_id, values, base_url?, request?}` → pasos, respuesta y veredicto |
+| POST | `/api/v1/ui/lab/send` | `{conn_id, values, base_url?, request?, confirm_internal?}` → pasos, respuesta y veredicto. En un servidor compartido, un host interno fuera de `TRACEREPORTS_LAB_HOSTS` responde `409 {code: "internal_host", hosts}` antes de enviar nada: se envía de nuevo con `confirm_internal: true` (`403` con `strict: true` bajo `TRACEREPORTS_LAB_STRICT`) |
 | POST | `/api/v1/ui/lab/checks` | `{conn_id, name, request?, base_url?, expect: {status, contains?}}` guarda un check |
 | DELETE | `/api/v1/ui/lab/checks/{id}` | Borra un check |
-| POST | `/api/v1/ui/lab/verify` | `{run_id, incident_key, check_ids?, values, base_url?}` ejecuta los checks y guarda el resultado |
+| POST | `/api/v1/ui/lab/verify` | `{run_id, incident_key, check_ids?, values, base_url?, confirm_internal?}` ejecuta los checks y guarda el resultado (hosts internos: como en `send`) |
 | GET | `/api/v1/runs/{id}/lab` | Checks y última verificación de cada incidente de la ejecución |
 | GET | `/api/v1/network/{id}/capsule` | Cápsula de una llamada |
 | GET | `/api/v1/runs/{id}/lab/capsule?incident=<clave>` | Cápsula de un incidente, con sus checks |

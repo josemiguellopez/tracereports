@@ -53,7 +53,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
 | `TRACEREPORTS_SCREENSHOTS` | `all` | Qué capturas guarda el servidor: `all`, `failures` (solo de un paso o un test que falló) u `off` (ninguna, tampoco trace ni video). Ver [Capturas de pantalla](#capturas-de-pantalla) |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
-| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [FixLab](fixlab.md#seguridad) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Un host interno de la lista se llama sin pedir confirmación. Ver [FixLab](fixlab.md#seguridad) |
+| `TRACEREPORTS_LAB_STRICT` | apagado | `1`: el Lab de un servidor compartido nunca llama a un host interno (IP privada o este equipo) fuera de `TRACEREPORTS_LAB_HOSTS`; sin esto, la persona lo confirma |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. Cuenta un diagnóstico por **resultado** de cada test: reenviar el mismo resultado, un reinicio o un error del proveedor no gastan otro, y un *Re-analizar* manual no cuenta. `0` = sin límite |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
@@ -575,7 +576,8 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   conexión**. Guárdala como **check** y pulsa **Verificar** en el incidente cuando esté arreglado;
   expórtala a Postman, Bruno o `.http`; llévala a tu terminal o a CI con `tracereports repro` /
   `verify`, o a Claude Code con `tracereports mcp`. En un servidor compartido solo llama a los hosts
-  que llamó el test y a `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off` lo desactiva. Guía
+  que llamó el test y a `TRACEREPORTS_LAB_HOSTS`, y pregunta antes de un host interno que no esté en
+  esa lista (`TRACEREPORTS_LAB_STRICT=1` lo rechaza); `TRACEREPORTS_LAB=off` lo desactiva. Guía
   completa: [FixLab](fixlab.md).
 - **Comparar con la última vez que pasó**: en una llamada con error (pestaña **Red**), busca la
   misma llamada (mismo método, host y ruta, con los ids normalizados: `/orders/123` = `/orders/456`)

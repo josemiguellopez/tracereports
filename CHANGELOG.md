@@ -6,7 +6,7 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
-Python client 0.5.2 (pending release); the server and the other clients do not change.
+Python client 0.5.2 (pending release); the other clients do not change.
 
 ### Added
 
@@ -25,6 +25,19 @@ Python client 0.5.2 (pending release); the server and the other clients do not c
   answer is now retried with the same `Idempotency-Key` (the server returns the same run, never a second
   one) and opens the circuit only when the retries run out. A refused or timed-out connection (server
   down) still opens it at once: without a server the client records locally as fast as before.
+
+### Security
+
+- **FixLab on a shared server asks before calling the internal network**: the hosts a resend may reach
+  come from the network calls the tests upload, so a call planted by whoever has the ingest token could
+  aim at an internal system and be resent by an admin without noticing. Now a host on the internal network
+  (a private IP or the server's own machine, also a name that resolves to one) that is not in
+  `TRACEREPORTS_LAB_HOSTS` shows *This call goes to the internal network* with *Cancel* and *Send anyway*
+  before anything is sent; without confirming, the connection is also refused when it is made (DNS
+  rebinding). Hosts in `TRACEREPORTS_LAB_HOSTS`, the base URL you type, the server's own machine and the
+  CLI (`repro`, `verify`, MCP) do not change. `TRACEREPORTS_LAB_STRICT=1` refuses those hosts instead of
+  asking. API: `/ui/lab/send` and `/ui/lab/verify` answer `409 {code: "internal_host", hosts}` and accept
+  `confirm_internal`.
 
 ## [0.7.0] - 2026-11-04
 
