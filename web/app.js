@@ -1539,7 +1539,9 @@
 	}
 
 	// ---------- diagnóstico de la ejecución ----------
-	const INCIDENT_ICON = { backend: "i-plug", ai: "i-spark", error: "i-warning" };
+	const INCIDENT_ICON = { backend: "i-plug", ai: "i-spark", error: "i-warning", cascade: "i-timeline" };
+	// evidencia que escribe el servidor en español y se traduce con las reglas de i18n.en.js
+	const TRANSLATED_EVIDENCE = new Set(["network", "cascade", "hung", "blank_page"]);
 
 	/** Hechos observados de un incidente (llamada, error, captura), con enlace al test. */
 	function incidentEvidence(inc) {
@@ -1548,7 +1550,7 @@
 		if (!ev.length && !inc.location) return "";
 		const tr = window.TraceReportsI18n.t;
 		return `<ul class="inc-evidence" aria-label="${esc(tr("Evidencia observada"))}">${ev.map((e) =>
-			`<li><a data-goto="${e.test_id}" data-no-i18n>${esc(e.kind === "network" ? tr(e.text) : e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
+			`<li class="ev-${esc(e.kind)}"><a data-goto="${e.test_id}" data-no-i18n>${esc(TRANSLATED_EVIDENCE.has(e.kind) ? tr(e.text) : e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
 	}
 
 	/** Botón "Abrir en Lab" de un incidente de backend: reenvía su llamada causal (no en el ZIP). */
@@ -2563,10 +2565,10 @@
 				: sum.state === "ERROR" ? `<p class="ai-err">${icon("i-fail")}<span>${esc(sum.error || "")}</span></p>`
 				: `<p class="ai-headline">${esc(sum.headline)}</p>${sum.summary ? `<p>${esc(sum.summary)}</p>` : ""}
 					${isLocal(sum) ? `<p class="m-hint">${tr("Diagnóstico del motor local de reglas: cada conclusión sale de una regla determinística sobre la evidencia observada, sin IA y sin red.")}</p>`
-						: !sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, o con la misma firma de error.")}</p>` : ""}
+						: !sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, con la misma firma de error, o en cascada: el primer fallo de un archivo y los siguientes que apuntan a él.")}</p>` : ""}
 					${summaryCoverage(sum)}`;
 			const incidents = (sum?.incidents || []).map((inc) => `<article class="card incident-card">
-				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error") }[inc.kind] || inc.kind)}</span>
+				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error"), cascade: tr("En cascada") }[inc.kind] || inc.kind)}</span>
 					<h6 data-no-i18n>${esc(AI_LABEL[inc.title] ? tr(AI_LABEL[inc.title]) : inc.title)}</h6>
 					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}${incidentVerified(inc)}</header>
 				${incidentEvidence(inc)}

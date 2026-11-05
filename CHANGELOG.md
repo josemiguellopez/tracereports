@@ -6,6 +6,25 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Failures in cascade are one incident**: when the first test of a file fails and the later tests of
+  that file fail because of it (their error names it, or says that data is missing or that the step was
+  skipped because a previous one failed), the run diagnosis shows one incident *In cascade* with the cause
+  of the first test, instead of one incident per test. A test that passes in between breaks the chain. A
+  first test that ran far longer than the rest is shown as hung, and a page that was blank at the failure
+  (DOM snapshot with nothing visible, or a single-color screenshot) is added as evidence. The tests of a
+  cascade no longer count as independent failures for "the environment was probably down".
+- **Local rules engine: `blank_page`** (`INFRA_ERROR`): a page that never finished loading is not reported
+  as a broken selector.
+
+### Changed
+
+- **Error signature without the line number**: the same error from several lines of a file is one
+  incident (the location lists the lines). The lines of a chained Python exception ("During handling of
+  the above exception…") no longer become the title nor join unrelated errors. Incident keys change
+  once: runs analyzed before this version are not matched as recurrences of the new ones.
+
 ## [0.7.0] - 2026-11-04
 
 JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated

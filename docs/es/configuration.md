@@ -200,6 +200,7 @@ falló la ejecución. Gana la regla de mayor prioridad (a igual prioridad, la de
 | `network_error` | `INFRA_ERROR` | El mensaje de error es de DNS, conexión rechazada, TLS o una excepción de conexión (`ConnectionError`) |
 | `js_error` | `LOGIC_BUG` | Un error de JavaScript no capturado y el elemento esperado nunca apareció |
 | `backend_client_error` | `LOGIC_BUG` | Un 4xx del que la aplicación no se recuperó |
+| `blank_page` | `INFRA_ERROR` | La página estaba en blanco al fallar (snapshot del DOM sin nada visible, o captura de un solo color) |
 | `locator_not_found` | `LOCATOR_CHANGED` | El selector no encontró el elemento |
 | `assertion` | `LOGIC_BUG` | Falló una verificación (cita el valor esperado, el real y la línea) |
 | `environment_down` | `INFRA_ERROR` | Falló el 80 % o más de una ejecución de al menos 5 tests |
@@ -638,8 +639,18 @@ Cada fallo va a un incidente según la evidencia, nunca solo por la categoría d
    antes). Gana un error del servidor (sin respuesta, 5xx, 408, 429); un 4xx solo cuenta si la
    aplicación no siguió funcionando con ese host después. Las respuestas **esperadas** nunca
    cuentan. La firma incluye método, **host**, ruta normalizada y resultado.
-2. Si no, la **firma del error**: tipo de excepción, mensaje sin números ni ids y el frame más
-   interno del código del proyecto.
+2. Si no, la **firma del error**: tipo de excepción, mensaje sin números ni ids y el archivo del
+   frame más interno del código del proyecto. El mismo error lanzado desde varias líneas de un
+   archivo es un incidente; su ubicación lista las líneas (`tests/x.py:135, 158`). Se saltan las
+   líneas que Python agrega a una excepción encadenada ("During handling of the above exception…").
+3. **En cascada**: en un archivo de tests que dependen entre sí, el primer test que falla y los
+   siguientes fallidos del mismo archivo cuyo error apunta a él (nombra ese test, o dice que falta un
+   dato o que se omitió porque falló un paso anterior) son un incidente con la causa del primero. Un
+   test que pasa en medio corta la cadena. Si el primero duró mucho más que el resto (5 minutos o
+   más) se muestra como colgado, y una página en blanco al fallar (snapshot del DOM sin nada visible,
+   o captura de un solo color) se agrega como evidencia; el motor local concluye entonces
+   `blank_page`, no un selector roto. Los tests de una cascada no cuentan como fallos independientes
+   para "el ambiente probablemente estaba caído".
 
 Todos los fallos quedan en algún incidente. La IA describe como máximo los 8 más grandes (el resto
 se muestra con su evidencia) y su causa se presenta como **hipótesis**, con la evidencia en que se
