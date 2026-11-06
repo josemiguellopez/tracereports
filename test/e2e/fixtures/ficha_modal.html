@@ -1,0 +1,61 @@
+<!doctype html>
+<!-- Página sintética con la estructura de una ficha clínica real (Bootstrap): barra fija, menú de
+     íconos, dos paneles con scroll (el historial se desborda) y un modal con su backdrop al final del
+     body, poco profundos. Datos inventados. La usa zz_inspector.spec.js: el Inspector debe pintarla como
+     el navegador (el modal encima, la página atenuada, el historial recortado a su panel). -->
+<html><head><meta charset="utf-8"><style>
+body { margin: 0; font-family: Arial, sans-serif; background: #e9eef3; color: #333; }
+.navbar { position: fixed; top: 0; left: 0; right: 0; height: 52px; background: #1f4e8c; color: #fff; z-index: 1030; display: flex; align-items: center; padding: 0 20px; }
+.subbar { position: fixed; top: 52px; left: 0; right: 0; height: 38px; background: #f4f6f8; z-index: 1020; display: flex; align-items: center; padding: 0 24px; font-size: 14px; color: #1f4e8c; }
+.wrap { position: relative; padding-top: 98px; }
+.l1 { position: relative; } .l2 { position: relative; } .l3 { position: relative; display: flex; gap: 10px; padding: 0 10px; }
+.icons { width: 40px; background: #fff; border: 1px solid #d6dde4; }
+.icons div { height: 30px; border-bottom: 1px solid #eef2f5; }
+.panel { position: relative; background: #fff; border: 1px solid #d6dde4; height: 600px; overflow: hidden; }
+.panel h3 { margin: 0; padding: 14px 24px; font-size: 20px; font-weight: normal; color: #1f6fb5; background: #f7f9fb; }
+.scroll { height: 530px; overflow-y: auto; }
+.row { display: flex; border-bottom: 1px solid #e3e7eb; padding: 12px 24px; font-size: 15px; }
+.row b { width: 210px; font-weight: 600; } .item { padding: 8px 40px; font-size: 14px; }
+.item:nth-child(odd) { background: #f3f4f6; } .tag { background: #f2c94c; font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-left: 12px; }
+.tabs { position: fixed; bottom: 0; left: 0; right: 0; height: 38px; background: #e4e7ea; z-index: 1030; display: flex; align-items: center; padding: 0 16px; font-size: 14px; }
+.modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1050; }
+.modal-dialog { position: relative; width: 500px; margin: 28px auto; }
+.modal-content { position: relative; background: #fff; border-radius: 4px; border: 1px solid #ccc; }
+.modal-header { background: #3576c8; color: #fff; padding: 16px; font-size: 16px; }
+.modal-body { padding: 18px 16px; font-size: 15px; line-height: 1.6; }
+.modal-footer { padding: 14px 16px; text-align: right; border-top: 1px solid #e5e5e5; }
+.btn { background: #ff5722; color: #fff; border: 0; padding: 8px 12px; border-radius: 3px; font-size: 14px; }
+.modal-backdrop { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background-color: #000; opacity: 0.5; z-index: 1040; }
+</style></head><body class="modal-open">
+<nav class="navbar"><span>Clínica Demo</span></nav>
+<div class="subbar">Historia clínica de <b style="margin-left:4px">Paciente de Prueba</b></div>
+<div class="wrap"><div class="l1"><div class="l2"><div class="l3">
+  <div class="icons"><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>
+  <section class="panel" style="width:490px"><h3>Identificación</h3><div class="scroll"><div><div><div><div>
+    <div class="row"><b>Médico de cabecera</b><span>Sin médico asignado</span></div>
+    <div class="row"><b>Situación de Discapacidad</b><span></span></div>
+    <div class="row"><b>RUN</b><span>11.111.111-1</span></div>
+    <div class="row"><b>Fecha de nacimiento</b><span>01-01-1980 00:00</span></div>
+    <div class="row"><b>Sexo Biológico</b><span>Hombre</span></div>
+    <div class="row"><b>Previsión</b><span>Fonasa A</span></div>
+    <div class="row"><b>Teléfono</b><span>+56 9 1234 5678</span></div>
+  </div></div></div></div></div></section>
+  <section class="panel" id="historial" style="width:740px"><h3>Historial de atenciones</h3><div class="scroll" id="hist-scroll"><div><div><div>
+    <div class="item">06-11-2026 17:26<span class="tag">Atención no completada</span><br>Diagnóstico no ingresado</div>
+    <div class="item">06-11-2026 16:47<br>Control general</div><div class="item">06-11-2026 16:43<br>Control general</div>
+    <div class="item">06-11-2026 15:25<br>Control general</div><div class="item">06-11-2026 12:47<br>Control general</div>
+    <div class="item">06-11-2026 10:16<br>Control general</div><div class="item">06-11-2026 08:36<br>Control general</div>
+    <div class="item">05-11-2026 16:31<br>Control general</div><div class="item">05-11-2026 16:26<br>Control general</div>
+    <div class="item">05-11-2026 13:03<br>Control general</div><div class="item">05-11-2026 10:13<br>Control general</div>
+    <div class="item">04-11-2026 09:40<br>Control general</div><div class="item">03-11-2026 11:05<br>Control general</div>
+    <div class="item" id="ultima-atencion">28-10-2026 11:49<br>Última atención de la lista (fuera del panel)</div>
+  </div></div></div></div></section>
+</div></div></div></div>
+<div class="tabs"><span>Pacientes citados</span><span style="margin-left:30px">FC: Paciente de Prueba</span></div>
+<div class="modal" id="modal-info" role="dialog"><div class="modal-dialog"><div class="modal-content">
+  <div class="modal-header">Información</div>
+  <div class="modal-body">El usuario tiene desactualizados los siguientes campos de contactabilidad: Teléfono Residencial.</div>
+  <div class="modal-footer"><button class="btn" id="entendido">Entendido</button></div>
+</div></div></div>
+<div class="modal-backdrop"></div>
+</body></html>

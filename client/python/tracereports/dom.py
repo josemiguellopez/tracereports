@@ -79,7 +79,7 @@ DOM_SCRIPT = """(mask) => {""" + _SHOWN + """
 STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
   const KEEP = ['id', 'class', 'name', 'role', 'type', 'placeholder', 'href', 'title', 'for', 'alt', 'data-testid', 'data-test', 'data-test-id'];
   const STYLE = ['display', 'position', 'backgroundColor', 'color', 'fontSize', 'fontWeight', 'fontFamily', 'borderTopWidth',
-    'borderTopColor', 'borderRadius', 'opacity', 'textAlign', 'lineHeight'];
+    'borderTopColor', 'borderRadius', 'opacity', 'textAlign', 'lineHeight', 'zIndex', 'overflowX', 'overflowY'];
   const SEL = 'a,button,input,select,textarea,label,summary,[role],[data-testid],[data-test-id],[data-test],[id],[name],[aria-label],[placeholder],h1,h2,h3,h4,h5,h6';
   const SKIP = new Set(['script', 'style', 'noscript', 'template', 'link', 'meta', 'head']);
   const nodes = [], elements = [];
@@ -97,13 +97,15 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
     for (const a of el.getAttributeNames()) if (a.startsWith('aria-') && Object.keys(attrs).length < 30) attrs[a] = String(el.getAttribute(a)).slice(0, 200);
     let text = '', tb = null;
     for (const c of el.childNodes) {
+      if (c.nodeType === 1 && c.tagName === 'BR') { if (text) text += '\n'; continue; } // "16:43<br>Control" son dos líneas
       if (c.nodeType !== 3 || !c.textContent.trim()) continue;
+      if (text && !/\s$/.test(text)) text += ' ';
       text += c.textContent;
       const rg = document.createRange(); rg.selectNodeContents(c);
       const b = rg.getBoundingClientRect();
       if (b.width) tb = tb ? { x: Math.min(tb.x, b.x), y: Math.min(tb.y, b.y) } : { x: b.x, y: b.y };
     }
-    text = text.replace(/\s+/g, ' ').trim().slice(0, 300);
+    text = text.replace(/[^\S\n]+/g, ' ').replace(/ *\n[\s]*/g, '\n').trim().slice(0, 300);
     if (tag === 'input' || tag === 'textarea' || tag === 'select') text = ''; // lo que alguien escribió no viaja
     if (covered) { text = text ? '•••' : ''; delete attrs.placeholder; delete attrs.title; delete attrs['aria-label']; }
     const style = {};

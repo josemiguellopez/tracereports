@@ -253,6 +253,42 @@ test("comparar con el último PASS y la página de un WARNING", async ({ page: p
 	await expect(card).toBeHidden();
 });
 
+// La ficha clínica con un modal (estructura de Bootstrap, datos inventados) capturada con el script del
+// cliente Python: fixtures/ficha_modal.html → ficha_modal.snapshot.json. Antes el modal quedaba detrás de
+// la página, el backdrop salía negro y el historial se salía de su panel.
+test("el Inspector pinta como el navegador: el modal encima, el backdrop translúcido, el historial recortado", async ({ page: p, request }) => {
+	const snap = JSON.parse(require("node:fs").readFileSync(require("node:path").join(__dirname, "fixtures", "ficha_modal.snapshot.json"), "utf8"));
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Capas E2E", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "test_ficha_modal" } })).json()).test_id;
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...snap, kind: "fail" } })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'waiting for locator("#entendido-viejo")' } });
+	await p.setViewportSize({ width: 2300, height: 1300 });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-status")).toHaveText(/elementos reconstruidos/);
+
+	const byText = (t) => insp.locator(".insp-n", { hasText: new RegExp(`^${t}$`) });
+	// en el centro del botón del modal, lo que queda arriba es el botón (antes, la página)
+	const btn = await byText("Entendido").boundingBox();
+	const top = await p.evaluate(({ x, y }) => document.elementFromPoint(x, y)?.closest(".insp-n")?.textContent, { x: btn.x + btn.width / 2, y: btn.y + btn.height / 2 });
+	expect(top).toBe("Entendido");
+	// el texto del modal se lee entero (varias líneas)
+	await expect(insp.locator(".insp-n.wrap", { hasText: "Teléfono Residencial" })).toHaveCount(1);
+	// el backdrop: gris translúcido, no negro sólido
+	const backdrop = snap.nodes.find((n) => (n.attrs?.class || "").includes("modal-backdrop"));
+	await expect(insp.locator(`.insp-n[data-i="${backdrop.i}"]`)).toHaveCSS("opacity", "0.5");
+	// el historial no se sale de su panel: la última atención (abajo del scroll) no se dibuja y la que
+	// queda en el borde se recorta
+	const last = snap.nodes.find((n) => n.attrs?.id === "ultima-atencion");
+	await expect(insp.locator(`.insp-n[data-i="${last.i}"]`)).toHaveCount(0);
+	await expect(insp.locator(".insp-n[data-clip^='inset(']").first()).toBeAttached();
+	// el probador sigue viendo toda la página, también lo recortado
+	await insp.locator(".insp-probe").fill("//*[@id='ultima-atencion']");
+	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");
+});
+
 test("sin snapshot no hay pestaña Inspector", async ({ page: p, request }) => {
 	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector vacío E2E", environment: "qa" } })).json()).run_id;
 	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "sin dom" } })).json()).test_id;

@@ -231,6 +231,8 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 			add(b.name, b.content, zip.Deflate)
 		}
 	}
+	// las páginas del Inspector, de a una (cada una pesa cientos de KB), con su índice al final
+	s.exportDOM(id, detail.Tests, add)
 	// capturas, traces y videos: se copian del disco al ZIP sin cargarlos enteros en memoria
 	for _, name := range shots {
 		f, err := s.shots().Open(name) // el ZIP lleva la evidencia descifrada: quien exporta ya la ve

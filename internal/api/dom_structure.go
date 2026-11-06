@@ -33,7 +33,9 @@ var nodeAttrs = map[string]bool{"id": true, "class": true, "name": true, "role":
 // nodeStyles: lo justo para dibujar la caja. Sin background-image ni nada que cargue una URL.
 var nodeStyles = map[string]bool{"display": true, "position": true, "backgroundColor": true, "color": true, "fontSize": true,
 	"fontWeight": true, "fontFamily": true, "borderTopWidth": true, "borderTopColor": true, "borderRadius": true,
-	"opacity": true, "textAlign": true, "lineHeight": true}
+	"opacity": true, "textAlign": true, "lineHeight": true,
+	// el orden de las capas (un modal encima de la página) y el recorte de los paneles con scroll
+	"zIndex": true, "overflowX": true, "overflowY": true}
 
 var (
 	tagRe        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)

@@ -6,6 +6,17 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed (client feedback, 06-11: Inspector)
+
+- **Inspector: elements on top of each other and black areas**: it painted by tree depth and ignored
+  opacity, so a Bootstrap modal stayed behind the page and its backdrop came out solid black. It now paints
+  like the browser stacking contexts (z-index and document order), applies the opacity of the ancestors,
+  clips nodes to their scroll panels and wraps multi-line text. The Python client captures zIndex, overflow
+  and line breaks; older snapshots fall back to document order.
+- **The exported report (ZIP) had no Inspector**: the pages now go in dom/ (they open from file://), capped
+  at 64 MB with failure pages first, then WARNING pages, then steps; the Inspector says what did not fit.
+  Compare with the last PASS is disabled there, with the reason.
+
 Python client 0.5.2 (pending release); the other clients do not change.
 
 ### Added

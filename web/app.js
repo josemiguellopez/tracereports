@@ -1402,7 +1402,8 @@
 	}
 
 	// ---- Inspector (web/inspector.js) ----
-	const hasInspector = (t) => !STATIC && !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
+	// también en el reporte exportado: el ZIP trae las páginas en dom/ (ver staticInspector)
+	const hasInspector = (t) => !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
 
 	/** Monta el Inspector una sola vez por test: los refrescos del detalle no lo reinician. */
 	async function mountInspector(t) {
@@ -1414,6 +1415,12 @@
 		const mine = (S.inspector = { el, testId: t.id, api: null });
 		const tr = window.TraceReportsI18n.t;
 		el.innerHTML = `<p class="m-hint">${esc(tr("Cargando la página del test…"))}</p>`;
+		if (STATIC) { // el reporte exportado: las páginas vienen en el ZIP (dom/), sin servidor
+			const opts = await staticInspector(t);
+			if (S.inspector !== mine || !el.isConnected) return;
+			mine.api = window.TraceReportsInspector.mount(el, { ...opts, t: tr });
+			return;
+		}
 		const get = (path) => fetch(path, { headers: { Accept: "application/json" } }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);
 		const [snapshot, steps, loc] = await Promise.all([
 			t.has_dom ? get(`/api/v1/tests/${t.id}/dom`) : null,
@@ -1428,6 +1435,32 @@
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			screenshot: loc?.screenshot || "",
 		});
+	}
+
+	/**
+	 * Lo que el Inspector necesita en el reporte exportado: dom/index.js dice qué páginas trae cada test
+	 * (las que no entraron por el tope de tamaño quedan en el servidor) y dom/test_<id>_<seq|fail>.js
+	 * cada página; se cargan como <script>, así funciona desde file://.
+	 */
+	async function staticInspector(t) {
+		const tr = window.TraceReportsI18n.t;
+		if (!window.TRACEREPORTS_DOM_INDEX) await loadScript("dom/index.js").catch(() => {});
+		const idx = window.TRACEREPORTS_DOM_INDEX?.[t.id] || { steps: [] };
+		const page = async (key) => {
+			if (!window.TRACEREPORTS_DOM?.[key]) await loadScript(`dom/test_${key.replace("/", "_")}.js`).catch(() => {});
+			return window.TRACEREPORTS_DOM?.[key] || null;
+		};
+		const loc = STATIC.locators?.[t.id];
+		const omitted = idx.omitted || (window.TRACEREPORTS_DOM_INDEX ? 0 : (t.has_dom ? 1 : 0) + (t.dom_steps || 0));
+		return {
+			snapshot: idx.fail?.included ? await page(`${t.id}/fail`) : null,
+			steps: idx.steps.filter((s) => s.included),
+			loadStep: (seq) => page(`${t.id}/${seq}`),
+			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
+			screenshot: loc?.screenshot || "",
+			compareUnavailable: tr("Comparar con el último PASS necesita el servidor: el reporte exportado no trae ejecuciones anteriores."),
+			notice: omitted ? tr("{n} páginas de este test no entraron en el reporte exportado (tope de tamaño): siguen en el servidor.", { n: omitted }) : "",
+		};
 	}
 
 	// ---- mocks ----

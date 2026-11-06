@@ -192,3 +192,19 @@ def test_a_broken_page_never_breaks_the_test(monkeypatch):
             raise RuntimeError("closed")
 
     assert capturar_dom(Gone()) is None
+
+
+def test_layers_overflow_and_line_breaks_for_the_inspector(page):
+    # el Inspector pinta las capas (un modal encima de la página), recorta los paneles con scroll y
+    # respeta los saltos de línea: necesita zIndex, overflow y los <br> del texto
+    page.set_content('<div id="panel" style="height:40px;overflow-y:auto"><p>06-11-2026 16:43<br>Control general</p></div>'
+                     '<div class="modal" style="position:fixed;top:0;z-index:1050">Información</div>')
+    try:
+        nodes = capturar_dom(page)["nodes"]
+        panel = next(n for n in nodes if n["attrs"].get("id") == "panel")
+        modal = next(n for n in nodes if n["attrs"].get("class") == "modal")
+        item = next(n for n in nodes if n["tag"] == "p")
+        assert panel["style"]["overflowY"] == "auto" and modal["style"]["zIndex"] == "1050" and modal["style"]["position"] == "fixed"
+        assert item["text"] == "06-11-2026 16:43\nControl general"
+    finally:
+        page.set_content(PAGE)

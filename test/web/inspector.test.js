@@ -146,3 +146,50 @@ test("nodeKeys: un id estable o test-id identifica al elemento aunque se mueva",
 	assert.equal(I.nodeKeys(a)[2], I.nodeKeys(b)[1]);
 	assert.equal(I.diffSnapshots(a, b).changed.length, 0);
 });
+
+// Cómo pinta el Inspector: un modal de Bootstrap al final del body quedaba detrás de la página
+// (zIndex = 10 + profundidad) y su backdrop negro con opacity 0.5 salía negro sólido.
+const node = (i, p, extra = {}) => ({ i, p, tag: "div", x: 0, y: 0, w: 100, h: 100, style: {}, ...extra });
+test("paintPlan: el modal y su backdrop encima de la página, por z-index y orden del documento", () => {
+	const nodes = [
+		node(0, -1, { tag: "body" }),
+		node(1, 0, { style: { position: "relative" } }), // la página, muy profunda
+		node(2, 1), node(3, 2), node(4, 3, { style: { position: "relative", zIndex: "5" } }), node(5, 4),
+		node(6, 0, { style: { position: "fixed", zIndex: "1030" } }), // la barra
+		node(7, 0, { style: { position: "fixed", zIndex: "1050" } }), // el modal
+		node(8, 7), node(9, 8, { style: { position: "relative", zIndex: "1" } }), // su contenido
+		node(10, 0, { style: { position: "fixed", zIndex: "1040", opacity: "0.5" } }), // el backdrop, al final
+	];
+	const { rank, opacity } = I.paintPlan(nodes);
+	const above = (a, b) => rank[a] > rank[b];
+	assert.ok(above(10, 5) && above(10, 6), "el backdrop sobre la página y la barra");
+	assert.ok(above(7, 10) && above(8, 10) && above(9, 10), "el modal y todo su contenido sobre el backdrop");
+	assert.ok(above(5, 3) && above(4, 3), "dentro de la página, lo que va después encima");
+	assert.ok(above(6, 5), "la barra (1030) sobre la página aunque la página tenga un z-index 5 adentro");
+	assert.equal(opacity[10], 0.5);
+	assert.equal(opacity[5], 1);
+});
+
+test("paintPlan: un snapshot viejo (sin zIndex) queda en el orden del documento; la opacidad se hereda", () => {
+	const nodes = [node(0, -1), node(1, 0, { depth: 24 }), node(2, 0, { depth: 1, style: { opacity: "0.5" } }), node(3, 2, { style: { opacity: "0.5" } })];
+	const { rank, opacity } = I.paintPlan(nodes);
+	assert.ok(rank[2] > rank[1], "lo que va después en el documento queda encima, no lo más profundo");
+	assert.equal(opacity[3], 0.25);
+});
+
+test("paintPlan y clipInset: un panel con scroll recorta a sus hijos; un fixed no se recorta", () => {
+	const nodes = [
+		node(0, -1, { w: 1000, h: 1000 }),
+		node(1, 0, { x: 100, y: 100, w: 300, h: 200, style: { overflowY: "auto", overflowX: "hidden" } }),
+		node(2, 1, { x: 100, y: 250, w: 300, h: 100 }), // la mitad afuera
+		node(3, 1, { x: 100, y: 400, w: 300, h: 50 }), // entero afuera
+		node(4, 1, { x: 0, y: 0, w: 50, h: 50, style: { position: "fixed" } }),
+		node(5, 0, { x: 0, y: 900, w: 10, h: 10 }), // fuera de todo panel
+	];
+	const { clip } = I.paintPlan(nodes);
+	assert.equal(I.clipInset(nodes[2], clip[2]), "inset(0px 0px 50px 0px)");
+	assert.equal(I.clipInset(nodes[3], clip[3]), "hidden");
+	assert.equal(I.clipInset(nodes[4], clip[4]), "");
+	assert.equal(I.clipInset(nodes[5], clip[5]), "");
+	assert.equal(clip[1], null, "el panel mismo no se recorta a sí mismo");
+});
