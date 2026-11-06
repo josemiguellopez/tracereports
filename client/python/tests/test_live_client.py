@@ -203,8 +203,8 @@ def test_plugin_planned_and_cooperative_cancel(pytester, monkeypatch):
         assert ("POST", "/api/v1/runs/7/plan", {"planned": 3}) in srv.requests
         finishes = [b for m, p, b in srv.requests if p.endswith("/finish") and "/tests/" in p]
         assert len(finishes) == 3 and all(f["status"] == "SKIP" for f in finishes)
-        skips = [b["message"] for m, p, b in srv.requests if p.endswith("/logs") and b and "Cancelado" in b.get("message", "")]
-        assert any("Cancelado desde TraceReports: QA caído" in m for m in skips) or all(f["status"] == "SKIP" for f in finishes)
+        skips = [b for m, p, b in srv.requests if p.endswith("/logs") and b and b.get("status") == "SKIP"]
+        assert len(skips) == 3 and all(b["message"] == "Cancelado desde TraceReports: QA caído" for b in skips), skips
         assert any(p == "/api/v1/runs/7/finish" for m, p, b in srv.requests), "la ejecución cierra normal"
     finally:
         srv.close()
