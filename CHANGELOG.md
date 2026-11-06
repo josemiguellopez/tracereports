@@ -35,6 +35,12 @@ Python client 0.5.2 (pending release); the other clients do not change.
   "Generated with TraceReports · date · Internal use", in a sober navy palette with color only on the
   severity (the top stripe, the executive summary, the section numbers and bullets: green, amber, orange
   or red). The text, chat, Markdown and email formats carry the report number too.
+- **Run it locally without `git checkout`**: the command to reproduce a test no longer starts with
+  `git checkout <commit> &&` (it failed with local changes and left a detached HEAD); the run's commit is
+  a note to use only if your copy is on another version. Each test also gets the command for its whole
+  file or class, first when the error says the test needed an earlier one (empty data, a step skipped
+  because a previous one failed): alone it fails for another reason. Same in the test detail, Escalate
+  (Development: one shell block with a comment per command), tickets, the Lab capsule and MCP.
 
 ### Fixed
 

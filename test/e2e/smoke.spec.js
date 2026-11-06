@@ -126,14 +126,15 @@ test("consola del navegador: pestaña con el error de JavaScript", async ({ page
 	await expect(rows.nth(0)).toContainText("main.js:10:5");
 });
 
-test("reproducir en local: el comando de pytest con el commit", async ({ page }) => {
+test("reproducir en local: el comando de pytest, y el commit solo como nota", async ({ page }) => {
 	await openRun(page);
 	await openTest(page, "test_login_admin");
 	const repro = page.locator("#test-detail details.repro");
 	await repro.locator("summary").click();
-	await expect(repro.locator("code")).toHaveText("git checkout bbb222 && pytest 'test_login_admin'");
+	await expect(repro.locator("code")).toHaveText("pytest 'test_login_admin'");
+	await expect(repro.locator(".repro-note")).toHaveText("La ejecución usó el commit bbb222; si tu copia está en otra versión: git checkout bbb222");
 	await repro.locator(".copy-btn").click();
-	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("git checkout bbb222 && pytest 'test_login_admin'");
+	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe("pytest 'test_login_admin'");
 });
 
 test("red: comparar con la última vez que el test pasó", async ({ page }) => {
@@ -184,7 +185,9 @@ test("escalar para Desarrollo: detalle técnico con cURL, stack, consola y cómo
 	const dev = view.locator("#esc-card .esc-dev");
 	await expect(dev).toContainText("Detalle técnico");
 	await expect(dev).toContainText("Commit");
-	await expect(dev).toContainText("git checkout bbb222 && pytest 'test_login_admin'");
+	await expect(dev).toContainText("# Este test · pytest pytest 'test_login_admin'");
+	await expect(dev).toContainText("# La ejecución usó el commit bbb222; si tu copia está en otra versión: git checkout bbb222");
+	await expect(dev).not.toContainText("&& pytest");
 	await expect(dev).toContainText("reading 'dashboard'");
 	await expect(dev).toContainText(`La última vez que el test pasó (ejecución #${seed().prev}) respondió HTTP 200`);
 	const call = dev.locator(".esc-call").first();
@@ -203,7 +206,7 @@ test("escalar para Desarrollo: detalle técnico con cURL, stack, consola y cómo
 	const md = (await page.evaluate(() => navigator.clipboard.readText())).replace(/\r\n/g, "\n"); // el portapapeles de Windows usa CRLF
 	expect(md).toContain("**Detalle técnico:**");
 	expect(md).toContain("```bash\ncurl -X POST");
-	expect(md).toContain("```bash\ngit checkout bbb222");
+	expect(md).toContain("```bash\n# Este test · pytest\npytest 'test_login_admin'\n\n# La ejecución usó el commit bbb222");
 	expect(md).not.toContain("E2E-SECRET");
 	// Teams: HTML con formato (pegar Markdown en Teams deja los ** a la vista) y texto sin asteriscos
 	await view.locator('[data-esc-share="teams-copy"]').click();

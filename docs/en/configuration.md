@@ -561,11 +561,14 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
 
 ## For whoever fixes it: reproduce and compare
 
-- **Run it locally**: a test's detail has the command to run it on your machine, at the run's exact
-  version (`git checkout <commit> && …`): `pytest '<nodeid>'`,
-  `npx playwright test <file> -g '<title>' --project=<project>`, Maven/Gradle for JUnit or
-  `go test ./<package>/... -run '^TestX$'`. It comes from the test identity, so the client must
-  report it (all of them do).
+- **Run it locally**: a test's detail has the commands to run it on your machine: only that test
+  (`pytest '<nodeid>'`, `npx playwright test <file> -g '<title>' --project=<project>`, Maven/Gradle
+  for JUnit or `go test ./<package>/... -run '^TestX$'`) and its whole file or class. When the error
+  says the test needed an earlier one (empty data, a step skipped because a previous one failed),
+  the whole file comes first: alone, that test fails for another reason. The run's commit is a note
+  (`git checkout <commit>` only if your copy is on another version), never chained to the command.
+  The same goes for Escalate (Development), tickets, the Lab capsule and MCP. It comes from the test
+  identity, so the client must report it (all of them do).
 - **Resend it in the Lab (FixLab)**: *Open in Lab* on a failed call (**Network** tab) or on a
   backend incident resends the call with a fresh session (it repeats the recorded login and reads
   anti-CSRF tokens live; you only type the password) to see whether the failure **still happens**:

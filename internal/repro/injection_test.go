@@ -40,47 +40,42 @@ func TestCommitFormat(t *testing.T) {
 	}
 }
 
-func TestCommandsNeverCarryAHostileCommit(t *testing.T) {
+// El commit ya no va en el comando (Script lo muestra aparte), y uno hostil tampoco llega al texto.
+func TestScriptNeverCarriesAHostileCommit(t *testing.T) {
+	cmds := Commands("pytest", "test_login.py::test_admin")
 	for _, c := range hostileCommits {
-		for _, fw := range []struct{ fw, key string }{
-			{"pytest", "test_login.py::test_admin"},
-			{"playwright", "tests/a.spec.js > A > b [chromium]"},
-			{"junit5", "com.acme.LoginTest#ok"},
-			{"go", "shop/TestPay"},
-		} {
-			for _, cmd := range Commands(fw.fw, fw.key, c) {
-				if strings.Contains(cmd.Cmd, "MARK") || strings.Contains(cmd.Cmd, "git checkout") {
-					t.Errorf("%s with commit %q: %s", fw.fw, c, cmd.Cmd)
-				}
-			}
+		if s := Script(cmds, c, "es"); strings.Contains(s, "MARK") || strings.Contains(s, "git checkout") {
+			t.Errorf("commit %q: %s", c, s)
 		}
 	}
-	// válidos: completo (se acorta a 12), abreviado y vacío
-	if got := Commands("pytest", "t.py::x", "0123456789ABCDEF0123")[0].Cmd; got != "git checkout 0123456789ab && pytest 't.py::x'" {
-		t.Errorf("full: %s", got)
+	// válidos: completo (se acorta a 12) y abreviado, solo como nota
+	if s := Script(cmds, "0123456789ABCDEF0123", "es"); !strings.Contains(s, "\n# La ejecución usó el commit 0123456789ab; si tu copia está en otra versión: git checkout 0123456789ab") {
+		t.Errorf("full: %s", s)
 	}
-	if got := Commands("pytest", "t.py::x", "abc1234")[0].Cmd; got != "git checkout abc1234 && pytest 't.py::x'" {
-		t.Errorf("short: %s", got)
+	if s := Script(cmds, "abc1234", "en"); !strings.Contains(s, "# The run used commit abc1234; if your copy is on another version: git checkout abc1234") {
+		t.Errorf("short: %s", s)
 	}
-	if got := Commands("pytest", "t.py::x", "")[0].Cmd; got != "pytest 't.py::x'" {
-		t.Errorf("empty: %s", got)
+	for _, c := range cmds {
+		if strings.Contains(c.Cmd, "git ") {
+			t.Errorf("no git in a command: %s", c.Cmd)
+		}
 	}
 }
 
 func TestGoPackageFromAHostileKeyIsQuoted(t *testing.T) {
-	got := Commands("go", "shop;echo MARK;/TestPay", "")[0].Cmd
+	got := Commands("go", "shop;echo MARK;/TestPay")[0].Cmd
 	if !strings.HasPrefix(got, "go test './shop;echo MARK;/...' -run ") {
 		t.Fatalf("the package must be a literal argument: %s", got)
 	}
-	got = Commands("go", "shop/$(echo MARK)/TestPay", "")[0].Cmd
+	got = Commands("go", "shop/$(echo MARK)/TestPay")[0].Cmd
 	if !strings.HasPrefix(got, "go test './shop/$(echo MARK)/...'") {
 		t.Fatalf("no substitution: %s", got)
 	}
 	// el caso normal no cambia
-	if got := Commands("go", "shop/checkout/TestPay/visa", "")[0].Cmd; got != "go test ./shop/checkout/... -run '^TestPay$/^visa$'" {
+	if got := Commands("go", "shop/checkout/TestPay/visa")[0].Cmd; got != "go test ./shop/checkout/... -run '^TestPay$/^visa$'" {
 		t.Fatalf("normal: %s", got)
 	}
-	if got := Commands("go", "TestRoot", "")[0].Cmd; got != "go test ./... -run '^TestRoot$'" {
+	if got := Commands("go", "TestRoot")[0].Cmd; got != "go test ./... -run '^TestRoot$'" {
 		t.Fatalf("root package: %s", got)
 	}
 }
