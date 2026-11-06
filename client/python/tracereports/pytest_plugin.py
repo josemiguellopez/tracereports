@@ -367,5 +367,7 @@ class TraceReportsPlugin:
             reportar_red(page, self.cr, test_id=test_id, esperar_en_vuelo_ms=0)
         if outcome["status"] == "FAIL":
             self.cr.log_fail(outcome["message"] or "Falló", test_id=test_id)
+        elif outcome["status"] == "SKIP" and outcome["message"]:
+            self.cr.log("SKIP", outcome["message"], test_id=test_id)  # por qué se omitió (p. ej. cancelado desde En vivo)
         self.cr.end_test(outcome["status"] or "PASS", error_message=outcome["message"] if outcome["status"] == "FAIL" else "",
                          error_trace=outcome["trace"], test_id=test_id, attempts=outcome["attempts"])

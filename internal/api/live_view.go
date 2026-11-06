@@ -24,8 +24,9 @@ const (
 	maxPlanned     = 100000
 	liveWindow     = 2 * time.Hour // ejecuciones terminadas que se siguen mostrando
 	statsTTL       = 10 * time.Minute
-	statsHistory   = 20 // ejecuciones anteriores para el p50 / p90
-	minTurtleHist  = 3  // con menos historial, solo "el doble del p50"
+	statsHistory   = 20     // ejecuciones anteriores para el p50 / p90
+	minTurtleHist  = 3      // con menos historial, solo "el doble del p50"
+	turtleMargin   = 15_000 // ms: unos segundos de más en un test corto no es tortuga
 	defaultNoSigMn = 3
 )
 
@@ -135,10 +136,10 @@ func isTurtle(t db.LiveTest, elapsed int64) bool {
 	if t.P50 <= 0 {
 		return false
 	}
-	if t.Hist >= minTurtleHist && t.P90 > 0 && elapsed > t.P90 && elapsed > t.P50+30_000 {
+	if t.Hist >= minTurtleHist && t.P90 > 0 && elapsed > t.P90 && elapsed > t.P50+turtleMargin {
 		return true
 	}
-	return elapsed > 2*t.P50 && elapsed > t.P50+30_000 // unos segundos de más en un test corto no es tortuga
+	return elapsed > 2*t.P50 && elapsed > t.P50+turtleMargin // unos segundos de más en un test corto no es tortuga
 }
 
 // liveExec is an execution as Live shows it.

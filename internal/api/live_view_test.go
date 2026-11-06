@@ -28,6 +28,7 @@ func TestTestStateRules(t *testing.T) {
 		{"poco historial: más del doble del p50", running(now-130_000, now-1_000, 60_000, 0, 1), "turtle"},
 		{"poco historial, menos del doble", running(now-100_000, now-1_000, 60_000, 0, 1), "running"},
 		{"unos segundos de más en un test corto", running(now-12_000, now-1_000, 4_000, 5_000, 5), "running"},
+		{"la agenda de la demo: mediana 6 s, lleva 25 s", running(now-25_000, now-1_000, 6_000, 7_000, 3), "turtle"},
 		{"sin historial nunca es tortuga", running(now-9*60_000, now-1_000, 0, 0, 0), "running"},
 		{"sin señal gana a tortuga", running(now-9*60_000, now-4*60_000, 60_000, 90_000, 5), "no_signal"},
 		{"terminado", db.LiveTest{Status: "FAIL", StartedAt: 0, EndedAt: &now, P50: 60_000}, "FAIL"},
