@@ -217,7 +217,11 @@ similar element.
 | Variable | Effect |
 |---|---|
 | `TRACEREPORTS_DOM=basic` | Only the interactive elements, as before (the Inspector draws just those). Default: `structure` |
-| `TRACEREPORTS_DOM_STEPS=1` | Also keeps the page of every step with a screenshot (once per different page, up to 40 per test), to walk the whole test in the Inspector. Off by default |
+| `TRACEREPORTS_DOM_STEPS=1` | Also keeps the page of every step with a screenshot (once per different page, up to 40 per test), to walk the whole test in the Inspector. **It is for every test, also the ones that pass** (each page weighs hundreds of KB). Off by default |
+| `TRACEREPORTS_DOM_STEPS=on-problem` | The same, only for tests that end in FAIL or have a WARNING: the pages wait in memory and are sent when the test ends. A passing test sends a baseline for "Compare with the last PASS" only when the server has none for that test from the last 7 days |
+
+`TRACEREPORTS_DOM_ON` does not limit `TRACEREPORTS_DOM_STEPS`: it only adds the page of each `WARNING`. The
+failure page is always kept.
 
 What is covered in screenshots (`input[type=password]`, `[data-tracereports-mask]`,
 `TRACEREPORTS_SCREENSHOT_MASK`) keeps its box but not its text, and what someone typed in a field never
@@ -232,7 +236,7 @@ travels. Not captured: the inside of cross-origin iframes and what a `<canvas>` 
 | `TRACEREPORTS_DOM_ON=fail,warning` | Also keeps the page of each `WARNING` step (it often comes before a failure); the Inspector marks it with ⚠ |
 
 The pytest plugin also sends how many tests it collected (with pytest-xdist too): Live shows progress and
-ETA. With `TRACEREPORTS_DOM_STEPS=1` in the runs that pass, the Inspector can **compare a failure with the last
+ETA. With `TRACEREPORTS_DOM_STEPS=1` (or `on-problem`) in the runs that pass, the Inspector can **compare a failure with the last
 PASS** of the same test: what is gone, what is new and what changed.
 
 ## Network capture with Playwright

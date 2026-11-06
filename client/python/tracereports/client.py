@@ -65,7 +65,7 @@ from typing import Any, Callable, Iterator, Optional, Union
 from ._env import env
 from .binary import resolve_binary
 from .context import default_execution_id, detect_branch, detect_commit
-from .dom import dom_on, dom_signature, dom_steps_enabled
+from .dom import dom_on, dom_signature, dom_steps_enabled, dom_steps_mode
 from .mask import screenshot_allowed
 from .offline import Recorder, new_session_dir
 from .transport import Sender
@@ -90,6 +90,11 @@ def _env_float(name: str, default: float) -> float:
         return float(env(name))
     except ValueError:
         return default
+
+
+# TRACEREPORTS_DOM_STEPS=on-problem: páginas en memoria por test y antigüedad máxima de la base de comparación
+MAX_DOM_BUFFER = 40
+BASELINE_MAX_AGE_MS = 7 * 24 * 3600 * 1000
 
 
 class TraceReports:
@@ -161,6 +166,10 @@ class TraceReports:
         # TRACEREPORTS_DOM_STEPS=1: the page of each step with a screenshot also goes to the Inspector.
         # dom_step_source returns the snapshot of the current page (the pytest plugin sets it per test).
         self.dom_steps = dom_steps_enabled()
+        # TRACEREPORTS_DOM_STEPS=on-problem: las páginas esperan aquí hasta saber si el test tuvo un problema
+        self.dom_steps_mode = dom_steps_mode()
+        self._dom_buffer: "dict[int, list[tuple[str, str, dict]]]" = {}
+        self._dom_problem: "set[int]" = set()
         # TRACEREPORTS_DOM_ON=fail,warning: also the page of each WARNING step (it often comes before a failure)
         self.dom_on_warning = "warning" in dom_on()
         self.dom_step_source: Optional[Callable[[], Optional[dict]]] = None
@@ -459,6 +468,10 @@ class TraceReports:
         if not tid:
             return None
         if exc is not None:
+            status = status or "FAIL"
+        if self.dom_steps_mode == "on-problem":
+            self._flush_dom_buffer(tid, status or "")
+        if exc is not None:
             error_message = error_message or f"{type(exc).__name__}: {exc}"
             error_trace = error_trace or "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             status = status or "FAIL"
@@ -508,6 +521,8 @@ class TraceReports:
             f"/api/v1/tests/{tid}/logs",
             {"status": status.upper(), "message": str(message), "timestamp": int(time.time() * 1000)},
         )
+        if status.upper() in ("FAIL", "WARNING"):
+            self._dom_problem.add(tid)  # TRACEREPORTS_DOM_STEPS=on-problem: sus páginas se mandan
         if status.upper() == "WARNING" and self.dom_on_warning:
             self._dom_step(tid, str(message), warning=True)  # TRACEREPORTS_DOM_ON=warning
 
@@ -541,6 +556,8 @@ class TraceReports:
         tid = test_id or self.current_test_id
         if not tid or not self.enabled:
             return None
+        if status.upper() in ("FAIL", "WARNING"):
+            self._dom_problem.add(tid)
         if status.upper() != "FAIL":  # la página del fallo la toma el plugin aparte
             self._dom_step(tid, message, warning=status.upper() == "WARNING")
         # TRACEREPORTS_SCREENSHOTS=off|failures: la captura ni se lee ni se envía (ver mask.py)
@@ -684,7 +701,31 @@ class TraceReports:
         if self._dom_step_sig.get((test_id, kind)) == sig:
             return  # la misma pantalla que el paso anterior
         self._dom_step_sig[(test_id, kind)] = sig
+        if self.dom_steps_mode == "on-problem":
+            buf = self._dom_buffer.setdefault(test_id, [])
+            if len(buf) < MAX_DOM_BUFFER:  # el servidor guarda hasta 40 por test
+                buf.append((kind, label, snap))
+            return
         self.attach_dom(snap, test_id=test_id, kind=kind, label=label)
+
+    def _flush_dom_buffer(self, test_id: int, status: str) -> None:
+        """TRACEREPORTS_DOM_STEPS=on-problem, al terminar el test: sus páginas van si falló o tuvo un
+        WARNING. Si pasó, van solo como base de "Comparar con el último PASS" cuando el servidor no tiene
+        una de ese test de los últimos 7 días; un servidor sin esa función (404) no recibe nada."""
+        buf = self._dom_buffer.pop(test_id, None)
+        problem = (status or "").upper() in ("FAIL", "WARNING") or test_id in self._dom_problem
+        self._dom_problem.discard(test_id)
+        if not buf:
+            return
+        if not problem:
+            base = self._best_effort("GET", f"/api/v1/tests/{test_id}/dom/baseline", None)
+            if not isinstance(base, dict):
+                return  # sin servidor, servidor anterior o error: no se manda nada
+            started = base.get("started_at") or 0
+            if started and time.time() * 1000 - started < BASELINE_MAX_AGE_MS:
+                return  # ya hay un PASS reciente para comparar
+        for kind, label, snap in buf:
+            self.attach_dom(snap, test_id=test_id, kind=kind, label=label)
 
     # ------------------------------------------------------ En vivo (servidor)
 

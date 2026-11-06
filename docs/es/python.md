@@ -217,7 +217,11 @@ el elemento más parecido.
 | Variable | Efecto |
 |---|---|
 | `TRACEREPORTS_DOM=basic` | Solo los elementos interactivos, como antes (el Inspector dibuja solo esos). Por defecto: `structure` |
-| `TRACEREPORTS_DOM_STEPS=1` | Guarda también la página de cada paso con captura (una vez por página distinta, hasta 40 por test), para recorrer el test entero en el Inspector. Apagado por defecto |
+| `TRACEREPORTS_DOM_STEPS=1` | Guarda también la página de cada paso con captura (una vez por página distinta, hasta 40 por test), para recorrer el test entero en el Inspector. **Es para todos los tests, también los PASS** (cada página pesa cientos de KB). Apagado por defecto |
+| `TRACEREPORTS_DOM_STEPS=on-problem` | Lo mismo, pero solo de los tests que terminan en FAIL o tienen un WARNING: las páginas esperan en memoria y se mandan al terminar el test. De un test que pasa se manda una base para "Comparar con el último PASS" solo si el servidor no tiene una de ese test de los últimos 7 días |
+
+`TRACEREPORTS_DOM_ON` no limita `TRACEREPORTS_DOM_STEPS`: solo agrega la página de cada `WARNING`. La página
+del fallo se guarda siempre.
 
 Lo que se tapa en las capturas (`input[type=password]`, `[data-tracereports-mask]`,
 `TRACEREPORTS_SCREENSHOT_MASK`) conserva su caja pero no su texto, y lo que alguien escribió en un campo
@@ -232,7 +236,7 @@ nunca viaja. No se captura: el interior de iframes de otro origen ni lo que dibu
 | `TRACEREPORTS_DOM_ON=fail,warning` | Guarda también la página de cada paso `WARNING` (muchas veces anticipa el fallo); el Inspector la marca con ⚠ |
 
 El plugin de pytest además envía cuántos tests recolectó (también con pytest-xdist): En vivo muestra el
-progreso y la ETA. Con `TRACEREPORTS_DOM_STEPS=1` en las ejecuciones que pasan, el Inspector puede **comparar
+progreso y la ETA. Con `TRACEREPORTS_DOM_STEPS=1` (o `on-problem`) en las ejecuciones que pasan, el Inspector puede **comparar
 un fallo con el último PASS** del mismo test: qué ya no está, qué es nuevo y qué cambió.
 
 ## Captura de red con Playwright

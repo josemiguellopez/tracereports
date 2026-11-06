@@ -16,6 +16,15 @@ All notable changes to TraceReports. The format follows
 - **The exported report (ZIP) had no Inspector**: the pages now go in dom/ (they open from file://), capped
   at 64 MB with failure pages first, then WARNING pages, then steps; the Inspector says what did not fit.
   Compare with the last PASS is disabled there, with the reason.
+### Added (client feedback, 06-11)
+
+- **Personal data in DOM snapshots**: RUTs, phone numbers and e-mails are masked in the page snapshot
+  (node text, text attributes, the locator elements, URL and title) as `<rut>`, `<telefono>`, `<correo>`;
+  the locator attributes (id, class, data-test*, placeholder, aria-label) stay and dates are left alone. `TRACEREPORTS_REDACT_PII=off` turns it off.
+- Python client: `TRACEREPORTS_DOM_STEPS=on-problem` keeps the step pages in memory and sends them only
+  when the test fails or had a WARNING, plus a baseline of passing tests when the server has none from the
+  last 7 days. `DOM_STEPS=1` keeps the pages of every test, also the passing ones, and `DOM_ON` does not
+  limit it: now documented.
 
 Python client 0.5.2 (pending release); the other clients do not change.
 

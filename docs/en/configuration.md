@@ -60,6 +60,7 @@ steps to apply it.
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
 | `TRACEREPORTS_LEGACY_DB` | — | Only if the server asks for it on start: `ignore` starts with a new database when `DATA_DIR` has `#`, `?` or `%` and an older version kept the database elsewhere (move it instead to keep the data) |
 | `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Closes as *incomplete* a run still *in progress* that received nothing for N hours (the client died without closing it); its unfinished tests become *Interrupted*. Decimals allowed (`0.5`). `0` = never. Without the variable, it is set from *Maintenance*. See [Abandoned runs](#abandoned-runs) |
+| `TRACEREPORTS_REDACT_PII` | on | Masks RUTs, phone numbers and e-mails in the DOM snapshot (text and text attributes; the locator attributes stay: id, class, data-test*, placeholder and aria-label). Dates are not touched. `off` turns it off |
 | `TRACEREPORTS_NO_SIGNAL_MIN` | `3` | Live: a running test is *without signal* when nothing of it arrived for N minutes (server clock). Decimals allowed. See [Live](#live) |
 | `TRACEREPORTS_LIVE_ALERTS` | — | `1` sends the Live alerts (a test without signal, a slow test, too many failures) to the Teams/Slack webhooks, once each |
 | `TRACEREPORTS_ALERT_TURTLE` | — | Also alert a test that runs N times its p90 (e.g. `3`) |

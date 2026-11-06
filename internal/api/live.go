@@ -72,12 +72,15 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 // the end, for what the client already cut).
 func cleanSnapshot(p *redact.Policy, snap *locator.Snapshot) {
 	field := func(v string, max int) string { return redactThenCut(p, v, max) }
-	snap.URL, snap.Title = field(snap.URL, maxURLChars), field(snap.Title, 300)
+	// lo que se lee en la página (no lo que la identifica para un locator): sin RUT, teléfonos ni correos
+	shown := func(v string, max int) string { return personal(field(v, max)) }
+	snap.URL, snap.Title = shown(snap.URL, maxURLChars), shown(snap.Title, 300)
 	for i := range snap.Elements {
 		e := &snap.Elements[i]
 		e.Tag, e.Role, e.Type, e.TestIDAttr = field(e.Tag, 40), field(e.Role, 60), field(e.Type, 40), field(e.TestIDAttr, 40)
 		e.ID, e.Name, e.TestID = field(e.ID, 200), field(e.Name, 200), field(e.TestID, 200)
-		e.Label, e.Placeholder, e.Text = field(e.Label, 120), field(e.Placeholder, 120), field(e.Text, 120)
+		// la etiqueta y el placeholder son texto fijo de la interfaz y sirven de locator: quedan como están
+		e.Label, e.Placeholder, e.Text = field(e.Label, 120), field(e.Placeholder, 120), shown(e.Text, 120)
 	}
 }
 

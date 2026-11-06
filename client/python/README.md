@@ -33,3 +33,10 @@ Without an installed binary, closing downloads and verifies the v0.2.0 renderer 
 [python]: https://github.com/josemiguellopez/tracereports/blob/main/docs/en/python.md
 [offline]: https://github.com/josemiguellopez/tracereports/blob/main/docs/en/offline.md
 [readme-es]: https://github.com/josemiguellopez/tracereports/blob/main/client/python/README.es.md
+
+## Pages for the Inspector
+
+- `TRACEREPORTS_DOM_STEPS=1`: keeps the page of every step of **every** test, also the ones that pass.
+- `TRACEREPORTS_DOM_STEPS=on-problem`: only of the ones that fail or have a WARNING (and a comparison
+  baseline of the passing ones every 7 days).
+- `TRACEREPORTS_DOM_ON=fail,warning` does not limit the above: it only adds the page of each WARNING.
