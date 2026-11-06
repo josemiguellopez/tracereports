@@ -1419,6 +1419,7 @@
 		mine.api = window.TraceReportsInspector.mount(el, {
 			snapshot, steps: steps || [], t: tr,
 			loadStep: (seq) => get(`/api/v1/tests/${t.id}/dom/steps/${seq}`),
+			loadBaseline: (label) => get(`/api/v1/tests/${t.id}/dom/baseline?label=${encodeURIComponent(label || "")}`),
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			screenshot: loc?.screenshot || "",
 		});

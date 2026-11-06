@@ -152,3 +152,48 @@ func TestWarningSnapshotsAreMarked(t *testing.T) {
 		t.Fatalf("un WARNING no es la página del fallo: %d", rec.Code)
 	}
 }
+
+// Comparar con el último PASS: el mismo test en su última ejecución exitosa del mismo contexto que guardó
+// sus páginas, la del mismo paso si existe.
+func TestDOMBaselineIsTheLastPassWithPages(t *testing.T) {
+	srv, _ := newTestServer(t)
+	run := func(status string, steps ...string) int64 {
+		rec := do(t, srv, http.MethodPost, "/api/v1/runs", `{"name":"nightly","environment":"qa","project":"box"}`)
+		var r struct {
+			RunID int64 `json:"run_id"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &r)
+		rec = do(t, srv, http.MethodPost, fmt.Sprintf("/api/v1/runs/%d/tests", r.RunID), `{"name":"test_guardar","key":"box::test_guardar"}`)
+		var tt struct {
+			TestID int64 `json:"test_id"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &tt)
+		for _, s := range steps {
+			postDOM(t, srv, tt.TestID, structSnap("step", s, ""))
+		}
+		do(t, srv, http.MethodPatch, fmt.Sprintf("/api/v1/tests/%d/finish", tt.TestID), `{"status":"`+status+`"}`)
+		return tt.TestID
+	}
+	first := run("FAIL")
+	if rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom/baseline", first), ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("sin un PASS antes: %d", rec.Code)
+	}
+	pass := run("PASS", "Abrir la ficha", "Guardar")
+	run("PASS") // un PASS más nuevo pero sin páginas: se salta
+	failed := run("FAIL", "Guardar")
+	var base struct {
+		TestID   int64           `json:"test_id"`
+		Seq      int             `json:"seq"`
+		Label    string          `json:"label"`
+		SameStep bool            `json:"same_step"`
+		Snapshot json.RawMessage `json:"snapshot"`
+	}
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom/baseline?label=%s", failed, "Abrir%20la%20ficha"), "")
+	if json.Unmarshal(rec.Body.Bytes(), &base); rec.Code != 200 || base.TestID != pass || base.Seq != 1 || !base.SameStep || !strings.Contains(string(base.Snapshot), `"nodes"`) {
+		t.Fatalf("baseline: %d %s", rec.Code, rec.Body)
+	}
+	rec = do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom/baseline?label=otro", failed), "")
+	if json.Unmarshal(rec.Body.Bytes(), &base); base.Seq != 2 || base.Label != "Guardar" || base.SameStep {
+		t.Fatalf("sin el mismo paso, la última página: %s", rec.Body)
+	}
+}

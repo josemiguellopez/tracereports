@@ -209,6 +209,50 @@ test("Trace Buddy: una pregunta de DOM o esperas ofrece abrir el Inspector", asy
 	await expect(p.locator("#inspector-panel .insp")).toBeVisible();
 });
 
+test("comparar con el último PASS y la página de un WARNING", async ({ page: p, request }) => {
+	const key = `diff-${Date.now()}`;
+	const runWith = async (status, pages, fail) => {
+		const run = (await (await request.post("/api/v1/runs", { data: { name: "Diff E2E", environment: "qa", project: key } })).json()).run_id;
+		const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "test_pagar", key } })).json()).test_id;
+		for (const [kind, label, snap] of pages) await request.post(`/api/v1/tests/${id}/dom`, { data: { ...snap, kind, label } });
+		if (fail) await request.post(`/api/v1/tests/${id}/dom`, { data: fail });
+		await request.patch(`/api/v1/tests/${id}/finish`, { data: { status, error_message: status === "FAIL" ? 'waiting for locator("#pagar")' : "" } });
+		await request.patch(`/api/v1/runs/${run}/finish`, { data: {} });
+		return { run, id };
+	};
+	// el último PASS: la ficha con su botón Pagar
+	await runWith("PASS", [["step", "Abrir la ficha", page("Zapatilla Trail")]]);
+	// hoy: la ficha sigue cargando (skeleton) y el botón no está
+	const skeleton = { p: 2, tag: "div", attrs: { class: "skeleton-row" }, text: "", x: 60, y: 300, w: 300, h: 30, visible: true, depth: 2, style: style("rgb(230, 230, 230)") };
+	const today = page("Zapatilla Trail", { pay: false, extra: [skeleton] });
+	const { run, id } = await runWith("FAIL", [["step", "Abrir la ficha", today], ["warning", "La ficha tardó 12 s", today]], today);
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-status")).toHaveText(/elementos reconstruidos/);
+	const warn = insp.locator(".insp-steps li.warn");
+	await expect(warn).toContainText("La ficha tardó 12 s");
+	await expect(warn).toContainText("WARNING");
+
+	await insp.locator('[data-insp="diff"]').click();
+	await expect(insp.locator('[data-insp="diff"]')).toHaveAttribute("aria-pressed", "true");
+	const card = insp.locator(".insp-diff");
+	await expect(card).toContainText("1 ya no están");
+	await expect(card).toContainText("1 nuevos");
+	await expect(card.locator(".insp-difflist")).toContainText("button.btn «Pagar ahora»");
+	await expect(insp.locator(".insp-diff-ghost")).toContainText("ya no está");
+	await expect(insp.locator(".insp-n.diff-added")).toHaveCount(1);
+	// clic en un cambio: se selecciona el elemento
+	await card.locator('.insp-difflist li[data-diff-node]').first().click();
+	await expect(insp.locator(".insp-el")).toContainText("skeleton-row");
+	// apagarlo deja la página como estaba
+	await insp.locator('[data-insp="diff"]').click();
+	await expect(insp.locator(".insp-diff-ghost")).toHaveCount(0);
+	await expect(card).toBeHidden();
+});
+
 test("sin snapshot no hay pestaña Inspector", async ({ page: p, request }) => {
 	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector vacío E2E", environment: "qa" } })).json()).run_id;
 	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "sin dom" } })).json()).test_id;

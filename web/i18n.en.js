@@ -951,6 +951,14 @@
 		"Probar en el probador": "Try it in the tester", "Usar como reemplazo del selector que falló": "Use as replacement for the failed selector",
 		"Ninguna coincidencia": "No match", "1 coincidencia: único": "1 match: unique", "{n} coincidencias": "{n} matches",
 		"La página del momento del fallo": "The page at the moment of the failure", "Abrir en el Inspector": "Open in the Inspector",
+		"Comparar con el último PASS": "Compare with the last PASS", "Cambios desde el último PASS": "Changes since the last PASS",
+		"Buscando el último PASS de este test…": "Looking for this test's last PASS…",
+		"No hay un PASS anterior de este test con sus páginas guardadas. Con TRACEREPORTS_DOM_STEPS=1 cada ejecución guarda las páginas de sus pasos y se puede comparar.":
+			"There is no earlier PASS of this test with its pages saved. With TRACEREPORTS_DOM_STEPS=1 every run keeps the pages of its steps and they can be compared.",
+		"ya no está": "gone", "{n} adentro": "{n} inside", "cambió": "changed", "nuevo": "new", "Contra #{run} · {when}": "Against #{run} · {when}",
+		"otra página del test (no se encontró el mismo paso)": "another page of the test (the same step was not found)",
+		"{n} ya no están": "{n} gone", "{n} nuevos": "{n} new", "{n} cambiaron": "{n} changed", "y {n} más": "and {n} more",
+		"Ningún cambio en lo visible: la página es la misma que en el último PASS.": "No change in what is visible: the page is the same as in the last PASS.",
 	});
 
 	// ── En vivo (web/live.js) ──

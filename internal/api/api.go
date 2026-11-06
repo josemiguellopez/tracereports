@@ -195,6 +195,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/tests/{test_id}/dom", s.getDOM)
 		r.Get("/tests/{test_id}/dom/steps", s.domSteps)
 		r.Get("/tests/{test_id}/dom/steps/{seq}", s.domStep)
+		r.Get("/tests/{test_id}/dom/baseline", s.domBaseline)
 		r.Post("/tests/{test_id}/dom", s.addDOM)
 		r.Get("/tests/{test_id}/drift", s.testDrift)
 		r.Get("/tests/{test_id}/network", s.listNetwork)

@@ -8,6 +8,7 @@ const { load, read } = require("./load.js");
 const files = ["i18n.js", "i18n.en.js", "inspector.js"];
 const I = load(files).TraceReportsInspector;
 const en = load(files, { lang: "en" }).TraceReportsI18n;
+const plain = (v) => JSON.parse(JSON.stringify(v));
 
 // una ficha con dos botones "Guardar" en tarjetas distintas
 const nodes = [
@@ -112,4 +113,36 @@ test("todo t(\"…\") de inspector.js y del Inspector en app.js tiene traducció
 	assert.ok(used.length > 30);
 	const missing = [...new Set(used)].filter((s) => en.t(s) === s);
 	assert.deepEqual(missing, []);
+});
+
+test("diffSnapshots: lo que ya no está (solo la rama de arriba), lo nuevo y lo que cambió", () => {
+	const base = [
+		{ i: 0, p: -1, tag: "body", attrs: {}, text: "", visible: true },
+		{ i: 1, p: 0, tag: "div", attrs: { id: "ficha" }, text: "", visible: true },
+		{ i: 2, p: 1, tag: "button", attrs: { id: "btn-guardar", class: "btn" }, text: "Guardar", visible: true },
+		{ i: 3, p: 1, tag: "div", attrs: { class: "acciones" }, text: "", visible: true },
+		{ i: 4, p: 3, tag: "i", attrs: { class: "fa fa-plus-circle" }, text: "", visible: true },
+		{ i: 5, p: 1, tag: "span", attrs: {}, text: "Pendiente", visible: true },
+	];
+	const cur = [
+		{ i: 0, p: -1, tag: "body", attrs: {}, text: "", visible: true },
+		{ i: 1, p: 0, tag: "div", attrs: { id: "ficha" }, text: "", visible: true },
+		{ i: 2, p: 1, tag: "button", attrs: { id: "btn-guardar", class: "btn disabled" }, text: "Guardar", visible: true }, // clase cambió
+		{ i: 3, p: 1, tag: "span", attrs: {}, text: "Guardada", visible: true }, // mismo lugar, otro texto
+		{ i: 4, p: 1, tag: "div", attrs: { class: "skeleton" }, text: "", visible: true }, // nuevo
+		{ i: 5, p: 4, tag: "div", attrs: { class: "row" }, text: "", visible: true }, // dentro del nuevo: no se repite
+	];
+	const d = I.diffSnapshots(base, cur);
+	assert.deepEqual(plain(d.added), [4]);
+	assert.deepEqual(plain(d.removed.map((r) => [r.attrs.class, r.inside])), [["acciones", 1]], "la rama que ya no está, con el ícono adentro");
+	const changed = Object.fromEntries(d.changed.map((c) => [c.i, c.fields.map((f) => f.what)]));
+	assert.deepEqual(plain(changed), { 2: ["class"], 3: ["text"] });
+	assert.equal(I.nodeName(cur[2]), "button#btn-guardar.btn.disabled «Guardar»");
+});
+
+test("nodeKeys: un id estable o test-id identifica al elemento aunque se mueva", () => {
+	const a = [{ i: 0, p: -1, tag: "body", attrs: {} }, { i: 1, p: 0, tag: "div", attrs: {} }, { i: 2, p: 1, tag: "button", attrs: { "data-testid": "pay" } }];
+	const b = [{ i: 0, p: -1, tag: "body", attrs: {} }, { i: 1, p: 0, tag: "button", attrs: { "data-testid": "pay" } }];
+	assert.equal(I.nodeKeys(a)[2], I.nodeKeys(b)[1]);
+	assert.equal(I.diffSnapshots(a, b).changed.length, 0);
 });
