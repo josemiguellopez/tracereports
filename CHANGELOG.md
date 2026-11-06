@@ -91,6 +91,20 @@ Python client 0.5.2 (pending release); the other clients do not change.
 - Python client: the page snapshot no longer carries masked text (`[data-tracereports-mask]`,
   `input[type=password]`, `TRACEREPORTS_SCREENSHOT_MASK`) inside the text of a container that has an id or
   a role; it shows `•••` instead. The JavaScript and Java clients still have to be fixed.
+- **Test history squares lost newer runs**: the strip was kept for the whole session, so a test opened
+  before another run finished kept its old history; going back to it from a square hid the newer runs
+  (click the red square and the yellow one disappeared). It is fetched again when a test or run finishes.
+- **New-run notice missed**: a run that started while the page was loading or reconnecting was never
+  announced; on connecting, the page now announces the running runs it did not know.
+- **Trace Buddy asked the same question in a loop** ("which framework?") and could not answer about the
+  DOM. The chat now gets the test's tool and language (detected from the run and the error), the page at
+  the failure from the DOM snapshot (what the failed selector matched and the clickable element around it,
+  loading indicators such as skeletons or spinners and overlays, each with its XPath and CSS), and the
+  Inspector; an answer that repeats an earlier one is retried and, if it repeats again, replaced by an
+  answer built from the snapshot (the loading indicator and the explicit wait in the test's tool). A
+  question about the DOM, a selector or a wait shows *Open in the Inspector*.
+- **Selector not found in a team's own messages**: an XPath written without a cue word
+  (`TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]`) is now taken, with its index.
 
 ### Security
 

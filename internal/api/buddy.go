@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai"
+	"github.com/josemiguellopez/tracereports/internal/locator"
 	"github.com/josemiguellopez/tracereports/internal/repro"
 )
 
@@ -152,6 +153,10 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 				serverError(w, err)
 				return
 			}
+			if err = s.chatPage(in.TestID, in.Lang, &extra); err != nil {
+				serverError(w, err)
+				return
+			}
 		}
 	}
 	for _, t := range in.Tools { // lo que la web va a mostrar bajo la respuesta (armado del reporte, no por el modelo)
@@ -200,6 +205,29 @@ func (s *Server) chatCalls(testID int64) (calls, curl string, err error) {
 		fmt.Fprintf(&b, "%s\n→ %s. Response: %s\n", cmd, outcome, clipText(strings.Join(strings.Fields(policy.Text(c.ResponseBody)), " "), 400))
 	}
 	return b.String(), curl, nil
+}
+
+// chatPage adds the test's tool and the page at the failure (DOM snapshot) to the chat's evidence, and
+// the answer to fall back on when the model repeats itself.
+func (s *Server) chatPage(testID int64, lang string, extra *ai.ChatExtra) error {
+	t, err := s.Store.GetTest(testID)
+	if err != nil {
+		return err
+	}
+	framework := ""
+	if run, err := s.Store.GetRun(t.RunID); err == nil {
+		framework = run.Framework
+	}
+	extra.Tooling = chatTooling(framework, t.ErrorMessage, t.ErrorTrace)
+	raw, err := s.Store.GetDOM(testID)
+	if err != nil {
+		return err
+	}
+	if h := readPageHints(raw, locator.ExtractSelector(t.ErrorMessage, t.ErrorTrace)); h != nil {
+		extra.Page = h.prompt()
+		extra.Fallback = h.fallback(lang, extra.Tooling)
+	}
+	return nil
 }
 
 // chatMaxCalls: the failed calls of a test that go to the model (the first ones are the cause).

@@ -4992,6 +4992,11 @@
 				return;
 			}
 			if (e.target.closest("[data-buddy-mock-open]") && buddy.mockConn) { openMockFor(buddy.mockConn); return; }
+			if (e.target.closest("[data-buddy-inspector]") && S.test) {
+				S.detailTab = "inspector"; renderTestDetail();
+				$("#inspector-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+				return;
+			}
 			const ask = e.target.closest("[data-buddy-ask]");
 			if (ask) { buddyAsk(ask.dataset.buddyAsk, ask.textContent); return; }
 			const open = e.target.closest("[data-buddy-test]");
@@ -5266,6 +5271,7 @@
 	const BUDDY_TOOL_WORDS = {
 		curl: /\b(curl|postman|insomnia|replic\w*|reproduc\w*|request|solicitud|petici[oó]n|endpoint|llamada)\b/i,
 		mock: /\b(mock\w*|stub\w*|wiremock|simul\w*|intercept\w*)\b/i,
+		inspector: /\b(dom|html|xpath|css|selector\w*|locator\w*|localizador\w*|elemento\w*|element\w*|esquelet\w*|skeleton\w*|spinner|cargando|loading|loader|wait|espera\w*|inspector|id)\b/i,
 	};
 	function buddyToolsFor(text, testId) {
 		if (!testId) return [];
@@ -5292,6 +5298,13 @@
 			<pre class="buddy-code" data-no-i18n>${esc(CF.MockGenerator.generate(first.id, conn))}</pre>
 			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-copy>${icon("i-copy")}${tr("Copiar")}</button>
 				<button class="buddy-tool-btn" type="button" data-buddy-mock-open>${tr("Abrir el generador")}</button></div></div>`;
+	}
+
+	/** La página del fallo está guardada: el Inspector la muestra para probar el XPath y copiar el código. */
+	function buddyInspectorCard() {
+		return `<div class="buddy-tool"><b>${tr("La página del momento del fallo")}</b>
+			<small>${tr("Ábrela en el Inspector: prueba el XPath sobre ella y, con clic derecho sobre un elemento, copia un XPath robusto y la espera para Selenium o Playwright.")}</small>
+			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-inspector>${icon("i-target")}${tr("Abrir en el Inspector")}</button></div></div>`;
 	}
 
 	function buddyGrow(el) {
@@ -5332,6 +5345,7 @@
 			buddyFill(el, `<div class="buddy-answer" data-no-i18n>${esc(r.answer).replace(/\n/g, "<br>")}</div>`);
 			if (tools.includes("curl") && r.curl) buddySay(buddyCurlCard(r.curl));
 			if (tools.includes("mock")) { const card = await buddyMockCard(testId); if (card) buddySay(card); }
+			if (tools.includes("inspector") && S.test?.id === testId && hasInspector(S.test)) buddySay(buddyInspectorCard());
 			buddyMood("success", 2000);
 		} catch (err) {
 			buddy.chat.pop(); // la pregunta sin respuesta no queda en el historial que viaja al modelo

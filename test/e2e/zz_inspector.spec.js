@@ -184,6 +184,31 @@ test("un selector que existe pero está oculto: no es el selector, se señala su
 	await expect(insp.locator(".insp-ghost")).toHaveCount(0);
 });
 
+test("Trace Buddy: una pregunta de DOM o esperas ofrece abrir el Inspector", async ({ page: p, request }) => {
+	const { run, id } = await failedTest(request);
+	// un proveedor de IA configurado y una respuesta del modelo (el modelo real no corre en el e2e)
+	await p.route("**/api/v1/config", async (route) => {
+		const res = await route.fetch();
+		await route.fulfill({ response: res, json: { ...(await res.json()), ai_enabled: true, ai_provider: "ollama" } });
+	});
+	let asked = null;
+	await p.route("**/api/v1/ui/ai/chat", async (route) => {
+		asked = route.request().postDataJSON();
+		await route.fulfill({ json: { answer: "Espera al skeleton antes del clic.", provider: "ollama", model: "llama3.1:8b", curl: "" } });
+	});
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await expect(p.locator("#report-name")).toHaveText("Inspector E2E");
+	await p.locator("#buddy-fab").click();
+	await p.locator("#buddy-input").fill("necesito el xpath o id de ese efecto esqueleton de espera para agregar un wait");
+	await p.locator("#buddy-chat .buddy-send").click();
+	const card = p.locator("#buddy .buddy-tool", { has: p.locator("[data-buddy-inspector]") });
+	await expect(card).toBeVisible();
+	expect(asked).toMatchObject({ test_id: id });
+	await card.locator("[data-buddy-inspector]").click();
+	await expect(p.locator('#test-detail [data-tab="inspector"]')).toHaveClass(/active/);
+	await expect(p.locator("#inspector-panel .insp")).toBeVisible();
+});
+
 test("sin snapshot no hay pestaña Inspector", async ({ page: p, request }) => {
 	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector vacío E2E", environment: "qa" } })).json()).run_id;
 	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "sin dom" } })).json()).test_id;

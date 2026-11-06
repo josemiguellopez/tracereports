@@ -950,6 +950,9 @@
 		"XPath relativo a un contenedor estable": "XPath relative to a stable container", "CSS estable": "Stable CSS", "Copiar como": "Copy as", "Acciones": "Actions",
 		"Probar en el probador": "Try it in the tester", "Usar como reemplazo del selector que falló": "Use as replacement for the failed selector",
 		"Ninguna coincidencia": "No match", "1 coincidencia: único": "1 match: unique", "{n} coincidencias": "{n} matches",
+		"La página del momento del fallo": "The page at the moment of the failure", "Abrir en el Inspector": "Open in the Inspector",
+		"Ábrela en el Inspector: prueba el XPath sobre ella y, con clic derecho sobre un elemento, copia un XPath robusto y la espera para Selenium o Playwright.":
+			"Open it in the Inspector: try the XPath on it and, with a right click on an element, copy a robust XPath and the wait for Selenium or Playwright.",
 		"Constante para Page Object (Python)": "Page Object constant (Python)", "Espera explícita (Selenium Python)": "Explicit wait (Selenium Python)",
 	});
 })();

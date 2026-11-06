@@ -53,6 +53,49 @@ type ChatExtra struct {
 	// Shown: what the UI attaches below the answer, built from the report and not by the model ("curl",
 	// "mock"): the model refers to it instead of writing it again.
 	Shown []string
+	// Tooling: the test's tool and language, detected from the run and the error ("Selenium (Python)"),
+	// so the model never asks which framework is used.
+	Tooling string
+	// Page: the page at the failure read from the DOM snapshot (what the failed selector matched, the
+	// loading indicators and what covers the page, with their locators).
+	Page string
+	// Fallback: an answer built from the evidence, used when the model only repeats an earlier answer.
+	Fallback string
+}
+
+// repeats tells whether an answer says again what an earlier answer of the conversation said (a small
+// model stuck asking "which framework?" after it was answered).
+func repeats(answer string, msgs []ChatMessage) bool {
+	a := words(answer)
+	if len(a) == 0 {
+		return false
+	}
+	for _, m := range msgs {
+		if m.Role != "assistant" {
+			continue
+		}
+		b := words(m.Text)
+		common := 0
+		for w := range a {
+			if b[w] {
+				common++
+			}
+		}
+		if union := len(a) + len(b) - common; union > 0 && float64(common)/float64(union) >= 0.8 {
+			return true
+		}
+	}
+	return false
+}
+
+func words(s string) map[string]bool {
+	out := map[string]bool{}
+	for _, w := range strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !(r >= 'a' && r <= 'z' || r >= '0' && r <= '9' || r > 127)
+	}) {
+		out[w] = true
+	}
+	return out
 }
 
 // chatTools tells the model what TraceReports already offers, so it points there instead of guessing.
@@ -61,6 +104,9 @@ const chatTools = `What TraceReports offers for the test being viewed (point to 
 - "Generate mock of the failed backend", under the test error: a stub with the real response for WireMock,
   a Playwright route or a Cypress intercept, to reproduce the failure without the backend.
 - The Lab (Network → a call → Lab): resends the call to check whether it still fails.
+- The Inspector tab: the page at the moment of the failure rebuilt from the DOM snapshot, without
+  reproducing the failure. Try an XPath or CSS on it, and right click an element → QA / Automation for a
+  robust XPath and code for Selenium or Playwright. Point there for anything about the DOM or a selector.
 - The AI view: my diagnosis of the run, and Re-analyze. Escalate: a summary for business, QA or dev.`
 
 // Chat answers a free question in Trace Buddy, with the evidence of the run or test being viewed
@@ -84,6 +130,12 @@ func (a *Analyzer) Chat(ctx context.Context, f *Facts, scope, lang string, msgs 
 	evidence := "No report is open. That is fine: answer questions about testing, selectors and test code directly from your own knowledge."
 	if f != nil {
 		evidence = fmt.Sprintf("Evidence of the %s being viewed (use it only when the question is about this failure):\n%s", scope, f.promptBlock(scope))
+	}
+	if extra.Tooling != "" {
+		evidence += "\nThe test uses " + extra.Tooling + " (detected by TraceReports: do not ask which framework or language; write code for it).\n"
+	}
+	if extra.Page != "" {
+		evidence += "\n" + extra.Page
 	}
 	if extra.Calls != "" {
 		evidence += "\nFailed calls of this test as cURL (secrets replaced by $VARIABLES or ***):\n" + extra.Calls
@@ -128,6 +180,11 @@ How to answer the last message of the User:
   evidence does not answer it, say so and point to where to look (Steps, Network, Console, Replay, the AI
   view, Errors). Speak in first person: the per-test triage is your own diagnosis ("mi diagnóstico" in
   Spanish); never say "the AI suggests" and never suggest configuring an AI provider.
+- When it asks for the DOM, an element, a loading indicator (skeleton, spinner) or a wait for this failure,
+  answer from "Page at the moment of the failure": give the XPath or CSS listed there and an explicit wait in
+  the test's tool (e.g. Selenium Python: WebDriverWait(driver, 15).until(EC.invisibility_of_element_located(
+  (By.XPATH, "..."))) before the click), and mention the Inspector tab. Never send them to Network for the DOM.
+- Do not greet again after your first answer. Never ask something the user or the evidence already answered.
 - Never repeat an earlier answer; if the user says you did not answer, answer the question now.
 - Only testing, test automation, this report or TraceReports; politely decline anything else. Never ask
   for or repeat passwords, tokens, API keys or the contents of .env files.`, chatTools, shown, evidence, conv.String(), language)
@@ -139,6 +196,20 @@ How to answer the last message of the User:
 	}
 	if text = chatAnswer(text); text == "" {
 		return "", errors.New("the model returned an empty answer")
+	}
+	if repeats(text, msgs) {
+		// un modelo chico atascado repite su respuesta (o su pregunta) aunque ya le contestaron: una
+		// segunda vuelta con eso dicho explícitamente y, si insiste, lo armado desde la evidencia
+		retry := prompt + "\n\nYour draft answer repeated an earlier answer of this conversation:\n" + clipRunes(text, 400) +
+			"\nWrite a different answer that moves forward: use the evidence above and do not ask again what was already answered."
+		if again, err := a.generate(ctx, UsageChat, retry, nil); err == nil {
+			if again = chatAnswer(again); again != "" && !repeats(again, msgs) {
+				return again, nil
+			}
+		}
+		if extra.Fallback != "" {
+			return extra.Fallback, nil
+		}
 	}
 	return text, nil
 }
