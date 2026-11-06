@@ -301,6 +301,11 @@
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
 		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
+		// en el celular el menú es una barra que se desplaza: la vista activa queda a la vista
+		const nav = $(".side-nav"), on = nav?.querySelector?.("a.active");
+		if (on && nav.scrollWidth > nav.clientWidth && (on.offsetLeft < nav.scrollLeft || on.offsetLeft + on.offsetWidth > nav.scrollLeft + nav.clientWidth)) {
+			nav.scrollLeft = on.offsetLeft - 8;
+		}
 		if (!S.run && !global) {
 			// sin ejecución cargada no hay qué mostrar: se oculta la vista anterior (Ajustes, Métricas…)
 			// y, si el servidor no tiene ejecuciones, vuelve el estado vacío

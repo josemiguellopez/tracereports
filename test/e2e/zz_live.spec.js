@@ -98,6 +98,9 @@ test("En vivo sin nada corriendo explica qué va a mostrar; en el celular la tab
 	await page.setViewportSize({ width: 390, height: 800 });
 	await page.goto(`/#view=live&exec=${encodeURIComponent("x:" + exec)}`);
 	await expect(page.locator("#view-live .live-table").first()).toBeVisible();
+	// la barra del menú se desplaza hasta la vista activa (En vivo queda a la derecha)
+	const nav = await page.locator('.side-nav a[data-view="live"]').boundingBox();
+	expect(nav.x >= 0 && nav.x + nav.width <= 390, `En vivo visible en la barra: ${JSON.stringify(nav)}`).toBeTruthy();
 	const scroll = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
 	expect(scroll, "sin scroll horizontal en el celular").toBeLessThanOrEqual(1);
 });
