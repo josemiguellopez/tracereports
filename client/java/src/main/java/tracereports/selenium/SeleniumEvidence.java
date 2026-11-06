@@ -87,7 +87,7 @@ public final class SeleniumEvidence {
     /** Snapshot de los elementos de la página (recomendador de locators), o null. */
     public static Object dom(WebDriver driver) {
         try {
-            return ((JavascriptExecutor) driver).executeScript(Dom.SCRIPT);
+            return ((JavascriptExecutor) driver).executeScript(Dom.SCRIPT, Mask.selector());
         } catch (RuntimeException e) {
             return null;
         }

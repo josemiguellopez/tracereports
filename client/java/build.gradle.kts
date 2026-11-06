@@ -17,6 +17,8 @@ repositories { mavenCentral() }
 
 dependencies {
     compileOnly("org.junit.jupiter:junit-jupiter-api:6.1.3")
+    // los tests planificados de En vivo (PlannedTestsListener): lo trae el launcher de JUnit del proyecto
+    compileOnly("org.junit.platform:junit-platform-launcher:6.1.3")
     compileOnly("org.seleniumhq.selenium:selenium-api:4.52.0")
     compileOnly("com.microsoft.playwright:playwright:1.64.0")
 

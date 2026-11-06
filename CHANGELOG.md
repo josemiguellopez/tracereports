@@ -22,6 +22,10 @@ Python client 0.5.2 (pending release); the other clients do not change.
 - Python client: `execution_id` (`TRACEREPORTS_EXECUTION_ID` or the CI build of Azure DevOps, GitHub Actions,
   GitLab or Jenkins), the planned tests from the pytest plugin (also with xdist) and
   `TRACEREPORTS_DOM_ON=fail,warning` for the page of each WARNING step.
+- JavaScript client: `execution_id`, the planned tests from the Playwright Test reporter and, with
+  `TRACEREPORTS_REMOTE_CONTROL=1`, the cooperative cancel (the reporter asks the server and a fixture skips
+  the tests left). Java client: `execution_id`, the planned tests from the JUnit test plan (a launcher
+  listener registered on its own) and the cooperative cancel in the JUnit 5 extension.
 - **Inspector: compare with the last PASS**: what is gone, what is new and what changed against the page of
   the same step in the test's last PASS (`GET /tests/{id}/dom/baseline`). WARNING pages are marked.
 
@@ -103,9 +107,11 @@ Python client 0.5.2 (pending release); the other clients do not change.
   name of a field as the evidence (`"title"`) and repeated the title as the executive summary. Fields left
   empty, filled with a field name or copying the title are now taken from the template built from the
   evidence; what the model did write stays.
+- JavaScript and Java clients: the page snapshot no longer carried masked elements at all (their text,
+  label and placeholder went as they were); now they show `•••`, like the Python client.
 - Python client: the page snapshot no longer carries masked text (`[data-tracereports-mask]`,
   `input[type=password]`, `TRACEREPORTS_SCREENSHOT_MASK`) inside the text of a container that has an id or
-  a role; it shows `•••` instead. The JavaScript and Java clients still have to be fixed.
+  a role; it shows `•••` instead. Same in the JavaScript (Playwright and Selenium) and Java clients.
 - **Test history squares lost newer runs**: the strip was kept for the whole session, so a test opened
   before another run finished kept its old history; going back to it from a square hid the newer runs
   (click the red square and the yellow one disappeared). It is fetched again when a test or run finishes.

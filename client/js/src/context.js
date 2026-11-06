@@ -31,3 +31,20 @@ export function detectBranch() {
 export function detectCommit() {
   return firstEnv(COMMIT_VARS) || git("rev-parse", "HEAD");
 }
+
+// Id del build de CI: las corridas de un mismo build quedan juntas en En vivo.
+// TRACEREPORTS_EXECUTION_ID manda sobre todas.
+const EXECUTION_VARS = [["BUILD_BUILDID", "azure-"], ["GITHUB_RUN_ID", "github-"], ["CI_PIPELINE_ID", "gitlab-"], ["BUILD_TAG", ""]];
+
+/** El id que agrupa las corridas de una ejecución: TRACEREPORTS_EXECUTION_ID o el build de CI. */
+export function defaultExecutionId(getEnv = (k) => process.env[k]) {
+  const explicit = String(getEnv("TRACEREPORTS_EXECUTION_ID") || "").trim();
+  if (explicit) return explicit.slice(0, 120);
+  for (const [v, prefix] of EXECUTION_VARS) {
+    let value = String(getEnv(v) || "").trim();
+    if (!value) continue;
+    if (v === "GITHUB_RUN_ID" && getEnv("GITHUB_RUN_ATTEMPT")) value += "-" + String(getEnv("GITHUB_RUN_ATTEMPT")).trim();
+    return (prefix + value).slice(0, 120);
+  }
+  return "";
+}

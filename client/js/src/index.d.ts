@@ -21,7 +21,7 @@ export interface TraceReportsOptions {
   offline?: "auto" | "always" | "both" | "off";
 }
 
-export interface RunOptions { environment?: string; project?: string; branch?: string; commit?: string; framework?: string }
+export interface RunOptions { environment?: string; project?: string; branch?: string; commit?: string; framework?: string; executionId?: string; planned?: number }
 
 export interface TestOptions {
   category?: string; description?: string; key?: string; suite?: string; params?: string; worker?: string | number;
@@ -54,6 +54,8 @@ export class TraceReports {
   offlineReport: string | null;
   deliveryProblems(): number;
   startRun(name: string, opts?: RunOptions): Promise<number | null>;
+  setPlanned(planned: number): Promise<void>;
+  cancelRequested(opts?: { everyMs?: number }): Promise<{ cancel: boolean; reason: string }>;
   joinRun(runId: number | string, opts?: { offlineDir?: string }): number | null;
   finishRun(opts?: { interrupted?: boolean }): Promise<unknown>;
   flush(timeoutMs?: number): Promise<number>;
@@ -85,4 +87,4 @@ export const NETWORK_ALONE_BYTES: number;
 export function networkBatches(payload: object[], opts?: { maxCount?: number; maxBytes?: number; aloneBytes?: number }): string[];
 export const DOM_SCRIPT: string;
 
-export function domSnapshotInPage(): unknown;
+export function domSnapshotInPage(mask?: string): unknown;

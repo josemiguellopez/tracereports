@@ -19,6 +19,10 @@ public final class FakeServer implements AutoCloseable {
     public final List<Req> requests = new ArrayList<>();
     public final AtomicInteger failNext = new AtomicInteger();
     /** Rutas que siempre responden 503 (p. ej. el cierre de la ejecución). */
+    /** Lo que responde GET /runs/{id}/control (En vivo). */
+    public volatile String control = "{\"cancel\":false}";
+    /** Responde 404 a /control y /plan, como un servidor anterior a En vivo. */
+    public volatile boolean old;
     public final java.util.Set<String> failPaths = java.util.concurrent.ConcurrentHashMap.newKeySet();
 
     public FakeServer() throws IOException {
@@ -35,7 +39,13 @@ public final class FakeServer implements AutoCloseable {
                 requests.add(new Req(ex.getRequestMethod(), path, ex.getRequestHeaders().getFirst("Idempotency-Key"),
                         ex.getRequestHeaders().getFirst("Authorization"), body));
             }
-            String out = path.equals("/api/v1/runs") ? "{\"run_id\":7}" : path.endsWith("/tests") ? "{\"test_id\":11}" : "{}";
+            if (old && (path.endsWith("/control") || path.endsWith("/plan"))) { // un servidor sin En vivo
+                ex.sendResponseHeaders(404, -1);
+                ex.close();
+                return;
+            }
+            String out = path.equals("/api/v1/runs") ? "{\"run_id\":7}" : path.endsWith("/tests") ? "{\"test_id\":11}"
+                    : path.endsWith("/control") ? control : "{}";
             byte[] b = out.getBytes(StandardCharsets.UTF_8);
             ex.getResponseHeaders().add("Content-Type", "application/json");
             ex.sendResponseHeaders(201, b.length);

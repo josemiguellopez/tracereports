@@ -117,6 +117,15 @@ Before every screenshot, the client **covers** (a magenta box) the sensitive ele
 step, and trace and video only of failed tests) or `off` (none of that). The server applies the same
 variable on its own (see [Configuration → Screenshots](configuration.md#screenshots)).
 
+## Live: execution, planned tests and remote control
+
+| Variable | Effect |
+|---|---|
+| `TRACEREPORTS_EXECUTION_ID` | Groups in Live the runs of one execution. Without it, the CI build id (`BUILD_BUILDID`, `GITHUB_RUN_ID`, `CI_PIPELINE_ID`, `BUILD_TAG`) |
+| `TRACEREPORTS_REMOTE_CONTROL=1` | When someone cancels the execution from Live, the tests left are skipped with the reason. Nothing is killed |
+
+The Playwright Test reporter sends how many tests it will run (progress and ETA). With Selenium or another runner: `startRun(name, { planned })`, `setPlanned(n)` and `cancelRequested()`.
+
 ## API
 
 | Method | Description |
