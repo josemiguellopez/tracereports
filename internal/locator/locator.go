@@ -18,6 +18,36 @@ type Snapshot struct {
 	Title    string    `json:"title"`
 	Viewport Size      `json:"viewport"`
 	Elements []Element `json:"elements"`
+	// Structural snapshot (the Inspector): the whole page as a tree, to redraw it and evaluate
+	// selectors on it without reproducing the failure. Elements stays for the locator suggestions
+	// and older servers. Page is the document size (it can be taller than the viewport).
+	Page  *Size  `json:"page,omitempty"`
+	Nodes []Node `json:"nodes,omitempty"`
+	// Kind: "fail" (the moment of the failure, the default) or "step" (a page the test went through,
+	// TRACEREPORTS_DOM_STEPS); Label is the step it was taken at and At when (ms).
+	Kind  string `json:"kind,omitempty"`
+	Label string `json:"label,omitempty"`
+	At    int64  `json:"at,omitempty"`
+}
+
+// Node is one element of a structural snapshot. P is the index of its parent (-1 for the root),
+// so the tree travels as a flat list. Text is its own text (not its children's); TX/TY where that
+// text starts inside the box. Style holds only what is needed to draw it.
+type Node struct {
+	I       int               `json:"i"`
+	P       int               `json:"p"`
+	Tag     string            `json:"tag"`
+	Attrs   map[string]string `json:"attrs,omitempty"`
+	Text    string            `json:"text,omitempty"`
+	X       int               `json:"x"`
+	Y       int               `json:"y"`
+	W       int               `json:"w"`
+	H       int               `json:"h"`
+	Visible bool              `json:"visible"`
+	Depth   int               `json:"depth"`
+	TX      *int              `json:"tx,omitempty"`
+	TY      *int              `json:"ty,omitempty"`
+	Style   map[string]string `json:"style,omitempty"`
 }
 
 // Size is a viewport in CSS pixels.

@@ -33,7 +33,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 | POST | `/tests/{test_id}/artifact` | multipart: `file`, `kind` (`trace` o `video`), `name` | `201` artefacto. Trace de Playwright (ZIP) o video (WebM/MP4), hasta 100 MB |
 | POST | `/tests/{test_id}/console` | `{entries: [{level, text, location, timestamp}]}` | `201 {stored, dropped}`. Consola del navegador: `error`, `warning`, `pageerror`, `info`, `log`, `debug` (máx. 500 por test) |
 | POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (hasta 5000 por lote, 48 MiB por solicitud) | `201 {stored, errors}`. `body_size` es el tamaño original en bytes UTF-8; envía `body_truncated: true` si el body llega ya recortado, para que el reporte no lo muestre como completo |
-| POST | `/tests/{test_id}/dom` | Snapshot de la página al fallar (ver abajo), hasta 4 MB / 2000 elementos | `201` |
+| POST | `/tests/{test_id}/dom` | Snapshot de la página al fallar, o de un paso con `kind: "step"` (ver abajo), hasta 4 MB / 2000 elementos / 6000 nodos | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
 | PATCH | `/runs/{run_id}/finish` | `{interrupted}` (opcional) | `200` ejecución |
 
@@ -109,6 +109,15 @@ propone selectores de reemplazo y la IA elige el más probable. Los clientes ya 
                 "visible": true, "x": 315, "y": 560, "w": 464, "h": 46}]
 }
 ```
+
+El cliente de Python también envía `page` (`{w, h}`, la página entera) y `nodes`, la página como árbol
+plano que redibuja el **Inspector**: cada nodo tiene `i` (su índice), `p` (el índice del padre, `-1` para
+`body`; un padre siempre va antes), `tag`, `attrs`, su `text` propio, su caja (`x`, `y`, `w`, `h`, en
+coordenadas de la página), `visible`, `depth`, `tx`/`ty` (dónde empieza el texto dentro de la caja) y
+`style`. El servidor deja solo atributos conocidos (`id`, `class`, `name`, `role`, `type`, `placeholder`,
+`href`, `title`, `for`, `alt`, `data-test*`, `aria-*`) y estilos (colores, fuente, borde, display,
+opacidad…; sin `url()`), enmascara secretos en textos y valores, y descarta un árbol mal formado. Con
+`"kind": "step"` y `"label"` es la página de un paso (hasta 40 por test); sin ellos, la del fallo.
 
 ### Hora real de un evento
 
@@ -193,6 +202,9 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/history` | Últimas ejecuciones del test (por nombre) |
 | GET | `/tests/{test_id}/network` | Llamadas de red del test |
 | GET | `/tests/{test_id}/locator` | Selector roto y reemplazos sugeridos (`204` si el fallo no fue de un selector) |
+| GET | `/tests/{test_id}/dom` | Snapshot de la página al fallar, tal como se guardó (`204` si no hay) |
+| GET | `/tests/{test_id}/dom/steps` | Snapshots de los pasos: `[{seq, label, at}]` |
+| GET | `/tests/{test_id}/dom/steps/{seq}` | Un snapshot de paso (`404` si no existe) |
 | GET | `/tests/{test_id}/drift` | p95 por endpoint del test frente a la mediana de sus ejecuciones anteriores |
 | GET | `/stream?run={id}` | Eventos en vivo (Server-Sent Events): `run`, `test`, `log`, `network`, `triage`, `summary` |
 | GET | `/network/{id}/body` | Body guardado completo (JSON o texto plano, nunca HTML ejecutable) |

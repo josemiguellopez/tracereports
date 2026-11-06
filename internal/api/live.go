@@ -46,9 +46,19 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 		snap.Elements = snap.Elements[:maxDOMElements]
 	}
 	cleanSnapshot(s.redactor(), &snap)
+	cleanNodes(s.redactor(), &snap)
+	if snap.Kind != "step" {
+		snap.Kind = "fail"
+	}
 	raw, _ := json.Marshal(snap)
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
-		return http.StatusCreated, map[string]int{"elements": len(snap.Elements)}, tx.SaveDOM(id, string(raw))
+		out := map[string]any{"elements": len(snap.Elements), "nodes": len(snap.Nodes), "kind": snap.Kind}
+		if snap.Kind == "step" { // una página por la que pasó el test (TRACEREPORTS_DOM_STEPS)
+			seq, err := tx.SaveDOMStep(id, snap.Label, snap.At, string(raw))
+			out["seq"] = seq
+			return http.StatusCreated, out, err
+		}
+		return http.StatusCreated, out, tx.SaveDOM(id, string(raw))
 	})
 	if respondErr(w, err, "test") {
 		return

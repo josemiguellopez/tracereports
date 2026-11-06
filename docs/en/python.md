@@ -199,6 +199,23 @@ cr.attach_screenshot(selenium_screenshot(driver), "Form")             # instead 
 a `FAIL` step) or `off` (none). The server applies the same variable on its own (see
 [Configuration → Screenshots](configuration.md#screenshots)).
 
+## Inspector: the page at the moment of the failure
+
+On failure the client also sends the **structure of the page** (every element with its box, its own
+text and a few styles). The test's **Inspector** tab rebuilds it, so you can inspect what was on screen,
+try XPath or CSS on it and copy robust locators (right click → *QA / Automation*) **without reproducing
+the failure again**. If the selector that failed does not exist, it marks it and points to the most
+similar element.
+
+| Variable | Effect |
+|---|---|
+| `TRACEREPORTS_DOM=basic` | Only the interactive elements, as before (the Inspector draws just those). Default: `structure` |
+| `TRACEREPORTS_DOM_STEPS=1` | Also keeps the page of every step with a screenshot (once per different page, up to 40 per test), to walk the whole test in the Inspector. Off by default |
+
+What is covered in screenshots (`input[type=password]`, `[data-tracereports-mask]`,
+`TRACEREPORTS_SCREENSHOT_MASK`) keeps its box but not its text, and what someone typed in a field never
+travels. Not captured: the inside of cross-origin iframes and what a `<canvas>` draws.
+
 ## Network capture with Playwright
 
 ```python

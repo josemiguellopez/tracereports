@@ -290,6 +290,10 @@ type Test struct {
 	Attempts int `json:"attempts"`
 	// KeyApprox: reported without its own key; its history is matched by name only.
 	KeyApprox bool `json:"key_approx,omitempty"`
+	// HasDOM: there is a page snapshot of the failure; DOMSteps: snapshots of the pages it went
+	// through (TRACEREPORTS_DOM_STEPS). Filled by GetTest (the Inspector tab).
+	HasDOM   bool `json:"has_dom,omitempty"`
+	DOMSteps int  `json:"dom_steps,omitempty"`
 	// Conexiones de red capturadas y cuántas no terminaron OK (HTTP >= 400 o sin respuesta).
 	NetworkTotal  int `json:"network_total"`
 	NetworkErrors int `json:"network_errors"`
@@ -733,6 +737,11 @@ func (s *Store) GetTest(testID int64) (*Test, error) {
 		return nil, err
 	}
 	if t.Console, err = s.ConsoleOf(testID); err != nil {
+		return nil, err
+	}
+	// snapshots de la página (Inspector): el del fallo y los de los pasos
+	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM test_dom WHERE test_id=?), (SELECT COUNT(*) FROM test_dom_steps WHERE test_id=?)`,
+		testID, testID).Scan(&t.HasDOM, &t.DOMSteps); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.Query(`SELECT id, test_id, status, message, timestamp, screenshot FROM logs WHERE test_id=? ORDER BY timestamp, id`, testID)
