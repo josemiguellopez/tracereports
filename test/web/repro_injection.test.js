@@ -5,7 +5,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const { load } = require("./load.js");
 
-const { reproCommands, curlOf } = load(["tracereports_features.js"]).TraceReportsFeatures;
+const { reproCommands, reproScript, curlOf } = load(["tracereports_features.js"]).TraceReportsFeatures;
 const cmds = (o) => [...reproCommands(o)].map((c) => c.cmd);
 
 const hostile = [";echo MARK;#", "abc123 && echo MARK", "$(echo MARK)", "`echo MARK`", "abc'; echo MARK; '",
@@ -22,11 +22,16 @@ test("un commit que no es un id de Git nunca entra al comando", () => {
 	}
 });
 
-test("commits válidos: completo (12), abreviado, mayúsculas, SHA-256 y vacío", () => {
-	assert.deepEqual(cmds({ framework: "pytest", key: "t.py::x", commit: "0123456789ABCDEF0123" }), ["git checkout 0123456789ab && pytest 't.py::x'"]);
-	assert.deepEqual(cmds({ framework: "pytest", key: "t.py::x", commit: "abc1234" }), ["git checkout abc1234 && pytest 't.py::x'"]);
-	assert.deepEqual(cmds({ framework: "pytest", key: "t.py::x", commit: "ab".repeat(32) }), ["git checkout abababababab && pytest 't.py::x'"]);
-	assert.deepEqual(cmds({ framework: "pytest", key: "t.py::x", commit: "" }), ["pytest 't.py::x'"]);
+test("el commit va como nota y solo si es un id de Git: completo (12), abreviado, mayúsculas, SHA-256", () => {
+	const list = reproCommands({ framework: "pytest", key: "t.py::x" });
+	const note = (c) => reproScript(list, c).split("\n").pop();
+	assert.equal(note("0123456789ABCDEF0123"), "# La ejecución usó el commit 0123456789ab; si tu copia está en otra versión: git checkout 0123456789ab");
+	assert.equal(note("abc1234"), "# La ejecución usó el commit abc1234; si tu copia está en otra versión: git checkout abc1234");
+	assert.equal(note("ab".repeat(32)), "# La ejecución usó el commit abababababab; si tu copia está en otra versión: git checkout abababababab");
+	for (const commit of ["", ...hostile]) {
+		const s = reproScript(list, commit);
+		assert.ok(!s.includes("MARK") && !s.includes("git checkout"), `${JSON.stringify(commit)}: ${s}`);
+	}
 });
 
 test("Go: un paquete hostil va entre comillas; el normal no cambia", () => {

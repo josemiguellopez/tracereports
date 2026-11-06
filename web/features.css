@@ -976,6 +976,10 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .repro-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 0; }
 .repro-lbl { min-width: 70px; color: var(--text-muted); }
 .repro-row code { word-break: break-all; }
+.repro-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px 8px; padding: 6px 0; }
+.repro-row .repro-lbl { grid-column: 1 / -1; min-width: 0; font-size: 12px; font-weight: 600; }
+.repro-row code { min-width: 0; }
+.repro-note, .repro-hint { margin: 6px 0 0; font-size: 12px; color: var(--text-muted); }
 
 /* qué cambió en una llamada desde que el test pasó */
 .baseline-diff { display: grid; gap: 10px; font-size: 13px; }

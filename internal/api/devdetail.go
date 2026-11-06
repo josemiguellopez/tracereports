@@ -68,7 +68,7 @@ func (s *Server) devFacts(runID, testID int64, maxCalls int) (*ai.DevFacts, erro
 		Framework: run.Framework, Branch: run.Branch, Commit: run.Commit,
 		Error: clipText(t.ErrorMessage, devMaxTrace), ErrorTrace: clipText(t.ErrorTrace, devMaxTrace), Artifacts: t.Artifacts}
 	if !t.KeyApprox {
-		d.Repro = repro.Commands(run.Framework, t.Key, run.Commit)
+		d.Repro = repro.Ordered(repro.Commands(run.Framework, t.Key), repro.DependsOnEarlier(t.ErrorMessage))
 	}
 	for _, c := range t.Console {
 		if (c.Level == "error" || c.Level == "pageerror") && len(d.Console) < devMaxConsole {

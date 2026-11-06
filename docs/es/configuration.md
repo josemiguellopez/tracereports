@@ -563,11 +563,14 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
 
 ## Para quien corrige: reproducir y comparar
 
-- **Reproducir en local**: el detalle de un test trae el comando para correrlo en tu máquina, en la
-  versión exacta de la ejecución (`git checkout <commit> && …`): `pytest '<nodeid>'`,
-  `npx playwright test <archivo> -g '<título>' --project=<proyecto>`, Maven/Gradle para JUnit o
-  `go test ./<paquete>/... -run '^TestX$'`. Sale de la identidad del test, así que necesita que el
-  cliente la reporte (todos lo hacen).
+- **Reproducir en local**: el detalle de un test trae los comandos para correrlo en tu máquina: solo
+  ese test (`pytest '<nodeid>'`, `npx playwright test <archivo> -g '<título>' --project=<proyecto>`,
+  Maven/Gradle para JUnit o `go test ./<paquete>/... -run '^TestX$'`) y su archivo o clase completos.
+  Si el error dice que el test necesitaba uno anterior (un dato vacío, un paso omitido porque falló
+  otro), el archivo completo va primero: solo, ese test falla por otra razón. El commit de la
+  ejecución va como nota (`git checkout <commit>` solo si tu copia está en otra versión), nunca
+  encadenado al comando. Lo mismo en Escalar (Desarrollo), los tickets, la cápsula del Lab y MCP. Sale
+  de la identidad del test, así que necesita que el cliente la reporte (todos lo hacen).
 - **Reenviar en el Lab (FixLab)**: *Abrir en Lab* en una llamada con error (pestaña **Red**) o en un
   incidente de backend reenvía la llamada con una sesión nueva (repite el login grabado y lee los
   tokens anti-CSRF en vivo; tú solo escribes la contraseña) para ver si el fallo **sigue

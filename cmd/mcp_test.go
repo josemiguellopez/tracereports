@@ -129,7 +129,7 @@ func TestMCPAgentFlow(t *testing.T) {
 	}{
 		{0, []string{`"name": "nightly"`, `"project": "shop"`}},
 		{1, []string{`"key": "backend:GET /orders 500"`, fmt.Sprintf(`"causal_call_id": %d`, callID), `"name": "orders load"`}},
-		{2, []string{`"failed_calls"`, fmt.Sprintf(`"id": %d`, callID), "npx playwright test", "git checkout abc1234"}},
+		{2, []string{`"failed_calls"`, fmt.Sprintf(`"id": %d`, callID), "npx playwright test", `"commit": "abc1234"`, `"scope": "file"`}},
 		{3, []string{`"verdict": "reproduced"`, "pool exhausted"}},
 		{4, []string{`"fixed": false`, `"passed": false`}},
 	}

@@ -976,13 +976,19 @@
 		CF.Drawer.open({ title: tr("Qué cambió desde que pasó"), subtitle: `${c.method} ${c.url}`, body: `<div class="baseline-diff">${html}</div>` });
 	}
 
-	/** Comandos para correr este test en local (según el framework y la identidad del test). */
+	/** Comandos para correr este test en local (según el framework y la identidad del test): este test
+	 * y su archivo completo; el archivo primero si el error dice que dependía de un test anterior. El
+	 * commit de la ejecución va como nota, no dentro del comando. */
 	function reproBlock(t) {
-		const cmds = CF.reproCommands({ framework: S.run?.framework, key: t.key, name: t.name, commit: S.run?.commit });
+		const lang = window.TraceReportsI18n?.lang === "en" ? "en" : "es";
+		const cmds = CF.orderedRepro(CF.reproCommands({ framework: S.run?.framework, key: t.key }), t.status === "FAIL" && CF.dependsOnEarlier(t.error_message));
 		if (!cmds.length) return "";
+		const note = CF.reproCommitNote(S.run?.commit, lang);
 		return `<details class="repro"><summary>${tr("Reproducir en local")}</summary>
-			${cmds.map((c) => `<div class="repro-row"><span class="repro-lbl">${esc(c.label)}</span><code data-no-i18n>${esc(c.cmd)}</code>
-				<button class="copy-btn" data-copy="${esc(c.cmd)}">${tr("Copiar")}</button></div>`).join("")}
+			${cmds.map((c) => `<div class="repro-row" data-scope="${esc(c.scope)}"><span class="repro-lbl" data-no-i18n data-tip="${esc(CF.reproScope(c.scope, lang))}">${esc(CF.reproScope(c.scope, lang, true))} · ${esc(c.label)}</span>
+				<code data-no-i18n>${esc(c.cmd)}</code><button class="copy-btn" data-copy="${esc(c.cmd)}">${tr("Copiar")}</button></div>`).join("")}
+			${cmds.some((c) => c.scope !== "test") ? `<p class="repro-hint" data-no-i18n>${esc(lang === "en" ? "Run the whole file when the test depends on earlier ones (data they create, steps they leave done): alone it fails for another reason." : "Corre el archivo completo cuando el test depende de otros anteriores (datos que crean, pasos que dejan hechos): solo, falla por otra razón.")}</p>` : ""}
+			${note ? `<p class="repro-note" data-no-i18n>${esc(note)}</p>` : ""}
 		</details>`;
 	}
 
@@ -2756,7 +2762,7 @@
 		return `<div class="esc-dev-test">${named ? `<h4 class="esc-dev-name">${esc(d.test_name)}</h4>` : ""}
 			${ctx.length ? `<dl class="esc-ctx">${ctx.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
 			${d.error || d.error_trace ? `<h4>${esc(L.stack)}</h4>${block([d.error, d.error_trace].filter(Boolean).join("\n\n"))}` : ""}
-			${d.repro?.length ? `<h4>${esc(L.repro)}</h4>${d.repro.map((r) => block(r.cmd)).join("")}` : ""}
+			${d.repro?.length ? `<h4>${esc(L.repro)}</h4>${block(CF.reproScript(d.repro, d.commit, L === ESC_L.en ? "en" : "es"))}` : ""}
 			${calls ? `<h4>${esc(L.calls)}</h4>${calls}` : ""}
 			${consoleText ? `<h4>${esc(L.console)}</h4>${block(consoleText, 12)}` : ""}
 			${d.artifacts?.length ? `<h4>${esc(L.artifacts)}</h4><ul>${d.artifacts.map((a) => `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.kind)}: ${esc(a.name)}</a></li>`).join("")}</ul>` : ""}
@@ -2770,7 +2776,7 @@
 		const ctx = escDevContext(d, L);
 		if (ctx.length) out.push(ctx.map(([k, v]) => `${k}: ${v}`).join(" · "));
 		if (d.error || d.error_trace) out.push("", B(L.stack + ":"), fence([d.error, d.error_trace].filter(Boolean).join("\n\n")));
-		if (d.repro?.length) out.push("", B(L.repro + ":"), fence(d.repro.map((r) => r.cmd).join("\n"), "bash"));
+		if (d.repro?.length) out.push("", B(L.repro + ":"), fence(CF.reproScript(d.repro, d.commit, L === ESC_L.en ? "en" : "es"), "bash"));
 		for (const c of d.calls || []) {
 			out.push("", B(`${c.method} ${c.url} → ${c.outcome}${c.duration_ms ? ` (${c.duration_ms} ms)` : ""}`));
 			const ids = [c.trace_id && `Trace ID ${c.trace_id}`, c.request_id && `Request ID ${c.request_id}`, c.logs_url && `${L.logs}: ${c.logs_url}`, c.trace_url && `${L.trace}: ${c.trace_url}`].filter(Boolean);
@@ -2905,7 +2911,7 @@
 		const ctx = escDevContext(d, L);
 		let html = (named ? `<p style="margin:14px 0 2px;font-size:13.5px;font-weight:700;color:#263238">${esc(d.test_name)}</p>` : "") + (ctx.length ? small(ctx.map(([k, v]) => `${esc(k)}: <b>${esc(v)}</b>`).join(" · ")) : "");
 		if (d.error || d.error_trace) html += small(`<b>${esc(L.stack)}</b>`) + pre([d.error, d.error_trace].filter(Boolean).join("\n\n"));
-		if (d.repro?.length) html += small(`<b>${esc(L.repro)}</b>`) + pre(d.repro.map((r) => r.cmd).join("\n"));
+		if (d.repro?.length) html += small(`<b>${esc(L.repro)}</b>`) + pre(CF.reproScript(d.repro, d.commit, L === ESC_L.en ? "en" : "es"));
 		for (const c of d.calls || []) {
 			html += small(`<b>${esc(c.method)}</b> <code>${esc(c.url)}</code> → <b style="color:#c62828">${esc(c.outcome)}</b>${c.duration_ms ? ` · ${c.duration_ms} ms` : ""}`);
 			if (c.trace_id || c.request_id) html += small([c.trace_id && `Trace ID <code>${esc(c.trace_id)}</code>`, c.request_id && `Request ID <code>${esc(c.request_id)}</code>`,

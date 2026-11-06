@@ -59,7 +59,7 @@ func testCapsule(base string, withCheck bool) *lab.Capsule {
 		Vars:     []lab.Var{{Name: "authorization", Kind: lab.KindSession}, {Name: "password", Kind: lab.KindSecret}},
 		Original: lab.Original{Status: 500}}
 	call := lab.CapsuleCall{Plan: plan, Test: lab.CapsuleTest{ID: 7, Name: "ver pedidos", Key: "tests/orders.spec.js > ver pedidos",
-		Commands: repro.Commands("playwright", "tests/orders.spec.js > ver pedidos", "")}}
+		Commands: repro.Commands("playwright", "tests/orders.spec.js > ver pedidos")}}
 	if withCheck {
 		call.Checks = []lab.CapsuleCheck{{Name: "orders load", Expect: lab.Expect{Status: 200, Contains: []string{"orders"}}}}
 	}

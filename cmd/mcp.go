@@ -250,8 +250,11 @@ func (m *mcpClient) getTest(_ context.Context, args json.RawMessage) (string, er
 	_ = m.get(fmt.Sprintf("/api/v1/runs/%d", t.RunID), &run)
 	res := map[string]any{"id": t.ID, "run_id": t.RunID, "name": t.Name, "status": t.Status, "key": t.Key,
 		"error": t.ErrorMessage, "stack_trace": cut(t.ErrorTrace, 4000)}
-	if cmds := repro.Commands(run.Framework, t.Key, run.Commit); len(cmds) > 0 {
+	if cmds := repro.Ordered(repro.Commands(run.Framework, t.Key), repro.DependsOnEarlier(t.ErrorMessage)); len(cmds) > 0 {
 		res["run_locally"] = cmds
+		if c := repro.NormalizeCommit(run.Commit); c != "" {
+			res["commit"] = c // la versión del código de la ejecución (git checkout solo si tu copia está en otra)
+		}
 	}
 	if t.Triage != nil && t.Triage.State == "DONE" {
 		res["ai_diagnosis"] = map[string]any{"category": t.Triage.Category, "summary": t.Triage.Summary, "suggestion": t.Triage.Suggestion}

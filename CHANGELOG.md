@@ -6,6 +6,15 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Run it locally without `git checkout`**: the command to reproduce a test no longer starts with
+  `git checkout <commit> &&` (it failed with local changes and left a detached HEAD); the run's commit is
+  a note to use only if your copy is on another version. Each test also gets the command for its whole
+  file or class, first when the error says the test needed an earlier one (empty data, a step skipped
+  because a previous one failed): alone it fails for another reason. Same in the test detail, Escalate
+  (Development: one shell block with a comment per command), tickets, the Lab capsule and MCP.
+
 ## [0.7.0] - 2026-11-04
 
 JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated
