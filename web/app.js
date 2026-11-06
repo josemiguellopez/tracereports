@@ -1373,8 +1373,19 @@
 	const scheduleRuns = () => { if (!runsTimer) runsTimer = setTimeout(() => { runsTimer = null; loadRuns().catch(() => {}); }, RUNS_REFRESH_MS); };
 
 	function setLiveState(state) {
+		const was = S.liveState;
 		S.liveState = state;
 		renderLive();
+		// al conectar (o reconectar) se avisan las ejecuciones que empezaron mientras no había conexión:
+		// su evento "created" no llegó a esta pestaña
+		if (state === "live" && was !== "live") loadRuns().then(catchUpNewRuns).catch(() => {});
+	}
+
+	/** Avisa las ejecuciones en curso que esta pestaña todavía no conocía (ver notifyNewRun). */
+	function catchUpNewRuns() {
+		if (!S.seenRuns) { S.seenRuns = new Set(S.runs.map((r) => r.id)); return; }
+		for (const r of S.runs) if (r.status === "RUNNING" && !S.seenRuns.has(r.id)) notifyNewRun(r.id);
+		for (const r of S.runs) S.seenRuns.add(r.id);
 	}
 
 	const STALE_MS = 5 * 60 * 1000; // una ejecución abierta sin pasos nuevos en 5 min no está "en vivo"
@@ -1446,6 +1457,7 @@
 	 * selector y un punto en la pestaña del navegador. Si no se estaba viendo ninguna, se abre.
 	 */
 	function notifyNewRun(id) {
+		S.seenRuns?.add(id);
 		const r = S.runs.find((x) => x.id === id);
 		if (!r || id === S.runId || S.newRuns.includes(id)) return;
 		if (!S.run) { switchRun(id, { stay: true }).catch(() => {}); return; }
@@ -5508,6 +5520,7 @@
 		if (S.liveState === "live") { setTimeout(runsLoop, RUNS_POLL_MS); return; }
 		try {
 			await loadRuns();
+			catchUpNewRuns(); // sin conexión en vivo, el sondeo también avisa las ejecuciones nuevas
 			if (!S.run && S.runId) { await loadRun(); await loadTest(); }
 		} catch (err) { console.warn("runs refresh failed", err); }
 		setTimeout(runsLoop, RUNS_POLL_MS);
@@ -5528,6 +5541,7 @@
 			S.config = await api("/api/v1/config");
 			window.TraceReportsI18n.setDefault(S.config.language); // idioma del equipo, si el usuario no eligió
 			await loadRuns();
+			S.seenRuns = new Set(S.runs.map((r) => r.id)); // las que ya estaban al abrir la página no se avisan
 			await loadRun();
 			await loadTest();
 			writeHash();
