@@ -229,7 +229,13 @@ func (s *Server) chatPage(testID int64, lang string, extra *ai.ChatExtra) error 
 			return err
 		}
 		if len(steps) > 0 {
-			if raw, err = s.Store.GetDOMStep(testID, steps[len(steps)-1].Seq); err != nil {
+			pick := steps[len(steps)-1]
+			for _, st := range steps { // la del último WARNING: ahí se veía el problema (la del final ya cargó)
+				if st.Kind == "warning" {
+					pick = st
+				}
+			}
+			if raw, err = s.Store.GetDOMStep(testID, pick.Seq); err != nil {
 				return err
 			}
 		}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -63,6 +64,66 @@ type ChatExtra struct {
 	Fallback string
 }
 
+var (
+	// un XPath escrito en la respuesta (hasta un espacio fuera de comillas no importa: basta con sus nombres)
+	answerXPath = regexp.MustCompile(`//[A-Za-z*][^\s` + "`" + `"]*`)
+	// un CSS pasado a Selenium o Playwright: By.CSS_SELECTOR, "…" / By.cssSelector("…") / locator("…")
+	answerCSS = regexp.MustCompile(`(?:CSS_SELECTOR\s*,|cssSelector\(|locator\()\s*["']([^"']+)["']`)
+	// lo que identifica al elemento dentro del selector: lo que va entre comillas, una clase o un id
+	locatorNames = regexp.MustCompile(`'([^']{2,})'|"([^"]{2,})"|[.#]([A-Za-z_][\w-]{2,})`)
+	foldAccents  = strings.NewReplacer("á", "a", "é", "e", "í", "i", "ó", "o", "ú", "u", "ü", "u")
+)
+
+// inventsLocator tells whether the answer gives an XPath or CSS whose names (classes, ids, texts) appear
+// nowhere in known (the evidence and the conversation): a small model writes
+// "//div[@class='loading-indicator']" for a page whose skeleton is "skeleton-row".
+func inventsLocator(answer, known string) bool {
+	known = foldAccents.Replace(strings.ToLower(known))
+	locs := answerXPath.FindAllString(answer, -1)
+	for _, m := range answerCSS.FindAllStringSubmatch(answer, -1) {
+		locs = append(locs, m[1])
+	}
+	for _, loc := range locs {
+		for _, m := range locatorNames.FindAllStringSubmatch(loc, -1) {
+			name := foldAccents.Replace(strings.ToLower(m[1] + m[2] + m[3]))
+			if strings.HasPrefix(name, "abcdefghijklmnopqrstuvwxyz") || strings.Contains(known, name) {
+				continue // las tablas de translate() no identifican nada
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// toolingFromChat completes the detected tool with what the person said ("es selenium"): the language
+// may come from the run (pytest → Python) and the tool only from the conversation.
+func toolingFromChat(tooling string, msgs []ChatMessage) string {
+	for _, tool := range []string{"Selenium", "Playwright", "Cypress"} {
+		if strings.HasPrefix(tooling, tool) {
+			return tooling // ya se sabe
+		}
+	}
+	said := ""
+	for _, m := range msgs {
+		if m.Role != "user" {
+			continue
+		}
+		low := strings.ToLower(m.Text)
+		for _, tool := range []string{"Selenium", "Playwright", "Cypress"} {
+			if strings.Contains(low, strings.ToLower(tool)) {
+				said = tool // el último que nombró
+			}
+		}
+	}
+	switch {
+	case said == "":
+		return tooling
+	case tooling == "":
+		return said
+	}
+	return said + " (" + tooling + ")"
+}
+
 // repeats tells whether an answer says again what an earlier answer of the conversation said (a small
 // model stuck asking "which framework?" after it was answered).
 func repeats(answer string, msgs []ChatMessage) bool {
@@ -81,7 +142,11 @@ func repeats(answer string, msgs []ChatMessage) bool {
 				common++
 			}
 		}
-		if union := len(a) + len(b) - common; union > 0 && float64(common)/float64(union) >= 0.8 {
+		// casi igual, o la anterior entera con algo pegado ("… ¿Es Selenium, Playwright o Cypress?
+		// (No answer yet, waiting for your response)")
+		union := len(a) + len(b) - common
+		contained := len(b) > 0 && float64(common)/float64(len(b)) >= 0.9 && len(a) <= len(b)*3/2
+		if (union > 0 && float64(common)/float64(union) >= 0.8) || contained {
 			return true
 		}
 	}
@@ -131,6 +196,7 @@ func (a *Analyzer) Chat(ctx context.Context, f *Facts, scope, lang string, msgs 
 	if f != nil {
 		evidence = fmt.Sprintf("Evidence of the %s being viewed (use it only when the question is about this failure):\n%s", scope, f.promptBlock(scope))
 	}
+	extra.Tooling = toolingFromChat(extra.Tooling, msgs)
 	if extra.Tooling != "" {
 		evidence += "\nThe test uses " + extra.Tooling + " (detected by TraceReports: do not ask which framework or language; write code for it).\n"
 	}
@@ -197,13 +263,21 @@ How to answer the last message of the User:
 	if text = chatAnswer(text); text == "" {
 		return "", errors.New("the model returned an empty answer")
 	}
-	if repeats(text, msgs) {
-		// un modelo chico atascado repite su respuesta (o su pregunta) aunque ya le contestaron: una
-		// segunda vuelta con eso dicho explícitamente y, si insiste, lo armado desde la evidencia
-		retry := prompt + "\n\nYour draft answer repeated an earlier answer of this conversation:\n" + clipRunes(text, 400) +
-			"\nWrite a different answer that moves forward: use the evidence above and do not ask again what was already answered."
+	// lo que el modelo puede nombrar en un selector: la evidencia y lo que dijo la persona
+	known := evidence + "\n" + conv.String()
+	invented := func(s string) bool { return extra.Page != "" && inventsLocator(s, known) }
+	if repeats(text, msgs) || invented(text) {
+		// un modelo chico atascado repite su respuesta (o su pregunta) aunque ya le contestaron, o inventa
+		// un selector que la página no tiene: una segunda vuelta con eso dicho explícitamente y, si insiste,
+		// la respuesta armada desde la página (el indicador de carga y la espera)
+		why := "repeated an earlier answer of this conversation"
+		if !repeats(text, msgs) {
+			why = "used an XPath or CSS with names that are not in the page at the failure"
+		}
+		retry := prompt + "\n\nYour draft answer " + why + ":\n" + clipRunes(text, 400) +
+			"\nWrite a different answer that moves forward: use only the locators of the evidence above and do not ask again what was already answered."
 		if again, err := a.generate(ctx, UsageChat, retry, nil); err == nil {
-			if again = chatAnswer(again); again != "" && !repeats(again, msgs) {
+			if again = chatAnswer(again); again != "" && !repeats(again, msgs) && !invented(again) {
 				return again, nil
 			}
 		}
