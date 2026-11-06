@@ -18,7 +18,7 @@
 		view: "tests", testId: null, test: null,
 		status: "", search: "", stepFilter: "",
 		detailTab: "steps", net: { key: null, list: null }, netFilter: "", netSearch: "", netApiOnly: false,
-		hist: {}, insights: { key: null }, tlAll: false, epAll: false,
+		hist: {}, histGen: 0, insights: { key: null }, tlAll: false, epAll: false,
 		loc: {}, locLang: "", locTool: "", replay: { testId: null, index: 0, speed: 1 }, player: null,
 		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
@@ -1423,6 +1423,8 @@
 			if (S.view === "escalate") renderEscalate();
 		}
 		if (e.run_id) S.activity[e.run_id] = Date.now();
+		// un resultado nuevo puede ser un cuadro más del historial de cualquier test (ensureHistory)
+		if ((type === "test" && e.data?.action === "finished") || (type === "run" && ["finished", "deleted"].includes(e.data?.action))) S.histGen++;
 		if (type === "run" && e.data?.action === "created") {
 			loadRuns().then(() => notifyNewRun(e.run_id)).catch(() => {});
 			if (S.view === "search") { S.runSearch.newCount++; renderRunSearch(); }
@@ -1540,18 +1542,23 @@
 		return hist.slice(start, start + HIST_CELLS);
 	}
 
+	/**
+	 * El historial se pide de nuevo cuando terminó algún test o ejecución desde la última vez
+	 * (S.histGen): guardado para siempre, el de un test abierto antes de una ejecución nueva no la
+	 * mostraba al volver a él desde un cuadro. Mientras llega el nuevo se sigue viendo el anterior.
+	 */
 	function ensureHistory(t) {
-		const key = `${t.id}:${t.status}`;
-		if (S.hist[key] !== undefined) return;
-		S.hist[key] = null; // cargando
+		const key = `${t.id}:${t.status}`, gen = S.histGen, e = S.hist[key];
+		if (e && (e.gen === gen || e.loading === gen)) return;
+		S.hist[key] = { gen: e?.gen, data: e?.data ?? null, loading: gen };
 		// con las posteriores: abierto desde un cuadro viejo, el historial sigue mostrando lo que vino después
 		api(`/api/v1/tests/${t.id}/history?newer=${HIST_CELLS}`)
-			.then((h) => { S.hist[key] = h; if (S.test?.id === t.id) renderTestDetail(); })
-			.catch(() => { S.hist[key] = []; });
+			.then((h) => { S.hist[key] = { gen, data: h }; if (S.test?.id === t.id) renderTestDetail(); })
+			.catch(() => { S.hist[key] = { gen, data: e?.data ?? [] }; });
 	}
 
 	function historyStrip(t) {
-		const hist = histWindow(S.hist[`${t.id}:${t.status}`], t.id);
+		const hist = histWindow(S.hist[`${t.id}:${t.status}`]?.data, t.id);
 		if (!hist || hist.length < 2) return "";
 		const counted = hist.filter((h) => h.status !== "SKIP");
 		const ok = counted.filter((h) => h.status !== "FAIL").length;
@@ -5521,6 +5528,7 @@
 		try {
 			await loadRuns();
 			catchUpNewRuns(); // sin conexión en vivo, el sondeo también avisa las ejecuciones nuevas
+			S.histGen++; // y sin eventos no se sabe qué terminó: el historial se vuelve a pedir
 			if (!S.run && S.runId) { await loadRun(); await loadTest(); }
 		} catch (err) { console.warn("runs refresh failed", err); }
 		setTimeout(runsLoop, RUNS_POLL_MS);
