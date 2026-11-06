@@ -19,6 +19,17 @@ test("reconoce cuándo la pregunta pide el cURL o un mock (en español e inglés
 	assert.deepEqual(forQ("dame el curl", 0), [], "sin un test abierto no hay llamada que mostrar");
 });
 
+test("una pregunta de DOM, selectores o esperas ofrece abrir el Inspector", () => {
+	const forQ = tools();
+	// la del cliente: el skeleton de carga para agregar una espera
+	assert.deepEqual(forQ("hola me ayuda a tener el dom de la falla, necesito el xpath o id de ese efecto esqueleton de espera para agregar un wait", 7), ["inspector"]);
+	assert.deepEqual(forQ("give me a robust locator for the save button", 7), ["inspector"]);
+	assert.deepEqual(forQ("¿por qué falló?", 7), []);
+	const card = section.slice(section.indexOf("function buddyInspectorCard"), section.indexOf("function buddyGrow"));
+	const vars = [...card.matchAll(/\$\{(\w+)\(/g)].map((m) => m[1]);
+	assert.ok(card.includes("data-buddy-inspector") && vars.every((v) => v === "tr" || v === "icon"), "la tarjeta es texto fijo traducido, sin datos del test");
+});
+
 test("las tarjetas muestran el cURL y el mock escapados, armados del reporte", () => {
 	const curl = section.slice(section.indexOf("function buddyCurlCard"), section.indexOf("/** Un mock del backend"));
 	assert.ok(curl.includes("${esc(curl)}"), "el cURL entra escapado");

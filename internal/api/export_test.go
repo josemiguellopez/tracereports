@@ -41,6 +41,7 @@ func TestExportRunZip(t *testing.T) {
 		"tracereports_features.js": {Data: []byte("// features")},
 		"lab.js":                   {Data: []byte("// lab")},
 		"inspector.js":             {Data: []byte("// inspector")},
+		"live.js":                  {Data: []byte("// live")},
 		"i18n.js":                  {Data: []byte("// i18n")},
 		"i18n.en.js":               {Data: []byte("// en")},
 		"app.js":                   {Data: []byte("//app")},
@@ -66,7 +67,7 @@ func TestExportRunZip(t *testing.T) {
 		rc.Close()
 		files[f.Name[strings.Index(f.Name, "/")+1:]] = string(b)
 	}
-	for _, want := range []string{"index.html", "style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "inspector.js", "app.js", "data.js", "README.txt", "screenshots/t1_1.png"} {
+	for _, want := range []string{"index.html", "style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "inspector.js", "live.js", "app.js", "data.js", "README.txt", "screenshots/t1_1.png"} {
 		if _, ok := files[want]; !ok {
 			t.Errorf("zip missing %s (has %v)", want, len(files))
 		}

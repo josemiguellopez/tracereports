@@ -113,6 +113,8 @@ module.exports = defineConfig({
 			TRACEREPORTS_JIRA_URL: "", TRACEREPORTS_AZURE_URL: "", PUBLIC_URL: process.env.E2E_BASE_URL,
 			// estado del proveedor de IA: la página falsa de arriba, nunca la real
 			TRACEREPORTS_AI_STATUS_URL: `${process.env.E2E_FAKE_GITHUB}/status/api/v2/summary.json`,
+			// En vivo: "sin señal" a los 4 s, para no esperar 3 minutos (zz_live.spec.js)
+			TRACEREPORTS_NO_SIGNAL_MIN: "0.067",
 			// correlación con los logs: plantillas de prueba
 			TRACEREPORTS_LOGS_URL: "https://logs.example/search?q={request_id}&from={from}", TRACEREPORTS_TRACE_URL: "https://traces.example/{trace_id}",
 		},

@@ -18,6 +18,7 @@
 	<script src="tracereports_features.js" defer></script>
 	<script src="lab.js" defer></script>
 	<script src="inspector.js" defer></script>
+	<script src="live.js" defer></script>
 	<script src="app.js" defer></script>
 </head>
 <body>
@@ -129,6 +130,7 @@
 		<a href="#" data-view="release" class="nav-release" data-tip-pos="right" data-tip-title="Release" data-tip="¿Podemos salir a producción? La decisión según los criterios del equipo y el estado de cada funcionalidad."><svg><use href="#i-check"/></svg><span>Release</span></a>
 		<a href="#" data-view="ai" data-tip-pos="right" data-tip-title="IA" data-tip="Análisis con IA de los fallos de esta ejecución: causas, recurrencia con ejecuciones anteriores y qué hacer. Permite volver a analizar."><svg><use href="#i-spark"/></svg><span>IA</span></a>
 		<a href="#" data-view="escalate" class="nav-server" data-tip-pos="right" data-tip-title="Escalar" data-tip="Resume un fallo para Negocio, QA o Desarrollo, con su evidencia, y compártelo por Teams, Slack o correo como texto o imagen."><svg><use href="#i-megaphone"/></svg><span>Escalar</span></a>
+		<a href="#" data-view="live" class="nav-global nav-live" data-tip-pos="right" data-tip-title="En vivo" data-tip="Lo que corre ahora, por ejecución: qué terminó, qué sigue, qué está lento frente a su historial (tortuga) y qué dejó de enviar (sin señal), por worker y por test."><svg><use href="#i-running"/></svg><span>En vivo</span></a>
 		<a href="#" data-view="metrics" class="nav-global" data-tip-pos="right" data-tip-title="Métricas" data-tip="Calidad en el tiempo, entre todas las ejecuciones: tendencia de la tasa de éxito, tests que más fallan, flaky, más lentos y causas de los fallos."><svg><use href="#i-chart"/></svg><span>Métricas</span></a>
 		<a href="#" data-view="maintenance" class="nav-maint" data-tip-pos="right" data-tip-title="Mantenimiento" data-tip="Las ejecuciones con problemas de todos los proyectos (en curso sin actividad, incompletas, cerradas a mano): ciérralas o elimínalas en lote, y ajusta el cierre automático."><svg><use href="#i-wrench"/></svg><span>Mantenimiento</span></a>
 		<a href="#" data-view="settings" class="nav-settings" data-tip-pos="right" data-tip-title="Ajustes" data-tip="Idioma, tema y el proveedor de IA (Gemini, Claude, OpenAI, Ollama…)."><svg><use href="#i-gear"/></svg><span>Ajustes</span></a>
@@ -261,6 +263,7 @@
 		<section id="view-metrics" class="view metrics" hidden></section>
 
 		<!-- ajustes -->
+		<section id="view-live" class="view live-view" hidden></section>
 		<section id="view-maintenance" class="view maintenance" hidden></section>
 		<section id="view-settings" class="view settings" hidden></section>
 	</main>

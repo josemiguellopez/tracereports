@@ -17,8 +17,12 @@ Call log:
 		"NoSuchElementException: By.cssSelector: input[name='user']":                                                                                                        `input[name='user']`,
 		`AssertionError: 3 != 4`: ``,
 		"Esperando elemento con selector //option[normalize-space(text())='salinas alexis'] (3 intentos)": `//option[normalize-space(text())='salinas alexis']`,
-		"xpath //div[@id='x']/span[contains(., 'a b')], después de 3 intentos":                             `//div[@id='x']/span[contains(., 'a b')]`,
+		"xpath //div[@id='x']/span[contains(., 'a b')], después de 3 intentos":                            `//div[@id='x']/span[contains(., 'a b')]`,
 		`Get "http://api.local/x": dial tcp: lookup api.local: no such host`:                              ``,
+		// el mensaje del helper de un equipo: el XPath suelto, con su índice
+		"[Retry 1] Error al hacer clic: TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]":    `(//i[contains(@class,'fa-plus-circle')])[1]`,
+		"Error al hacer clic: TimeoutException en //button[normalize-space(.)='Guardar Atención'] tras 15s": `//button[normalize-space(.)='Guardar Atención']`,
+		"Error al abrir https://app.local//x/y: 500":                                                        ``,
 	}
 	for in, want := range cases {
 		if got := ExtractSelector(in); got != want {

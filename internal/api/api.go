@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -94,6 +95,10 @@ type Server struct {
 	chat chatLimiter
 	// retention is the cleanup in progress and the next automatic one (see storage.go).
 	retention retentionState
+	// Live: thresholds (read once) and the usual duration of each test (see live_view.go).
+	liveOnce  sync.Once
+	liveCfgV  liveConfig
+	liveStats statsCache
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -133,6 +138,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/runs/{run_id}/close", s.closeRunByHand)
+		r.Post("/ui/live/cancel", s.cancelExecution)
 		r.Post("/ui/runs/close", s.closeRunsByHand)
 		r.Post("/ui/runs/delete", s.deleteRuns)
 		r.Put("/ui/maintenance/stale", s.setStaleHours)
@@ -163,6 +169,9 @@ func (s *Server) Router() http.Handler {
 		r.Get("/maintenance/storage/preview", s.storagePreview)
 		r.Post("/runs", s.createRun)
 		r.Get("/runs/{run_id}", s.getRun)
+		r.Get("/runs/{run_id}/control", s.runControl)
+		r.Get("/live", s.getLive)
+		r.Get("/live/execution", s.getLiveExecution)
 		r.Get("/runs/{run_id}/export", s.exportRun)
 		r.Get("/runs/{run_id}/tickets", s.listTickets)
 		r.Get("/runs/{run_id}/release", s.runRelease)
@@ -170,6 +179,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/{run_id}/baselines", s.runBaselines)
 		r.Get("/runs/{run_id}/endpoints", s.runEndpoints)
 		r.Patch("/runs/{run_id}/finish", s.finishRun)
+		r.Post("/runs/{run_id}/plan", s.setPlanned)
 		r.Post("/runs/{run_id}/tests", s.createTest)
 		r.Post("/import/junit", s.importJUnit)
 		r.Post("/import/allure", s.importAllure)
@@ -185,6 +195,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/tests/{test_id}/dom", s.getDOM)
 		r.Get("/tests/{test_id}/dom/steps", s.domSteps)
 		r.Get("/tests/{test_id}/dom/steps/{seq}", s.domStep)
+		r.Get("/tests/{test_id}/dom/baseline", s.domBaseline)
 		r.Post("/tests/{test_id}/dom", s.addDOM)
 		r.Get("/tests/{test_id}/drift", s.testDrift)
 		r.Get("/tests/{test_id}/network", s.listNetwork)
@@ -390,7 +401,8 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	commit, warnings := runCommit(in.Commit)
-	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: commit, Framework: clean(in.Framework, 60)}
+	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: commit, Framework: clean(in.Framework, 60),
+		ExecutionID: clean(s.label(in.ExecutionID), 120), Planned: min(max(in.Planned, 0), maxPlanned)}
 	name, environment := strings.TrimSpace(s.label(in.Name)), strings.TrimSpace(s.label(in.Environment))
 	var id int64
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {

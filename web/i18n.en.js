@@ -950,6 +950,40 @@
 		"XPath relativo a un contenedor estable": "XPath relative to a stable container", "CSS estable": "Stable CSS", "Copiar como": "Copy as", "Acciones": "Actions",
 		"Probar en el probador": "Try it in the tester", "Usar como reemplazo del selector que falló": "Use as replacement for the failed selector",
 		"Ninguna coincidencia": "No match", "1 coincidencia: único": "1 match: unique", "{n} coincidencias": "{n} matches",
+		"La página del momento del fallo": "The page at the moment of the failure", "Abrir en el Inspector": "Open in the Inspector",
+		"Comparar con el último PASS": "Compare with the last PASS", "Cambios desde el último PASS": "Changes since the last PASS",
+		"Buscando el último PASS de este test…": "Looking for this test's last PASS…",
+		"No hay un PASS anterior de este test con sus páginas guardadas. Con TRACEREPORTS_DOM_STEPS=1 cada ejecución guarda las páginas de sus pasos y se puede comparar.":
+			"There is no earlier PASS of this test with its pages saved. With TRACEREPORTS_DOM_STEPS=1 every run keeps the pages of its steps and they can be compared.",
+		"ya no está": "gone", "{n} adentro": "{n} inside", "cambió": "changed", "nuevo": "new", "Contra #{run} · {when}": "Against #{run} · {when}",
+		"otra página del test (no se encontró el mismo paso)": "another page of the test (the same step was not found)",
+		"{n} ya no están": "{n} gone", "{n} nuevos": "{n} new", "{n} cambiaron": "{n} changed", "y {n} más": "and {n} more",
+		"Ningún cambio en lo visible: la página es la misma que en el último PASS.": "No change in what is visible: the page is the same as in the last PASS.",
+	});
+
+	// ── En vivo (web/live.js) ──
+	Object.assign(EN.exact, {
+		"En vivo": "Live",
+		"Lo que corre ahora, por ejecución: qué terminó, qué sigue, qué está lento frente a su historial (tortuga) y qué dejó de enviar (sin señal), por worker y por test.":
+			"What is running now, per execution: what finished, what is still running, what is slow against its history (turtle) and what stopped sending (no signal), per worker and per test.",
+		"No hay ejecuciones en curso": "No executions running",
+		"Cuando un cliente empiece a enviar resultados, aquí ves qué terminó, qué sigue corriendo, qué está lento y qué dejó de enviar, por worker y por test.":
+			"When a client starts sending results, here you see what finished, what is still running, what is slow and what stopped sending, per worker and per test.",
+		"Ejecuciones": "Executions", "en curso": "running", "terminada": "finished", "{n} sin señal": "{n} without signal", "{n} fallos": "{n} failures",
+		"Cancelación pedida: los clientes con control remoto saltan los tests que faltan.": "Cancellation requested: clients with remote control skip the tests left.",
+		"Cancelar ejecución…": "Cancel execution…",
+		"No se detiene ningún proceso: los clientes con TRACEREPORTS_REMOTE_CONTROL=1 ven el pedido entre un test y otro, marcan los que faltan como Skip y cierran la ejecución.":
+			"No process is killed: clients with TRACEREPORTS_REMOTE_CONTROL=1 see the request between tests, mark the ones left as Skip and close the run.",
+		"Motivo (opcional)": "Reason (optional)", "Pedir cancelación": "Request cancellation", "EN CURSO": "RUNNING", "Terminada": "Finished",
+		"Progreso": "Progress", "{d} de {n} tests": "{d} of {n} tests", "{d} terminados de {n} iniciados": "{d} finished of {n} started", "ETA {t}": "ETA {t}",
+		"{n} workers": "{n} workers", "Carriles por worker": "Lanes per worker", "hace {t}": "{t} ago", "Dura.": "Dur.",
+		"Duración frente a la mediana de sus ejecuciones anteriores": "Duration against the median of its previous runs",
+		"Último paso": "Last step", "Todavía sin tests.": "No tests yet.", "Archivo / test": "File / test",
+		"Tortuga: más lento que su p90 (o el doble de su mediana) en sus ejecuciones anteriores. Sin señal: nada del test hace {n} min.":
+			"Turtle: slower than its p90 (or twice its median) in its previous runs. No signal: nothing from the test for {n} min.",
+		"Sin señal": "No signal", "Tortuga": "Turtle", "Fallo": "Fail", "Interrumpido": "Interrupted",
+		"Ábrela en el Inspector: prueba el XPath sobre ella y, con clic derecho sobre un elemento, copia un XPath robusto y la espera para Selenium o Playwright.":
+			"Open it in the Inspector: try the XPath on it and, with a right click on an element, copy a robust XPath and the wait for Selenium or Playwright.",
 		"Constante para Page Object (Python)": "Page Object constant (Python)", "Espera explícita (Selenium Python)": "Explicit wait (Selenium Python)",
 	});
 })();

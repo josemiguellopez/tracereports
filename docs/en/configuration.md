@@ -60,6 +60,10 @@ steps to apply it.
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
 | `TRACEREPORTS_LEGACY_DB` | — | Only if the server asks for it on start: `ignore` starts with a new database when `DATA_DIR` has `#`, `?` or `%` and an older version kept the database elsewhere (move it instead to keep the data) |
 | `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Closes as *incomplete* a run still *in progress* that received nothing for N hours (the client died without closing it); its unfinished tests become *Interrupted*. Decimals allowed (`0.5`). `0` = never. Without the variable, it is set from *Maintenance*. See [Abandoned runs](#abandoned-runs) |
+| `TRACEREPORTS_NO_SIGNAL_MIN` | `3` | Live: a running test is *without signal* when nothing of it arrived for N minutes (server clock). Decimals allowed. See [Live](#live) |
+| `TRACEREPORTS_LIVE_ALERTS` | — | `1` sends the Live alerts (a test without signal, a slow test, too many failures) to the Teams/Slack webhooks, once each |
+| `TRACEREPORTS_ALERT_TURTLE` | — | Also alert a test that runs N times its p90 (e.g. `3`) |
+| `TRACEREPORTS_ALERT_FAILURES` | — | Also alert an execution still running with more than N failures |
 
 ## Security
 
@@ -610,6 +614,26 @@ the decision and the state of each functional area (the tests' tags).
 Set it with `TRACEREPORTS_RELEASE_GATE`, for example
 `min_pass_rate=98; critical=smoke,checkout,login; max_new_failures=0; max_flaky=2`. A malformed
 criterion stops the server from starting. Through the API: `GET /api/v1/runs/{id}/release`.
+
+## Live
+
+**Live** (side menu) shows what is running now, per execution, with what the server already receives
+from any client:
+
+- **Executions**: the runs of one execution together. They share `execution_id` (the clients send
+  `TRACEREPORTS_EXECUTION_ID` or the CI build id); without it, runs of the same project, environment, branch
+  and commit that start one after another (a launcher that creates a run per file).
+- **Progress and ETA** when the client says how many tests it collected (the pytest plugin does).
+- **Turtle**: a running test slower than its p90 in its previous runs (or twice its median). **No signal**:
+  nothing of it arrived for `TRACEREPORTS_NO_SIGNAL_MIN` minutes (3 by default). They go first.
+- **Lanes per worker** (Gantt) and a **table per file and test** with the duration against the median and the
+  last step.
+- **Cancel execution…** (admin): a cooperative cancel. No process is killed: clients with
+  `TRACEREPORTS_REMOTE_CONTROL=1` see it between tests, skip the rest and close the run.
+- **Alerts** to Teams/Slack with `TRACEREPORTS_LIVE_ALERTS=1` (see the reference).
+
+It updates through the live events (SSE) and every 10 s, so a test without signal shows up although nothing
+arrives.
 
 ## History, flaky and comparison
 

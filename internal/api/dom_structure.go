@@ -137,3 +137,55 @@ func (s *Server) domStep(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.Write(check)
 }
+
+// domBaseline is the page to compare with (GET /tests/{id}/dom/baseline?label=…): the same test in its
+// last PASS run of the same context that kept its pages (TRACEREPORTS_DOM_STEPS), the page with the
+// same step label, or its last one. 204 when there is none. The Inspector shows what was added, removed
+// or changed since then: the most direct way to see a locator drift.
+func (s *Server) domBaseline(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "test_id")
+	if !ok {
+		return
+	}
+	t, err := s.Store.GetTest(id)
+	if respondErr(w, err, "test") {
+		return
+	}
+	hist, err := s.Store.TestHistory(t.Key, t.RunID, baselineHistory)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	label := r.URL.Query().Get("label")
+	for _, h := range hist {
+		if h.TestID == id || h.RunID >= t.RunID || h.Status != "PASS" {
+			continue
+		}
+		steps, err := s.Store.ListDOMSteps(h.TestID)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if len(steps) == 0 {
+			continue
+		}
+		pick := steps[len(steps)-1]
+		for _, st := range steps {
+			if label != "" && st.Label == label {
+				pick = st
+			}
+		}
+		raw, err := s.Store.GetDOMStep(h.TestID, pick.Seq)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"test_id": h.TestID, "run_id": h.RunID, "run_name": h.RunName, "started_at": h.StartedAt,
+			"seq": pick.Seq, "label": pick.Label, "same_step": label != "" && pick.Label == label, "snapshot": json.RawMessage(raw)})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// baselineHistory: how many earlier runs of the test are looked at for a PASS with pages.
+const baselineHistory = 30

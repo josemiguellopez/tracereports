@@ -223,6 +223,18 @@ What is covered in screenshots (`input[type=password]`, `[data-tracereports-mask
 `TRACEREPORTS_SCREENSHOT_MASK`) keeps its box but not its text, and what someone typed in a field never
 travels. Not captured: the inside of cross-origin iframes and what a `<canvas>` draws.
 
+## Live: execution, planned tests and remote control
+
+| Variable | Effect |
+|---|---|
+| `TRACEREPORTS_EXECUTION_ID` | Groups in Live the runs of one execution (a launcher that creates a run per file). Without it, the CI build id is used: `BUILD_BUILDID` (Azure DevOps), `GITHUB_RUN_ID` (+ attempt), `CI_PIPELINE_ID` (GitLab), `BUILD_TAG` (Jenkins) |
+| `TRACEREPORTS_REMOTE_CONTROL=1` | Between tests, the plugin asks whether the run was cancelled from Live (*Cancel execution…*): the tests left become *Skip* with the reason and the run closes. Nothing is killed. Off by default |
+| `TRACEREPORTS_DOM_ON=fail,warning` | Also keeps the page of each `WARNING` step (it often comes before a failure); the Inspector marks it with ⚠ |
+
+The pytest plugin also sends how many tests it collected (with pytest-xdist too): Live shows progress and
+ETA. With `TRACEREPORTS_DOM_STEPS=1` in the runs that pass, the Inspector can **compare a failure with the last
+PASS** of the same test: what is gone, what is new and what changed.
+
 ## Network capture with Playwright
 
 ```python

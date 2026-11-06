@@ -133,6 +133,72 @@
 		}
 		return { ...snap, nodes, page: { w: vw, h: vh }, basic: true };
 	}
+	// ─── comparar con el último PASS (funciones puras) ─────────────────────────────────────────────
+	/**
+	 * Una clave por nodo que sobrevive entre dos ejecuciones: su id estable, test-id, name o aria-label; si
+	 * no tiene, la de su padre más su tag y su posición entre los hermanos del mismo tag. El texto no
+	 * forma parte de la clave: un texto distinto es un cambio del mismo elemento.
+	 */
+	function nodeKeys(nodes) {
+		const keys = [], nth = new Map();
+		for (const n of nodes) {
+			const at = n.attrs || {};
+			let k;
+			if (n.p < 0) k = n.tag;
+			else if (at.id && !autoId(at.id)) k = `${n.tag}#${at.id}`;
+			else if (at["data-testid"]) k = `${n.tag}[testid=${at["data-testid"]}]`;
+			else if (at.name) k = `${keys[n.p]}>${n.tag}[name=${at.name}]`;
+			else if (at["aria-label"]) k = `${keys[n.p]}>${n.tag}[aria=${at["aria-label"]}]`;
+			else {
+				// con su primera clase: un div.skeleton nuevo en el lugar de un div.acciones no es "el mismo"
+				const cls = (at.class || "").trim().split(/\s+/)[0] || "";
+				const sib = `${n.p}:${n.tag}.${cls}`, c = (nth.get(sib) || 0) + 1;
+				nth.set(sib, c);
+				k = `${keys[n.p] ?? ""}>${n.tag}${cls ? "." + cls : ""}:${c}`;
+			}
+			keys[n.i] = k;
+		}
+		return keys;
+	}
+	const DIFF_ATTRS = ["id", "class", "name", "role", "type", "placeholder", "href", "title", "aria-label", "data-testid", "for", "alt"];
+	/**
+	 * Lo que cambió entre la página del último PASS (base) y la de ahora (cur): elementos nuevos, que ya no
+	 * están (solo el de más arriba de cada rama, con cuántos tenía dentro) y cambiados (atributos, texto o
+	 * visibilidad). Solo cuenta lo visible en alguna de las dos.
+	 */
+	function diffSnapshots(base, cur) {
+		const kb = nodeKeys(base), kc = nodeKeys(cur);
+		const byKey = new Map(), seen = new Set();
+		base.forEach((n) => byKey.set(kb[n.i], n));
+		const added = [], changed = [], addedSet = new Set();
+		for (const n of cur) {
+			const b = byKey.get(kc[n.i]);
+			if (!b) {
+				if (n.visible && !addedSet.has(n.p)) added.push(n.i);
+				addedSet.add(n.i); // sus hijos van con él
+				continue;
+			}
+			seen.add(kb[b.i]);
+			if (!n.visible && !b.visible) continue;
+			const fields = [];
+			for (const a of DIFF_ATTRS) if ((n.attrs?.[a] || "") !== (b.attrs?.[a] || "")) fields.push({ what: a, before: b.attrs?.[a] || "", after: n.attrs?.[a] || "" });
+			if ((n.text || "") !== (b.text || "")) fields.push({ what: "text", before: b.text || "", after: n.text || "" });
+			if (!!n.visible !== !!b.visible) fields.push({ what: "visible", before: String(!!b.visible), after: String(!!n.visible) });
+			if (fields.length) changed.push({ i: n.i, fields });
+		}
+		const removedSet = new Set(), removed = [];
+		for (const b of base) {
+			if (seen.has(kb[b.i])) continue;
+			removedSet.add(b.i);
+			if (b.visible && !removedSet.has(b.p)) removed.push({ ...b, inside: 0 });
+		}
+		// cuántos había dentro de cada rama que ya no está
+		for (const r of removed) r.inside = base.filter((x) => x.i !== r.i && removedSet.has(x.i) && kb[x.i].startsWith(kb[r.i] + ">")).length;
+		return { added, removed, changed };
+	}
+	/** Cómo se nombra un elemento en la lista de cambios: tag#id.clase «texto». */
+	const nodeName = (n) => `${n.tag}${n.attrs?.id ? "#" + n.attrs.id : ""}${n.attrs?.class ? "." + n.attrs.class.trim().split(/\s+/).slice(0, 2).join(".") : ""}${n.text ? ` «${n.text.slice(0, 30)}»` : ""}`;
+
 	/** Quita el prefijo de Playwright (xpath=, css=) para evaluar el selector sobre el snapshot. */
 	const plainSelector = (s) => String(s || "").replace(/^(xpath|css)=/, "").trim();
 
@@ -153,7 +219,8 @@
 	function mount(root, opts) {
 		const t = opts.t || ((s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s));
 		let speed = 1, paused = false, runId = 0, current = null, mirror = null, els = [], testCursor = null, ctx = null;
-		const pages = [...(opts.steps || []).map((s) => ({ kind: "step", seq: s.seq, label: s.label })),
+		let curPage = -1, diffOn = false, diffReq = 0;
+		const pages = [...(opts.steps || []).map((s) => ({ kind: s.kind === "warning" ? "warning" : "step", seq: s.seq, label: s.label })),
 			...(opts.snapshot ? [{ kind: "fail", label: opts.failed?.selector ? t("Momento del fallo: {s}", { s: opts.failed.selector }) : t("Momento del fallo") }] : [])];
 		let prefInstant = false;
 		try { prefInstant = localStorage.getItem(PREF) === "1"; } catch { /* sin almacenamiento */ }
@@ -165,6 +232,7 @@
 				<button class="cf-btn cf-btn-sm" data-insp="pause" type="button" aria-pressed="false">⏸ ${esc(t("Pausa"))}</button>
 				<span class="seg insp-speed" role="group" aria-label="${esc(t("Velocidad"))}"><button type="button" data-speed="1" aria-pressed="true">1×</button><button type="button" data-speed="2" aria-pressed="false">2×</button><button type="button" data-speed="4" aria-pressed="false">4×</button></span>
 				<button class="cf-btn cf-btn-sm" data-insp="instant" type="button">${esc(t("Ver al instante"))}</button>
+				${opts.loadBaseline ? `<button class="cf-btn cf-btn-sm" data-insp="diff" type="button" aria-pressed="false">⇄ ${esc(t("Comparar con el último PASS"))}</button>` : ""}
 				${opts.screenshot ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
 				<span class="insp-status" aria-live="polite"></span>
 			</div>
@@ -175,6 +243,7 @@
 					<ol class="insp-steps" aria-label="${esc(t("Páginas del test"))}"></ol>
 				</div>
 				<aside class="insp-side">
+					<div class="insp-card insp-diff" hidden><h6>${esc(t("Cambios desde el último PASS"))}</h6><div class="insp-diffbody"></div></div>
 					<div class="insp-card insp-fail"><h6>${esc(t("Selector que falló"))}</h6><code class="insp-failsel"></code><div class="insp-failinfo m-hint">${esc(t("Se marca al terminar la reconstrucción."))}</div></div>
 					<div class="insp-card"><h6>${esc(t("Probar XPath / CSS"))}</h6>
 						<input type="text" class="insp-probe" spellcheck="false" placeholder="//button[normalize-space(.)='…']  ·  .clase button" aria-label="${esc(t("Expresión XPath o CSS"))}">
@@ -251,6 +320,54 @@
 			const ov = $(".insp-overlay");
 			if (ov) { ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = snap !== opts.snapshot; }
 			fit();
+			if (diffOn) applyDiff();
+		}
+
+		// ---------- comparar con el último PASS ----------
+		/** El paso de esta página: el suyo, o para la del fallo, el último paso antes de fallar. */
+		function pageLabel() {
+			const p = pages[curPage];
+			if (!p) return "";
+			if (p.kind !== "fail") return p.label || "";
+			return [...pages.slice(0, curPage)].reverse().find((x) => x.kind === "step")?.label || "";
+		}
+		function clearDiff() {
+			cursors.querySelectorAll(".insp-diff-ghost").forEach((g) => g.remove());
+			layer.querySelectorAll(".diff-added, .diff-changed").forEach((e) => e.classList.remove("diff-added", "diff-changed"));
+		}
+		async function applyDiff() {
+			const req = ++diffReq, card = $(".insp-diff"), body = $(".insp-diffbody");
+			card.hidden = false;
+			body.textContent = t("Buscando el último PASS de este test…");
+			let base;
+			try { base = await opts.loadBaseline(pageLabel()); } catch { base = null; }
+			if (req !== diffReq || !diffOn || !current) return;
+			clearDiff();
+			if (!base?.snapshot) {
+				body.textContent = t("No hay un PASS anterior de este test con sus páginas guardadas. Con TRACEREPORTS_DOM_STEPS=1 cada ejecución guarda las páginas de sus pasos y se puede comparar.");
+				return;
+			}
+			const bs = base.snapshot.nodes?.length ? base.snapshot : fromElements(base.snapshot);
+			const d = diffSnapshots(bs.nodes, current.nodes);
+			d.added.forEach((i) => els[i]?.classList.add("diff-added"));
+			d.changed.forEach((c) => els[c.i]?.classList.add("diff-changed"));
+			for (const r of d.removed) {
+				if (!(r.w > 0 && r.h > 0)) continue;
+				const g = document.createElement("div"); g.className = "insp-diff-ghost";
+				Object.assign(g.style, { left: r.x + "px", top: r.y + "px", width: r.w + "px", height: r.h + "px" });
+				const l = document.createElement("span"); l.textContent = `${nodeName(r)} · ${t("ya no está")}`; g.appendChild(l);
+				cursors.appendChild(g);
+			}
+			const when = base.started_at ? new Date(base.started_at).toLocaleString() : "";
+			const item = (cls, label, text, i) => `<li class="${cls}"${i !== undefined ? ` data-diff-node="${i}" tabindex="0"` : ""}><b>${esc(label)}</b> <span>${esc(text)}</span></li>`;
+			const list = [
+				...d.removed.map((r) => item("rm", t("ya no está"), nodeName(r) + (r.inside ? ` (${t("{n} adentro", { n: r.inside })})` : ""))),
+				...d.added.map((i) => item("add", t("nuevo"), nodeName(current.nodes[i]), i)),
+				...d.changed.map((c) => item("chg", t("cambió"), `${nodeName(current.nodes[c.i])}: ${c.fields.map((f) => `${f.what} «${f.before.slice(0, 40)}» → «${f.after.slice(0, 40)}»`).join(", ")}`, c.i)),
+			];
+			body.innerHTML = `<p class="m-hint">${esc(t("Contra #{run} · {when}", { run: base.run_id, when }))}${base.same_step ? "" : ` · ${esc(t("otra página del test (no se encontró el mismo paso)"))}`}</p>
+				<p class="insp-diffsum"><span class="rm">${esc(t("{n} ya no están", { n: d.removed.length }))}</span> · <span class="add">${esc(t("{n} nuevos", { n: d.added.length }))}</span> · <span class="chg">${esc(t("{n} cambiaron", { n: d.changed.length }))}</span></p>
+				${list.length ? `<ul class="insp-difflist">${list.slice(0, 40).join("")}</ul>${list.length > 40 ? `<p class="m-hint">${esc(t("y {n} más", { n: list.length - 40 }))}</p>` : ""}` : `<p>${esc(t("Ningún cambio en lo visible: la página es la misma que en el último PASS."))}</p>`}`;
 		}
 		function fit() {
 			if (!current) return;
@@ -347,8 +464,9 @@
 		}
 		function renderSteps(active = -1, failed = false) {
 			$(".insp-steps").innerHTML = pages.map((p, k) => {
-				const cls = k < active ? "done" : k === active ? (failed && p.kind === "fail" ? "failed" : "active") : "";
-				return `<li class="${cls}" data-page="${k}" tabindex="0"><span class="num">${k + 1}</span><span>${esc(p.label || t("Paso {n}", { n: k + 1 }))}</span><small>${p.kind === "fail" ? esc(t("FALLÓ")) : ""}</small></li>`;
+				const cls = (k < active ? "done" : k === active ? (failed && p.kind === "fail" ? "failed" : "active") : "") + (p.kind === "warning" ? " warn" : "");
+				const tag = p.kind === "fail" ? esc(t("FALLÓ")) : p.kind === "warning" ? "⚠ WARNING" : "";
+				return `<li class="${cls}" data-page="${k}" tabindex="0"><span class="num">${k + 1}</span><span>${esc(p.label || t("Paso {n}", { n: k + 1 }))}</span><small>${tag}</small></li>`;
 			}).join("");
 		}
 		async function pageSnap(p) { return p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq); }
@@ -406,6 +524,7 @@
 					const snap = await pageSnap(p);
 					if (id !== runId) return;
 					if (!snap) continue;
+					curPage = k;
 					show(snap);
 					if (k === 0 && !instant) { hideAll(); await construct(id); } else showAll();
 					if (p.kind === "fail") { markFailure(instant); renderSteps(k, true); break; }
@@ -420,6 +539,7 @@
 			runId++;
 			const p = pages[k], snap = await pageSnap(p);
 			if (!snap) return;
+			curPage = k;
 			show(snap); showAll(); renderSteps(k, p.kind === "fail");
 			if (p.kind === "fail") markFailure(true); else { testCursor = makeCursor("#0f1b2b", "test", "test"); say(p.label || t("Paso {n}", { n: k + 1 }), null); }
 		}
@@ -540,6 +660,13 @@
 			if (a?.dataset.insp === "play") { try { localStorage.setItem(PREF, "0"); } catch { /* */ } playAll(false); }
 			if (a?.dataset.insp === "instant") { try { localStorage.setItem(PREF, "1"); } catch { /* */ } playAll(true); }
 			if (a?.dataset.insp === "pause") setPaused(!paused);
+			if (a?.dataset.insp === "diff") {
+				diffOn = !diffOn;
+				a.setAttribute("aria-pressed", String(diffOn));
+				if (diffOn) applyDiff(); else { diffReq++; clearDiff(); $(".insp-diff").hidden = true; }
+			}
+			const dn = e.target.closest("[data-diff-node]");
+			if (dn) select(+dn.dataset.diffNode);
 			const sp = e.target.closest("[data-speed]");
 			if (sp) { speed = +sp.dataset.speed; root.querySelectorAll("[data-speed]").forEach((x) => x.setAttribute("aria-pressed", String(x === sp))); }
 			const li = e.target.closest(".insp-steps li");
@@ -558,5 +685,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, nodeKeys, diffSnapshots, nodeName, mount };
 })();

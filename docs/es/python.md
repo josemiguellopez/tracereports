@@ -223,6 +223,18 @@ Lo que se tapa en las capturas (`input[type=password]`, `[data-tracereports-mask
 `TRACEREPORTS_SCREENSHOT_MASK`) conserva su caja pero no su texto, y lo que alguien escribió en un campo
 nunca viaja. No se captura: el interior de iframes de otro origen ni lo que dibuja un `<canvas>`.
 
+## En vivo: ejecución, tests planificados y control remoto
+
+| Variable | Efecto |
+|---|---|
+| `TRACEREPORTS_EXECUTION_ID` | Agrupa en En vivo las corridas de una misma ejecución (un lanzador que crea una corrida por archivo). Sin ella se usa el id del build de CI: `BUILD_BUILDID` (Azure DevOps), `GITHUB_RUN_ID` (+ intento), `CI_PIPELINE_ID` (GitLab), `BUILD_TAG` (Jenkins) |
+| `TRACEREPORTS_REMOTE_CONTROL=1` | Entre un test y otro, el plugin pregunta si cancelaron la ejecución desde En vivo (*Cancelar ejecución…*): los que faltan quedan *Skip* con el motivo y la ejecución cierra. No se mata nada. Apagado por defecto |
+| `TRACEREPORTS_DOM_ON=fail,warning` | Guarda también la página de cada paso `WARNING` (muchas veces anticipa el fallo); el Inspector la marca con ⚠ |
+
+El plugin de pytest además envía cuántos tests recolectó (también con pytest-xdist): En vivo muestra el
+progreso y la ETA. Con `TRACEREPORTS_DOM_STEPS=1` en las ejecuciones que pasan, el Inspector puede **comparar
+un fallo con el último PASS** del mismo test: qué ya no está, qué es nuevo y qué cambió.
+
 ## Captura de red con Playwright
 
 ```python

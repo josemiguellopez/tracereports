@@ -163,10 +163,20 @@ var xpathCue = regexp.MustCompile(`(?i)\b(?:selector|locator|localizador|xpath|e
 func bareXPath(text string) string {
 	m := xpathCue.FindStringSubmatchIndex(text)
 	if m == nil {
-		return ""
+		// sin palabra que lo anuncie ("TimeoutException en (//i[...])[1]"): un XPath suelto, como último
+		// recurso; nunca el // de una URL (va después de ":")
+		if m = looseXPath.FindStringSubmatchIndex(text); m == nil {
+			return ""
+		}
 	}
-	return scanXPath(text, m[2])
+	start := m[2]
+	for start > 0 && text[start-1] == '(' { // (//li)[2]: el índice es parte del selector
+		start--
+	}
+	return scanXPath(text, start)
 }
+
+var looseXPath = regexp.MustCompile(`(?:^|[\s=>(])\(*(//[A-Za-z*])`)
 
 // scanXPath reads the XPath that starts at start: up to the first space or unbalanced closing
 // outside brackets, parentheses and quotes. Written between quotes ("el elemento '//div[...]' no

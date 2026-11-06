@@ -47,14 +47,14 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 	}
 	cleanSnapshot(s.redactor(), &snap)
 	cleanNodes(s.redactor(), &snap)
-	if snap.Kind != "step" {
+	if snap.Kind != "step" && snap.Kind != "warning" {
 		snap.Kind = "fail"
 	}
 	raw, _ := json.Marshal(snap)
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
 		out := map[string]any{"elements": len(snap.Elements), "nodes": len(snap.Nodes), "kind": snap.Kind}
-		if snap.Kind == "step" { // una página por la que pasó el test (TRACEREPORTS_DOM_STEPS)
-			seq, err := tx.SaveDOMStep(id, snap.Label, snap.At, string(raw))
+		if snap.Kind != "fail" { // una página por la que pasó el test (TRACEREPORTS_DOM_STEPS) o la de un WARNING
+			seq, err := tx.SaveDOMStepKind(id, snap.Kind, snap.Label, snap.At, string(raw))
 			out["seq"] = seq
 			return http.StatusCreated, out, err
 		}

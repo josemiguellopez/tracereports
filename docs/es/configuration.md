@@ -60,6 +60,10 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
 | `TRACEREPORTS_LEGACY_DB` | — | Solo si el servidor lo pide al arrancar: `ignore` arranca con una base nueva cuando `DATA_DIR` tiene `#`, `?` o `%` y una versión anterior guardó la base en otra ruta (para conservar los datos, muévela) |
 | `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Cierra como *incompleta* una ejecución que sigue *en curso* sin recibir nada en N horas (el cliente murió sin cerrarla); sus tests sin terminar quedan *Interrumpido*. Admite decimales (`0.5`). `0` = nunca. Sin la variable, se ajusta desde *Mantenimiento*. Ver [Ejecuciones abandonadas](#ejecuciones-abandonadas) |
+| `TRACEREPORTS_NO_SIGNAL_MIN` | `3` | En vivo: un test en curso queda *sin señal* cuando no llega nada de él hace N minutos (reloj del servidor). Acepta decimales. Ver [En vivo](#en-vivo) |
+| `TRACEREPORTS_LIVE_ALERTS` | — | `1` envía las alertas de En vivo (un test sin señal, uno lento, demasiados fallos) a los webhooks de Teams/Slack, una vez cada una |
+| `TRACEREPORTS_ALERT_TURTLE` | — | Avisa además un test que lleva N veces su p90 (p. ej. `3`) |
+| `TRACEREPORTS_ALERT_FAILURES` | — | Avisa además una ejecución en curso con más de N fallos |
 
 ## Seguridad
 
@@ -613,6 +617,25 @@ los criterios detrás de la decisión y el estado de cada funcionalidad (los tag
 Se configura con `TRACEREPORTS_RELEASE_GATE`, por ejemplo
 `min_pass_rate=98; critical=smoke,checkout,login; max_new_failures=0; max_flaky=2`. Un criterio
 mal escrito impide arrancar. Por API: `GET /api/v1/runs/{id}/release`.
+
+## En vivo
+
+**En vivo** (menú lateral) muestra lo que corre ahora, por ejecución, con lo que el servidor ya recibe de
+cualquier cliente:
+
+- **Ejecuciones**: las corridas de una misma ejecución juntas. Comparten `execution_id` (los clientes envían
+  `TRACEREPORTS_EXECUTION_ID` o el id del build de CI); sin él, las del mismo proyecto, ambiente, rama y commit
+  que empiezan una tras otra (un lanzador que crea una corrida por archivo).
+- **Progreso y ETA** cuando el cliente dice cuántos tests recolectó (el plugin de pytest lo hace).
+- **Tortuga**: un test en curso más lento que su p90 en sus ejecuciones anteriores (o el doble de su mediana).
+  **Sin señal**: no llega nada de él hace `TRACEREPORTS_NO_SIGNAL_MIN` minutos (3 por defecto). Van primero.
+- **Carriles por worker** (Gantt) y una **tabla por archivo y test** con la duración frente a la mediana y el
+  último paso.
+- **Cancelar ejecución…** (admin): una cancelación cooperativa. No se detiene ningún proceso: los clientes con
+  `TRACEREPORTS_REMOTE_CONTROL=1` la ven entre un test y otro, saltan los que faltan y cierran la ejecución.
+- **Alertas** a Teams/Slack con `TRACEREPORTS_LIVE_ALERTS=1` (ver la referencia).
+
+Se actualiza con los eventos en vivo (SSE) y cada 10 s, así un test sin señal aparece aunque no llegue nada.
 
 ## Historial, flaky y comparación
 
