@@ -2924,7 +2924,7 @@
 		const shot = f.screenshot && !f.shot_blank ? await toDataURL(f.screenshot).catch(() => "") : "";
 		const ink = "#1f3a5f", generated = fmtDateTime(e.created_at || Date.now());
 		const row = (k, v) => `<td style="padding:6px 10px;border:1px solid #dfe5ea;background:#f3f6f9;color:#455a64;font-size:13px;font-weight:600;width:22%">${esc(k)}</td><td style="padding:6px 10px;border:1px solid #dfe5ea;color:#263238;font-size:13px">${v}</td>`;
-		return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;border:1px solid #dfe5ea;border-top:4px solid ${ink};padding:20px 24px">
+		return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;border:1px solid #dfe5ea;border-top:5px solid ${color};padding:20px 24px">
 			<table style="width:100%;border-collapse:collapse;border-bottom:2px solid ${ink}"><tr>
 				<td style="padding:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${ink}">TraceReports · ${esc(L.doc)}</td>
 				<td style="padding:0 0 10px;text-align:right;font-size:12px;color:#607d8b"><b style="color:${ink};font-family:Consolas,monospace">${esc(L.ref)} ${esc(escRef(e))}</b><br>${esc(L.generated)}: ${esc(generated)}</td></tr></table>
@@ -2934,7 +2934,7 @@
 				<tr>${row(L.run, esc(f.run_name))}${row(L.env, esc(f.env || "—"))}</tr>
 				<tr>${row(L.result, esc(escFmt(L.failed, { f: f.failed, t: f.total })))}${row(L.run_date, esc(fmtDateTime(f.started_at)))}</tr>
 			</table>
-			<div style="margin-top:14px;padding:10px 14px;background:#f3f6f9;border-left:4px solid ${ink}"><div style="font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${ink}">${esc(L.summary)}</div>${p(e.headline)}</div>
+			<div style="margin-top:14px;padding:10px 14px;background:#f7f9fb;border-left:4px solid ${color}"><div style="font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${ink}">${esc(L.summary)}</div>${p(e.headline)}</div>
 			${f.shot_blank ? `<p style="margin:14px 0 0;padding:10px 12px;border:1px dashed #b0bec5;font-size:13px;color:#455a64"><b>${esc(L.blank_title)}</b><br>${esc(L.blank_desc)}</p>` : ""}
 			${f.assessment ? h3(`${L.qa_verdict}: ${L[`qa_${f.assessment.verdict}`] || f.assessment.verdict}`)
 				+ (f.assessment.signals?.length ? `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.assessment.signals.map((s) => `<li><b>${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}:</b> ${esc(s.text)}</li>`).join("")}</ul>` : p(L.qa_clean_desc)) : ""}

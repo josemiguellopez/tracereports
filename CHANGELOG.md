@@ -12,7 +12,8 @@ All notable changes to TraceReports. The format follows
   the same failure) and when it was generated, a facts table (severity, audience, run, environment,
   result, run date, test, suggested owner), an executive summary, numbered sections and a footer
   "Generated with TraceReports · date · Internal use", in a sober navy palette with color only on the
-  severity. The text, chat, Markdown and email formats carry the report number too.
+  severity (the top stripe, the executive summary, the section numbers and bullets: green, amber, orange
+  or red). The text, chat, Markdown and email formats carry the report number too.
 
 ### Added
 
@@ -26,6 +27,10 @@ All notable changes to TraceReports. The format follows
   *The page was blank at the failure* with a link to the screenshot; the summary no longer says the
   screen changed nor asks to update a selector (it explains that the page never loaded), and neither the
   email, the Teams/Slack message nor the ticket attach a blank image.
+- **AI escalation with fields the model did not fill**: a small model (e.g. `llama3.1:8b`) returned the
+  name of a field as the evidence (`"title"`) and repeated the title as the executive summary. Fields left
+  empty, filled with a field name or copying the title are now taken from the template built from the
+  evidence; what the model did write stays.
 
 ## [0.7.0] - 2026-11-04
 

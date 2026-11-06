@@ -1,9 +1,13 @@
 package ai
 
 import (
+	"context"
+	"encoding/json"
 	"image"
 	"image/color"
 	"image/png"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -112,3 +116,42 @@ func TestEscalationPrefersTheLastScreenshotWithContent(t *testing.T) {
 	}
 }
 
+// Caso del cliente con llama3.1:8b: la evidencia vino como ["title"] y el resumen ejecutivo repetía el
+// título. Esos campos se rellenan con lo que la plantilla arma desde la evidencia; el resto del texto
+// del modelo queda.
+func TestAIEscalationFieldsTheModelDidNotFill(t *testing.T) {
+	clearEnv(t)
+	reply := `{"title":"Ejecución de pruebas fallida en ambiente de pruebas","severity":"urgent",` +
+		`"headline":"Ejecución de pruebas fallida en ambiente de pruebas","what_happened":"La ejecución falló en todos los tests.",` +
+		`"impact":"","evidence":["title"," "],"root_cause":"Probablemente el ambiente esté caído.","next_steps":["next_steps"],"owner":"owner"}`
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{"message": map[string]any{"content": reply}}}})
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(body)
+	}))
+	defer provider.Close()
+	f, runID, id := escalationFacts(t, true)
+	store, _ := groupingStore(t)
+	a := New(store)
+	if err := a.SetConfig(Config{Provider: "openai_compatible", BaseURL: provider.URL, Model: "fake-small"}); err != nil {
+		t.Fatal(err)
+	}
+	e := a.Escalate(context.Background(), f, runID, id, "qa", "es")
+	if e.Source != "ai" || e.AIError != "" {
+		t.Fatalf("the AI answered: source=%s err=%s", e.Source, e.AIError)
+	}
+	if e.WhatHappened != "La ejecución falló en todos los tests." || e.RootCause != "Probablemente el ambiente esté caído." {
+		t.Fatalf("what the model wrote stays: %q / %q", e.WhatHappened, e.RootCause)
+	}
+	if strings.EqualFold(e.Headline, e.Title) || e.Headline == "" {
+		t.Fatalf("the executive summary does not repeat the title: %q", e.Headline)
+	}
+	for _, x := range append(append([]string{}, e.Evidence...), e.NextSteps...) {
+		if schemaWords[strings.ToLower(strings.TrimSpace(x))] {
+			t.Fatalf("a field name is not evidence nor a step: %q", x)
+		}
+	}
+	if len(e.Evidence) == 0 || len(e.NextSteps) == 0 || e.Impact == "" || e.Owner == "owner" || e.Severity == "urgent" {
+		t.Fatalf("filled from the evidence: %+v", e)
+	}
+}
