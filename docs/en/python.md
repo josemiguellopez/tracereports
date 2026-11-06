@@ -239,6 +239,26 @@ The pytest plugin also sends how many tests it collected (with pytest-xdist too)
 ETA. With `TRACEREPORTS_DOM_STEPS=1` (or `on-problem`) in the runs that pass, the Inspector can **compare a failure with the last
 PASS** of the same test: what is gone, what is new and what changed.
 
+### A custom launcher that creates a run per file
+
+The plugin reports as planned **every** test of the pytest session, in its run. If a custom launcher (a
+bridge) creates a run per file in the same session, that total matches none of them: turn the plugin's off
+with `TRACEREPORTS_PLANNED=off` and report each run from the bridge.
+
+```python
+import collections
+import pytest
+
+@pytest.hookimpl(trylast=True)             # after the TraceReports plugin
+def pytest_collection_finish(session):
+    per_file = collections.Counter(item.nodeid.split("::")[0] for item in session.items)
+    # when the run of each file is opened (cr = that run's client):
+    #     cr.set_planned(per_file[file])
+```
+
+For Live to show the runs together, the bridge also sets `TRACEREPORTS_EXECUTION_ID` when it starts.
+
+
 ## Network capture with Playwright
 
 ```python

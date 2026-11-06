@@ -253,3 +253,62 @@ func (s *Store) SetPlanned(runID int64, planned int) error {
 	}
 	return nil
 }
+
+// Cancelar una ejecución entera (Live): un lanzador que crea una corrida por archivo, o que tiene
+// procesos en cola, abre corridas después del pedido. La cancelación queda guardada por ejecución y
+// alcanza también a esas.
+const liveSchema = `
+CREATE TABLE IF NOT EXISTS execution_cancels (
+	key    TEXT PRIMARY KEY,           -- x:<execution_id> | g:<primera corrida>
+	at     INTEGER NOT NULL,
+	who    TEXT    NOT NULL DEFAULT '',
+	reason TEXT    NOT NULL DEFAULT ''
+);
+`
+
+// ExecutionCancelTTL: a cancelled execution stays cancelled this long (an execution id reused later,
+// a CI build run again, starts clean).
+const ExecutionCancelTTL int64 = 24 * 3600 * 1000
+
+// CancelExecution records that an execution was cancelled (the first request wins).
+func (s *Store) CancelExecution(key, by, reason string) error {
+	_, err := s.db.Exec(`INSERT INTO execution_cancels(key, at, who, reason) VALUES(?,?,?,?)
+		ON CONFLICT(key) DO UPDATE SET at = excluded.at, who = excluded.who, reason = excluded.reason
+		WHERE execution_cancels.at < ?`, key, NowMs(), by, reason, NowMs()-ExecutionCancelTTL)
+	return err
+}
+
+// ExecutionCancel returns the cancellation of an execution still in force (ok=false if none).
+func (s *Store) ExecutionCancel(key string) (RunControl, bool, error) {
+	var c RunControl
+	err := s.db.QueryRow(`SELECT at, who, reason FROM execution_cancels WHERE key = ? AND at >= ?`, key, NowMs()-ExecutionCancelTTL).Scan(&c.At, &c.By, &c.Reason)
+	if err == sql.ErrNoRows {
+		return c, false, nil
+	}
+	c.Cancel = err == nil
+	return c, err == nil, err
+}
+
+// AnyExecutionCancelled tells whether some execution was cancelled recently (a cheap check before
+// working out which execution a run without execution_id belongs to).
+func (s *Store) AnyExecutionCancelled() (bool, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM execution_cancels WHERE at >= ?`, NowMs()-ExecutionCancelTTL).Scan(&n)
+	return n > 0, err
+}
+
+// RunExecutionID returns the execution_id of a run ("" without one; ErrNotFound if the run does not exist).
+func (s *Store) RunExecutionID(runID int64) (string, error) {
+	var id string
+	err := s.db.QueryRow(`SELECT execution_id FROM runs WHERE id = ?`, runID).Scan(&id)
+	if err == sql.ErrNoRows {
+		return "", ErrNotFound
+	}
+	return id, err
+}
+
+// MarkRunCancelled copies an execution's cancellation into one of its runs (a run created after it).
+func (s *Store) MarkRunCancelled(runID int64, c RunControl) error {
+	_, err := s.db.Exec(`UPDATE runs SET cancel_at = ?, cancel_by = ?, cancel_reason = ? WHERE id = ? AND cancel_at = 0`, c.At, c.By, c.Reason, runID)
+	return err
+}

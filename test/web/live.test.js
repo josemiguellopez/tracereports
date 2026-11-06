@@ -84,3 +84,11 @@ test("todo t(\"…\") de live.js tiene traducción", () => {
 	assert.ok(used.length > 25);
 	assert.deepEqual([...new Set(used)].filter((s) => !same.has(s) && en.t(s) === s), []);
 });
+
+test("una corrida recién abierta, sin tests (null o []), no rompe la vista", () => {
+	const empty = { ...exec, runs: [...exec.runs, { id: 3, name: "test_receta.py", started_at: 2000, tests: null }, { id: 4, name: "x.py", started_at: 3000, tests: [] }] };
+	const html = L.render({ list: [empty], exec: empty, now: 600000 }, h);
+	assert.ok(html.includes("test_receta.py") && html.includes("Todavía sin tests."));
+	assert.equal(L.sortRuns(empty.runs).length, 4);
+	assert.ok(L.ganttLayout(empty, 600000).lanes.length >= 1);
+});

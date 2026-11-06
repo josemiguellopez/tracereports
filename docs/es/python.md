@@ -239,6 +239,26 @@ El plugin de pytest además envía cuántos tests recolectó (también con pytes
 progreso y la ETA. Con `TRACEREPORTS_DOM_STEPS=1` (o `on-problem`) en las ejecuciones que pasan, el Inspector puede **comparar
 un fallo con el último PASS** del mismo test: qué ya no está, qué es nuevo y qué cambió.
 
+### Un lanzador propio que crea una corrida por archivo
+
+El plugin informa como planificados **todos** los tests de la sesión de pytest, en su corrida. Si un
+lanzador propio (un puente) crea una corrida por archivo dentro de la misma sesión, ese total no corresponde
+a ninguna: apaga el del plugin con `TRACEREPORTS_PLANNED=off` e informa cada corrida desde el puente.
+
+```python
+import collections
+import pytest
+
+@pytest.hookimpl(trylast=True)             # después del plugin de TraceReports
+def pytest_collection_finish(session):
+    por_archivo = collections.Counter(item.nodeid.split("::")[0] for item in session.items)
+    # al abrir la corrida de cada archivo (cr = el cliente de esa corrida):
+    #     cr.set_planned(por_archivo[archivo])
+```
+
+Para que En vivo muestre las corridas juntas, el puente fija además `TRACEREPORTS_EXECUTION_ID` al empezar.
+
+
 ## Captura de red con Playwright
 
 ```python

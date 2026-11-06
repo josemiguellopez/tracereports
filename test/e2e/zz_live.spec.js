@@ -88,6 +88,10 @@ test("Cancelar ejecución: el pedido queda y el cliente lo ve en /control", asyn
 	await expect(view.locator(".live-cancelled")).toContainText("Cancelación pedida");
 	const control = await (await request.get(`/api/v1/runs/${ficha}/control`)).json();
 	expect(control).toMatchObject({ cancel: true, reason: "se cayó el ambiente de QA" });
+	await expect(view.locator(".live-cancelled")).toContainText("al terminar el test en curso");
+	// un proceso que estaba en cola abre su corrida después: también se detiene
+	const queued = await newRun(request, "test_receta.py", 1);
+	expect(await (await request.get(`/api/v1/runs/${queued}/control`)).json()).toMatchObject({ cancel: true, reason: "se cayó el ambiente de QA" });
 });
 
 test("En vivo sin nada corriendo explica qué va a mostrar; en el celular la tabla se lee", async ({ page }) => {
