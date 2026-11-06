@@ -17,7 +17,7 @@ from tracereports.context import default_execution_id
 
 pytest_plugins = ["pytester"]
 
-CI_VARS = ("TRACEREPORTS_EXECUTION_ID", "BUILD_BUILDID", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "CI_PIPELINE_ID", "BUILD_TAG",
+CI_VARS = ("TRACEREPORTS_PLANNED", "TRACEREPORTS_EXECUTION_ID", "BUILD_BUILDID", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT", "CI_PIPELINE_ID", "BUILD_TAG",
            "TRACEREPORTS_REMOTE_CONTROL", "TRACEREPORTS_DOM_ON", "TRACEREPORTS_DOM_STEPS", "TRACEREPORTS_TOKEN", "TRACEREPORTS_RUN_ID")
 
 
@@ -206,5 +206,22 @@ def test_plugin_planned_and_cooperative_cancel(pytester, monkeypatch):
         skips = [b for m, p, b in srv.requests if p.endswith("/logs") and b and b.get("status") == "SKIP"]
         assert len(skips) == 3 and all(b["message"] == "Cancelado desde TraceReports: QA caído" for b in skips), skips
         assert any(p == "/api/v1/runs/7/finish" for m, p, b in srv.requests), "la ejecución cierra normal"
+    finally:
+        srv.close()
+
+
+def test_plugin_planned_can_be_turned_off(pytester, monkeypatch):
+    srv = LiveServer()
+    try:
+        monkeypatch.setenv("TRACEREPORTS_PLANNED", "off")  # un lanzador propio informa por corrida
+        pytester.makepyfile("""
+            def test_a():
+                pass
+            def test_b():
+                pass
+        """)
+        result = pytester.runpytest("--tracereports", "--tracereports-url", srv.url, "-p", "no:cacheprovider")
+        result.assert_outcomes(passed=2)
+        assert not [p for m, p, b in srv.requests if p.endswith("/plan")]
     finally:
         srv.close()

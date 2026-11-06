@@ -6,6 +6,18 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added (client feedback, 06-11: Live)
+
+- **Cancel the whole execution**: the cancellation is kept per execution for 24 h, so the runs a launcher
+  opens later (a run per file, queued processes) are cancelled too; Live says it stops when the current
+  test ends.
+- Python client: `TRACEREPORTS_PLANNED=off` stops the plugin from reporting planned tests, for a custom
+  launcher that creates a run per file and reports each one (documented with the bridge pattern).
+
+### Fixed (client feedback, 06-11: Live)
+
+- A run without tests yet came as `tests: null` and broke Live.
+
 Python client 0.5.2 (pending release); the other clients do not change.
 
 ### Added

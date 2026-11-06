@@ -114,6 +114,13 @@ def _identity(item):
     return key, suite, params
 
 
+def _planned_enabled():
+    """TRACEREPORTS_PLANNED=off: el plugin no informa los tests planificados. Para un lanzador propio que
+    crea una corrida por archivo: el total de la sesión no corresponde a ninguna corrida, así que el
+    lanzador informa cada una con set_planned (ver docs/es/python.md)."""
+    return (env("PLANNED") or "").strip().lower() not in ("off", "0", "false", "no")
+
+
 class TraceReportsPlugin:
     def __init__(self, config):
         self.config = config
@@ -155,12 +162,12 @@ class TraceReportsPlugin:
     def pytest_collection_finish(self, session):
         """Cuántos tests va a correr esta sesión: progreso y ETA en En vivo. Con xdist el controlador no
         recolecta (ver pytest_xdist_node_collection_finished) y los workers no lo informan."""
-        if self.workerinput is None and session.items:
+        if self.workerinput is None and session.items and _planned_enabled():
             self.cr.set_planned(len(session.items))
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_xdist_node_collection_finished(self, node, ids):
-        if not getattr(self, "_planned_sent", False) and ids:
+        if not getattr(self, "_planned_sent", False) and ids and _planned_enabled():
             self._planned_sent = True
             self.cr.set_planned(len(ids))
 
