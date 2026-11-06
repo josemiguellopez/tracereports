@@ -197,3 +197,20 @@ func TestDOMBaselineIsTheLastPassWithPages(t *testing.T) {
 		t.Fatalf("sin el mismo paso, la última página: %s", rec.Body)
 	}
 }
+
+// Las capas y el recorte del Inspector: zIndex y overflow pasan la lista blanca; un valor con url() no.
+func TestLayerStylesAreKept(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"div","attrs":{"class":"modal"},"x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,`+
+		`"style":{"position":"fixed","zIndex":"1050","overflowX":"hidden","overflowY":"auto","opacity":"0.5"}},`+
+		`{"i":4,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"style":{"zIndex":"url(x)"}}`))
+	body := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.String()
+	for _, want := range []string{`"zIndex":"1050"`, `"overflowX":"hidden"`, `"overflowY":"auto"`, `"opacity":"0.5"`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("falta %s", want)
+		}
+	}
+	if strings.Contains(body, "url(x)") {
+		t.Error("un valor con url() no pasa")
+	}
+}

@@ -199,6 +199,66 @@
 	/** Cómo se nombra un elemento en la lista de cambios: tag#id.clase «texto». */
 	const nodeName = (n) => `${n.tag}${n.attrs?.id ? "#" + n.attrs.id : ""}${n.attrs?.class ? "." + n.attrs.class.trim().split(/\s+/).slice(0, 2).join(".") : ""}${n.text ? ` «${n.text.slice(0, 30)}»` : ""}`;
 
+	// ─── cómo pintar la página (función pura) ───────────────────────────────────────────────────────
+	const CLIPS = /hidden|auto|scroll|clip/;
+	/**
+	 * Cómo pinta el navegador cada nodo, ahora que en el Inspector van sueltos (posición absoluta, sin
+	 * anidar): con zIndex = 10 + profundidad, un modal de Bootstrap (al final del body, poca profundidad)
+	 * quedaba detrás de la página y su backdrop negro (opacity 0.5) salía negro sólido.
+	 *
+	 * - capa: como los stacking contexts reales. Cada nodo que abre uno (posicionado con z-index, fixed o
+	 *   sticky, u opacity < 1) aporta [z-index, orden en el documento]; dentro de un contexto manda el
+	 *   z-index y después el orden del documento (n.i es preorden: lo que va después queda encima). Así el
+	 *   contenido del modal (1055) va sobre el backdrop (1050) y los dos sobre la página. Un snapshot viejo,
+	 *   sin zIndex, queda en el orden del documento;
+	 * - opacidad: la del nodo por la de sus ancestros (sus hijos ya no van dentro de él);
+	 * - recorte: la caja de los ancestros con overflow hidden/auto/scroll (un historial largo no se sale de
+	 *   su panel). Un position: fixed no se recorta.
+	 * Devuelve, por n.i: rank (orden de pintado), opacity y clip ({x, y, w, h} o null).
+	 */
+	function paintPlan(nodes) {
+		const key = [], ctx = [], opacity = [], clip = [], inner = [];
+		for (const n of nodes) {
+			const st = n.style || {}, p = n.p >= 0 ? n.p : -1;
+			const pos = st.position && st.position !== "static";
+			const zi = parseInt(st.zIndex, 10), z = pos && Number.isFinite(zi) ? zi : 0;
+			const op = parseFloat(st.opacity);
+			const own = Number.isFinite(op) ? op : 1;
+			key[n.i] = [...(p >= 0 ? ctx[p] : []), [z, n.i]];
+			const opens = (pos && Number.isFinite(zi)) || st.position === "fixed" || st.position === "sticky" || own < 1;
+			ctx[n.i] = opens ? key[n.i] : (p >= 0 ? ctx[p] : []);
+			opacity[n.i] = own * (p >= 0 ? opacity[p] : 1);
+			let c = p >= 0 ? inner[p] : null;
+			if (st.position === "fixed") c = null;
+			clip[n.i] = c;
+			const ov = `${st.overflowX || ""} ${st.overflowY || ""}`;
+			inner[n.i] = CLIPS.test(ov) && n.w > 0 && n.h > 0 ? intersect(c, { x: n.x, y: n.y, w: n.w, h: n.h }) : c;
+		}
+		const cmp = (a, b) => {
+			for (let k = 0; k < Math.min(a.length, b.length); k++) {
+				if (a[k][0] !== b[k][0]) return a[k][0] - b[k][0];
+				if (a[k][1] !== b[k][1]) return a[k][1] - b[k][1];
+			}
+			return a.length - b.length; // el que abre el contexto, debajo de lo que tiene adentro
+		};
+		const rank = [];
+		nodes.map((n) => n.i).sort((a, b) => cmp(key[a], key[b])).forEach((i, r) => { rank[i] = r; });
+		return { rank, opacity, clip };
+	}
+	function intersect(a, b) {
+		if (!a) return b;
+		const x = Math.max(a.x, b.x), y = Math.max(a.y, b.y);
+		return { x, y, w: Math.max(0, Math.min(a.x + a.w, b.x + b.w) - x), h: Math.max(0, Math.min(a.y + a.h, b.y + b.h) - y) };
+	}
+	/** El recorte de un nodo como clip-path (relativo a su caja); "hidden" si queda entero afuera, "" si nada. */
+	function clipInset(n, c) {
+		if (!c) return "";
+		const top = Math.max(0, c.y - n.y), left = Math.max(0, c.x - n.x);
+		const right = Math.max(0, n.x + n.w - (c.x + c.w)), bottom = Math.max(0, n.y + n.h - (c.y + c.h));
+		if (left + right >= n.w || top + bottom >= n.h) return "hidden";
+		return top || left || right || bottom ? `inset(${top}px ${right}px ${bottom}px ${left}px)` : "";
+	}
+
 	/** Quita el prefijo de Playwright (xpath=, css=) para evaluar el selector sobre el snapshot. */
 	const plainSelector = (s) => String(s || "").replace(/^(xpath|css)=/, "").trim();
 
@@ -297,15 +357,24 @@
 			layer.innerHTML = ""; cursors.innerHTML = ""; testCursor = null; els = [];
 			stage.style.width = current.W + "px"; stage.style.height = current.H + "px";
 			stage.style.background = current.nodes[0]?.style?.backgroundColor || "#fff";
+			const plan = paintPlan(current.nodes); // capas, opacidad y recorte como en el navegador
 			for (const n of current.nodes) {
 				if (n.tag === "body" || !n.visible || !(n.w > 0) || !(n.h > 0)) continue;
+				const clipped = clipInset(n, plan.clip[n.i]);
+				if (clipped === "hidden") continue; // entero fuera de su panel con scroll: no se ve
 				const el = document.createElement("div");
 				el.className = "insp-n"; el.dataset.i = n.i;
+				el.dataset.clip = clipped;
 				const st = n.style || {}, fs = parseFloat(st.fontSize) || 14;
 				// estilos del snapshot (limpios en el servidor) asignados propiedad por propiedad, nunca como HTML
-				Object.assign(el.style, { left: n.x + "px", top: n.y + "px", width: n.w + "px", height: n.h + "px", zIndex: 10 + (n.depth || 0),
+				Object.assign(el.style, { left: n.x + "px", top: n.y + "px", width: n.w + "px", height: n.h + "px", zIndex: 10 + plan.rank[n.i],
 					color: st.color || "", fontSize: st.fontSize || "", fontWeight: st.fontWeight || "", fontFamily: st.fontFamily || "",
 					borderRadius: st.borderRadius || "", lineHeight: !st.lineHeight || st.lineHeight === "normal" ? "1.2" : st.lineHeight });
+				if (plan.opacity[n.i] < 1) el.style.opacity = String(Math.round(plan.opacity[n.i] * 1000) / 1000);
+				// un texto de varias líneas (un párrafo de un modal, "16:43<br>Control general") se ajusta como en la página
+				const lh = parseFloat(st.lineHeight) || fs * 1.2;
+				if ((n.text || "").includes("\n") || n.h > lh * 1.8) el.classList.add("wrap");
+				if (clipped) el.style.clipPath = clipped;
 				if (parseFloat(st.borderTopWidth) > 0) el.style.border = `${st.borderTopWidth} solid ${st.borderTopColor || "#999"}`;
 				el.dataset.bg = transparent(st.backgroundColor) ? "" : st.backgroundColor;
 				if (n.tag === "svg" || n.tag === "img" || n.tag === "canvas") el.classList.add("img");
@@ -378,7 +447,7 @@
 		const ro = new ResizeObserver(fit); ro.observe(viewport);
 		const drawable = () => current.nodes.filter((n) => els[n.i]);
 		function hideAll() { for (const n of drawable()) { const el = els[n.i]; el.style.clipPath = "inset(0 100% 100% 0)"; el.style.backgroundColor = ""; el.firstChild.textContent = ""; } }
-		function showAll() { for (const n of drawable()) { const el = els[n.i]; el.style.clipPath = "none"; el.style.backgroundColor = el.dataset.bg; el.firstChild.textContent = n.text || ""; el.classList.remove("drawing"); } }
+		function showAll() { for (const n of drawable()) { const el = els[n.i]; el.style.clipPath = el.dataset.clip || "none"; el.style.backgroundColor = el.dataset.bg; el.firstChild.textContent = n.text || ""; el.classList.remove("drawing"); } }
 
 		async function tween(ms, id, fn) {
 			let tt = 0, last = performance.now();
@@ -432,7 +501,7 @@
 						el.style.clipPath = `inset(0 ${100 - e * 100}% ${100 - e * 100}% 0)`;
 						place(a.c, n.x + n.w * e, n.y + n.h * e);
 					});
-					el.style.clipPath = "none";
+					el.style.clipPath = el.dataset.clip || "none"; // el recorte de su panel con scroll, si tiene
 					el.style.backgroundColor = el.dataset.bg;
 					if (n.text) {
 						const tx = el.firstChild, typed = document.createTextNode(""), caret = document.createElement("span");
@@ -685,5 +754,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, nodeKeys, diffSnapshots, nodeName, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, mount };
 })();
