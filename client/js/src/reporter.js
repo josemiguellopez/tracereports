@@ -24,6 +24,7 @@ import path from "node:path";
 import { env } from "./env.js";
 import { TraceReports } from "./index.js";
 import { MASKED_SHOT, screenshotAllowed, screenshotsPolicy } from "./mask.js";
+import { CONTROL_FILE_ENV, newControlFile, writeCancel } from "./control.js";
 
 const ANSI = /\u001b\[[0-9;]*m/g;
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
@@ -36,6 +37,10 @@ export default class TraceReportsReporter {
     this.steps = new Map(); // test.id -> intento -> pasos (test.step)
     this.strict = options.strict ?? truthy(env("STRICT"));
     this.chain = Promise.resolve(); // los eventos de cada test se procesan en orden
+    // TRACEREPORTS_REMOTE_CONTROL=1: el archivo donde los workers ven la cancelación (antes de que arranquen)
+    if (["1", "true", "yes", "on"].includes(String(env("REMOTE_CONTROL") || "").trim().toLowerCase())) {
+      this.controlFile = process.env[CONTROL_FILE_ENV] = newControlFile();
+    }
   }
 
   printsToStdio() {
@@ -48,12 +53,23 @@ export default class TraceReportsReporter {
     const name = this.options.runName || env("RUN_NAME") || path.basename(this.rootDir);
     const projects = [...new Set(config.projects.map((p) => p.name).filter(Boolean))].join(", ");
     const environment = this.options.environment ?? env("ENV") ?? projects;
+    this.total = suite.allTests().length;
     this.started = this.cr.startRun(name, {
       environment,
       project: this.options.project ?? env("PROJECT") ?? path.basename(this.rootDir),
       framework: "playwright",
+      planned: this.total, // progreso y ETA en En vivo
     });
-    this.total = suite.allTests().length;
+    if (this.controlFile) {
+      // pregunta cada 5 s si cancelaron la ejecución desde En vivo; los workers lo leen del archivo
+      this.started.then(() => {
+        this.controlTimer = setInterval(async () => {
+          const c = await this.cr.cancelRequested({ everyMs: 0 });
+          if (c.cancel) { writeCancel(this.controlFile, c.reason); clearInterval(this.controlTimer); }
+        }, this.options.controlEveryMs ?? 5000);
+        this.controlTimer.unref?.();
+      }).catch(() => {});
+    }
   }
 
   identity(test) {
@@ -176,6 +192,8 @@ export default class TraceReportsReporter {
   async onEnd(result) {
     await this.chain;
     await this.started;
+    if (this.controlTimer) clearInterval(this.controlTimer);
+    if (this.controlFile) fs.rmSync(this.controlFile, { force: true });
     const interrupted = result.status === "interrupted" || result.status === "timedout";
     await this.cr.finishRun({ interrupted });
     const problems = this.cr.deliveryProblems() + (this.cr.recording && this.cr.runId < 0 && ["auto", "both"].includes(this.cr.offlineMode) ? 1 : 0);
