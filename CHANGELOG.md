@@ -24,6 +24,16 @@ Python client 0.5.2 (pending release); the other clients do not change.
   deleted and the space it would free before deleting, and the last and next cleanups are shown. API:
   `GET /maintenance/storage`, `GET /maintenance/storage/preview`, `PUT /ui/maintenance/retention`,
   `POST /ui/maintenance/retention/run`.
+- **Escalate → PDF**: prints only the report on a clean A4 page (the browser's *Save as PDF*), named
+  after the report number.
+
+### Changed
+
+- **Escalate reads as a formal report**: a header with the report number (`ESC-<run>-<test>`, the same for
+  the same failure) and when it was generated, a facts table (severity, audience, run, environment,
+  result, run date, test, suggested owner), an executive summary, numbered sections and a footer
+  "Generated with TraceReports · date · Internal use", in a sober navy palette with color only on the
+  severity. The text, chat, Markdown and email formats carry the report number too.
 
 ### Fixed
 
@@ -46,6 +56,11 @@ Python client 0.5.2 (pending release); the other clients do not change.
   whole from the trace when the stored error message (cut at 300 characters) ended halfway, and an XPath
   written between quotes in a team's own message ends at its closing quote. `GET /tests/{id}/locator` adds
   `has_dom`, `dom_elements` and `failed_selector_truncated`.
+- **Blank screenshot in Escalate**: when every screenshot of a test is blank (the browser never showed
+  the page), the card showed a big white box that looked like an image that failed to load. It now shows
+  *The page was blank at the failure* with a link to the screenshot; the summary no longer says the
+  screen changed nor asks to update a selector (it explains that the page never loaded), and neither the
+  email, the Teams/Slack message nor the ticket attach a blank image.
 
 ### Security
 
@@ -59,6 +74,7 @@ Python client 0.5.2 (pending release); the other clients do not change.
   CLI (`repro`, `verify`, MCP) do not change. `TRACEREPORTS_LAB_STRICT=1` refuses those hosts instead of
   asking. API: `/ui/lab/send` and `/ui/lab/verify` answer `409 {code: "internal_host", hosts}` and accept
   `confirm_internal`.
+
 
 ## [0.7.0] - 2026-11-04
 

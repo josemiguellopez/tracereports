@@ -75,7 +75,7 @@ enlarges code in `features.css` because its bitmap font reads small.
 | Tips | Tabs, navigation, filters and action buttons | `.cf-tooltip`, `data-tip` attribute |
 | Metrics | *Metrics* menu | `.kpi-grid`, `.kpi`, `.m-card`, `.hbars`, `.m-table` |
 | AI analysis | *AI* menu | `.ai-top`, `.incident-card`, `.rec-pill`, `.ai-fail` |
-| Escalate | *Escalate* menu | `.esc-layout`, `.esc-share`, `.esc-card` (fixed light design: it is shared as an image or email) |
+| Escalate | *Escalate* menu | `.esc-layout`, `.esc-share`, `.esc-card.esc-doc` (formal report with a fixed light design: it is shared as an image, email or PDF; `.esc-facts`, `.esc-summary`, `.esc-sec`, `.esc-shot-blank`; `#esc-print` is the copy printed to PDF) |
 | Settings | *Settings* menu | `.set-card`, `.prov-grid`, `.prov-card`, `.field`, `.ro-banner` |
 | Drawer | Shared side panel (bbox, drift, mocks) | `.cf-drawer-root`, `.cf-drawer` |
 

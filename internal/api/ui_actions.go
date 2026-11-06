@@ -327,7 +327,7 @@ func (s *Server) sendEscalation(w http.ResponseWriter, r *http.Request) {
 		Lists:    [][2]any{{l["evidence"], e.Evidence}, {l["next"], e.NextSteps}}}
 	if base := s.Notify.PublicURL(); base != "" {
 		msg.URL = base + "/" + e.Facts.ReportPath
-		if e.Facts.Screenshot != "" && strings.HasPrefix(e.Facts.Screenshot, "/") {
+		if e.Facts.Screenshot != "" && !e.Facts.ShotBlank && strings.HasPrefix(e.Facts.Screenshot, "/") { // una en blanco no dice nada en un chat
 			msg.ImageURL = base + e.Facts.Screenshot
 		}
 	}
