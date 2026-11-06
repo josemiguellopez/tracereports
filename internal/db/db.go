@@ -148,6 +148,15 @@ func Open(path string) (*Store, error) {
 		{"ai_usage_daily", "err_other", "INTEGER NOT NULL DEFAULT 0"},
 		// escalamiento en caché: huella de la evidencia con que se escribió
 		{"escalations", "revision", "TEXT NOT NULL DEFAULT ''"},
+		// En vivo: hora del servidor de lo último que llegó de cada test ("sin señal"), la ejecución a la
+		// que pertenece la corrida (varias corridas de un mismo lanzador o build de CI), cuántos tests
+		// planificó el cliente (progreso y ETA) y la cancelación pedida desde la interfaz
+		{"tests", "last_signal", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "execution_id", "TEXT NOT NULL DEFAULT ''"},
+		{"runs", "planned", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "cancel_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "cancel_by", "TEXT NOT NULL DEFAULT ''"},
+		{"runs", "cancel_reason", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()
@@ -271,6 +280,10 @@ type RunMeta struct {
 	Branch    string `json:"branch"`
 	Commit    string `json:"commit"`
 	Framework string `json:"framework"`
+	// ExecutionID groups the runs of one execution (a launcher that creates a run per file, a CI build).
+	ExecutionID string `json:"execution_id"`
+	// Planned is how many tests the client collected (0 = unknown): progress and ETA in Live.
+	Planned int `json:"planned"`
 }
 
 // Test is a single test case inside a run.
@@ -373,8 +386,8 @@ func (s *Store) CreateRun(name, environment string) (int64, error) {
 // CreateRunWithMeta inserts a new run with its context (project, branch, commit, framework).
 func (s *Store) CreateRunWithMeta(name, environment string, m RunMeta) (int64, error) {
 	now := NowMs()
-	res, err := s.db.Exec(`INSERT INTO runs(name, environment, started_at, project, branch, commit_sha, framework, last_activity)
-		VALUES(?,?,?,?,?,?,?,?)`, name, environment, now, m.Project, m.Branch, m.Commit, m.Framework, now)
+	res, err := s.db.Exec(`INSERT INTO runs(name, environment, started_at, project, branch, commit_sha, framework, last_activity, execution_id, planned)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, name, environment, now, m.Project, m.Branch, m.Commit, m.Framework, now, m.ExecutionID, max(m.Planned, 0))
 	if err != nil {
 		return 0, err
 	}

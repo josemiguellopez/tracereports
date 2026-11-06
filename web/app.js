@@ -18,7 +18,7 @@
 		view: "tests", testId: null, test: null,
 		status: "", search: "", stepFilter: "",
 		detailTab: "steps", net: { key: null, list: null }, netFilter: "", netSearch: "", netApiOnly: false,
-		hist: {}, histGen: 0, insights: { key: null }, tlAll: false, epAll: false,
+		hist: {}, histGen: 0, liveView: { list: [], exec: null, key: "", now: 0, no_signal_ms: 0, loaded: false }, insights: { key: null }, tlAll: false, epAll: false,
 		loc: {}, locLang: "", locTool: "", replay: { testId: null, index: 0, speed: 1 }, player: null,
 		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
@@ -93,6 +93,7 @@
 		if (p.get("view")) S.view = p.get("view");
 		if (p.get("run")) S.runId = Number(p.get("run"));
 		if (p.get("test")) S.testId = Number(p.get("test"));
+		if (p.get("exec")) S.liveView.key = p.get("exec");
 		if (p.get("view") === "search") {
 			const x = S.runSearch;
 			["q", "project", "environment", "branch", "tag", "status", "from", "to", "sort"].forEach((k) => { x[k] = p.get(k) || (k === "sort" ? "recent" : ""); });
@@ -104,6 +105,7 @@
 		if (S.runId) p.set("run", S.runId);
 		p.set("view", S.view);
 		if (S.testId && S.view === "tests") p.set("test", S.testId);
+		if (S.view === "live" && S.liveView.key) p.set("exec", S.liveView.key);
 		if (S.view === "search") {
 			const x = S.runSearch;
 			["q", "project", "environment", "branch", "tag", "status", "from", "to"].forEach((k) => { if (x[k]) p.set(k, x[k]); });
@@ -290,10 +292,11 @@
 		renderView();
 		writeHash();
 		if (view === "search" && !STATIC && !S.runSearch.items.length && !S.runSearch.loading) loadRunSearch();
+		if (view === "live" && !STATIC) loadLiveView();
 	}
 
 	// vistas que no dependen de la ejecución elegida
-	const GLOBAL_VIEWS = new Set(["search", "metrics", "maintenance", "settings"]);
+	const GLOBAL_VIEWS = new Set(["search", "live", "metrics", "maintenance", "settings"]);
 
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
@@ -313,7 +316,8 @@
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
 		const views = { search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
-			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease };
+			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease,
+			live: renderLiveView };
 		// la vista viene de la URL (#view=…): solo las propias, nunca un método heredado del objeto
 		(Object.hasOwn(views, S.view) ? views[S.view] : renderTests)();
 	}
@@ -1322,6 +1326,76 @@
 		S.player.testId = t.id;
 	}
 
+	// ---- En vivo (web/live.js) ----
+	/** Trae las ejecuciones y la elegida (o la más nueva en curso). Un turno por carga: la vieja no pisa a la nueva. */
+	async function loadLiveView() {
+		if (STATIC || !window.TraceReportsLive) return;
+		const current = turn("live"), L = S.liveView;
+		try {
+			const list = await api("/api/v1/live");
+			if (!current()) return;
+			L.list = list.executions; L.now = list.now; L.no_signal_ms = list.no_signal_ms;
+			if (!L.list.some((e) => e.key === L.key)) L.key = (L.list.find((e) => e.running) || L.list[0])?.key || "";
+			L.exec = null;
+			if (L.key) {
+				const one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`);
+				if (!current()) return;
+				L.exec = one.execution; L.now = one.now;
+			}
+			L.loaded = true;
+		} catch (err) {
+			if (!current()) return;
+			L.error = err.message;
+		}
+		if (S.view === "live") { renderLiveView(); writeHash(); }
+	}
+
+	function bindLiveView() {
+		const el = $("#view-live");
+		if (!el) return;
+		el.addEventListener("click", (e) => {
+			const chip = e.target.closest("[data-live-exec]");
+			if (chip) { S.liveView.key = chip.dataset.liveExec; S.liveView.exec = null; renderLiveView(); loadLiveView(); return; }
+			// una fila de la tabla abre el test, en vivo (el enlace del nombre ya lo hace)
+			const row = e.target.closest("tr[data-live-test]");
+			if (row && !e.target.closest("a")) location.hash = `#run=${row.dataset.liveRun}&view=tests&test=${row.dataset.liveTest}`;
+		});
+		el.addEventListener("keydown", (e) => {
+			const row = e.target.closest("tr[data-live-test]");
+			if (row && e.key === "Enter") location.hash = `#run=${row.dataset.liveRun}&view=tests&test=${row.dataset.liveTest}`;
+		});
+		el.addEventListener("submit", async (e) => {
+			const form = e.target.closest("[data-live-cancel]");
+			if (!form) return;
+			e.preventDefault();
+			const btn = form.querySelector("button");
+			btn.disabled = true;
+			try {
+				await apiSend("POST", "/api/v1/ui/live/cancel", { key: S.liveView.key, reason: form.reason.value });
+				loadLiveView(); // la cabecera pasa a "Cancelación pedida"
+			} catch (err) {
+				btn.disabled = false;
+				let msg = form.querySelector(".live-cancel-err");
+				if (!msg) { msg = document.createElement("p"); msg.className = "live-cancel-err"; msg.setAttribute("role", "alert"); form.appendChild(msg); }
+				msg.textContent = err.message;
+			}
+		});
+	}
+
+	let liveViewTimer = null;
+	const scheduleLiveView = () => { if (S.view === "live" && !liveViewTimer) liveViewTimer = setTimeout(() => { liveViewTimer = null; loadLiveView(); }, 1500); };
+
+	function renderLiveView() {
+		const el = $("#view-live"), L = S.liveView;
+		if (!el) return;
+		if (!L.loaded) { setHTML(el, `<div class="card placeholder">${L.error ? esc(L.error) : tr("Cargando…")}</div>`); return; }
+		const t = window.TraceReportsI18n.t;
+		setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, now: L.now, no_signal_ms: L.no_signal_ms }, {
+			t, esc, icon, canAct,
+			clock: (ms) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit" }),
+		}));
+	}
+
 	// ---- Inspector (web/inspector.js) ----
 	const hasInspector = (t) => !STATIC && !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
 
@@ -1423,6 +1497,7 @@
 			if (S.view === "escalate") renderEscalate();
 		}
 		if (e.run_id) S.activity[e.run_id] = Date.now();
+		if (["run", "test", "log"].includes(type)) scheduleLiveView(); // En vivo se pone al día (con calma: muchos eventos por segundo)
 		// un resultado nuevo puede ser un cuadro más del historial de cualquier test (ensureHistory)
 		if ((type === "test" && e.data?.action === "finished") || (type === "run" && ["finished", "deleted"].includes(e.data?.action))) S.histGen++;
 		if (type === "run" && e.data?.action === "created") {
@@ -2281,6 +2356,7 @@
 	function bindEvents() {
 		bindMetricsEvents();
 		bindMaintenance();
+		bindLiveView();
 		bindSettingsEvents();
 		bindAIEscalateEvents();
 		// cambio de idioma: lo que se dibuja en canvas (gráficos) no pasa por el DOM
@@ -2598,6 +2674,7 @@
 			if (S.runId !== before) { S.test = null; await loadRun(); } else { renderView(); renderLive(); }
 			if (S.view === "search") await loadRunSearch();
 			if (S.view === "tests") await loadTest();
+			if (S.view === "live") loadLiveView();
 		});
 
 		bindThemePicker();
@@ -5573,10 +5650,13 @@
 		if (GLOBAL_VIEWS.has(S.view)) renderView(); // métricas y ajustes funcionan aunque no haya ejecuciones
 		buddyMount();
 		if (S.view === "search" && !STATIC) await loadRunSearch();
+		if (S.view === "live" && !STATIC) loadLiveView();
 		if (STATIC) return; // exported snapshot: nothing to poll
 		try { S.autoScroll = localStorage.getItem("tracereports-autoscroll") !== "off"; } catch { /* ignore */ }
 		new CF.LiveStream("/api/v1/stream", { onEvent: onLive, onStatus: setLiveState }).start();
 		setInterval(renderLive, 30000); // pasa a "Sin actividad" aunque no lleguen eventos
+		// "sin señal" aparece justamente cuando no llega nada: En vivo se vuelve a pedir cada 10 s
+		setInterval(() => { if (S.view === "live" && !document.hidden) loadLiveView(); }, 10000);
 		setTimeout(pollLoop, POLL_MS);
 		setTimeout(runsLoop, RUNS_POLL_MS);
 	}

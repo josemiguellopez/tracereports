@@ -366,6 +366,7 @@ func runServer(parent context.Context) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	apiServer.StartRetention(ctx)
+	apiServer.StartLiveAlerts(ctx)
 	startStaleRuns(ctx, apiServer)
 	if err := startWeekly(ctx, env.Get("WEEKLY_SUMMARY"), apiServer, notifier); err != nil {
 		return err

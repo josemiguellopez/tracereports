@@ -27,6 +27,12 @@ func (s *Server) trackActivity(next http.Handler) http.Handler {
 				slog.Warn("activity: touch run", "run_id", runID, "err", err)
 			}
 		}
+		// y el test, para "sin señal" en En vivo (hora del servidor, no la del cliente)
+		if testID := testForWrite(r.URL.Path); testID > 0 {
+			if err := s.Store.TouchTest(testID); err != nil {
+				slog.Warn("activity: touch test", "test_id", testID, "err", err)
+			}
+		}
 	})
 }
 

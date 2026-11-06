@@ -24,10 +24,10 @@ function harness() {
 	const fn = src.slice(src.indexOf("const GLOBAL_VIEWS"), src.indexOf("// ---------- run explorer"));
 	const renderView = new Function("S", "$", "$$", "document", "renderRunBanner",
 		"renderRunSearch", "renderTests", "renderCategories", "renderExceptions", "renderDashboard",
-		"renderAI", "renderEscalate", "renderMetrics", "renderMaintenance", "renderSettings", "renderRelease",
+		"renderAI", "renderEscalate", "renderMetrics", "renderMaintenance", "renderSettings", "renderRelease", "renderLiveView",
 		`${fn}; return renderView;`)(S, $, $$, document, r("banner"),
 		r("search"), r("tests"), r("categories"), r("exceptions"), r("dashboard"),
-		r("ai"), r("escalate"), r("metrics"), r("maintenance"), r("settings"), r("release"));
+		r("ai"), r("escalate"), r("metrics"), r("maintenance"), r("settings"), r("release"), r("live"));
 	const visible = () => [...views, empty].filter((v) => !v.hidden).map((v) => v.id);
 	const active = () => links.filter((a) => a.active).map((a) => a.dataset.view);
 	return { S, renderView, visible, active, body, banner, rendered };
