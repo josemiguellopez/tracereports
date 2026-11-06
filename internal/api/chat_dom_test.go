@@ -138,3 +138,23 @@ func TestBuddyChatKeepsAnAnswerThatMovesForward(t *testing.T) {
 		t.Fatalf("%d %s (%d llamadas)", rec.Code, rec.Body, len(prompts()))
 	}
 }
+
+// Un test sin página del fallo (terminó en WARNING, o sigue corriendo): el chat usa la última página que
+// guardó, p. ej. la del WARNING con la grilla todavía en skeleton.
+func TestBuddyChatUsesTheLastStepPageWithoutAFailure(t *testing.T) {
+	clearAIEnv(t)
+	srv, testID := newTestServer(t)
+	mock, prompts := fakeOllama(t, "Espera a que desaparezca el skeleton.")
+	srv.AI.SetConfig(ai.Config{Provider: "ollama", BaseURL: mock.URL, Model: "llama3.1:8b"})
+	test, _ := srv.Store.GetTest(testID)
+	if _, err := srv.Store.SaveDOMStepKind(testID, "warning", "La grilla sigue cargando", 0, clientPage); err != nil {
+		t.Fatal(err)
+	}
+	rec := call(t, srv, "POST", "/api/v1/ui/ai/chat", chatBody(test.RunID, testID, "¿cuál es el xpath del skeleton?"))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if p := prompts(); len(p) != 1 || !strings.Contains(p[0], "skeleton-row") {
+		t.Fatal("la evidencia no lleva la página del WARNING")
+	}
+}
