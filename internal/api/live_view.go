@@ -190,6 +190,9 @@ func (s *Server) liveExecutions(withTests bool, only string) ([]liveExec, error)
 		if err != nil {
 			return nil, err
 		}
+		if _, ok, err := s.Store.ExecutionCancel(g.Key); err == nil && ok && e.Running {
+			e.Cancel = true
+		}
 		if !e.Running && e.EndedAt < now-liveWindow.Milliseconds() && only == "" {
 			continue
 		}
@@ -214,7 +217,7 @@ func (s *Server) buildExec(g db.Execution, now int64, withTests bool) (liveExec,
 		if r.EndedAt != nil {
 			e.EndedAt = max(e.EndedAt, *r.EndedAt)
 		}
-		view := liveRunView{LiveRun: r}
+		view := liveRunView{LiveRun: r, Tests: []liveTest{}} // una corrida recién abierta, sin tests: [] y no null
 		for _, t := range r.Tests {
 			if t.Key != "" {
 				st, err := s.liveStats.get(s.Store, t.Key, r.Project, r.Environment, r.ID)
@@ -346,7 +349,63 @@ func (s *Server) runControl(w http.ResponseWriter, r *http.Request) {
 	if respondErr(w, err, "run") {
 		return
 	}
+	if !c.Cancel { // una corrida creada después de cancelar su ejecución también se detiene
+		key, err := s.executionKeyOf(id)
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		if key != "" {
+			ec, ok, err := s.Store.ExecutionCancel(key)
+			if err != nil {
+				serverError(w, err)
+				return
+			}
+			if ok {
+				c = ec
+				_ = s.Store.MarkRunCancelled(id, ec) // y En vivo la muestra cancelada
+			}
+		}
+	}
 	writeJSON(w, http.StatusOK, c)
+}
+
+// executionKeyOf is the key of a run's execution: x:<execution_id>, or, without one and only when some
+// execution was cancelled recently, the g:<first run> of the group Live puts it in ("" if none).
+func (s *Server) executionKeyOf(runID int64) (string, error) {
+	execID, err := s.Store.RunExecutionID(runID)
+	if err != nil || execID != "" {
+		if execID != "" {
+			return "x:" + execID, nil
+		}
+		return "", err
+	}
+	if any, err := s.Store.AnyExecutionCancelled(); err != nil || !any {
+		return "", err
+	}
+	now := db.NowMs()
+	runs, err := s.Store.LiveCandidates(now - liveWindow.Milliseconds())
+	if err != nil {
+		return "", err
+	}
+	for _, g := range db.GroupExecutions(runs, now) {
+		for _, r := range g.Runs {
+			if r.ID == runID {
+				return g.Key, nil
+			}
+		}
+	}
+	return "", nil
+}
+
+// inheritCancel marks a new run that belongs to an execution already cancelled from Live.
+func (s *Server) inheritCancel(runID int64, executionID string) {
+	if executionID == "" {
+		return
+	}
+	if c, ok, err := s.Store.ExecutionCancel("x:" + executionID); err == nil && ok {
+		_ = s.Store.MarkRunCancelled(runID, c)
+	}
 }
 
 // cancelExecution asks the clients of an execution to stop: each running run is marked, and the
@@ -387,9 +446,21 @@ func (s *Server) cancelExecution(w http.ResponseWriter, r *http.Request) {
 			s.publish("run", run.ID, 0, map[string]string{"action": "cancel"})
 		}
 	}
-	if marked == 0 {
+	// la ejecución queda cancelada: las corridas que abra después (archivos o procesos en cola) también
+	_, already, err := s.Store.ExecutionCancel(in.Key)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if marked == 0 && (already || !list[0].Running) {
 		writeError(w, http.StatusConflict, "nothing is running in this execution")
 		return
+	}
+	if !already {
+		if err := s.Store.CancelExecution(in.Key, s.uiUser(r), reason); err != nil {
+			serverError(w, err)
+			return
+		}
 	}
 	slog.Info("live: cancel requested", "execution", in.Key, "runs", marked, "by", s.uiUser(r))
 	writeJSON(w, http.StatusOK, map[string]int{"runs": marked})

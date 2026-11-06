@@ -30,7 +30,7 @@
 
 	/** Las corridas con algo que pide acción primero y abiertas; dentro, sus tests ya vienen ordenados. */
 	function sortRuns(runs) {
-		const worst = (r) => Math.min(9, ...r.tests.map((t) => stateOf(t.state).rank));
+		const worst = (r) => Math.min(9, ...(r.tests || []).map((t) => stateOf(t.state).rank));
 		return [...runs].map((r) => ({ ...r, worst: worst(r) })).sort((a, b) => a.worst - b.worst || b.started_at - a.started_at);
 	}
 
@@ -39,7 +39,7 @@
 	 * test como una barra en % del tramo [inicio de la ejecución, ahora o su fin].
 	 */
 	function ganttLayout(exec, now) {
-		const tests = exec.runs.flatMap((r) => r.tests.map((t) => ({ ...t, lane: t.worker || `${r.name}` })));
+		const tests = exec.runs.flatMap((r) => (r.tests || []).map((t) => ({ ...t, lane: t.worker || `${r.name}` })));
 		if (!tests.length) return { lanes: [], from: exec.started_at, to: now };
 		const from = Math.min(exec.started_at, ...tests.map((t) => t.started_at));
 		const to = Math.max(from + 1000, exec.running ? now : Math.max(...tests.map((t) => t.ended_at || t.started_at)));
@@ -99,9 +99,9 @@
 		const meta = [e.project, e.environment, e.branch, e.commit && e.commit.slice(0, 7)].filter(Boolean).map((x) => `<span data-no-i18n>${esc(x)}</span>`).join(" · ");
 		const cancel = e.running && h.canAct()
 			? (e.cancel_requested
-				? `<span class="live-cancelled">${icon("i-pause")}${esc(t("Cancelación pedida: los clientes con control remoto saltan los tests que faltan."))}</span>`
+				? `<span class="live-cancelled">${icon("i-pause")}${esc(t("Cancelación pedida: cada proceso se detendrá al terminar el test en curso y saltará los que faltan, también los que empiecen después."))}</span>`
 				: `<details class="live-cancel"><summary class="cf-btn cf-btn-sm">${icon("i-pause")}${esc(t("Cancelar ejecución…"))}</summary>
-					<form data-live-cancel><p class="m-hint">${esc(t("No se detiene ningún proceso: los clientes con TRACEREPORTS_REMOTE_CONTROL=1 ven el pedido entre un test y otro, marcan los que faltan como Skip y cierran la ejecución."))}</p>
+					<form data-live-cancel><p class="m-hint">${esc(t("Se detendrá al terminar el test en curso: los clientes con TRACEREPORTS_REMOTE_CONTROL=1 ven el pedido entre un test y otro, marcan los que faltan como Skip y cierran la ejecución. Alcanza también a las corridas que la ejecución abra después. No se mata ningún proceso."))}</p>
 					<input name="reason" maxlength="300" placeholder="${esc(t("Motivo (opcional)"))}" aria-label="${esc(t("Motivo"))}">
 					<button class="cf-btn cf-btn-sm cf-btn-danger" type="submit">${esc(t("Pedir cancelación"))}</button></form></details>`)
 			: "";
@@ -125,7 +125,7 @@
 
 		const rows = sortRuns(e.runs).map((r) => {
 			const open = r.worst <= 2 || e.runs.length === 1;
-			const tests = r.tests.map((x) => {
+			const tests = (r.tests || []).map((x) => {
 				const st = stateOf(x.state);
 				const vs = x.p50 ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${x.factor.toFixed(1)}</span>` : `<span class="m-hint">—</span>`;
 				const ago = x.state === "running" || x.state === "turtle" || x.state === "no_signal" ? `<small>${esc(t("hace {t}", { t: fmtDur(x.idle) }))}</small>` : "";
@@ -135,7 +135,7 @@
 					<td class="lt-num">${esc(fmtDur(x.elapsed))}</td><td class="lt-num">${vs}</td>
 					<td class="lt-step"><span data-no-i18n>${esc(x.last_step || "—")}</span> ${ago}</td></tr>`;
 			}).join("");
-			const sum = COUNT_ORDER.filter((k) => r.tests.some((x) => x.state === k)).map((k) => `<span class="lt-state ${stateOf(k).cls}">${icon(stateOf(k).icon)}${r.tests.filter((x) => x.state === k).length}</span>`).join(" ");
+			const sum = COUNT_ORDER.filter((k) => (r.tests || []).some((x) => x.state === k)).map((k) => `<span class="lt-state ${stateOf(k).cls}">${icon(stateOf(k).icon)}${(r.tests || []).filter((x) => x.state === k).length}</span>`).join(" ");
 			return `<details class="live-run" ${open ? "open" : ""}><summary><span data-no-i18n>${esc(r.name)}</span> <span class="live-run-sum">${sum}</span></summary>
 				<table class="live-table"><thead><tr><th>${esc(t("Test"))}</th><th>${esc(t("Estado"))}</th><th>${esc(t("Dura."))}</th><th title="${esc(t("Duración frente a la mediana de sus ejecuciones anteriores"))}">${esc(t("vs p50"))}</th><th>${esc(t("Último paso"))}</th></tr></thead>
 				<tbody>${tests || `<tr><td colspan="5" class="m-hint">${esc(t("Todavía sin tests."))}</td></tr>`}</tbody></table></details>`;

@@ -425,6 +425,7 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	s.inheritCancel(id, meta.ExecutionID) // su ejecución ya se canceló desde En vivo: nace cancelada
 	s.publish("run", id, 0, map[string]string{"action": "created"})
 }
 

@@ -117,3 +117,41 @@ func TestCancelAndPlanned(t *testing.T) {
 		t.Fatal("una corrida terminada no se cancela")
 	}
 }
+
+func TestExecutionCancel(t *testing.T) {
+	s := openLive(t)
+	if _, ok, err := s.ExecutionCancel("x:b1"); ok || err != nil {
+		t.Fatal(ok, err)
+	}
+	if any, _ := s.AnyExecutionCancelled(); any {
+		t.Fatal("nada cancelado todavía")
+	}
+	if err := s.CancelExecution("x:b1", "ana", "QA caído"); err != nil {
+		t.Fatal(err)
+	}
+	s.CancelExecution("x:b1", "otro", "x") // el primero gana
+	c, ok, err := s.ExecutionCancel("x:b1")
+	if !ok || err != nil || !c.Cancel || c.By != "ana" || c.Reason != "QA caído" {
+		t.Fatalf("%+v %v %v", c, ok, err)
+	}
+	// pasado el plazo ya no cuenta, y se puede volver a cancelar
+	s.db.Exec(`UPDATE execution_cancels SET at = ? WHERE key = 'x:b1'`, NowMs()-ExecutionCancelTTL-1000)
+	if _, ok, _ := s.ExecutionCancel("x:b1"); ok {
+		t.Fatal("una cancelación vieja no cuenta")
+	}
+	if err := s.CancelExecution("x:b1", "otro", "de nuevo"); err != nil {
+		t.Fatal(err)
+	}
+	c, ok, _ = s.ExecutionCancel("x:b1")
+	if !ok || c.By != "otro" {
+		t.Fatalf("%+v", c)
+	}
+	run, _ := s.CreateRunWithMeta("r", "", RunMeta{ExecutionID: "b1"})
+	if id, _ := s.RunExecutionID(run); id != "b1" {
+		t.Fatal(id)
+	}
+	s.MarkRunCancelled(run, c)
+	if rc, _ := s.GetRunControl(run); !rc.Cancel || rc.Reason != "de nuevo" {
+		t.Fatalf("%+v", rc)
+	}
+}

@@ -223,3 +223,57 @@ func TestLiveCancelNeedsAdmin(t *testing.T) {
 		t.Fatalf("viewer: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// Un lanzador con procesos en cola abre corridas después de cancelar: esas también se detienen, con y
+// sin execution_id (la agrupación por contexto y tiempo).
+func TestCancelReachesRunsCreatedLater(t *testing.T) {
+	srv, _ := newTestServer(t)
+	runOf := func(body string) int64 {
+		var out struct {
+			RunID int64 `json:"run_id"`
+		}
+		json.Unmarshal(call(t, srv, "POST", "/api/v1/runs", body).Body.Bytes(), &out)
+		return out.RunID
+	}
+	control := func(run int64) string { return call(t, srv, "GET", fmt.Sprintf("/api/v1/runs/%d/control", run), "").Body.String() }
+
+	// con execution_id
+	first := runOf(`{"name":"a.py","project":"box","environment":"qa","execution_id":"suite-1"}`)
+	if rec := call(t, srv, "POST", "/api/v1/ui/live/cancel", `{"key":"x:suite-1","reason":"se cayó QA"}`); rec.Code != 200 {
+		t.Fatalf("cancel: %d %s", rec.Code, rec.Body)
+	}
+	later := runOf(`{"name":"b.py","project":"box","environment":"qa","execution_id":"suite-1"}`)
+	if c := control(later); !strings.Contains(c, `"cancel":true`) || !strings.Contains(c, "se cayó QA") {
+		t.Fatalf("la corrida nueva nace cancelada: %s", c)
+	}
+	other := runOf(`{"name":"c.py","project":"box","environment":"qa","execution_id":"suite-2"}`)
+	if c := control(other); !strings.Contains(c, `"cancel":false`) {
+		t.Fatalf("otra ejecución no: %s", c)
+	}
+	_ = first
+
+	// sin execution_id: la misma ejecución por proyecto, ambiente, rama y tiempo
+	g1 := runOf(`{"name":"x.py","project":"agenda","environment":"uat"}`)
+	if rec := call(t, srv, "POST", "/api/v1/ui/live/cancel", fmt.Sprintf(`{"key":"g:%d","reason":"fin del turno"}`, g1)); rec.Code != 200 {
+		t.Fatalf("cancel g: %d %s", rec.Code, rec.Body)
+	}
+	g2 := runOf(`{"name":"y.py","project":"agenda","environment":"uat"}`)
+	if c := control(g2); !strings.Contains(c, `"cancel":true`) || !strings.Contains(c, "fin del turno") {
+		t.Fatalf("sin execution_id también: %s", c)
+	}
+	// y En vivo muestra la ejecución cancelada
+	rec := call(t, srv, "GET", "/api/v1/live/execution?key=x:suite-1", "")
+	if !strings.Contains(rec.Body.String(), `"cancel_requested":true`) {
+		t.Fatalf("live: %s", rec.Body)
+	}
+}
+
+// Una corrida recién abierta, todavía sin tests, va con "tests": [] (con null, En vivo se rompía).
+func TestLiveRunWithoutTestsIsAnEmptyList(t *testing.T) {
+	srv, _ := newTestServer(t)
+	call(t, srv, "POST", "/api/v1/runs", `{"name":"en cola.py","project":"p","environment":"qa","execution_id":"cola-1"}`)
+	body := call(t, srv, "GET", "/api/v1/live/execution?key=x:cola-1", "").Body.String()
+	if !strings.Contains(body, `"tests":[]`) || strings.Contains(body, `"tests":null`) {
+		t.Fatalf("%s", body)
+	}
+}

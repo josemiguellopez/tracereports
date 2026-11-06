@@ -970,10 +970,10 @@
 		"Cuando un cliente empiece a enviar resultados, aquí ves qué terminó, qué sigue corriendo, qué está lento y qué dejó de enviar, por worker y por test.":
 			"When a client starts sending results, here you see what finished, what is still running, what is slow and what stopped sending, per worker and per test.",
 		"Ejecuciones": "Executions", "en curso": "running", "terminada": "finished", "{n} sin señal": "{n} without signal", "{n} fallos": "{n} failures",
-		"Cancelación pedida: los clientes con control remoto saltan los tests que faltan.": "Cancellation requested: clients with remote control skip the tests left.",
+		"Cancelación pedida: cada proceso se detendrá al terminar el test en curso y saltará los que faltan, también los que empiecen después.": "Cancellation requested: each process stops when its current test ends and skips the rest, also those that start later.",
 		"Cancelar ejecución…": "Cancel execution…",
-		"No se detiene ningún proceso: los clientes con TRACEREPORTS_REMOTE_CONTROL=1 ven el pedido entre un test y otro, marcan los que faltan como Skip y cierran la ejecución.":
-			"No process is killed: clients with TRACEREPORTS_REMOTE_CONTROL=1 see the request between tests, mark the ones left as Skip and close the run.",
+		"Se detendrá al terminar el test en curso: los clientes con TRACEREPORTS_REMOTE_CONTROL=1 ven el pedido entre un test y otro, marcan los que faltan como Skip y cierran la ejecución. Alcanza también a las corridas que la ejecución abra después. No se mata ningún proceso.":
+			"It stops when the current test ends: clients with TRACEREPORTS_REMOTE_CONTROL=1 see the request between tests, mark the ones left as Skip and close the run. It also reaches the runs the execution opens later. No process is killed.",
 		"Motivo (opcional)": "Reason (optional)", "Pedir cancelación": "Request cancellation", "EN CURSO": "RUNNING", "Terminada": "Finished",
 		"Progreso": "Progress", "{d} de {n} tests": "{d} of {n} tests", "{d} terminados de {n} iniciados": "{d} finished of {n} started", "ETA {t}": "ETA {t}",
 		"{n} workers": "{n} workers", "Carriles por worker": "Lanes per worker", "hace {t}": "{t} ago", "Dura.": "Dur.",
