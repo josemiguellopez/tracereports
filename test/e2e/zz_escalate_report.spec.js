@@ -118,6 +118,20 @@ test("formato de reporte: número, ficha, resumen ejecutivo, secciones numeradas
 	await expect(card.locator(".esc-foot")).toContainText("Generado con TraceReports");
 	await expect(card.locator(".esc-foot")).toContainText("Uso interno");
 
+	// la pincelada de color sigue a la severidad: franja superior, resumen ejecutivo y números de sección
+	const SEV = { critical: "rgb(198, 40, 40)", high: "rgb(230, 81, 0)", medium: "rgb(178, 106, 0)", low: "rgb(46, 125, 50)" };
+	const sev = (await card.getAttribute("class")).match(/sev-(\w+)/)[1];
+	const colors = await card.evaluate((el) => ({
+		top: getComputedStyle(el).borderTopColor,
+		summary: getComputedStyle(el.querySelector(".esc-summary")).borderLeftColor,
+		num: getComputedStyle(el.querySelector(".esc-num")).color,
+		title: getComputedStyle(el.querySelector(".esc-sec h3")).color,
+	}));
+	expect(colors.top).toBe(SEV[sev]);
+	expect(colors.summary).toBe(SEV[sev]);
+	expect(colors.num).toBe(SEV[sev]);
+	expect(colors.title).toBe("rgb(31, 58, 95)"); // los títulos siguen en azul marino
+
 	// en inglés, el mismo formato
 	const en = await generate(page, blankTest, { lang: "en" });
 	await expect(en.locator(".esc-doc-kind")).toHaveText("Escalation report");
