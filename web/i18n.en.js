@@ -598,6 +598,7 @@
 		"Con formato y la captura, para pegar en Outlook o Gmail": "Formatted and with the screenshot, to paste into Outlook or Gmail",
 		"Copia la tarjeta como imagen para pegarla en Teams, Slack o una presentación": "Copies the card as an image to paste into Teams, Slack or a slide",
 		"Copiar imagen": "Copy image", "Descarga la tarjeta como PNG": "Downloads the card as PNG",
+		"Abre la impresión con solo el reporte: elige «Guardar como PDF» para adjuntarlo a un correo o ticket": "Opens printing with only the report: choose «Save as PDF» to attach it to an email or ticket",
 		"Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)": "Posts the summary to the configured Teams channel (TEAMS_WEBHOOK_URL)",
 		"Publica el resumen en el canal de Slack configurado (SLACK_WEBHOOK_URL)": "Posts the summary to the configured Slack channel (SLACK_WEBHOOK_URL)",
 		"¡Imagen copiada!": "Image copied!", "Descargada": "Downloaded", "Descargada (este navegador no copia imágenes)": "Downloaded (this browser cannot copy images)",

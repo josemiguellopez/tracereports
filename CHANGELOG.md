@@ -6,6 +6,27 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Escalate reads as a formal report**: a header with the report number (`ESC-<run>-<test>`, the same for
+  the same failure) and when it was generated, a facts table (severity, audience, run, environment,
+  result, run date, test, suggested owner), an executive summary, numbered sections and a footer
+  "Generated with TraceReports · date · Internal use", in a sober navy palette with color only on the
+  severity. The text, chat, Markdown and email formats carry the report number too.
+
+### Added
+
+- **Escalate → PDF**: prints only the report on a clean A4 page (the browser's *Save as PDF*), named
+  after the report number.
+
+### Fixed
+
+- **Blank screenshot in Escalate**: when every screenshot of a test is blank (the browser never showed
+  the page), the card showed a big white box that looked like an image that failed to load. It now shows
+  *The page was blank at the failure* with a link to the screenshot; the summary no longer says the
+  screen changed nor asks to update a selector (it explains that the page never loaded), and neither the
+  email, the Teams/Slack message nor the ticket attach a blank image.
+
 ## [0.7.0] - 2026-11-04
 
 JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated

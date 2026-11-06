@@ -111,6 +111,9 @@ type Facts struct {
 	Steps       []string      `json:"steps,omitempty"`
 	Screenshot  string        `json:"screenshot,omitempty"` // URL relativa de la captura del fallo
 	ShotCaption string        `json:"shot_caption,omitempty"`
+	// ShotBlank: every screenshot of the test is blank (the page never rendered). The screenshot is
+	// still the evidence, but shown as a notice: a big white box looks like an image that failed to load.
+	ShotBlank bool `json:"shot_blank,omitempty"`
 	Network     []NetFact     `json:"network,omitempty"`
 	FailedTests []FailedFact  `json:"failed_tests,omitempty"`
 	Incidents   []db.Incident `json:"incidents,omitempty"`
@@ -286,10 +289,10 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 			continue
 		}
 		if f.Screenshot == "" { // si todas están en blanco, se queda la última
-			f.Screenshot, f.ShotCaption = shot, clip(t.Logs[i].Message, 160)
+			f.Screenshot, f.ShotCaption, f.ShotBlank = shot, clip(t.Logs[i].Message, 160), shots.Path != ""
 		}
 		if shots.Path == "" || !blankImage(shots, filepath.Base(shot)) {
-			f.Screenshot, f.ShotCaption = shot, clip(t.Logs[i].Message, 160)
+			f.Screenshot, f.ShotCaption, f.ShotBlank = shot, clip(t.Logs[i].Message, 160), false
 			break
 		}
 	}
@@ -404,7 +407,10 @@ func (f *Facts) promptBlock(scope string) string {
 			fmt.Fprintf(&b, "- %s %s%s -> %s after %d ms. Body: %s\n", n.Method, n.Host, n.Path, n.Outcome, n.DurationMs, n.Body)
 		}
 	}
-	if f.Screenshot != "" {
+	if f.ShotBlank {
+		b.WriteString("Every screenshot of the test is blank: the page never rendered (it did not finish loading). Do not " +
+			"conclude that the UI changed or that a selector broke: the element could never appear on a blank page.\n")
+	} else if f.Screenshot != "" {
 		fmt.Fprintf(&b, "A screenshot of the moment of the failure is attached to the report (%s).\n", f.ShotCaption)
 	}
 	return b.String()

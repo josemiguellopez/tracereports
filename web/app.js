@@ -2634,7 +2634,13 @@
 			baseline: "La última vez que el test pasó (ejecución #{r}) respondió HTTP {s}", other_ctx: " · en otra rama o ambiente",
 			more: "… {n} líneas más en el reporte", clipped: "Respuesta recortada: completa en el reporte",
 			qa_verdict: "Veredicto de QA", qa_clean: "Pasó limpio", qa_observations: "Pasó con observaciones", qa_risks: "Pasó con riesgos",
-			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación" },
+			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación",
+			doc: "Reporte de escalamiento", ref: "N.º", generated: "Generado", severity: "Severidad", audience: "Audiencia",
+			sev_critical: "Crítica", sev_high: "Alta", sev_medium: "Media", sev_low: "Baja", run_date: "Fecha de ejecución",
+			summary: "Resumen ejecutivo",
+			foot: "Generado con TraceReports · {d} · Uso interno",
+			blank_title: "La página estaba en blanco al fallar",
+			blank_desc: "El navegador no llegó a mostrar contenido: todas las capturas del test están en blanco.", blank_view: "Ver la captura" },
 		en: { critical: "Critical severity", high: "High severity", medium: "Medium severity", low: "Low severity",
 			business: "Business", qa: "QA", dev: "Development", what: "What happened", impact: "Impact", cause: "Likely cause",
 			evidence: "Evidence", next: "Next steps", owner: "Suggested owner", calls: "Backend calls that failed",
@@ -2646,8 +2652,28 @@
 			baseline: "The last time the test passed (run #{r}) it answered HTTP {s}", other_ctx: " · on another branch or environment",
 			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report",
 			qa_verdict: "QA verdict", qa_clean: "Passed clean", qa_observations: "Passed with observations", qa_risks: "Passed with risks",
-			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation" },
+			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation",
+			doc: "Escalation report", ref: "No.", generated: "Generated", severity: "Severity", audience: "Audience",
+			sev_critical: "Critical", sev_high: "High", sev_medium: "Medium", sev_low: "Low", run_date: "Run date",
+			summary: "Executive summary",
+			foot: "Generated with TraceReports · {d} · Internal use",
+			blank_title: "The page was blank at the failure",
+			blank_desc: "The browser never showed any content: every screenshot of the test is blank.", blank_view: "View the screenshot" },
 	};
+
+	/** Número de reporte estable: el mismo fallo (ejecución y test) siempre lleva el mismo. */
+	const escRef = (e) => `ESC-${String(e.run_id).padStart(4, "0")}${e.test_id ? `-${e.test_id}` : ""}`;
+
+	/** La captura del fallo, o el aviso de página en blanco (un recuadro blanco parece una imagen que no cargó). */
+	function escShotHTML(e, L) {
+		const f = e.facts;
+		if (!f.screenshot) return "";
+		if (f.shot_blank) {
+			return `<div class="esc-shot-blank" role="note">${icon("i-warning")}<div><b>${esc(L.blank_title)}</b>
+				<p>${esc(L.blank_desc)} <a href="${esc(f.screenshot)}" target="_blank" rel="noopener">${esc(L.blank_view)} ↗</a></p></div></div>`;
+		}
+		return `<figure class="esc-shot"><img src="${esc(f.screenshot)}" alt="${esc(L.shot)}"><figcaption>${esc(L.shot)}${f.shot_caption ? ` · ${esc(f.shot_caption)}` : ""}</figcaption></figure>`;
+	}
 
 	/** El veredicto de QA de una ejecución sin fallos (lo calcula el servidor): cómo pasó y sus señales. */
 	function escVerdictHTML(e, L) {
@@ -2784,35 +2810,49 @@
 		return out;
 	}
 
+	/**
+	 * El resumen como documento formal: encabezado con número de reporte y fecha, ficha del caso,
+	 * resumen ejecutivo y secciones numeradas. El color va solo en la severidad: el resto es sobrio
+	 * para un correo a gerencia, un ticket o un PDF.
+	 */
 	function escCard(e) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
-		const meta = [[L.run, f.run_name], [L.env, f.env || "—"], [L.result, escFmt(L.failed, { f: f.failed, t: f.total })], ["", fmtDateTime(f.started_at)]];
 		const showCalls = e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length);
-		return `<article class="esc-card sev-${esc(e.severity)}" id="esc-card" lang="${esc(e.lang)}" data-no-i18n>
-			<div class="esc-band"></div>
+		const generated = fmtDateTime(e.created_at || Date.now());
+		const facts = [
+			[L.severity, `<span class="esc-sev">${esc(L[`sev_${e.severity}`] || e.severity)}</span>`],
+			[L.audience, `<span class="esc-aud">${esc(L[e.audience])}</span>`],
+			[L.run, esc(f.run_name)], [L.env, esc(f.env || "—")],
+			[L.result, esc(escFmt(L.failed, { f: f.failed, t: f.total }))], [L.run_date, esc(fmtDateTime(f.started_at))],
+			...(f.test_name ? [[L.test, `<span class="esc-mono">${esc(f.test_name)}</span>`]] : []),
+			...(e.owner ? [[L.owner, `<b>${esc(e.owner)}</b>`]] : []),
+		];
+		// secciones numeradas, en el orden en que se leen
+		const sections = [
+			[L.what, `<p>${esc(e.what_happened)}</p>`], [L.impact, `<p>${esc(e.impact)}</p>`], [L.cause, `<p>${esc(e.root_cause)}</p>`],
+			...(showCalls ? [[L.calls, `<table class="esc-calls">${f.network.map((n) => `<tr><td><b>${esc(n.method)}</b></td><td class="esc-path">${esc(n.path)}</td>
+				<td class="esc-st">${esc(n.outcome)}</td><td class="esc-ms">${n.duration_ms ? `${n.duration_ms} ms` : ""}</td></tr>`).join("")}</table>`]] : []),
+			...(e.evidence?.length || f.flaky ? [[L.evidence, `${e.evidence?.length ? `<ul>${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+				${f.flaky ? `<p class="esc-flaky">${esc(escFmt(L.flaky, { x: f.flaky }))}</p>` : ""}`]] : []),
+			...(e.next_steps?.length ? [[L.next, `<ol>${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>`]] : []),
+		];
+		return `<article class="esc-card esc-doc sev-${esc(e.severity)}" id="esc-card" lang="${esc(e.lang)}" data-no-i18n data-ref="${esc(escRef(e))}">
 			<header class="esc-head">
-				<div class="esc-tags"><span class="esc-sev">${esc(L[e.severity] || e.severity)}</span><span class="esc-aud">${esc(L[e.audience])}</span></div>
-				<span class="esc-brand">${LOGO_SVG}<span>tracereports<span class="esc-cursor">_</span></span></span>
+				<div class="esc-doc-brand"><span class="esc-brand">${LOGO_SVG}<span>tracereports<span class="esc-cursor">_</span></span></span>
+					<span class="esc-doc-kind">${esc(L.doc)}</span></div>
+				<div class="esc-doc-ref"><b>${esc(L.ref)} ${esc(escRef(e))}</b><span>${esc(L.generated)}: ${esc(generated)}</span></div>
 			</header>
 			<h2 class="esc-title">${esc(e.title)}</h2>
-			<p class="esc-headline">${esc(e.headline)}</p>
-			<dl class="esc-meta">${meta.map(([k, v]) => `<div>${k ? `<dt>${esc(k)}</dt>` : ""}<dd>${esc(v)}</dd></div>`).join("")}</dl>
+			<table class="esc-facts">${facts.reduce((rows, x, i) => (i % 2 ? rows[rows.length - 1].push(x) : rows.push([x]), rows), [])
+				.map((row) => `<tr>${row.map(([k, v]) => `<th scope="row">${esc(k)}</th><td>${v}</td>`).join("")}${row.length === 1 ? "<th></th><td></td>" : ""}</tr>`).join("")}</table>
+			<section class="esc-summary"><h3>${esc(L.summary)}</h3><p class="esc-headline">${esc(e.headline)}</p></section>
 			${escVerdictHTML(e, L)}
-			${f.screenshot ? `<figure class="esc-shot"><img src="${esc(f.screenshot)}" alt="${esc(L.shot)}"><figcaption>${esc(L.shot)}${f.shot_caption ? ` · ${esc(f.shot_caption)}` : ""}</figcaption></figure>` : ""}
-			<div class="esc-grid">
-				<section><h3>${esc(L.what)}</h3><p>${esc(e.what_happened)}</p></section>
-				<section><h3>${esc(L.impact)}</h3><p>${esc(e.impact)}</p></section>
-				<section class="esc-wide"><h3>${esc(L.cause)}</h3><p>${esc(e.root_cause)}</p></section>
-			</div>
-			${showCalls ? `<section><h3>${esc(L.calls)}</h3><table class="esc-calls">${f.network.map((n) => `<tr><td><b>${esc(n.method)}</b></td><td class="esc-path">${esc(n.path)}</td>
-				<td class="esc-st">${esc(n.outcome)}</td><td class="esc-ms">${n.duration_ms ? `${n.duration_ms} ms` : ""}</td></tr>`).join("")}</table></section>` : ""}
-			${e.evidence?.length ? `<section><h3>${esc(L.evidence)}</h3><ul>${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
-			${f.flaky ? `<p class="esc-flaky">${esc(escFmt(L.flaky, { x: f.flaky }))}</p>` : ""}
-			${e.next_steps?.length ? `<section><h3>${esc(L.next)}</h3><ol>${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></section>` : ""}
-			${e.owner ? `<p class="esc-owner"><span>${esc(L.owner)}</span> <b>${esc(e.owner)}</b></p>` : ""}
+			${escShotHTML(e, L)}
+			${sections.map(([title, body], i) => `<section class="esc-sec"><h3><span class="esc-num">${i + 1}.</span> ${esc(title)}</h3>${body}</section>`).join("")}
 			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name)).join("")}</section>` : ""}
-			<footer class="esc-foot"><a href="${esc(escReportURL(e))}" target="_blank" rel="noopener">${esc(L.report)} ↗</a>
-				<span>${esc(e.source === "ai" ? escFmt(L.by_ai, { m: e.model || "" }) : L.by_tpl)}</span></footer>
+			<footer class="esc-foot"><div><span>${esc(escFmt(L.foot, { d: generated }))}</span>
+				<span class="esc-by">${esc(e.source === "ai" ? escFmt(L.by_ai, { m: e.model || "" }) : L.by_tpl)}</span></div>
+				<a href="${esc(escReportURL(e))}" target="_blank" rel="noopener">${esc(L.report)} ↗</a></footer>
 		</article>`;
 	}
 
@@ -2853,7 +2893,7 @@
 	function escText(e, style) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const B = (s) => (style === "slack" ? `*${s}*` : style === "md" ? `**${s}**` : s);
-		const lines = [`${style === "plain" ? `[${(L[e.severity] || e.severity).toUpperCase()}]` : `${B(L[e.severity] || e.severity)} ·`} ${B(e.title)}`, e.headline, ""];
+		const lines = [`${L.doc} ${escRef(e)}`, `${style === "plain" ? `[${(L[e.severity] || e.severity).toUpperCase()}]` : `${B(L[e.severity] || e.severity)} ·`} ${B(e.title)}`, e.headline, ""];
 		const qa = f.assessment;
 		if (qa) {
 			lines.push(`${B(L.qa_verdict + ":")} ${L[`qa_${qa.verdict}`] || qa.verdict}`);
@@ -2871,6 +2911,7 @@
 		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name))); }
 		lines.push("", `${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`);
 		lines.push(`${L.report}: ${escReportURL(e)}`);
+		lines.push(escFmt(L.foot, { d: fmtDateTime(e.created_at || Date.now()) }));
 		return lines.join("\n");
 	}
 
@@ -2880,11 +2921,21 @@
 		const color = { critical: "#c62828", high: "#e65100", medium: "#b26a00", low: "#2e7d32" }[e.severity] || "#455a64";
 		const h3 = (t) => `<h3 style="margin:18px 0 6px;font-size:14px;color:#263238">${esc(t)}</h3>`;
 		const p = (t) => `<p style="margin:0;font-size:14px;line-height:1.5;color:#37474f">${esc(t)}</p>`;
-		const shot = f.screenshot ? await toDataURL(f.screenshot).catch(() => "") : "";
-		return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;border:1px solid #e0e0e0;border-top:6px solid ${color};border-radius:8px;padding:20px 24px">
-			<div style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.05em">${esc(L[e.severity])} · ${esc(L[e.audience])}</div>
-			<h2 style="margin:6px 0 4px;font-size:20px;color:#1c2833">${esc(e.title)}</h2>${p(e.headline)}
-			<p style="margin:10px 0 0;font-size:12px;color:#78909c">${esc(L.run)}: ${esc(f.run_name)} · ${esc(f.env || "—")} · ${esc(fmtDateTime(f.started_at))} · ${esc(escFmt(L.failed, { f: f.failed, t: f.total }))}</p>
+		const shot = f.screenshot && !f.shot_blank ? await toDataURL(f.screenshot).catch(() => "") : "";
+		const ink = "#1f3a5f", generated = fmtDateTime(e.created_at || Date.now());
+		const row = (k, v) => `<td style="padding:6px 10px;border:1px solid #dfe5ea;background:#f3f6f9;color:#455a64;font-size:13px;font-weight:600;width:22%">${esc(k)}</td><td style="padding:6px 10px;border:1px solid #dfe5ea;color:#263238;font-size:13px">${v}</td>`;
+		return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;border:1px solid #dfe5ea;border-top:4px solid ${ink};padding:20px 24px">
+			<table style="width:100%;border-collapse:collapse;border-bottom:2px solid ${ink}"><tr>
+				<td style="padding:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${ink}">TraceReports · ${esc(L.doc)}</td>
+				<td style="padding:0 0 10px;text-align:right;font-size:12px;color:#607d8b"><b style="color:${ink};font-family:Consolas,monospace">${esc(L.ref)} ${esc(escRef(e))}</b><br>${esc(L.generated)}: ${esc(generated)}</td></tr></table>
+			<h2 style="margin:14px 0 10px;font-size:20px;color:${ink}">${esc(e.title)}</h2>
+			<table style="width:100%;border-collapse:collapse">
+				<tr>${row(L.severity, `<b style="color:#fff;background:${color};padding:1px 8px;border-radius:4px;font-size:12px">${esc(L[`sev_${e.severity}`] || e.severity)}</b>`)}${row(L.audience, esc(L[e.audience]))}</tr>
+				<tr>${row(L.run, esc(f.run_name))}${row(L.env, esc(f.env || "—"))}</tr>
+				<tr>${row(L.result, esc(escFmt(L.failed, { f: f.failed, t: f.total })))}${row(L.run_date, esc(fmtDateTime(f.started_at)))}</tr>
+			</table>
+			<div style="margin-top:14px;padding:10px 14px;background:#f3f6f9;border-left:4px solid ${ink}"><div style="font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${ink}">${esc(L.summary)}</div>${p(e.headline)}</div>
+			${f.shot_blank ? `<p style="margin:14px 0 0;padding:10px 12px;border:1px dashed #b0bec5;font-size:13px;color:#455a64"><b>${esc(L.blank_title)}</b><br>${esc(L.blank_desc)}</p>` : ""}
 			${f.assessment ? h3(`${L.qa_verdict}: ${L[`qa_${f.assessment.verdict}`] || f.assessment.verdict}`)
 				+ (f.assessment.signals?.length ? `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.assessment.signals.map((s) => `<li><b>${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}:</b> ${esc(s.text)}</li>`).join("")}</ul>` : p(L.qa_clean_desc)) : ""}
 			${shot ? `<img src="${shot}" alt="${esc(L.shot)}" style="margin-top:14px;max-width:100%;border:1px solid #e0e0e0;border-radius:6px">` : ""}
@@ -2895,6 +2946,7 @@
 			${e.owner ? `<p style="margin:16px 0 0;font-size:13px;color:#37474f">${esc(L.owner)}: <b>${esc(e.owner)}</b></p>` : ""}
 			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join("") : ""}
 			<p style="margin:16px 0 0"><a href="${esc(escReportURL(e))}" style="color:#1565c0">${esc(L.report)}</a></p>
+			<p style="margin:14px 0 0;padding-top:8px;border-top:1px solid #dfe5ea;font-size:11.5px;color:#90a4ae">${esc(escFmt(L.foot, { d: generated }))}</p>
 		</div>`;
 	}
 
@@ -2925,7 +2977,7 @@
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const p = (html) => `<p>${html}</p>`, b = (s) => `<b>${esc(s)}</b>`;
 		const list = (tag, xs) => `<${tag}>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</${tag}>`;
-		const out = [p(`${b((L[e.severity] || e.severity).toUpperCase())} · ${b(e.title)}`), p(esc(e.headline))];
+		const out = [p(esc(`${L.doc} ${escRef(e)}`)), p(`${b((L[e.severity] || e.severity).toUpperCase())} · ${b(e.title)}`), p(esc(e.headline))];
 		const qa = f.assessment;
 		if (qa) {
 			out.push(p(`${b(L.qa_verdict + ":")} ${esc(L[`qa_${qa.verdict}`] || qa.verdict)}`));
@@ -3006,10 +3058,35 @@
 		setTimeout(() => { btn.innerHTML = old; btn.classList.remove("cf-copied", "cf-failed"); }, 1800);
 	}
 
+	/** PDF: una copia del reporte sola en la hoja y la impresión del navegador («Guardar como PDF»).
+	 * El nombre del archivo sale del título del documento: el número del reporte. */
+	function escPrintPDF(e) {
+		const card = $("#esc-card");
+		if (!card) return;
+		document.getElementById("esc-print")?.remove();
+		const holder = document.createElement("div");
+		holder.id = "esc-print";
+		holder.appendChild(card.cloneNode(true)).removeAttribute("id");
+		document.body.appendChild(holder);
+		const title = document.title;
+		document.title = `${escRef(e)} · ${e.title}`.replace(/[\\/:*?"<>|]+/g, " ").slice(0, 120);
+		document.body.classList.add("esc-printing");
+		const done = () => {
+			document.body.classList.remove("esc-printing");
+			document.title = title;
+			holder.remove();
+			window.removeEventListener("afterprint", done);
+		};
+		window.addEventListener("afterprint", done);
+		window.print();
+		setTimeout(() => { if (document.body.classList.contains("esc-printing")) done(); }, 60_000); // si afterprint no llega
+	}
+
 	async function escShare(kind, btn) {
 		const e = S.esc.data;
 		if (!e) return;
 		try {
+			if (kind === "pdf") { escPrintPDF(e); return; }
 			if (kind === "plain" || kind === "md") { CF.copyText(escText(e, kind), btn); return; }
 			if (kind === "teams-copy" || kind === "slack") {
 				// con formato: Teams y Slack muestran los ** o * del texto tal cual al pegarlo
@@ -3109,6 +3186,7 @@
 				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Imagen")}</span>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png" data-tip="${tr("Copia la tarjeta como imagen para pegarla en Teams, Slack o una presentación")}">${icon("i-camera")}${tr("Copiar imagen")}</button>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png-dl" data-tip="${tr("Descarga la tarjeta como PNG")}">${icon("i-download")}PNG</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="pdf" data-tip="${tr("Abre la impresión con solo el reporte: elige «Guardar como PDF» para adjuntarlo a un correo o ticket")}">${icon("i-download")}PDF</button>
 				</div>
 				${cfg.teams || cfg.slack ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Enviar al canal")}</span>
 					${cfg.teams ? `<button class="cf-btn cf-btn-sm esc-send" data-esc-share="teams" data-tip="${tr("Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)")}">${icon("i-teams")}Teams</button>` : ""}

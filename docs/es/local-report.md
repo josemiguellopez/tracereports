@@ -153,7 +153,7 @@ lectura a propósito (`chmod -R a+rX carpeta`).
 | Pasos, capturas, timeline y replay | **Métricas** (cruzan muchas ejecuciones) |
 | Red con *Copiar como cURL* y mocks | Enviar a **Teams o Slack** y crear **tickets** |
 | Diagnóstico y locators sugeridos | Generar o re-analizar con **IA** (se ve el diagnóstico que ya existía) |
-| **Escalar**: el resumen de la ejecución y de cada test fallido, para Negocio, QA y Desarrollo, en español e inglés, listo para copiar como texto, Markdown, correo o imagen | **Ajustes** del servidor |
+| **Escalar**: el resumen de la ejecución y de cada test fallido, para Negocio, QA y Desarrollo, en español e inglés, listo para copiar como texto, Markdown, correo, imagen o PDF | **Ajustes** del servidor |
 | **Release**: la decisión de esa ejecución con sus criterios | Comparar con ejecuciones anteriores |
 
 ## 5. Casos comunes

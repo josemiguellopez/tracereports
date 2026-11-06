@@ -219,7 +219,7 @@ func (s *Server) issueFrom(e *ai.Escalation) *tracker.Issue {
 	for _, d := range f.Dev {
 		devIssue(is, d, tl, s.publicURL(), len(f.Dev) > 1 || f.TestName == "")
 	}
-	if name := filepath.Base(f.Screenshot); strings.HasPrefix(f.Screenshot, "/screenshots/") && name != "." {
+	if name := filepath.Base(f.Screenshot); strings.HasPrefix(f.Screenshot, "/screenshots/") && name != "." && !f.ShotBlank {
 		if img, err := s.shots().ReadFile(name); err == nil && len(img) <= maxScreenshotBody {
 			is.Image = img
 		}
