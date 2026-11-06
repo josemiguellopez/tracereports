@@ -10,6 +10,21 @@ Python client 0.5.2 (pending release); the other clients do not change.
 
 ### Added
 
+- **Live**: what is running now, per execution (runs grouped by `execution_id` or, without it, by context
+  and time): progress and ETA with the tests the client collected, *turtle* tests (slower than their p90 or
+  twice their median) and tests *without signal* (nothing for `TRACEREPORTS_NO_SIGNAL_MIN` minutes, server
+  clock), lanes per worker and a table per file and test with what needs action first and the last step.
+  Optional alerts to Teams/Slack (`TRACEREPORTS_LIVE_ALERTS`, `TRACEREPORTS_ALERT_TURTLE`,
+  `TRACEREPORTS_ALERT_FAILURES`). API: `GET /live`, `GET /live/execution`, `POST /runs/{id}/plan`.
+- **Cooperative cancel**: *Cancel execution…* in Live (admin) marks the running runs; Python clients with
+  `TRACEREPORTS_REMOTE_CONTROL=1` see it between tests (`GET /runs/{id}/control`), skip the rest with the
+  reason and close the run. Nothing is killed.
+- Python client: `execution_id` (`TRACEREPORTS_EXECUTION_ID` or the CI build of Azure DevOps, GitHub Actions,
+  GitLab or Jenkins), the planned tests from the pytest plugin (also with xdist) and
+  `TRACEREPORTS_DOM_ON=fail,warning` for the page of each WARNING step.
+- **Inspector: compare with the last PASS**: what is gone, what is new and what changed against the page of
+  the same step in the test's last PASS (`GET /tests/{id}/dom/baseline`). WARNING pages are marked.
+
 - **Inspector**: a test tab that rebuilds the page at the moment of the failure from a structural
   snapshot, so a missing element no longer forces reproducing the failure. A swarm of cursors draws the
   page (or *Show instantly*), the test cursor walks the step pages, and the selector that failed is

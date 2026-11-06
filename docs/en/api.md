@@ -26,7 +26,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/runs` | `{name, environment, project, branch, commit, framework}` | `201 {run_id}` |
+| POST | `/runs` | `{name, environment, project, branch, commit, framework, execution_id, planned}` | `201 {run_id}` |
 | POST | `/runs/{run_id}/tests` | `{name, category, description, key, suite, params, worker}` | `201 {test_id}` |
 | POST | `/tests/{test_id}/logs` | `{status, message, timestamp}` | `201` created step |
 | POST | `/tests/{test_id}/screenshot` | multipart: `file` (PNG/JPEG/GIF/WEBP), `message`, `status` | `201 {url, log}` |
@@ -36,6 +36,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 | POST | `/tests/{test_id}/dom` | Page snapshot on failure, or of a step with `kind: "step"` (see below), up to 4 MB / 2000 elements / 6000 nodes | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
 | PATCH | `/runs/{run_id}/finish` | `{interrupted}` (optional) | `200` run |
+| POST | `/runs/{run_id}/plan` | `{planned}`: how many tests the client collected (progress and ETA in Live) | `200` |
 
 - Step `status`: `INFO`, `PASS`, `FAIL`, `WARNING`, `SKIP`. `timestamp`: epoch in ms or
   RFC 3339 (optional, default now).
@@ -203,6 +204,10 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/dom` | Page snapshot at the failure, as stored (`204` if there is none) |
 | GET | `/tests/{test_id}/dom/steps` | Step snapshots: `[{seq, label, at}]` |
 | GET | `/tests/{test_id}/dom/steps/{seq}` | One step snapshot (`404` if it does not exist) |
+| GET | `/tests/{test_id}/dom/baseline?label=` | The page of the same step in the test's last PASS that kept its pages (`204` if none) |
+| GET | `/live` | Live: executions running or finished in the last 2 h, with counts, progress and ETA |
+| GET | `/live/execution?key=` | One execution with its runs and tests (state `running`, `turtle`, `no_signal` or the result, duration, p50/p90, last step) |
+| GET | `/runs/{run_id}/control` | `{cancel, by, reason}`: asked by clients with remote control between tests |
 | GET | `/tests/{test_id}/drift` | p95 per endpoint of the test vs. the median of its previous runs |
 | GET | `/stream?run={id}` | Live events (Server-Sent Events): `run`, `test`, `log`, `network`, `triage`, `summary` |
 | GET | `/network/{id}/body` | Full stored body (JSON or plain text, never executable HTML) |
