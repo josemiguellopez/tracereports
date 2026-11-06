@@ -106,6 +106,15 @@ quita después, también si la captura falla. Si no se puede tapar, no se captur
 (solo las de un paso `FAIL`) u `off` (ninguna). El servidor aplica la misma variable por su cuenta (ver
 [Configuración → Capturas de pantalla](configuration.md#capturas-de-pantalla)).
 
+## En vivo: ejecución, tests planificados y control remoto
+
+| Variable | Efecto |
+|---|---|
+| `TRACEREPORTS_EXECUTION_ID` | Agrupa en En vivo las corridas de una misma ejecución. Sin ella, el id del build de CI (`BUILD_BUILDID`, `GITHUB_RUN_ID`, `CI_PIPELINE_ID`, `BUILD_TAG`) |
+| `TRACEREPORTS_REMOTE_CONTROL=1` | Cuando alguien cancela la ejecución desde En vivo, los tests que faltan se saltan con el motivo. No se mata nada |
+
+Con JUnit 5 los tests planificados salen solos del plan de tests. Sin JUnit: `RunInfo.planned(n)`, `setPlanned(n)` y `cancelRequested()`.
+
 ## Sin JUnit
 
 ```java
