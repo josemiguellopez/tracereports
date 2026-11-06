@@ -64,4 +64,31 @@ final class Context {
             return "";
         }
     }
+
+    // Id del build de CI: las corridas de un mismo build quedan juntas en En vivo.
+    private static final String[][] EXECUTION_VARS = {
+        {"BUILD_BUILDID", "azure-"}, {"GITHUB_RUN_ID", "github-"}, {"CI_PIPELINE_ID", "gitlab-"}, {"BUILD_TAG", ""},
+    };
+
+    /** El id que agrupa las corridas de una ejecución: TRACEREPORTS_EXECUTION_ID o el build de CI. */
+    static String executionId() {
+        return executionId(Context::env);
+    }
+
+    static String executionId(java.util.function.UnaryOperator<String> get) {
+        String explicit = get.apply("TRACEREPORTS_EXECUTION_ID").trim();
+        if (!explicit.isEmpty()) return clip(explicit);
+        for (String[] v : EXECUTION_VARS) {
+            String value = get.apply(v[0]).trim();
+            if (value.isEmpty()) continue;
+            String attempt = get.apply("GITHUB_RUN_ATTEMPT").trim();
+            if (v[0].equals("GITHUB_RUN_ID") && !attempt.isEmpty()) value += "-" + attempt;
+            return clip(v[1] + value);
+        }
+        return "";
+    }
+
+    private static String clip(String s) {
+        return s.length() > 120 ? s.substring(0, 120) : s;
+    }
 }
