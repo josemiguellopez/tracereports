@@ -79,7 +79,8 @@ func cleanSnapshot(p *redact.Policy, snap *locator.Snapshot) {
 		e := &snap.Elements[i]
 		e.Tag, e.Role, e.Type, e.TestIDAttr = field(e.Tag, 40), field(e.Role, 60), field(e.Type, 40), field(e.TestIDAttr, 40)
 		e.ID, e.Name, e.TestID = field(e.ID, 200), field(e.Name, 200), field(e.TestID, 200)
-		e.Label, e.Placeholder, e.Text = shown(e.Label, 120), shown(e.Placeholder, 120), shown(e.Text, 120)
+		// la etiqueta y el placeholder son texto fijo de la interfaz y sirven de locator: quedan como están
+		e.Label, e.Placeholder, e.Text = field(e.Label, 120), field(e.Placeholder, 120), shown(e.Text, 120)
 	}
 }
 

@@ -62,7 +62,7 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 				}
 				v = redactThenCut(p, v, maxAttrValue)
 				if !locatorAttrs[k] {
-					v = personal(v) // title, placeholder, alt, aria-*, href: texto de la página
+					v = personal(v) // title, alt, aria-* (salvo aria-label), href: texto de la página
 				}
 				attrs[k] = v
 			}
@@ -195,8 +195,11 @@ func (s *Server) domBaseline(w http.ResponseWriter, r *http.Request) {
 const baselineHistory = 30
 
 // locatorAttrs identify an element for a locator: the personal-data mask leaves them as they are.
+// placeholder and aria-label too: they are fixed text of the interface (getByPlaceholder, getByLabel),
+// never what someone typed.
 var locatorAttrs = map[string]bool{"id": true, "class": true, "name": true, "role": true, "type": true, "for": true,
-	"data-testid": true, "data-test": true, "data-test-id": true, "data-tracereports-mask": true}
+	"data-testid": true, "data-test": true, "data-test-id": true, "data-tracereports-mask": true,
+	"placeholder": true, "aria-label": true}
 
 // personal masks RUTs, phone numbers and e-mails in what a page shows (TRACEREPORTS_REDACT_PII=off
 // turns it off). Only the DOM snapshot: steps and errors keep the secrets-only redaction.

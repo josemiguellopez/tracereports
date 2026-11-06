@@ -10,7 +10,7 @@ All notable changes to TraceReports. The format follows
 
 - **Personal data in DOM snapshots**: RUTs, phone numbers and e-mails are masked in the page snapshot
   (node text, text attributes, the locator elements, URL and title) as `<rut>`, `<telefono>`, `<correo>`;
-  the attributes of locators stay and dates are left alone. `TRACEREPORTS_REDACT_PII=off` turns it off.
+  the locator attributes (id, class, data-test*, placeholder, aria-label) stay and dates are left alone. `TRACEREPORTS_REDACT_PII=off` turns it off.
 - Python client: `TRACEREPORTS_DOM_STEPS=on-problem` keeps the step pages in memory and sends them only
   when the test fails or had a WARNING, plus a baseline of passing tests when the server has none from the
   last 7 days. `DOM_STEPS=1` keeps the pages of every test, also the passing ones, and `DOM_ON` does not
