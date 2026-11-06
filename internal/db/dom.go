@@ -37,11 +37,20 @@ type DOMStep struct {
 	Seq   int    `json:"seq"`
 	Label string `json:"label"`
 	At    int64  `json:"at"`
+	Kind  string `json:"kind"` // step | warning (TRACEREPORTS_DOM_ON=warning: la página de un WARNING)
 }
 
 // SaveDOMStep appends a step snapshot of a test and returns its number (0 when the test already
 // has MaxDOMSteps: it is not stored).
 func (s *Store) SaveDOMStep(testID int64, label string, at int64, snapshotJSON string) (int, error) {
+	return s.SaveDOMStepKind(testID, "step", label, at, snapshotJSON)
+}
+
+// SaveDOMStepKind is SaveDOMStep with the kind of page: "step" or "warning".
+func (s *Store) SaveDOMStepKind(testID int64, kind, label string, at int64, snapshotJSON string) (int, error) {
+	if kind != "warning" {
+		kind = "step"
+	}
 	var exists, n int
 	if err := s.db.QueryRow(`SELECT COUNT(*) FROM tests WHERE id=?`, testID).Scan(&exists); err != nil {
 		return 0, err
@@ -71,14 +80,14 @@ func (s *Store) SaveDOMStep(testID int64, label string, at int64, snapshotJSON s
 	if at <= 0 {
 		at = NowMs()
 	}
-	_, err := s.db.Exec(`INSERT INTO test_dom_steps(test_id, seq, label, at, snapshot, created_at) VALUES(?,?,?,?,?,?)`,
-		testID, seq, label, at, snapshotJSON, NowMs())
+	_, err := s.db.Exec(`INSERT INTO test_dom_steps(test_id, seq, label, at, snapshot, created_at, kind) VALUES(?,?,?,?,?,?,?)`,
+		testID, seq, label, at, snapshotJSON, NowMs(), kind)
 	return seq, err
 }
 
 // ListDOMSteps lists the step snapshots of a test, in order.
 func (s *Store) ListDOMSteps(testID int64) ([]DOMStep, error) {
-	rows, err := s.db.Query(`SELECT seq, label, at FROM test_dom_steps WHERE test_id=? ORDER BY seq`, testID)
+	rows, err := s.db.Query(`SELECT seq, label, at, kind FROM test_dom_steps WHERE test_id=? ORDER BY seq`, testID)
 	if err != nil {
 		return nil, err
 	}
@@ -86,7 +95,7 @@ func (s *Store) ListDOMSteps(testID int64) ([]DOMStep, error) {
 	out := []DOMStep{}
 	for rows.Next() {
 		var d DOMStep
-		if err := rows.Scan(&d.Seq, &d.Label, &d.At); err != nil {
+		if err := rows.Scan(&d.Seq, &d.Label, &d.At, &d.Kind); err != nil {
 			return nil, err
 		}
 		out = append(out, d)

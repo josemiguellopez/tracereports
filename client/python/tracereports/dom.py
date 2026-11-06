@@ -143,6 +143,13 @@ def dom_steps_enabled() -> bool:
     return (env("DOM_STEPS") or "").strip().lower() in ("1", "true", "yes", "on")
 
 
+def dom_on() -> "set[str]":
+    """TRACEREPORTS_DOM_ON: cuándo se guarda la página además de los pasos. ``fail`` (siempre) y,
+    con ``fail,warning``, también en cada paso WARNING, que muchas veces anticipa el fallo."""
+    values = {v.strip().lower() for v in (env("DOM_ON") or "fail").split(",") if v.strip()}
+    return values | {"fail"}
+
+
 def _tag(snap, kind, label):
     if isinstance(snap, dict):
         snap["kind"] = kind

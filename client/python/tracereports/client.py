@@ -64,8 +64,8 @@ from typing import Any, Callable, Iterator, Optional, Union
 
 from ._env import env
 from .binary import resolve_binary
-from .context import detect_branch, detect_commit
-from .dom import dom_signature, dom_steps_enabled
+from .context import default_execution_id, detect_branch, detect_commit
+from .dom import dom_on, dom_signature, dom_steps_enabled
 from .mask import screenshot_allowed
 from .offline import Recorder, new_session_dir
 from .transport import Sender
@@ -161,8 +161,13 @@ class TraceReports:
         # TRACEREPORTS_DOM_STEPS=1: the page of each step with a screenshot also goes to the Inspector.
         # dom_step_source returns the snapshot of the current page (the pytest plugin sets it per test).
         self.dom_steps = dom_steps_enabled()
+        # TRACEREPORTS_DOM_ON=fail,warning: also the page of each WARNING step (it often comes before a failure)
+        self.dom_on_warning = "warning" in dom_on()
         self.dom_step_source: Optional[Callable[[], Optional[dict]]] = None
-        self._dom_step_sig: "dict[int, str]" = {}
+        self._dom_step_sig: "dict[tuple[int, str], str]" = {}
+        # TRACEREPORTS_REMOTE_CONTROL=1: between tests, ask the server whether the run was cancelled
+        self.remote_control = env("REMOTE_CONTROL", "").strip().lower() in ("1", "true", "yes", "on")
+        self._control = {"checked": 0.0, "cancel": False, "reason": "", "off": False}
         self._local = threading.local()  # current test id per thread
         self._expect: "dict[int, list[dict]]" = {}  # test_id -> respuestas esperadas
         self._lock = threading.Lock()
@@ -269,6 +274,8 @@ class TraceReports:
         commit: Optional[str] = None,
         framework: str = "",
         detect_context: bool = True,
+        execution_id: Optional[str] = None,
+        planned: int = 0,
     ) -> Optional[int]:
         """
         Create a run (suite execution). Returns run_id or None if the server is unreachable.
@@ -284,7 +291,11 @@ class TraceReports:
             branch = detect_branch() if branch is None else branch
             commit = detect_commit() if commit is None else commit
         payload = {"name": name, "environment": environment, "project": project or env("PROJECT", ""),
-                   "branch": branch or "", "commit": commit or "", "framework": framework}
+                   "branch": branch or "", "commit": commit or "", "framework": framework,
+                   # agrupa en En vivo las corridas de una misma ejecución (un run por archivo, un build de CI)
+                   "execution_id": default_execution_id() if execution_id is None else execution_id}
+        if planned > 0:
+            payload["planned"] = int(planned)
         if self._sender.spool_dir and self.enabled:
             resent = self._sender.load_spool()
             if resent:
@@ -497,6 +508,8 @@ class TraceReports:
             f"/api/v1/tests/{tid}/logs",
             {"status": status.upper(), "message": str(message), "timestamp": int(time.time() * 1000)},
         )
+        if status.upper() == "WARNING" and self.dom_on_warning:
+            self._dom_step(tid, str(message), warning=True)  # TRACEREPORTS_DOM_ON=warning
 
     def log_info(self, message: str, **kw: Any) -> None:
         self.log("INFO", message, **kw)
@@ -529,7 +542,7 @@ class TraceReports:
         if not tid or not self.enabled:
             return None
         if status.upper() != "FAIL":  # la página del fallo la toma el plugin aparte
-            self._dom_step(tid, message)
+            self._dom_step(tid, message, warning=status.upper() == "WARNING")
         # TRACEREPORTS_SCREENSHOTS=off|failures: la captura ni se lee ni se envía (ver mask.py)
         if not screenshot_allowed(status):
             return None
@@ -654,10 +667,11 @@ class TraceReports:
         body = json.dumps(snapshot).encode()
         return self._emit_raw("POST", f"/api/v1/tests/{tid}/dom", body, "application/json", max(self.upload_timeout, 10.0))
 
-    def _dom_step(self, test_id: int, label: str) -> None:
-        """With TRACEREPORTS_DOM_STEPS, the page of this step (once per distinct page)."""
+    def _dom_step(self, test_id: int, label: str, warning: bool = False) -> None:
+        """With TRACEREPORTS_DOM_STEPS, the page of this step (once per distinct page); with
+        TRACEREPORTS_DOM_ON=warning, the page of a WARNING step too."""
         source = self.dom_step_source
-        if not (self.dom_steps and source):
+        if not source or not (self.dom_steps or (warning and self.dom_on_warning)):
             return
         try:
             snap = source()
@@ -665,11 +679,58 @@ class TraceReports:
             return
         if not snap:
             return
+        kind = "warning" if warning and self.dom_on_warning else "step"
         sig = dom_signature(snap)
-        if self._dom_step_sig.get(test_id) == sig:
+        if self._dom_step_sig.get((test_id, kind)) == sig:
             return  # la misma pantalla que el paso anterior
-        self._dom_step_sig[test_id] = sig
-        self.attach_dom(snap, test_id=test_id, kind="step", label=label)
+        self._dom_step_sig[(test_id, kind)] = sig
+        self.attach_dom(snap, test_id=test_id, kind=kind, label=label)
+
+    # ------------------------------------------------------ En vivo (servidor)
+
+    def set_planned(self, planned: int) -> None:
+        """How many tests this run will execute (progress and ETA in Live). Best effort: a server
+        without Live ignores it and nothing is counted as lost evidence."""
+        if planned > 0:
+            self._best_effort("POST", f"/api/v1/runs/{self.run_id}/plan", {"planned": int(planned)})
+
+    def cancel_requested(self, every: float = 5.0) -> "tuple[bool, str]":
+        """With TRACEREPORTS_REMOTE_CONTROL=1: whether someone asked from TraceReports to cancel this
+        run (Live → Cancel execution), and why. Asks at most every ``every`` seconds; a server
+        without the endpoint, or no server, never cancels. Nothing is killed: the caller skips."""
+        c = self._control
+        if c["cancel"]:
+            return True, c["reason"]
+        if not self.remote_control or c["off"] or time.monotonic() - c["checked"] < every:
+            return False, ""
+        c["checked"] = time.monotonic()
+        res = self._best_effort("GET", f"/api/v1/runs/{self.run_id}/control", None)
+        if res is None:
+            return False, ""
+        if res == "missing":
+            c["off"] = True  # un servidor sin control remoto: no se vuelve a preguntar
+            return False, ""
+        if res.get("cancel"):
+            c["cancel"], c["reason"] = True, str(res.get("reason") or "")
+        return c["cancel"], c["reason"]
+
+    def _best_effort(self, method: str, path: str, payload: Optional[dict], timeout: float = 3.0):
+        """A direct call to the server, outside the evidence queue: never recorded offline, never
+        counted as lost. Returns the JSON, "missing" for a 404/405 (an older server) or None."""
+        if not (self.enabled and self.run_id and self.run_id > 0 and not self._sender.server_down()):
+            return None
+        try:
+            body = None if payload is None else json.dumps(payload).encode()
+            headers = dict(self._headers())
+            if body is not None:
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(self.base_url + path, data=body, method=method, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (la URL es la del servidor configurado)
+                return json.loads(resp.read() or b"{}")
+        except urllib.error.HTTPError as err:
+            return "missing" if err.code in (404, 405) else None
+        except Exception:  # la evidencia (y el control) nunca rompen el test
+            return None
 
     # ---------------------------------------------------- framework helpers
 

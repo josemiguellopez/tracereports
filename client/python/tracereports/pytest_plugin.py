@@ -151,6 +151,27 @@ class TraceReportsPlugin:
     def pytest_sessionstart(self, session):
         self._ensure_run()
 
+    # ─── En vivo: tests planificados y cancelación cooperativa ──────────────
+    def pytest_collection_finish(self, session):
+        """Cuántos tests va a correr esta sesión: progreso y ETA en En vivo. Con xdist el controlador no
+        recolecta (ver pytest_xdist_node_collection_finished) y los workers no lo informan."""
+        if self.workerinput is None and session.items:
+            self.cr.set_planned(len(session.items))
+
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_xdist_node_collection_finished(self, node, ids):
+        if not getattr(self, "_planned_sent", False) and ids:
+            self._planned_sent = True
+            self.cr.set_planned(len(ids))
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_setup(self, item):
+        """TRACEREPORTS_REMOTE_CONTROL=1: si alguien pidió cancelar desde TraceReports, los tests que
+        faltan se saltan (SKIP con el motivo) y la ejecución cierra normal. No se mata ningún proceso."""
+        cancel, reason = self.cr.cancel_requested()
+        if cancel:
+            pytest.skip("Cancelado desde TraceReports" + (f": {reason}" if reason else ""))
+
     @pytest.hookimpl(optionalhook=True)
     def pytest_configure_node(self, node):
         """xdist (controlador): todos los workers reportan en la misma ejecución."""

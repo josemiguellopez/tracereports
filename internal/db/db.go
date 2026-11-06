@@ -157,6 +157,8 @@ func Open(path string) (*Store, error) {
 		{"runs", "cancel_at", "INTEGER NOT NULL DEFAULT 0"},
 		{"runs", "cancel_by", "TEXT NOT NULL DEFAULT ''"},
 		{"runs", "cancel_reason", "TEXT NOT NULL DEFAULT ''"},
+		// la página de un paso o de un WARNING (TRACEREPORTS_DOM_ON=warning)
+		{"test_dom_steps", "kind", "TEXT NOT NULL DEFAULT 'step'"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()

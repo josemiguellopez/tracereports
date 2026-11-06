@@ -41,3 +41,29 @@ def detect_commit(cwd: Optional[str] = None) -> str:
         if value:
             return value
     return _git("rev-parse", "HEAD", cwd=cwd)
+
+
+# Variables de CI con el id del build: las corridas de un mismo build (un run por archivo, varios
+# jobs) quedan juntas en En vivo. TRACEREPORTS_EXECUTION_ID manda sobre todas.
+_EXECUTION_VARS = (
+    ("BUILD_BUILDID", "azure-"),   # Azure DevOps
+    ("GITHUB_RUN_ID", "github-"),  # GitHub Actions (con su intento, abajo)
+    ("CI_PIPELINE_ID", "gitlab-"), # GitLab
+    ("BUILD_TAG", ""),             # Jenkins: ya viene como "jenkins-<job>-<n>"
+)
+
+
+def default_execution_id() -> str:
+    """The id that groups the runs of one execution: TRACEREPORTS_EXECUTION_ID, or the CI build."""
+    from ._env import env
+
+    explicit = (env("EXECUTION_ID") or "").strip()
+    if explicit:
+        return explicit[:120]
+    for var, prefix in _EXECUTION_VARS:
+        value = (os.environ.get(var) or "").strip()
+        if value:
+            if var == "GITHUB_RUN_ID" and os.environ.get("GITHUB_RUN_ATTEMPT"):
+                value += "-" + os.environ["GITHUB_RUN_ATTEMPT"].strip()
+            return (prefix + value)[:120]
+    return ""

@@ -134,3 +134,21 @@ func TestStepSnapshotsEncryptedAtRest(t *testing.T) {
 		t.Fatalf("counted for the key rotation: %+v", keys)
 	}
 }
+
+// TRACEREPORTS_DOM_ON=warning: la página de un WARNING se guarda entre las del test, marcada, y no
+// reemplaza la del fallo.
+func TestWarningSnapshotsAreMarked(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("step", "Abrir la agenda", ""))
+	if out := postDOM(t, srv, testID, structSnap("warning", "La grilla tardó 12 s", "")); out["kind"] != "warning" || out["seq"].(float64) != 2 {
+		t.Fatalf("warning: %+v", out)
+	}
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom/steps", testID), "")
+	if !strings.Contains(rec.Body.String(), `"label":"Abrir la agenda","at":`) || !strings.Contains(rec.Body.String(), `"kind":"step"`) ||
+		!strings.Contains(rec.Body.String(), `"label":"La grilla tardó 12 s"`) || !strings.Contains(rec.Body.String(), `"kind":"warning"`) {
+		t.Fatalf("steps: %s", rec.Body.String())
+	}
+	if rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), ""); rec.Code != http.StatusNoContent {
+		t.Fatalf("un WARNING no es la página del fallo: %d", rec.Code)
+	}
+}
