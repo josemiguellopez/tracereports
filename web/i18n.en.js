@@ -951,7 +951,12 @@
 		"Probar en el probador": "Try it in the tester", "Usar como reemplazo del selector que falló": "Use as replacement for the failed selector",
 		"Ninguna coincidencia": "No match", "1 coincidencia: único": "1 match: unique", "{n} coincidencias": "{n} matches",
 		"La página del momento del fallo": "The page at the moment of the failure", "Abrir en el Inspector": "Open in the Inspector",
-		"Comparar con el último PASS": "Compare with the last PASS", "Cambios desde el último PASS": "Changes since the last PASS",
+		"Comparar con el último PASS": "Compare with the last PASS",
+		"Comparar con el último PASS necesita el servidor: el reporte exportado no trae ejecuciones anteriores.":
+			"Comparing with the last PASS needs the server: the exported report has no earlier runs.",
+		"{n} páginas de este test no entraron en el reporte exportado (tope de tamaño): siguen en el servidor.":
+			"{n} pages of this test did not fit in the exported report (size cap): they are still on the server.",
+		"Este reporte no trae las páginas de este test.": "This report does not include the pages of this test.", "Cambios desde el último PASS": "Changes since the last PASS",
 		"Buscando el último PASS de este test…": "Looking for this test's last PASS…",
 		"No hay un PASS anterior de este test con sus páginas guardadas. Con TRACEREPORTS_DOM_STEPS=1 cada ejecución guarda las páginas de sus pasos y se puede comparar.":
 			"There is no earlier PASS of this test with its pages saved. With TRACEREPORTS_DOM_STEPS=1 every run keeps the pages of its steps and they can be compared.",

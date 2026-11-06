@@ -106,3 +106,39 @@ test("grabación sin servidor: Escalar y Release también en el reporte estátic
 });
 
 test.afterAll(() => fs.rmSync(out, { recursive: true, force: true }));
+
+// El reporte exportado trae las páginas del Inspector (antes no traía ninguna y el Inspector no aparecía):
+// se navega sin servidor, con el probador de XPath/CSS, y Comparar con el último PASS explica por qué no está.
+test("Inspector en el reporte estático: sus páginas, el probador y el aviso de comparar", async ({ page }) => {
+	const snap = JSON.parse(fs.readFileSync(path.join(__dirname, "fixtures", "ficha_modal.snapshot.json"), "utf8"));
+	const dir = path.join(out, "rec-dom");
+	fs.mkdirSync(dir, { recursive: true });
+	fs.writeFileSync(path.join(dir, "tracereports-offline.json"), JSON.stringify({ format: "tracereports-offline", version: 1, id: "static-dom" }));
+	const ev = (seq, method, p, body, extra = {}) => JSON.stringify({ seq, ts: 1790000000000 + seq * 100, method, path: p, content_type: "application/json", body, ...extra });
+	fs.writeFileSync(path.join(dir, "events-1.jsonl"), [
+		ev(1, "POST", "/api/v1/runs", { name: "Ficha sin servidor" }, { local_id: -1 }),
+		ev(2, "POST", "/api/v1/runs/-1/tests", { name: "test_ficha_modal" }, { local_id: -2 }),
+		ev(3, "POST", "/api/v1/tests/-2/dom", { ...snap, kind: "step", label: "Abrir la ficha" }),
+		ev(4, "POST", "/api/v1/tests/-2/dom", { ...snap, kind: "fail" }),
+		ev(5, "PATCH", "/api/v1/tests/-2/finish", { status: "FAIL", error_message: 'waiting for locator("#entendido-viejo")' }),
+		ev(6, "PATCH", "/api/v1/runs/-1/finish", {}),
+	].join("\n") + "\n");
+	await page.setViewportSize({ width: 1800, height: 1100 });
+	await page.goto(report("offline-dom", dir));
+	await page.locator("#test-collection .collection-item", { hasText: "test_ficha_modal" }).click();
+	await page.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = page.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-status")).toHaveText(/elementos reconstruidos/);
+	await expect(insp.locator(".insp-steps li")).toHaveCount(2);
+	await expect(insp.locator(".insp-n", { hasText: /^Entendido$/ })).toHaveCount(1);
+	// el probador funciona sobre la página del ZIP
+	await insp.locator(".insp-probe").fill("//button[@id='entendido']");
+	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");
+	// la página del paso también se abre desde el ZIP
+	await insp.locator(".insp-steps li").first().click();
+	await expect(insp.locator(".insp-n", { hasText: /^Historial de atenciones$/ })).toHaveCount(1);
+	// comparar necesita el servidor: deshabilitado, con su explicación
+	await expect(insp.getByRole("button", { name: /Comparar con el último PASS/ })).toBeDisabled();
+	await expect(insp.locator(".insp-nocompare")).toContainText("necesita el servidor");
+});

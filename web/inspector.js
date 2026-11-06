@@ -292,10 +292,13 @@
 				<button class="cf-btn cf-btn-sm" data-insp="pause" type="button" aria-pressed="false">⏸ ${esc(t("Pausa"))}</button>
 				<span class="seg insp-speed" role="group" aria-label="${esc(t("Velocidad"))}"><button type="button" data-speed="1" aria-pressed="true">1×</button><button type="button" data-speed="2" aria-pressed="false">2×</button><button type="button" data-speed="4" aria-pressed="false">4×</button></span>
 				<button class="cf-btn cf-btn-sm" data-insp="instant" type="button">${esc(t("Ver al instante"))}</button>
-				${opts.loadBaseline ? `<button class="cf-btn cf-btn-sm" data-insp="diff" type="button" aria-pressed="false">⇄ ${esc(t("Comparar con el último PASS"))}</button>` : ""}
+				${opts.loadBaseline ? `<button class="cf-btn cf-btn-sm" data-insp="diff" type="button" aria-pressed="false">⇄ ${esc(t("Comparar con el último PASS"))}</button>`
+					: opts.compareUnavailable ? `<button class="cf-btn cf-btn-sm" type="button" disabled title="${esc(opts.compareUnavailable)}" aria-describedby="insp-nocompare">⇄ ${esc(t("Comparar con el último PASS"))}</button><span class="m-hint insp-nocompare" id="insp-nocompare">${esc(opts.compareUnavailable)}</span>` : ""}
 				${opts.screenshot ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
 				<span class="insp-status" aria-live="polite"></span>
 			</div>
+			${opts.notice ? `<p class="insp-notice" role="note">${esc(opts.notice)}</p>` : ""}
+			${!pages.length ? `<p class="insp-notice" role="note">${esc(t("Este reporte no trae las páginas de este test."))}</p>` : ""}
 			<div class="insp-main">
 				<div class="insp-left">
 					<div class="insp-viewport"><div class="insp-stage"><div class="insp-layer"></div>${opts.screenshot ? `<img class="insp-overlay" alt="${esc(t("Captura del momento del fallo"))}">` : ""}<div class="insp-cursors"></div></div></div>
