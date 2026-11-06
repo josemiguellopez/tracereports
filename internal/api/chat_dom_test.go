@@ -158,3 +158,28 @@ func TestBuddyChatUsesTheLastStepPageWithoutAFailure(t *testing.T) {
 		t.Fatal("la evidencia no lleva la página del WARNING")
 	}
 }
+
+// La prueba real con llama3.1:8b: el modelo inventó "//div[@class='loading-indicator']". El chat toma la
+// página del WARNING (la del final ya cargó y no tiene el skeleton), ve que el XPath no sale de la página,
+// reintenta una vez y responde con el skeleton y la espera armados desde el snapshot.
+func TestBuddyChatReplacesAnInventedLocator(t *testing.T) {
+	clearAIEnv(t)
+	srv, testID := newTestServer(t)
+	invented := "Usa //div[@class='loading-indicator'] con WebDriverWait."
+	mock, prompts := fakeOllama(t, invented)
+	srv.AI.SetConfig(ai.Config{Provider: "ollama", BaseURL: mock.URL, Model: "llama3.1:8b"})
+	test, _ := srv.Store.GetTest(testID)
+	srv.Store.SaveDOMStepKind(testID, "warning", "La grilla sigue cargando", 0, clientPage)
+	srv.Store.SaveDOMStepKind(testID, "step", "Agenda cargada", 0, `{"url":"https://app/agenda","nodes":[{"i":0,"p":-1,"tag":"body","visible":true,"w":10,"h":10}]}`)
+	rec := call(t, srv, "POST", "/api/v1/ui/ai/chat", chatBody(test.RunID, testID, "necesito el xpath del esqueleton para agregar un wait"))
+	var res struct{ Answer string }
+	if json.Unmarshal(rec.Body.Bytes(), &res); rec.Code != http.StatusOK {
+		t.Fatalf("%d %s", rec.Code, rec.Body)
+	}
+	if strings.Contains(res.Answer, "loading-indicator") || !strings.Contains(res.Answer, "skeleton-row") || !strings.Contains(res.Answer, "invisibility_of_element_located") {
+		t.Fatalf("respuesta: %s", res.Answer)
+	}
+	if p := prompts(); len(p) != 2 || !strings.Contains(p[1], "names that are not in the page") {
+		t.Fatalf("una pregunta y un reintento que explica por qué: %d", len(p))
+	}
+}
