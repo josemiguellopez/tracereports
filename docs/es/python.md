@@ -206,6 +206,23 @@ cr.attach_screenshot(selenium_screenshot(driver), "Formulario")             # en
 paso `FAIL`) u `off` (ninguna). El servidor aplica la misma variable por su cuenta (ver
 [Configuración → Capturas de pantalla](configuration.md#capturas-de-pantalla)).
 
+## Inspector: la página del momento del fallo
+
+Al fallar, el cliente también envía la **estructura de la página** (cada elemento con su caja, su texto
+propio y algunos estilos). La pestaña **Inspector** del test la reconstruye: puedes inspeccionar lo que
+había en pantalla, probar XPath o CSS sobre ella y copiar locators robustos (clic derecho → *QA /
+Automation*) **sin volver a reproducir el fallo**. Si el selector que falló no existe, lo marca y señala
+el elemento más parecido.
+
+| Variable | Efecto |
+|---|---|
+| `TRACEREPORTS_DOM=basic` | Solo los elementos interactivos, como antes (el Inspector dibuja solo esos). Por defecto: `structure` |
+| `TRACEREPORTS_DOM_STEPS=1` | Guarda también la página de cada paso con captura (una vez por página distinta, hasta 40 por test), para recorrer el test entero en el Inspector. Apagado por defecto |
+
+Lo que se tapa en las capturas (`input[type=password]`, `[data-tracereports-mask]`,
+`TRACEREPORTS_SCREENSHOT_MASK`) conserva su caja pero no su texto, y lo que alguien escribió en un campo
+nunca viaja. No se captura: el interior de iframes de otro origen ni lo que dibuja un `<canvas>`.
+
 ## Captura de red con Playwright
 
 ```python

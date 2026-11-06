@@ -33,7 +33,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 | POST | `/tests/{test_id}/artifact` | multipart: `file`, `kind` (`trace` or `video`), `name` | `201` artifact. Playwright trace (ZIP) or video (WebM/MP4), up to 100 MB |
 | POST | `/tests/{test_id}/console` | `{entries: [{level, text, location, timestamp}]}` | `201 {stored, dropped}`. Browser console: `error`, `warning`, `pageerror`, `info`, `log`, `debug` (max 500 per test) |
 | POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (up to 5000 per batch, 48 MiB per request) | `201 {stored, errors}`. `body_size` is the original size in UTF-8 bytes; send `body_truncated: true` when the body arrives already cut, so the report does not show it as complete |
-| POST | `/tests/{test_id}/dom` | Page snapshot on failure (see below), up to 4 MB / 2000 elements | `201` |
+| POST | `/tests/{test_id}/dom` | Page snapshot on failure, or of a step with `kind: "step"` (see below), up to 4 MB / 2000 elements / 6000 nodes | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
 | PATCH | `/runs/{run_id}/finish` | `{interrupted}` (optional) | `200` run |
 
@@ -108,6 +108,15 @@ suggests replacement selectors and the AI picks the most likely one. The clients
                 "visible": true, "x": 315, "y": 560, "w": 464, "h": 46}]
 }
 ```
+
+The Python client also sends `page` (`{w, h}`, the whole page) and `nodes`, the page as a flat tree that
+the **Inspector** redraws: each node has `i` (its index), `p` (the parent's index, `-1` for `body`; a
+parent always comes first), `tag`, `attrs`, its own `text`, its box (`x`, `y`, `w`, `h`, page
+coordinates), `visible`, `depth`, `tx`/`ty` (where the text starts inside the box) and `style`. The server
+keeps only known attributes (`id`, `class`, `name`, `role`, `type`, `placeholder`, `href`, `title`, `for`,
+`alt`, `data-test*`, `aria-*`) and styles (colors, font, border, display, opacity…; no `url()`), masks
+secrets in texts and values, and drops a tree that is not well formed. With `"kind": "step"` and
+`"label"` it is the page of a step (up to 40 per test); without them, the page at the failure.
 
 ### Real time of an event
 
@@ -191,6 +200,9 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/history` | The test's latest runs (by name) |
 | GET | `/tests/{test_id}/network` | The test's network calls |
 | GET | `/tests/{test_id}/locator` | Broken selector and suggested replacements (`204` if the failure was not a selector) |
+| GET | `/tests/{test_id}/dom` | Page snapshot at the failure, as stored (`204` if there is none) |
+| GET | `/tests/{test_id}/dom/steps` | Step snapshots: `[{seq, label, at}]` |
+| GET | `/tests/{test_id}/dom/steps/{seq}` | One step snapshot (`404` if it does not exist) |
 | GET | `/tests/{test_id}/drift` | p95 per endpoint of the test vs. the median of its previous runs |
 | GET | `/stream?run={id}` | Live events (Server-Sent Events): `run`, `test`, `log`, `network`, `triage`, `summary` |
 | GET | `/network/{id}/body` | Full stored body (JSON or plain text, never executable HTML) |

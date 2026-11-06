@@ -464,7 +464,8 @@
 		const tab = S.detailTab === "network" && t.network_total > 0 ? "network"
 			: S.detailTab === "console" && consoleList.length ? "console"
 			: S.detailTab === "timeline" ? "timeline"
-			: S.detailTab === "replay" && shots > 0 ? "replay" : "steps";
+			: S.detailTab === "replay" && shots > 0 ? "replay"
+			: S.detailTab === "inspector" && hasInspector(t) ? "inspector" : "steps";
 		const head = `<div class="card detail-head">
 			<div class="title-row"><h4 class="detail-name">${esc(t.name)}</h4>${statusLabel(t.status)}</div>
 			<div class="test-info">
@@ -510,6 +511,7 @@
 			<button data-tab="steps" class="${tab === "steps" ? "active" : ""}" data-tip-title="Steps" data-tip="Cada acción y validación del test en orden, con sus capturas debajo. Filtra por estado con los chips.">${icon("i-tests")}Steps <span class="tab-count">${t.logs.length}</span></button>
 			<button data-tab="timeline" class="${tab === "timeline" ? "active" : ""}" data-tip-title="Timeline" data-tip="Pasos, capturas y llamadas al backend en una sola línea de tiempo, con lo que duró cada llamada: muestra qué esperaba el test cuando se trabó.">${icon("i-timeline")}Timeline</button>
 			${shots ? `<button data-tab="replay" class="${tab === "replay" ? "active" : ""}" data-tip-title="Replay" data-tip="Reproduce el test como un video, paso a paso, con la captura de cada momento. Útil para ver cómo llegó la pantalla al fallo." data-tip-keys="Espacio: play/pausa · ← →: pasos">${icon("i-play")}Replay <span class="tab-count">${shots}</span></button>` : ""}
+			${hasInspector(t) ? `<button data-tab="inspector" class="${tab === "inspector" ? "active" : ""}" data-tip-title="Inspector" data-tip="${tr("La página del momento del fallo reconstruida: inspecciona elementos, prueba XPath o CSS y copia locators robustos (clic derecho) sin volver a reproducir el fallo.")}">${icon("i-target")}Inspector${t.dom_steps ? ` <span class="tab-count">${t.dom_steps + (t.has_dom ? 1 : 0)}</span>` : ""}</button>` : ""}
 			${t.network_total > 0 ? `<button data-tab="network" class="${tab === "network" ? "active" : ""}" data-tip-title="Red" data-tip="Las llamadas al backend que hizo la página durante el test: status, tiempos, headers y body. Desde una llamada con error puedes generar un mock.">${icon("i-network")}Red <span class="tab-count">${t.network_total}</span>
 				${t.network_errors ? `<span class="tab-err">${t.network_errors} con error</span>` : `<span class="tab-ok">OK</span>`}</button>` : ""}
 			${consoleList.length ? `<button data-tab="console" class="${tab === "console" ? "active" : ""}" data-tip-title="${tr("Consola")}" data-tip="${tr("Errores y advertencias de la consola del navegador durante el test, y los errores de JavaScript que la página no manejó.")}">${icon("i-warning")}${tr("Consola")} <span class="tab-count">${consoleList.length}</span>
@@ -518,6 +520,7 @@
 		const panel = tab === "network" ? `<div class="net-panel" id="net-panel"></div>`
 			: tab === "timeline" ? `<div class="timeline" id="timeline-panel"></div>`
 			: tab === "replay" ? `<div class="replay-panel" id="replay-panel"></div>`
+			: tab === "inspector" ? `<div class="inspector-panel" id="inspector-panel"></div>`
 			: tab === "console" ? consolePanel(consoleList) : steps;
 		const body = `<div class="card content-card">${tabs}${panel}</div>`;
 
@@ -525,6 +528,7 @@
 		if (tab === "network") ensureNetworkPanel(t);
 		if (tab === "timeline") ensureTimeline(t);
 		if (tab === "replay") mountReplay(t); else if (S.player) { S.player.destroy(); S.player = null; }
+		if (tab === "inspector") mountInspector(t); else if (S.inspector) { S.inspector.api?.destroy(); S.inspector = null; }
 		const bar = $("#test-detail .detail-tabs"), act = bar && $("button.active", bar);
 		if (act) { // pestaña activa visible en pantallas angostas
 			const r = act.getBoundingClientRect(), br = bar.getBoundingClientRect();
@@ -1316,6 +1320,34 @@
 			onLightbox: (src, caption) => openLightbox(src, caption),
 		});
 		S.player.testId = t.id;
+	}
+
+	// ---- Inspector (web/inspector.js) ----
+	const hasInspector = (t) => !STATIC && !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
+
+	/** Monta el Inspector una sola vez por test: los refrescos del detalle no lo reinician. */
+	async function mountInspector(t) {
+		const el = $("#inspector-panel");
+		if (!el || (S.inspector && S.inspector.el === el && S.inspector.testId === t.id)) return;
+		// el detalle se redibujó (llegó el diagnóstico, un paso nuevo): se reubica el mismo Inspector
+		if (S.inspector?.testId === t.id) { el.replaceWith(S.inspector.el); return; }
+		S.inspector?.api?.destroy();
+		const mine = (S.inspector = { el, testId: t.id, api: null });
+		const tr = window.TraceReportsI18n.t;
+		el.innerHTML = `<p class="m-hint">${esc(tr("Cargando la página del test…"))}</p>`;
+		const get = (path) => fetch(path, { headers: { Accept: "application/json" } }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);
+		const [snapshot, steps, loc] = await Promise.all([
+			t.has_dom ? get(`/api/v1/tests/${t.id}/dom`) : null,
+			t.dom_steps ? get(`/api/v1/tests/${t.id}/dom/steps`) : [],
+			t.status === "FAIL" ? get(`/api/v1/tests/${t.id}/locator`) : null,
+		]);
+		if (S.inspector !== mine || !el.isConnected) return;
+		mine.api = window.TraceReportsInspector.mount(el, {
+			snapshot, steps: steps || [], t: tr,
+			loadStep: (seq) => get(`/api/v1/tests/${t.id}/dom/steps/${seq}`),
+			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
+			screenshot: loc?.screenshot || "",
+		});
 	}
 
 	// ---- mocks ----

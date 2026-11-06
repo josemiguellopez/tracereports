@@ -10,6 +10,22 @@ Python client 0.5.2 (pending release); the other clients do not change.
 
 ### Added
 
+- **Inspector**: a test tab that rebuilds the page at the moment of the failure from a structural
+  snapshot, so a missing element no longer forces reproducing the failure. A swarm of cursors draws the
+  page (or *Show instantly*), the test cursor walks the step pages, and the selector that failed is
+  marked: a ghost and the most similar element when it does not exist, or the element itself when it
+  exists (covered, disabled or too early). Inspect any element, try XPath or CSS on the page, overlay the
+  screenshot, and right click for **QA / Automation**: robust XPath (`translate` + `contains`, case and
+  accent insensitive), XPath relative to a stable container, stable CSS, code for Selenium (Python, Java)
+  and Playwright (Python, JS), a Page Object constant, an explicit wait, and *use as replacement* of the
+  failed selector.
+- Python client: the failure snapshot is now the whole page structure (`TRACEREPORTS_DOM=basic` keeps the
+  old one) and `TRACEREPORTS_DOM_STEPS=1` also keeps the page of each step with a screenshot (once per
+  different page, up to 40 per test). Masked elements keep their box but not their text; typed values
+  never travel.
+- API: `GET /tests/{id}/dom`, `GET /tests/{id}/dom/steps` and `GET /tests/{id}/dom/steps/{seq}`; tests
+  report `has_dom` and `dom_steps`. Step snapshots and their labels are encrypted at rest and rotated
+  with `tracereports evidence rekey`.
 - **Python client timeouts from the environment**: `TRACEREPORTS_TIMEOUT` (seconds per JSON request,
   default 2) and `TRACEREPORTS_RUN_TIMEOUT` (creating and closing the run, default 10, never shorter than
   `TRACEREPORTS_TIMEOUT`), also as `TraceReports(timeout=..., run_timeout=...)`. Creating and closing the
@@ -72,6 +88,9 @@ Python client 0.5.2 (pending release); the other clients do not change.
   name of a field as the evidence (`"title"`) and repeated the title as the executive summary. Fields left
   empty, filled with a field name or copying the title are now taken from the template built from the
   evidence; what the model did write stays.
+- Python client: the page snapshot no longer carries masked text (`[data-tracereports-mask]`,
+  `input[type=password]`, `TRACEREPORTS_SCREENSHOT_MASK`) inside the text of a container that has an id or
+  a role; it shows `•••` instead. The JavaScript and Java clients still have to be fixed.
 
 ### Security
 

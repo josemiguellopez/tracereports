@@ -917,4 +917,39 @@
 		"Verificado: resuelto": "Verified: fixed", "Verificado: sigue fallando": "Verified: still failing",
 		"Todos los checks pasaron el {d}{a}.": "All checks passed on {d}{a}.", "En la última verificación ({d}) algún check no pasó.": "In the last verification ({d}) a check failed.",
 	});
+
+	// ── Inspector (web/inspector.js) ──
+	Object.assign(EN.exact, {
+		"La página del momento del fallo reconstruida: inspecciona elementos, prueba XPath o CSS y copia locators robustos (clic derecho) sin volver a reproducir el fallo.":
+			"The page at the moment of the failure, rebuilt: inspect elements, try XPath or CSS and copy robust locators (right click) without reproducing the failure again.",
+		"Cargando la página del test…": "Loading the test's page…",
+		"Momento del fallo: {s}": "Moment of the failure: {s}", "Momento del fallo": "Moment of the failure",
+		"Reproducción": "Playback", "Reconstruir": "Rebuild", "Pausa": "Pause", "Seguir": "Resume", "Ver al instante": "Show instantly",
+		"Superponer captura": "Overlay screenshot", "Opacidad de la captura": "Screenshot opacity",
+		"Snapshot básico (solo los elementos interactivos): con el cliente actualizado se ve la página completa.": "Basic snapshot (interactive elements only): with an updated client you get the whole page.",
+		"Páginas del test": "Pages of the test", "Selector que falló": "Selector that failed", "Se marca al terminar la reconstrucción.": "Marked when the rebuild ends.",
+		"Probar XPath / CSS": "Try XPath / CSS", "Expresión XPath o CSS": "XPath or CSS expression", "Se evalúa sobre la página reconstruida.": "Evaluated on the rebuilt page.",
+		"Elemento": "Element",
+		"Clic en un elemento para ver sus atributos. Clic derecho: opciones de QA / Automation (XPath robusto y código listo para Selenium o Playwright).":
+			"Click an element to see its attributes. Right click: QA / Automation options (robust XPath and code ready for Selenium or Playwright).",
+		"Expresión no válida: {e}": "Invalid expression: {e}", "Reconstruyendo {n} de {t}": "Rebuilding {n} of {t}", "{n} elementos reconstruidos": "{n} elements rebuilt",
+		"Paso {n}": "Step {n}", "FALLÓ": "FAILED", "No se pudo extraer el selector del error.": "The selector could not be taken from the error.",
+		"{s} existe en la página: el fallo no fue el selector": "{s} exists on the page: the selector was not the problem",
+		"El elemento existe y es visible en el momento del fallo: revisa si estaba tapado, deshabilitado o si el test fue antes de tiempo.":
+			"The element exists and is visible at the moment of the failure: check whether it was covered, disabled or whether the test acted too early.",
+		"El elemento existe pero no es visible en el momento del fallo.": "The element exists but is not visible at the moment of the failure.",
+		"{s} no existe en la página": "{s} does not exist on the page", "no está": "missing", "Parecido: {s}": "Similar: {s}",
+		"No existe en el momento del fallo. El elemento más parecido:": "It does not exist at the moment of the failure. The most similar element:",
+		"No existe en el momento del fallo y no hay un elemento parecido: puede ser un fallo de flujo o de contenido.":
+			"It does not exist at the moment of the failure and nothing looks similar: it may be a flow or content failure.",
+		"único ✓": "unique ✓", "{n} coinciden": "{n} match", "sin coincidencias": "no matches", "texto": "text", "caja": "box",
+		"Selectores candidatos": "Candidate selectors",
+		"Clic derecho sobre el elemento: XPath robusto y código listo para Selenium o Playwright.": "Right click the element: robust XPath and code ready for Selenium or Playwright.",
+		"{w} copiado": "{w} copied", "Reemplazo": "Replacement", "Después": "After",
+		"Locators robustos": "Robust locators", "XPath robusto (sin mayúsculas ni tildes)": "Robust XPath (case and accent insensitive)",
+		"XPath relativo a un contenedor estable": "XPath relative to a stable container", "CSS estable": "Stable CSS", "Copiar como": "Copy as", "Acciones": "Actions",
+		"Probar en el probador": "Try it in the tester", "Usar como reemplazo del selector que falló": "Use as replacement for the failed selector",
+		"Ninguna coincidencia": "No match", "1 coincidencia: único": "1 match: unique", "{n} coincidencias": "{n} matches",
+		"Constante para Page Object (Python)": "Page Object constant (Python)", "Espera explícita (Selenium Python)": "Explicit wait (Selenium Python)",
+	});
 })();

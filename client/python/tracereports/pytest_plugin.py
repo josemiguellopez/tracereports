@@ -267,7 +267,15 @@ class TraceReportsPlugin:
         if driver is not None:
             item.stash[_DRIVER] = driver
             discard_logs(driver)  # lo de antes del test (otro test con el mismo driver) no es suyo
-        yield
+        # TRACEREPORTS_DOM_STEPS: la página de cada paso con captura, con el navegador de este test
+        if self.capture_dom and page is not None:
+            self.cr.dom_step_source = lambda: capturar_dom(page, kind="step")
+        elif self.capture_dom and driver is not None:
+            self.cr.dom_step_source = lambda: _selenium_dom(driver, kind="step")
+        try:
+            yield
+        finally:
+            self.cr.dom_step_source = None
         # Con la página todavía abierta: esperar (máx. 2 s) las llamadas en vuelo y enviar la red.
         # Después del teardown pytest-playwright cierra la página y ya no se puede esperar.
         test_id = item.stash.get(_TEST_ID, None)

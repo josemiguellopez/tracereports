@@ -26,8 +26,8 @@ antes de que la página navegara puede no estar disponible ya; el resto de la ll
 import base64
 import json
 
-from .dom import DOM_SCRIPT, _mask_dom
-from .mask import selenium_screenshot
+from .dom import DOM_SCRIPT, STRUCT_SCRIPT, _mask_dom, _tag, dom_level
+from .mask import mask_selector, selenium_screenshot
 from .network import _mask_headers, _mask_sensitive
 
 _LOG_PREFS = {"performance": "ALL", "browser": "ALL"}
@@ -208,12 +208,16 @@ def capture_console(driver):
     return out
 
 
-def capture_dom(driver):
-    """Snapshot de los elementos de la página (selectores sugeridos al fallar), o None."""
+def capture_dom(driver, kind="fail", label=""):
+    """Snapshot de la página (selectores sugeridos al fallar e Inspector), o None. Ver dom.py."""
     try:
-        return _mask_dom(driver.execute_script("return (" + DOM_SCRIPT + ")();"))
+        if dom_level() == "basic":
+            snap = driver.execute_script("return (" + DOM_SCRIPT + ")(arguments[0]);", mask_selector())
+        else:
+            snap = driver.execute_script("return (" + STRUCT_SCRIPT + ")(arguments[0]);", mask_selector())
     except Exception:
         return None
+    return _tag(_mask_dom(snap), kind, label)
 
 
 def screenshot(driver):

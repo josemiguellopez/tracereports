@@ -65,6 +65,7 @@ from typing import Any, Callable, Iterator, Optional, Union
 from ._env import env
 from .binary import resolve_binary
 from .context import detect_branch, detect_commit
+from .dom import dom_signature, dom_steps_enabled
 from .mask import screenshot_allowed
 from .offline import Recorder, new_session_dir
 from .transport import Sender
@@ -157,6 +158,11 @@ class TraceReports:
         self.run_id: Optional[int] = None
         self.run_created = False  # this client created the run (and must close it)
         self.unregistered_tests = 0  # tests whose creation failed: their evidence was not sent
+        # TRACEREPORTS_DOM_STEPS=1: the page of each step with a screenshot also goes to the Inspector.
+        # dom_step_source returns the snapshot of the current page (the pytest plugin sets it per test).
+        self.dom_steps = dom_steps_enabled()
+        self.dom_step_source: Optional[Callable[[], Optional[dict]]] = None
+        self._dom_step_sig: "dict[int, str]" = {}
         self._local = threading.local()  # current test id per thread
         self._expect: "dict[int, list[dict]]" = {}  # test_id -> respuestas esperadas
         self._lock = threading.Lock()
@@ -522,6 +528,8 @@ class TraceReports:
         tid = test_id or self.current_test_id
         if not tid or not self.enabled:
             return None
+        if status.upper() != "FAIL":  # la página del fallo la toma el plugin aparte
+            self._dom_step(tid, message)
         # TRACEREPORTS_SCREENSHOTS=off|failures: la captura ni se lee ni se envía (ver mask.py)
         if not screenshot_allowed(status):
             return None
@@ -630,17 +638,38 @@ class TraceReports:
             self._emit_raw("POST", f"/api/v1/tests/{tid}/network", body, "application/json", max(self.upload_timeout, 10.0))
         return {"stored": len(payload), "errors": errors}
 
-    def attach_dom(self, snapshot: Optional[dict], test_id: Optional[int] = None) -> bool:
+    def attach_dom(self, snapshot: Optional[dict], test_id: Optional[int] = None, kind: str = "", label: str = "") -> bool:
         """
-        Sube el snapshot de la página tomado al fallar (ver tracereports.capturar_dom):
-        con él la UI recomienda selectores para reemplazar uno roto y marca el elemento en la
-        captura. Enviar ANTES de end_test().
+        Sube un snapshot de la página (ver tracereports.capturar_dom). El del fallo (por defecto)
+        permite recomendar selectores y, con el nivel ``structure``, redibujar la página en el
+        Inspector; ``kind="step"`` con ``label`` es la página de un paso. Enviar ANTES de end_test().
         """
         tid = test_id or self.current_test_id
         if not tid or not snapshot or not self.enabled:
             return False
+        if kind:
+            snapshot["kind"] = kind
+        if label:
+            snapshot["label"] = str(label)[:300]
         body = json.dumps(snapshot).encode()
         return self._emit_raw("POST", f"/api/v1/tests/{tid}/dom", body, "application/json", max(self.upload_timeout, 10.0))
+
+    def _dom_step(self, test_id: int, label: str) -> None:
+        """With TRACEREPORTS_DOM_STEPS, the page of this step (once per distinct page)."""
+        source = self.dom_step_source
+        if not (self.dom_steps and source):
+            return
+        try:
+            snap = source()
+        except Exception:  # la evidencia nunca rompe el test
+            return
+        if not snap:
+            return
+        sig = dom_signature(snap)
+        if self._dom_step_sig.get(test_id) == sig:
+            return  # la misma pantalla que el paso anterior
+        self._dom_step_sig[test_id] = sig
+        self.attach_dom(snap, test_id=test_id, kind="step", label=label)
 
     # ---------------------------------------------------- framework helpers
 
