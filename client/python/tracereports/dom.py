@@ -138,9 +138,26 @@ def dom_level() -> str:
     return "basic" if (env("DOM") or "").strip().lower() == "basic" else "structure"
 
 
+def dom_steps_mode() -> str:
+    """TRACEREPORTS_DOM_STEPS: qué tests guardan la página de cada paso con captura.
+
+    - ``1`` (``all``): todos, también los PASS (son la base de "Comparar con el último PASS").
+    - ``on-problem``: solo los que terminan en FAIL o tuvieron un WARNING; las páginas esperan en memoria
+      hasta que el test termina. De los que pasan se manda una base de comparación cuando el servidor no
+      tiene un PASS de ese test con páginas de los últimos 7 días.
+    - vacío u otro valor: ninguno (la página del fallo se guarda igual).
+    ``TRACEREPORTS_DOM_ON`` no limita esto: solo agrega la página de cada WARNING."""
+    v = (env("DOM_STEPS") or "").strip().lower()
+    if v in ("1", "true", "yes", "on", "all"):
+        return "all"
+    if v in ("on-problem", "on_problem", "problem"):
+        return "on-problem"
+    return "off"
+
+
 def dom_steps_enabled() -> bool:
-    """TRACEREPORTS_DOM_STEPS=1: guardar también la página de cada paso con captura."""
-    return (env("DOM_STEPS") or "").strip().lower() in ("1", "true", "yes", "on")
+    """TRACEREPORTS_DOM_STEPS: ``1`` u ``on-problem`` (ver dom_steps_mode)."""
+    return dom_steps_mode() != "off"
 
 
 def dom_on() -> "set[str]":
