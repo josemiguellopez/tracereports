@@ -53,14 +53,18 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 			snap.Nodes = nil
 			return
 		}
-		n.Text = redactThenCut(p, n.Text, maxNodeText)
+		n.Text = personal(redactThenCut(p, n.Text, maxNodeText))
 		attrs := map[string]string{}
 		for k, v := range n.Attrs {
 			if nodeAttrs[k] || ariaAttrRe.MatchString(k) {
 				if k == "href" && !strings.HasPrefix(v, "/") && !strings.HasPrefix(v, "http://") && !strings.HasPrefix(v, "https://") && !strings.HasPrefix(v, "#") {
 					continue // javascript:, data: y similares: no son un dato de la página
 				}
-				attrs[k] = redactThenCut(p, v, maxAttrValue)
+				v = redactThenCut(p, v, maxAttrValue)
+				if !locatorAttrs[k] {
+					v = personal(v) // title, placeholder, alt, aria-*, href: texto de la página
+				}
+				attrs[k] = v
 			}
 		}
 		n.Attrs = attrs
@@ -189,3 +193,16 @@ func (s *Server) domBaseline(w http.ResponseWriter, r *http.Request) {
 
 // baselineHistory: how many earlier runs of the test are looked at for a PASS with pages.
 const baselineHistory = 30
+
+// locatorAttrs identify an element for a locator: the personal-data mask leaves them as they are.
+var locatorAttrs = map[string]bool{"id": true, "class": true, "name": true, "role": true, "type": true, "for": true,
+	"data-testid": true, "data-test": true, "data-test-id": true, "data-tracereports-mask": true}
+
+// personal masks RUTs, phone numbers and e-mails in what a page shows (TRACEREPORTS_REDACT_PII=off
+// turns it off). Only the DOM snapshot: steps and errors keep the secrets-only redaction.
+func personal(s string) string {
+	if !redact.PersonalDataEnabled() {
+		return s
+	}
+	return redact.PersonalData(s)
+}

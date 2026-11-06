@@ -197,3 +197,36 @@ func TestDOMBaselineIsTheLastPassWithPages(t *testing.T) {
 		t.Fatalf("sin el mismo paso, la última página: %s", rec.Body)
 	}
 }
+
+// Una ficha clínica muestra RUT, teléfonos y correos en texto plano: el snapshot se guarda sin ellos
+// (texto, atributos de texto, elements del recomendador y URL). Los atributos de los locators quedan.
+func TestDOMSnapshotMasksPersonalData(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, `{"url":"https://app/ficha?mail=ana@correo.cl","viewport":{"w":800,"h":600},`+
+		`"elements":[{"tag":"span","id":"rut-13.905.701-5","text":"RUN 13.905.701-5","x":0,"y":0,"w":1,"h":1,"visible":true}],`+
+		`"nodes":[{"i":0,"p":-1,"tag":"body","x":0,"y":0,"w":800,"h":600,"visible":true,"depth":0},`+
+		`{"i":1,"p":0,"tag":"span","attrs":{"id":"tel","title":"Llamar al +56 9 1234 5678"},"text":"Teléfono móvil +56 (9) 58720108","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1},`+
+		`{"i":2,"p":0,"tag":"td","text":"06-11-2026 17:26 · RUN 13.905.701-5 · ana@correo.cl","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1}]}`)
+	body := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.String()
+	body = strings.NewReplacer("\\u003c", "<", "\\u003e", ">").Replace(body) // el JSON escribe < y > escapados
+	for _, gone := range []string{"58720108", "1234 5678", "ana@correo.cl", "RUN 13.905.701-5"} {
+		if strings.Contains(body, gone) {
+			t.Errorf("quedó %q", gone)
+		}
+	}
+	for _, kept := range []string{"06-11-2026 17:26", "<telefono>", "<rut>", "<correo>", `"id":"tel"`, `"id":"rut-13.905.701-5"`} {
+		if !strings.Contains(body, kept) {
+			t.Errorf("falta %q", kept)
+		}
+	}
+}
+
+// TRACEREPORTS_REDACT_PII=off deja los datos como vienen (los secretos se siguen enmascarando).
+func TestDOMPersonalDataMaskCanBeTurnedOff(t *testing.T) {
+	t.Setenv("TRACEREPORTS_REDACT_PII", "off")
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"td","text":"RUN 13.905.701-5","x":0,"y":0,"w":1,"h":1,"visible":true,"depth":1}`))
+	if body := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.String(); !strings.Contains(body, "13.905.701-5") {
+		t.Fatal("con off el RUT queda")
+	}
+}
