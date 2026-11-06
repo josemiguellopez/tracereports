@@ -2354,7 +2354,7 @@
 			if (e.target.closest("[data-cmp-pick]")) { S.insights.picking = !S.insights.picking; renderInsights(); $("[data-cmp-q]")?.focus(); return; }
 			if (e.target.closest("[data-cmp-ai]")) {
 				const c = S.insights.compare;
-				if (c?.base_run) buddyAsk(cmpQuestion(c, S.run, c.base_run));
+				if (c?.base_run) buddyAskText(cmpQuestion(c, S.run, c.base_run));
 				return;
 			}
 			if (e.target.closest("[data-cmp-pick-close]")) { S.insights.picking = false; renderInsights(); return; }
@@ -5314,8 +5314,10 @@
 
 	/** Una pregunta libre: va con la evidencia del test (o la ejecución) que se está viendo y las últimas
 	 * respuestas de la conversación. El servidor la pasa por la redacción antes de enviarla al modelo. */
-	/** Abre Trace Buddy y le hace una pregunta armada por la interfaz (p. ej. "Explícamelo" de la comparación). */
-	async function buddyAsk(text) {
+	/** Abre Trace Buddy y le hace una pregunta armada por la interfaz (p. ej. "Explícamelo" de la comparación).
+	 * No se llama buddyAsk: esa es la de las preguntas sugeridas (seguridad, ¿funciona la IA?…), y con el
+	 * mismo nombre esta la reemplazaba y cada sugerencia le llegaba al modelo como texto ("security"). */
+	async function buddyAskText(text) {
 		if (!buddyCanChat()) return;
 		buddyToggle(true);
 		const input = $("#buddy-input");
