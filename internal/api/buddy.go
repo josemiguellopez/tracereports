@@ -223,6 +223,17 @@ func (s *Server) chatPage(testID int64, lang string, extra *ai.ChatExtra) error 
 	if err != nil {
 		return err
 	}
+	if raw == "" { // sin página del fallo (un WARNING, un test en curso): la última que guardó
+		steps, err := s.Store.ListDOMSteps(testID)
+		if err != nil {
+			return err
+		}
+		if len(steps) > 0 {
+			if raw, err = s.Store.GetDOMStep(testID, steps[len(steps)-1].Seq); err != nil {
+				return err
+			}
+		}
+	}
 	if h := readPageHints(raw, locator.ExtractSelector(t.ErrorMessage, t.ErrorTrace)); h != nil {
 		extra.Page = h.prompt()
 		extra.Fallback = h.fallback(lang, extra.Tooling)
