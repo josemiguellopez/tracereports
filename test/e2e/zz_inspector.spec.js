@@ -298,6 +298,23 @@ test("sin snapshot no hay pestaña Inspector", async ({ page: p, request }) => {
 	await expect(p.locator('#test-detail [data-tab="inspector"]')).toHaveCount(0);
 });
 
+test("el contador de elementos es el de la página que se está viendo", async ({ page: p, request }) => {
+	const { run, id } = await failedTest(request);
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const status = insp.locator(".insp-status");
+	await expect(status).toHaveText(/\d+ elementos reconstruidos/);
+	const atFail = await status.textContent();
+	await insp.locator(".insp-steps li").nth(0).click(); // el paso: sin el botón ni los dos span del fallo
+	await expect(status).not.toHaveText(atFail);
+	const n = (s) => Number(s.match(/\d+/)[0]);
+	expect(n(atFail) - n(await status.textContent())).toBe(3);
+	await insp.locator(".insp-steps li").nth(2).click();
+	await expect(status).toHaveText(atFail);
+});
+
 test("si el backend falló justo antes, el Inspector lo dice en vez de culpar al selector", async ({ page: p, request }) => {
 	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector backend E2E", environment: "qa" } })).json()).run_id;
 	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "atención cargando" } })).json()).test_id;

@@ -601,21 +601,22 @@
 					if (!snap) continue;
 					curPage = k;
 					show(snap);
-					if (k === 0 && !instant) { hideAll(); await construct(id); } else showAll();
+					if (k === 0 && !instant) { hideAll(); await construct(id); } else { showAll(); counted(); }
 					if (p.kind === "fail") { markFailure(instant); renderSteps(k, true); break; }
 					if (!testCursor) testCursor = makeCursor("#0f1b2b", "test", "test");
 					say(p.label || t("Paso {n}", { n: k + 1 }), null);
 					if (!instant) await tween(1400, id);
 				}
-				if (instant) $(".insp-status").textContent = t("{n} elementos reconstruidos", { n: drawable().length });
 			} catch (e) { if (e !== CANCEL) throw e; }
 		}
+		/** Los elementos de la página que se está viendo (cambia con cada paso). */
+		function counted() { $(".insp-status").textContent = t("{n} elementos reconstruidos", { n: drawable().length }); }
 		async function jump(k) {
 			runId++;
 			const p = pages[k], snap = await pageSnap(p);
 			if (!snap) return;
 			curPage = k;
-			show(snap); showAll(); renderSteps(k, p.kind === "fail");
+			show(snap); showAll(); counted(); renderSteps(k, p.kind === "fail");
 			if (p.kind === "fail") markFailure(true); else { testCursor = makeCursor("#0f1b2b", "test", "test"); say(p.label || t("Paso {n}", { n: k + 1 }), null); }
 		}
 

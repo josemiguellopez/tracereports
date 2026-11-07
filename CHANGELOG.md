@@ -18,6 +18,8 @@ All notable changes to TraceReports. The format follows
   text. The report now carries the selector and that call (method and endpoint, never the query), with no
   replacements; the Inspector says "the backend answered 504 just before the failure" and suggests no
   look-alike element. The locator card and the "broken locator" mark still stay hidden in that case.
+- **Inspector: the element count did not change between pages**: it showed the count of the first page
+  built; it now shows the one of the page being viewed.
 - **The exported report (ZIP) had no Inspector**: the pages now go in dom/ (they open from file://), capped
   at 64 MB with failure pages first, then WARNING pages, then steps; the Inspector says what did not fit.
   Compare with the last PASS is disabled there, with the reason.
