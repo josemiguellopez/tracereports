@@ -47,8 +47,9 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	const view = page.locator("#view-live");
 	await expect(view).toBeVisible();
 	await expect(page.locator('.side-nav a[data-view="live"]')).toHaveClass(/active/);
-	const chip = view.locator("[data-live-exec-select] option:checked");
+	const chip = view.locator(".xp-btn");
 	await expect(chip).toContainText(exec);
+	await expect(chip.locator(".xp-fresh")).toHaveText("en curso");
 	await expect(view.locator(".live-head h3")).toHaveText(exec);
 	await expect(view.locator(".live-badge.on")).toContainText("EN CURSO");
 	await expect(view.locator(".live-pct")).toContainText("1 de 5 tests · 20%");
@@ -61,7 +62,7 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	await expect(stuckRow.locator(".lt-state")).toHaveText("Sin señal");
 	await expect(stuckRow.locator(".lt-step")).toContainText("Evidencia final del periodontograma");
 	await expect(view.locator(".live-count.nosig")).toBeVisible();
-	await expect(chip).toContainText("sin señal");
+	await expect(chip.locator(".xp-b.nosig")).toBeVisible(); // la agenda tampoco envió nada
 	// la corrida con un problema va primero y abierta (aquí las dos: la agenda tampoco envió nada)
 	await expect(view.locator(".live-run").first()).toHaveClass(/open/);
 	await expect(view.locator(".live-run").first().locator("tr.nosig")).toHaveCount(1);
@@ -78,6 +79,8 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	await expect(panel.locator("h4")).toHaveText("test_periodontograma");
 	await expect(panel.locator(".live-facts")).toContainText("Sin señal");
 	await expect(panel.locator(".live-facts")).toContainText("gw1");
+	await expect(panel.locator(".ltr.step")).toHaveCount(1); // la traza: su único paso
+	await panel.locator('[data-live-ptab="steps"]').click();
 	await expect(panel.locator(".live-steps li")).toHaveText(["Evidencia final del periodontograma"].map((m) => new RegExp(m)));
 	await expect(view.locator(`tr[data-live-test="${stuck}"]`)).toHaveClass(/sel/);
 	await expect(page).toHaveURL(/view=live/);

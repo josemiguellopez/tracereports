@@ -82,7 +82,7 @@ test("todo t(\"…\") de live.js tiene traducción", () => {
 	const used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)+)"/g)].map((m) => m[1]);
 	used.push(...Object.values(L.STATES).map((s) => s.label).filter((s) => !["Pass", "Skip", "Warning"].includes(s)));
 	// iguales en inglés
-	const same = new Set(["Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker"]);
+	const same = new Set(["Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests"]);
 	assert.ok(used.length > 25);
 	assert.deepEqual([...new Set(used)].filter((s) => !same.has(s) && en.t(s) === s), []);
 });
@@ -166,7 +166,7 @@ test("render: tiles que filtran, Solo con problemas y los archivos sin problemas
 	const d = liveSuite(1_794_000_000_000);
 	const big = d.execution.execution;
 	const html = L.render({ list: d.list.executions, exec: big, now: d.execution.now, ui: {} }, h);
-	assert.ok(/data-live-state="FAIL" aria-pressed="false"/.test(html) && html.includes("<b>3</b>"), "tile Fallo con su número");
+	assert.ok(/data-live-state="FAIL" aria-pressed="false"/.test(html) && html.includes('<b data-count="FAIL" data-n="3">3</b>'), "tile Fallo con su número");
 	assert.ok(/class="live-chip on" data-live-problems aria-pressed="true">Solo con problemas \(6\)/.test(html), "activo por ser grande");
 	assert.equal((html.match(/class="lt-row /g) || []).length, 6, "solo los 6 con problemas");
 	assert.ok(html.includes("tests sin problemas ocultos"));
@@ -178,17 +178,18 @@ test("render: tiles que filtran, Solo con problemas y los archivos sin problemas
 	// un tile elegido: solo esos
 	const fails = L.render({ list: d.list.executions, exec: big, now: d.execution.now, ui: { states: ["FAIL"] } }, h);
 	assert.equal((fails.match(/class="lt-row /g) || []).length, 3);
-	assert.ok(fails.includes("data-live-clear"));
+	assert.ok(fails.includes('data-live-facet="state" data-v="FAIL"'), "el filtro activo como chip que se quita");
 });
 
 test("panel lateral: estado, últimos 5 pasos (lo más nuevo arriba), la captura y abrir el test; todo escapado", () => {
 	const logs = Array.from({ length: 7 }, (_, i) => ({ status: i === 6 ? "FAIL" : "INFO", message: `paso <${i}>`, timestamp: i, screenshot: i === 4 ? '/screenshots/a"b.png' : "" }));
-	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, test: { id: 21, run_id: 2, name: "x", logs } } }, h);
+	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, tab: "steps", test: { id: 21, run_id: 2, name: "x", logs } } }, h);
 	const panel = html.slice(html.indexOf("data-live-panel"));
 	assert.equal((panel.match(/<li /g) || []).length, 5);
 	assert.ok(panel.indexOf("paso &lt;6&gt;") < panel.indexOf("paso &lt;2&gt;"), "lo más nuevo arriba");
 	assert.ok(!panel.includes("paso &lt;1&gt;"));
-	assert.ok(panel.includes('src="/screenshots/a&quot;b.png"'));
+	const shotTab = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, tab: "shot", test: { id: 21, run_id: 2, name: "x", logs } } }, h);
+	assert.ok(shotTab.includes('src="/screenshots/a&quot;b.png"'));
 	assert.ok(panel.includes('href="#run=2&view=tests&test=21"') && panel.includes("Abrir el test"));
 	assert.ok(panel.includes("Sin señal") && panel.includes("×6.1 p50"));
 	assert.ok(L.render({ list: [exec], exec, now: 1, ui: {}, panel: { id: 21 } }, h).includes("Cargando…"), "mientras carga");
@@ -197,11 +198,164 @@ test("panel lateral: estado, últimos 5 pasos (lo más nuevo arriba), la captura
 
 test("eje con segundos en tramos cortos; los pasos INFO con ícono de información, no de en curso", () => {
 	const short = { ...exec, runs: [{ id: 1, name: "a.py", tests: [{ id: 1, run_id: 1, name: "t", state: "PASS", started_at: 0, ended_at: 40000, elapsed: 40000 }] }], running: false };
-	const calls = [];
-	L.render({ list: [short], exec: short, now: 40000, ui: {} }, { ...h, clock: (ms, secs) => { calls.push(!!secs); return "x"; } });
-	assert.ok(calls.length && calls.every(Boolean), "menos de 10 min: con segundos");
-	const long = []; L.render({ list: [exec], exec: { ...exec, running: true }, now: 3_600_000, ui: {} }, { ...h, clock: (ms, secs) => { long.push(!!secs); return "x"; } });
-	assert.ok(long.some((x) => !x), "una hora: sin segundos en el eje");
-	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, test: { id: 21, logs: [{ status: "INFO", message: "abre", timestamp: 1 }] } } }, h);
+	const axis = (html) => html.match(/<div class="lg-axis"[^>]*>([\s\S]*?)<\/div>/)[1];
+	const mark = { ...h, clock: (ms, secs) => (secs ? "S" : "M") };
+	const a1 = axis(L.render({ list: [short], exec: short, now: 40000, ui: {} }, mark));
+	assert.ok(a1.includes("S") && !a1.includes("M"), "menos de 10 min: con segundos");
+	const a2 = axis(L.render({ list: [exec], exec: { ...exec, running: true }, now: 3_600_000, ui: {} }, mark));
+	assert.ok(a2.includes("M") && !a2.includes("S"), "una hora: sin segundos en el eje");
+	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, tab: "steps", test: { id: 21, logs: [{ status: "INFO", message: "abre", timestamp: 1 }] } } }, h);
 	assert.ok(/<li class="info"><span class="lt-state info"><svg data-i="i-info">/.test(html));
+});
+
+test("salud: tasa de fallo, p50/p95, ritmo y la diferencia con la ejecución anterior del mismo proyecto", () => {
+	const e = { key: "x:2", title: "build 2", project: "p", running: false, started_at: 0, done: 4, total: 4, counts: { PASS: 2, FAIL: 1, INTERRUPTED: 1 }, runs: [{ id: 1, name: "a.py", tests: [
+		{ id: 1, state: "PASS", started_at: 0, ended_at: 60000, elapsed: 60000 },
+		{ id: 2, state: "FAIL", started_at: 0, ended_at: 120000, elapsed: 120000 },
+		{ id: 3, state: "PASS", started_at: 0, ended_at: 30000, elapsed: 30000 },
+		{ id: 4, state: "INTERRUPTED", started_at: 0, ended_at: 240000, elapsed: 240000 },
+	] }] };
+	const list = [e, { key: "x:1", project: "p", running: false, started_at: -1, done: 10, counts: { FAIL: 1 } }, { key: "x:0", project: "otro", running: false, started_at: -2, done: 4, counts: { FAIL: 4 } }];
+	const s = L.health(e, list, 300000);
+	assert.equal(s.failRate, 0.5);
+	assert.equal(s.p50, 60000);
+	assert.equal(s.p95, 240000);
+	assert.equal(s.perMin, 1, "4 tests en 4 minutos");
+	assert.ok(Math.abs(s.prev.delta - 0.4) < 1e-9, "50% frente al 10% de la anterior del mismo proyecto");
+	const html = L.render({ list, exec: e, now: 300000, ui: {} }, h);
+	assert.ok(html.includes("Tasa de fallo") && html.includes("▲ +40.0 pts frente a la anterior"));
+});
+
+test("errorSignature agrupa el mismo error aunque cambien números y tiempos; conserva el selector", () => {
+	const a = L.errorSignature("playwright._impl._errors.TimeoutError: Page.click: Timeout 3000ms exceeded. Call log: - waiting for locator(\"#b\")");
+	const b = L.errorSignature("playwright._impl._errors.TimeoutError: Page.click: Timeout 5000ms exceeded.\n  - waiting for locator(\"#b\")");
+	assert.equal(a, "TimeoutError: Page.click: Timeout N ms exceeded.");
+	assert.equal(a, b);
+	assert.equal(L.errorSignature("TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]"), "TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]");
+	assert.equal(L.errorSignature("Pedido 123456 sin stock"), L.errorSignature("Pedido 987 sin stock"));
+	const tests = [
+		{ id: 1, file: "a.py", state: "FAIL", last_step: a, ended_at: 10 }, { id: 2, file: "b.py", state: "FAIL", last_step: b, ended_at: 20 },
+		{ id: 3, file: "a.py", state: "INTERRUPTED", last_step: "AssertionError: 1 != 2", ended_at: 5 }, { id: 4, file: "c.py", state: "PASS", last_step: "ok" },
+	];
+	const g = L.errorGroups(tests);
+	assert.deepEqual(plain(g.map((x) => [x.count, x.files.length])), [[2, 2], [1, 1]]);
+	assert.equal(g[0].last, 20);
+	// la faceta Error filtra por firma
+	assert.deepEqual(plain(L.filterTests(tests, { errors: [a] }, false).map((x) => x.id)), [1, 2]);
+	assert.deepEqual(plain(L.facets(tests).error.map((x) => x[1])), [2, 1]);
+});
+
+test("facetas: cada valor con su cantidad; varias a la vez (Y entre facetas, O dentro de una)", () => {
+	const tests = L.allTests(exec);
+	const f = L.facets(tests);
+	assert.deepEqual(plain(f.state.map((x) => x[0])), ["no_signal", "FAIL", "running", "PASS"]);
+	assert.deepEqual(plain(f.file), [["test_agenda.py", 2], ["test_ficha.py", 2]]);
+	assert.deepEqual(plain(L.filterTests(tests, { files: ["test_agenda.py"], states: ["PASS", "FAIL"] }, true).map((x) => x.id)), [11, 12]);
+	assert.deepEqual(plain(L.filterTests(tests, { workers: ["gw0", "gw1"] }, false).map((x) => x.id)), [11, 12, 21]);
+	assert.deepEqual(plain(L.filterTests(tests, { files: ["test_ficha.py"] }, true).map((x) => x.id)), [21, 22], "una faceta muestra todo lo suyo, no solo los problemas");
+	const html = L.render({ list: [exec], exec, now: 600000, ui: { files: ["test_ficha.py"] } }, h);
+	assert.ok(/class="lf-item on" role="checkbox" aria-checked="true" data-live-facet="file" data-v="test_ficha.py"/.test(html));
+	assert.ok(html.includes('aria-label="Quitar filtro: test_ficha.py"'));
+});
+
+test("slowest, events y anomalies: lo lento, lo reciente y dónde cayó cada fallo en el minimapa", () => {
+	const tests = L.allTests(exec);
+	assert.deepEqual(plain(L.slowest(tests).map((x) => x.id)), [21], "×6.1; los ×1 no");
+	const ev = L.events(tests);
+	assert.deepEqual(plain(ev.map((x) => x.kind)), ["start", "FAIL", "PASS", "no_signal"]);
+	const an = L.anomalies({ ...exec, running: true }, 600000);
+	assert.deepEqual(plain(an.map((x) => [x.id, x.state])), [[12, "FAIL"], [21, "no_signal"]]);
+	assert.equal(Math.round(an[0].left), 15, "el fallo a los 90 s de 600 s");
+	const html = L.render({ list: [exec], exec, now: 600000, ui: {} }, h);
+	assert.ok(/class="lg-anom fail" data-live-test="12"[^>]*>✕<\/button>/.test(html), "con forma y texto, no solo color");
+	assert.ok(html.includes("Errores agrupados") && html.includes("Más lentos que su historial") && html.includes("Actividad reciente"));
+});
+
+test("sortTests y la tabla ordenada: por duración (lo mayor arriba), lista plana y volver a agrupar", () => {
+	const tests = L.allTests(exec);
+	assert.deepEqual(plain(L.sortTests(tests, { col: "elapsed", dir: -1 }).map((x) => x.id)), [21, 22, 11, 12]);
+	assert.deepEqual(plain(L.sortTests(tests, { col: "name", dir: 1 }).map((x) => x.name)), ["test_<script>", "test_bad", "test_ok", "test_periodontograma"]);
+	assert.equal(L.sortTests(tests, null), tests);
+	const html = L.render({ list: [exec], exec, now: 600000, ui: { sort: { col: "elapsed", dir: -1 } } }, h);
+	assert.ok(!html.includes("lt-group"), "sin grupos");
+	assert.ok(/aria-sort="descending"><button type="button" class="lt-sort on" data-live-sort="elapsed">Dura\. ▼/.test(html));
+	assert.ok(html.includes('data-live-sort="">Volver a agrupar'));
+});
+
+test("endpoints: la tarjeta del backend con errores primero, sin la query; endpointOf", () => {
+	assert.equal(L.endpointOf("https://app.test/api/x?token=1#a"), "app.test/api/x");
+	assert.equal(L.endpointOf("https://app.test"), "app.test/");
+	const eps = [{ method: "GET", host: "app.test", path: "/api/pacientes/:id", count: 4, errors: 1, p95_ms: 30000, test_id: 21 }];
+	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, endpoints: eps }, h);
+	assert.ok(html.includes('href="#run=2&view=tests&test=21&tab=network"') && html.includes("1 · 25%"));
+	assert.ok(L.render({ list: [exec], exec, now: 600000, ui: {}, endpoints: [] }, h).includes("Sin llamadas al backend registradas"));
+});
+
+test("traza del test: pasos y llamadas en una línea de tiempo, el fallo marcado, sin estáticos salvo que se pidan", () => {
+	const logs = [{ status: "INFO", message: "abre", timestamp: 1000 }, { status: "FAIL", message: "no apareció", timestamp: 9000 }];
+	const network = [
+		{ id: 1, method: "GET", url: "https://app.test/api/atencion?token=x", status: 504, started_at: 2000, duration_ms: 6000, resource_type: "fetch" },
+		{ id: 2, method: "GET", url: "https://app.test/app.js", status: 200, started_at: 1500, duration_ms: 10, resource_type: "script" },
+		{ id: 3, method: "POST", url: "https://app.test/api/log", status: 0, failed: true, error_text: "net::ERR_ABORTED", started_at: 3000, duration_ms: 0, resource_type: "xhr" },
+	];
+	const tr = L.traceLayout({ start: 1000, end: 11000, logs, network });
+	assert.deepEqual(plain(tr.rows.map((r) => [r.kind, r.label])), [["step", "abre"], ["req", "GET app.test/api/atencion"], ["req", "POST app.test/api/log"], ["step", "no apareció"]]);
+	assert.equal(tr.hidden, 1);
+	assert.equal(Math.round(tr.failAt), 80);
+	const req = tr.rows[1];
+	assert.ok(req.failed && req.code === "504" && Math.round(req.left) === 10 && Math.round(req.width) === 60);
+	assert.equal(tr.rows[2].code, "net::ERR_ABORTED");
+	assert.equal(L.traceLayout({ start: 1000, end: 11000, logs, network, all: true }).rows.length, 5);
+	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, test: { id: 21, logs }, net: network } }, h);
+	assert.ok(html.includes('class="ltr req fail"') && html.includes("lt-trace-fail") && !html.includes("token=x"));
+	assert.ok(html.includes("incluir 1 recursos estáticos"));
+});
+
+test("gráficos: resultados por tramo, tasa de fallo acumulada e histograma de duraciones (con p50/p95)", () => {
+	const mk = (id, state, start, end) => ({ id, run_id: 1, name: `t${id}`, state, started_at: start, ended_at: end, elapsed: end - start });
+	const e = { key: "x:g", title: "g", running: false, started_at: 0, done: 5, total: 5, counts: { PASS: 3, FAIL: 1, WARNING: 1 }, runs: [{ id: 1, name: "a.py", tests: [
+		mk(1, "PASS", 0, 5_000), mk(2, "FAIL", 0, 70_000), mk(3, "WARNING", 60_000, 130_000), mk(4, "PASS", 100_000, 200_000), mk(5, "PASS", 150_000, 420_000)] }] };
+	const b = L.timeBuckets(e, 420_000);
+	assert.equal(b.step, 60_000, "7 min: columnas de 1 min");
+	const r = L.resultsOverTime(e, 420_000);
+	assert.deepEqual(plain(r.cols.slice(0, 3).map((c) => [c.PASS, c.FAIL, c.WARNING])), [[1, 0, 0], [0, 1, 0], [0, 0, 1]]);
+	assert.equal(r.cols.reduce((s, c) => s + c.total, 0), 5);
+	const fr = L.failRateOverTime(e, 420_000);
+	assert.deepEqual(plain(fr.points.slice(0, 3).map((p) => p.rate)), [0, 0.5, 1 / 3]);
+	const d = L.durationHistogram(L.allTests(e));
+	assert.deepEqual(plain(d.bins.map((x) => x.n)), [1, 0, 0, 3, 1, 0, 0]);
+	assert.equal(d.bins[d.p50Bin].label, "1-2 min");
+	assert.equal(d.bins[d.p95Bin].label, "2-5 min");
+	const html = L.render({ list: [e], exec: e, now: 420_000, ui: {} }, h);
+	assert.ok(html.includes("Resultados en el tiempo") && html.includes("Tasa de fallo acumulada") && html.includes("Duración de los tests"));
+	assert.ok(/<span class="lch-mark">p50<\/span>/.test(html) && html.includes('<span class="lch-mark">p95</span>') && html.includes('class="lch-stack"'));
+	assert.ok(!html.includes("lch-table"), "la tabla de datos, solo a pedido");
+	const withTable = L.render({ list: [e], exec: e, now: 420_000, ui: { tables: { dur: true } } }, h);
+	assert.ok(/<table class="lch-table">[\s\S]*<td>1-2 min<\/td><td>3<\/td>/.test(withTable));
+	const noneDone = { ...exec, runs: [{ id: 1, name: "a.py", tests: [{ id: 1, run_id: 1, name: "x", state: "running", started_at: 0, elapsed: 5 }] }] };
+	assert.ok(!L.render({ list: [noneDone], exec: noneDone, now: 10, ui: {} }, h).includes("live-charts"), "sin nada terminado no hay gráficos vacíos");
+});
+
+test("selector de ejecución: hora, antigüedad (en curso, reciente, de hoy, anterior) y buscador con muchas", () => {
+	const now = 100 * 3600e3;
+	const x = (i, over) => ({ key: `x:${i}`, title: `build ${i}`, project: i % 2 ? "rayen" : "otro", running: false, started_at: now - (i + 1) * 3600e3, ended_at: now - i * 3600e3 - 60e3, done: 10, total: 10, counts: { FAIL: i === 1 ? 2 : 0 }, ...over });
+	assert.equal(L.freshness(x(0, { running: true }), now), "live");
+	assert.equal(L.freshness(x(0), now), "recent");
+	assert.equal(L.freshness(x(5), now), "today");
+	assert.equal(L.freshness(x(30), now), "old");
+	assert.equal(L.ago(90e3), "2 min");
+	assert.equal(L.ago(3 * 3600e3), "3 h");
+	const few = [x(0, { running: true }), x(1, { ended_at: now - 10 * 60e3 })];
+	const closed = L.render({ list: few, exec: null, key: "x:1", now, ui: {} }, h);
+	assert.ok(/class="xp-btn recent"/.test(closed) && closed.includes("terminó hace") && closed.includes('aria-expanded="false"'));
+	assert.ok(/<span class="xp-b fail">[^]*?2<\/span>/.test(closed), "sus fallos a la vista");
+	const open = L.render({ list: few, exec: null, key: "x:1", now, ui: { pickerOpen: true } }, h);
+	assert.equal((open.match(/role="option"/g) || []).length, 2);
+	assert.ok(!open.includes("data-live-xq"), "con pocas, sin buscador");
+	const many = Array.from({ length: 40 }, (_, i) => x(i, i === 0 ? { running: true } : {}));
+	const big = L.render({ list: many, exec: null, key: "x:0", now, ui: { pickerOpen: true } }, h);
+	assert.ok(big.includes("data-live-xq") && big.includes('<li class="xp-group" role="presentation">En curso</li>') && big.includes(">Anteriores</li>"));
+	const found = L.render({ list: many, exec: null, key: "x:0", now, ui: { pickerOpen: true, pickerQ: "build 3" } }, h);
+	assert.deepEqual([...found.matchAll(/data-live-exec="(x:\d+)"/g)].map((m) => m[1]), ["x:3", "x:30", "x:31", "x:32", "x:33", "x:34", "x:35", "x:36", "x:37", "x:38", "x:39"]);
+	assert.ok(L.render({ list: many, exec: null, key: "x:0", now, ui: { pickerOpen: true, pickerQ: "zzz" } }, h).includes("Ninguna ejecución coincide."));
 });

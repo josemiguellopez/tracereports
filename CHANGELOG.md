@@ -57,6 +57,35 @@ All notable changes to TraceReports. The format follows
   test" goes to the detail. The last step is one line without URLs (the full text is in the tooltip).
 - Phone: tiles in three columns, only the minimap, the table as cards.
 
+### Added (Live: observability)
+
+- **Execution health** under the tiles: failure rate of what finished (and the difference in points against
+  the previous execution of the same project), duration p50 · p95 and pace (tests per minute, the last 5
+  minutes while it runs).
+- **Diagnosis cards**: errors grouped by signature (the first line without Playwright's call log and with
+  variable numbers as N, the selector kept; a click filters by it), the tests slower than their history (and
+  the ones with retries), the **backend of the execution** (endpoints of all its runs, errors first, with p95
+  and a link to a test's network; new `GET /api/v1/live/endpoints?key=`) and the recent activity.
+- **Facets** beside the table (status, error, file, worker) with their counts, several at once; the active
+  filters show as chips that are removed with a click. The table sorts by status, name, duration or against
+  p50 (a flat list; the third click groups again).
+- **Anomalies on the minimap**: a ✕ for each failure and a ! for a test without signal, where they happened;
+  they open the test.
+- **The test trace** in the side panel (a waterfall like APM): its steps and its backend calls on one
+  timeline, failed calls in red with their status and the moment of the failure marked; static resources
+  only on request; tabs for the last steps and the screenshot.
+- **Pause**: the view stops updating to analyze it (the data keeps reaching the server); resume catches up.
+- **Charts**: results over time (columns stacked by status), the cumulative failure rate (a line, with the
+  previous execution as a dashed reference) and the duration distribution (a histogram with p50 and p95
+  marked). Every column and point has its tooltip (also from the keyboard) and "Show data" opens the table.
+- **Execution picker**: each execution with its start time, how long ago it started or ended, whether it is
+  running, recent (< 1 h), from today or earlier, a progress bar and its failures and tests without signal.
+  With more than 8 executions it has a search box and groups them by age; arrows, Enter and Escape work.
+- **Motion**: the view rises in on first load, a count that changes counts up and pulses, a test whose
+  status changed flashes, new activity slides in, a new failure drops onto the minimap, the side panel slides
+  in and the trace bars grow. Only what changed animates (the view redraws on every event) and nothing moves
+  with "reduce motion".
+
 ### Fixed (client feedback, 06-11: Live)
 
 - A run without tests yet came as `tests: null` and broke Live.

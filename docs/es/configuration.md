@@ -639,8 +639,20 @@ cualquier cliente:
 - Una **tabla** agrupada por archivo, worker o estado, lo más severo primero, con la duración frente a la
   mediana y el último paso (en una línea, sin URLs; el texto completo en el tooltip), y una búsqueda por test,
   archivo, worker o paso. Con muchos archivos, los sin problemas quedan en una línea.
-- **Panel lateral**: clic en un test (fila o barra) muestra su estado, los últimos 5 pasos y la captura más
-  reciente sin salir de En vivo; "Abrir el test" va al detalle.
+- **Panel lateral**: clic en un test (fila o barra) muestra su estado y, en pestañas, su **traza** (los pasos y
+  las llamadas al backend en una misma línea de tiempo, con las fallidas en rojo y el momento del fallo
+  marcado), los últimos 5 pasos y la captura más reciente, sin salir de En vivo; "Abrir el test" va al detalle.
+- **Salud de la ejecución**: tasa de fallo (y la diferencia con la ejecución anterior del mismo proyecto),
+  duración p50 · p95 y ritmo en tests por minuto.
+- **Diagnóstico**: errores agrupados por firma (un clic filtra), los más lentos frente a su historial, el
+  **backend de la ejecución** (los endpoints de todas sus corridas, con errores primero y p95) y la actividad
+  reciente. En el minimapa, un ✕ marca cada fallo y un ! cada test sin señal.
+- **Facetas** junto a la tabla (estado, error, archivo, worker), varias a la vez, y la tabla se ordena por
+  estado, nombre, duración o frente a la mediana. **Pausar** congela la vista para analizarla.
+- **Gráficos**: resultados en el tiempo (por estado), tasa de fallo acumulada (con la anterior como referencia)
+  y la distribución de duraciones (con p50 y p95); cada uno con "Ver datos" en tabla.
+- El **selector de ejecución** muestra la hora, hace cuánto empezó o terminó y si está en curso, es reciente,
+  de hoy o anterior; con más de 8 ejecuciones trae buscador y las agrupa por antigüedad.
 - **Cancelar ejecución…** (admin): una cancelación cooperativa. No se detiene ningún proceso: los clientes con
   `TRACEREPORTS_REMOTE_CONTROL=1` la ven entre un test y otro, saltan los que faltan y cierran la ejecución.
 - **Alertas** a Teams/Slack con `TRACEREPORTS_LIVE_ALERTS=1` (ver la referencia).

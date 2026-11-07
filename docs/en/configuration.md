@@ -635,8 +635,20 @@ from any client:
 - A **table** grouped by file, worker or status, most severe first, with the duration against the median
   and the last step (one line, without URLs; the full text in the tooltip), and a search over test, file,
   worker or step. With many files, the ones without problems fold into one line.
-- **Side panel**: clicking a test (row or bar) shows its status, the last 5 steps and the latest
-  screenshot without leaving Live; "Open the test" goes to the detail.
+- **Side panel**: clicking a test (row or bar) shows its status and, in tabs, its **trace** (the steps and
+  the backend calls on one timeline, failed calls in red and the moment of the failure marked), the last 5
+  steps and the latest screenshot, without leaving Live; "Open the test" goes to the detail.
+- **Execution health**: failure rate (and the difference against the previous execution of the same
+  project), duration p50 · p95 and pace in tests per minute.
+- **Diagnosis**: errors grouped by signature (a click filters), the slowest against their history, the
+  **execution backend** (endpoints of all its runs, errors first, with p95) and the recent activity. On the
+  minimap, a ✕ marks each failure and a ! each test without signal.
+- **Facets** beside the table (status, error, file, worker), several at once, and the table sorts by status,
+  name, duration or against the median. **Pause** freezes the view to analyze it.
+- **Charts**: results over time (by status), cumulative failure rate (with the previous one as a reference)
+  and the duration distribution (with p50 and p95); each with "Show data" as a table.
+- The **execution picker** shows the time, how long ago it started or ended and whether it is running,
+  recent, from today or earlier; with more than 8 executions it has a search box and groups them by age.
 - **Cancel execution…** (admin): a cooperative cancel. No process is killed: clients with
   `TRACEREPORTS_REMOTE_CONTROL=1` see it between tests, skip the rest and close the run.
 - **Alerts** to Teams/Slack with `TRACEREPORTS_LIVE_ALERTS=1` (see the reference).

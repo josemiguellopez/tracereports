@@ -77,4 +77,35 @@ function liveSuite(now = Date.now(), { runs: nRuns = 86, procs = 12 } = {}) {
 	};
 }
 
-module.exports = { liveSuite };
+/** El backend de la ejecución (/api/v1/live/endpoints): un endpoint con 504 y los demás sanos. */
+function liveSuiteEndpoints() {
+	return { endpoints: [
+		{ method: "GET", host: "preclinico.demo", path: "/api/atenciones/:id", count: 212, errors: 3, avg_ms: 2100, p95_ms: 30000, max_ms: 30000, test_id: 1001 },
+		{ method: "POST", host: "preclinico.demo", path: "/api/recetas", count: 64, errors: 0, avg_ms: 380, p95_ms: 1200, max_ms: 1900, test_id: 1002 },
+		{ method: "GET", host: "preclinico.demo", path: "/api/pacientes/:id/ficha", count: 230, errors: 0, avg_ms: 240, p95_ms: 610, max_ms: 900, test_id: 1003 },
+		{ method: "GET", host: "preclinico.demo", path: "/box/pacientes-citados", count: 79, errors: 0, avg_ms: 520, p95_ms: 800, max_ms: 1100, test_id: 1004 },
+	] };
+}
+
+/** El detalle de un test (/api/v1/tests/{id} y su /network) para el panel y su traza. */
+function liveSuiteTest(id, now = Date.now()) {
+	const t0 = now - 110_000;
+	const logs = [
+		{ id: 1, status: "INFO", message: "Página de ingreso de Rayen Clínico", timestamp: t0 + 1000, screenshot: "" },
+		{ id: 2, status: "INFO", message: "Evidencia de ingreso a menú de paciente citado", timestamp: t0 + 9000, screenshot: "" },
+		{ id: 3, status: "INFO", message: "Evidencia de carga de atención actual del paciente", timestamp: t0 + 20000, screenshot: "" },
+		{ id: 4, status: "FAIL", message: "TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]", timestamp: t0 + 107000, screenshot: "" },
+	];
+	const call = (i, method, path, at, ms, status, type = "fetch") => ({ id: i, test_id: id, method, url: `https://preclinico.demo${path}?token=abc`, status, failed: status === 0,
+		error_text: status === 0 ? "net::ERR_ABORTED" : "", started_at: t0 + at, duration_ms: ms, resource_type: type });
+	const network = [
+		call(1, "GET", "/login", 500, 300, 200, "document"), call(2, "POST", "/api/sesion", 2000, 420, 200),
+		call(3, "GET", "/static/app.js", 900, 40, 200, "script"), call(4, "GET", "/box/pacientes-citados", 8000, 600, 200, "document"),
+		call(5, "GET", "/api/ubicaciones", 8800, 210, 200), call(6, "GET", "/api/pacientes/123/ficha", 15000, 380, 200),
+		call(7, "GET", "/api/atenciones/actual", 20500, 30000, 504), call(8, "GET", "/api/atenciones/actual", 52000, 30000, 504),
+		call(9, "POST", "/api/telemetria", 90000, 0, 0, "xhr"),
+	];
+	return { test: { id, run_id: 1, name: "test_001_agenda_paso_1", status: "FAIL", started_at: t0, ended_at: t0 + 108000, logs }, network };
+}
+
+module.exports = { liveSuite, liveSuiteEndpoints, liveSuiteTest };

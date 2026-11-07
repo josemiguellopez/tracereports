@@ -90,6 +90,7 @@
 	// ---------- routing (hash) ----------
 	function readHash() {
 		const p = new URLSearchParams(location.hash.slice(1));
+		if (p.get("view") === "live" && S.view !== "live") S.liveView.anim = null; // al volver a En vivo se anima de nuevo
 		if (p.get("view")) S.view = p.get("view");
 		if (p.get("run")) S.runId = Number(p.get("run"));
 		if (p.get("test")) S.testId = Number(p.get("test"));
@@ -287,6 +288,8 @@
 
 	// ---------- view switching ----------
 	function setView(view) {
+		// al entrar a En vivo la vista se anima de nuevo (y se redibuja aunque el HTML sea el mismo)
+		if (view === "live" && S.view !== "live") { S.liveView.anim = null; delete S.rendered["view-live"]; }
 		S.view = view;
 		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
 		renderView();
@@ -1334,9 +1337,11 @@
 
 	// ---- En vivo (web/live.js) ----
 	/** Trae las ejecuciones y la elegida (o la más nueva en curso). Un turno por carga: la vieja no pisa a la nueva. */
-	async function loadLiveView() {
+	async function loadLiveView(force = false) {
 		if (STATIC || !window.TraceReportsLive) return;
-		const current = turn("live"), L = S.liveView;
+		const L = S.liveView;
+		if (L.ui.paused && L.loaded && !force) return; // en pausa: la vista queda quieta para analizar
+		const current = turn("live");
 		try {
 			const list = await api("/api/v1/live");
 			if (!current()) return;
@@ -1350,6 +1355,7 @@
 			}
 			L.loaded = true;
 			if (L.panel) loadLivePanel(L.panel.id, true); // el test abierto en el panel sigue al día
+			if (L.key && (L.epKey !== L.key || Date.now() - (L.epAt || 0) > 5000)) loadLiveEndpoints(L.key);
 		} catch (err) {
 			if (!current()) return;
 			L.error = err.message;
@@ -1358,20 +1364,38 @@
 	}
 
 	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
-	function liveUI() { return { problems: null, states: [], group: "file", q: "", zoom: null, allLanes: false, showOk: false, open: {} }; }
+	function liveUI() {
+		return { problems: null, states: [], files: [], workers: [], errors: [], more: {}, sort: null, paused: false,
+			group: "file", q: "", zoom: null, allLanes: false, showOk: false, open: {}, pickerOpen: false, pickerQ: "", tables: {} };
+	}
 
 	/** El panel lateral: el test con sus pasos y su última captura, sin salir de la vista. */
 	async function loadLivePanel(id, refresh = false) {
 		const L = S.liveView;
-		if (!refresh) { L.panel = { id }; renderLiveView(); }
+		if (!refresh) { L.panel = { id, tab: L.panel?.tab || "trace" }; renderLiveView(); }
+		const prev = L.panel;
+		const running = !prev?.test || prev.test.status === "RUNNING";
+		const netDue = !refresh || (running && Date.now() - (prev.netAt || 0) > 8000);
 		try {
-			const test = await api(`/api/v1/tests/${id}`);
+			const [test, net] = await Promise.all([api(`/api/v1/tests/${id}`), netDue ? api(`/api/v1/tests/${id}/network`).catch(() => []) : null]);
 			if (L.panel?.id !== id) return;
-			L.panel = { id, test };
+			L.panel = { ...L.panel, test, error: undefined, ...(netDue ? { net: Array.isArray(net) ? net : net?.connections || [], netAt: Date.now() } : {}) };
 		} catch (err) {
 			if (L.panel?.id !== id) return;
-			L.panel = { id, test: L.panel.test, error: refresh ? undefined : err.message };
+			L.panel = { ...L.panel, error: refresh ? undefined : err.message };
 		}
+		if (S.view === "live") renderLiveView();
+	}
+
+	/** El backend de la ejecución (endpoints de todas sus corridas), para la tarjeta de En vivo. */
+	async function loadLiveEndpoints(key) {
+		const L = S.liveView;
+		L.epKey = key; L.epAt = Date.now();
+		try {
+			const r = await api(`/api/v1/live/endpoints?key=${encodeURIComponent(key)}`);
+			if (L.key !== key) return;
+			L.endpoints = r.endpoints || [];
+		} catch { if (L.key === key) L.endpoints = []; }
 		if (S.view === "live") renderLiveView();
 	}
 
@@ -1380,7 +1404,20 @@
 		if (!el) return;
 		const L = S.liveView, ui = () => L.ui;
 		const redraw = () => renderLiveView();
-		const pick = (key) => { L.key = key; L.exec = null; L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; renderLiveView(); loadLiveView(); };
+		const pick = (key) => {
+			L.key = key; L.exec = null; L.endpoints = undefined; L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; L.anim = null;
+			renderLiveView(); loadLiveView(true);
+			el.querySelector("[data-live-xpick]")?.focus();
+		};
+		const openPicker = (open) => {
+			ui().pickerOpen = open; if (!open) ui().pickerQ = "";
+			redraw();
+			if (open) (el.querySelector("[data-live-xq]") || el.querySelector(".xp-opt.on") || el.querySelector(".xp-opt"))?.focus();
+			else el.querySelector("[data-live-xpick]")?.focus();
+		};
+		// clic fuera del selector lo cierra
+		document.addEventListener("pointerdown", (e) => { if (S.view === "live" && ui().pickerOpen && !e.target.closest(".live-xpick")) openPicker(false); });
+		const FACET = { state: "states", file: "files", worker: "workers", error: "errors" };
 		el.addEventListener("click", (e) => {
 			const d = (sel) => e.target.closest(sel);
 			let b;
@@ -1389,7 +1426,31 @@
 				ui().states = st.includes(k) ? st.filter((x) => x !== k) : [...st, k];
 				return redraw();
 			}
-			if (d("[data-live-clear]")) { ui().states = []; return redraw(); }
+			if (d("[data-live-xpick]")) return openPicker(!ui().pickerOpen);
+			if ((b = d(".xp-opt[data-live-exec]"))) { ui().pickerOpen = false; return pick(b.dataset.liveExec); }
+			if ((b = d("[data-live-charttable]"))) { ui().tables = { ...ui().tables, [b.dataset.liveCharttable]: !ui().tables[b.dataset.liveCharttable] }; return redraw(); }
+			if (d("[data-live-clear]")) { Object.values(FACET).forEach((k) => { ui()[k] = []; }); return redraw(); }
+			if ((b = d("[data-live-facet]"))) {
+				const k = FACET[b.dataset.liveFacet], v = b.dataset.v, list = ui()[k];
+				ui()[k] = list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+				ui().open = {};
+				return redraw();
+			}
+			if ((b = d("[data-live-more]"))) { ui().more = { ...ui().more, [b.dataset.liveMore]: !ui().more[b.dataset.liveMore] }; return redraw(); }
+			if ((b = d("[data-live-sort]"))) {
+				const col = b.dataset.liveSort, cur = ui().sort;
+				// primer clic: lo mayor arriba (duración, vs p50) o A-Z; segundo, al revés; tercero, vuelve a agrupar
+				const first = col === "name" || col === "state" ? 1 : -1;
+				ui().sort = !col ? null : cur?.col !== col ? { col, dir: first } : cur.dir === first ? { col, dir: -first } : null;
+				return redraw();
+			}
+			if (d("[data-live-pause]")) {
+				ui().paused = !ui().paused;
+				if (!ui().paused) loadLiveView(true); // al reanudar, se pone al día
+				return redraw();
+			}
+			if ((b = d("[data-live-ptab]"))) { L.panel = { ...L.panel, tab: b.dataset.livePtab }; return redraw(); }
+			if (d("[data-live-trace-all]")) { L.panel = { ...L.panel, all: !L.panel.all }; return redraw(); }
 			if (d("[data-live-problems]")) {
 				const g = window.TraceReportsLive.ganttLayout(L.exec, L.now, null);
 				ui().problems = !window.TraceReportsLive.problemsOn(L.exec, ui(), g.lanes.length);
@@ -1410,10 +1471,25 @@
 			if (row && !d("a")) loadLivePanel(Number(row.dataset.liveTest));
 		});
 		el.addEventListener("change", (e) => { const sel = e.target.closest("[data-live-exec-select]"); if (sel) pick(sel.value); });
-		el.addEventListener("input", (e) => { if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; redraw(); } });
+		el.addEventListener("input", (e) => {
+			if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; redraw(); }
+			if (e.target.matches("[data-live-xq]")) { ui().pickerQ = e.target.value; redraw(); }
+		});
+		// el selector con teclado: flechas entre opciones (desde el buscador también), Enter elige, Escape cierra
+		el.addEventListener("keydown", (e) => {
+			if (!ui().pickerOpen || !e.target.closest(".live-xpick")) return;
+			const opts = [...el.querySelectorAll(".xp-opt")], i = opts.indexOf(e.target.closest(".xp-opt"));
+			if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return openPicker(false); }
+			if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+				e.preventDefault();
+				const next = e.key === "ArrowDown" ? Math.min(opts.length - 1, i + 1) : i - 1;
+				(next < 0 ? el.querySelector("[data-live-xq]") || opts[0] : opts[next])?.focus();
+			}
+			if (e.key === "Enter" && i >= 0) { e.preventDefault(); ui().pickerOpen = false; pick(opts[i].dataset.liveExec); }
+		}, true);
 		// Escape cierra el panel aunque el foco haya quedado fuera (un refresco redibuja la vista)
 		document.addEventListener("keydown", (e) => {
-			if (e.key !== "Escape" || S.view !== "live" || !L.panel || e.target.closest?.(".live-cancel, .modal, dialog")) return;
+			if (e.key !== "Escape" || S.view !== "live" || !L.panel || e.target.closest?.(".live-cancel, .live-xpick, .modal, dialog")) return;
 			const id = L.panel.id;
 			L.panel = null; redraw();
 			el.querySelector(`tr[data-live-test="${id}"]`)?.focus();
@@ -1427,7 +1503,7 @@
 		const frac = (mini, x) => { const r = mini.getBoundingClientRect(); return Math.min(1, Math.max(0, (x - r.left) / r.width)); };
 		el.addEventListener("pointerdown", (e) => {
 			const mini = e.target.closest("[data-live-minimap]");
-			if (!mini || e.button !== 0) return;
+			if (!mini || e.button !== 0 || e.target.closest("[data-live-test]")) return; // una anomalía abre su test
 			e.preventDefault();
 			drag = { mini, a: frac(mini, e.clientX), box: document.createElement("div") };
 			drag.box.className = "lg-brush drawing";
@@ -1456,7 +1532,7 @@
 			btn.disabled = true;
 			try {
 				await apiSend("POST", "/api/v1/ui/live/cancel", { key: S.liveView.key, reason: form.reason.value });
-				loadLiveView(); // la cabecera pasa a "Cancelación pedida"
+				loadLiveView(true); // la cabecera pasa a "Cancelación pedida" (también en pausa)
 			} catch (err) {
 				btn.disabled = false;
 				let msg = form.querySelector(".live-cancel-err");
@@ -1476,19 +1552,91 @@
 		const t = window.TraceReportsI18n.t;
 		// el refresco (cada evento) redibuja todo: el buscador no pierde el foco ni el cursor, ni el
 		// formulario de cancelar abierto lo que se estaba escribiendo
-		const q = el.querySelector("[data-live-q]"), typing = q && document.activeElement === q ? [q.selectionStart, q.selectionEnd] : null;
+		// el buscador en uso no se recrea: se conserva el mismo <input> (valor, foco y cursor), así una
+		// tecla que llega justo con un refresco no se pierde
+		const act = document.activeElement, field = act?.matches?.("[data-live-q], [data-live-xq]") ? (act.matches("[data-live-q]") ? "[data-live-q]" : "[data-live-xq]") : "";
+		const typing = field ? act : null;
+		const optFocus = act?.closest?.(".xp-opt")?.dataset.liveExec, listTop = el.querySelector(".xp-list")?.scrollTop || 0;
 		const reason = el.querySelector(".live-cancel[open] input[name=reason]");
 		const keep = reason ? { value: reason.value, focus: document.activeElement === reason } : null;
 		if (el.querySelector("[data-live-minimap] .lg-brush.drawing")) return; // arrastrando el zoom: al soltar se dibuja
-		setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel }, {
+		const replaced = setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints }, {
 			t, esc, icon, canAct,
 			clock: (ms, secs) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", secs ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" }),
+			// la fecha solo si no es de hoy
+			day: (ms) => (new Date(ms).toDateString() === new Date(L.now || Date.now()).toDateString() ? "" : new Date(ms).toLocaleDateString(I18N.lang === "en" ? "en-US" : "es-CL", { day: "2-digit", month: "short" })),
 		}));
-		if (typing) { const n = el.querySelector("[data-live-q]"); n.focus(); n.setSelectionRange(...typing); }
+		if (typing) {
+			const fresh = el.querySelector(field);
+			if (fresh && fresh !== typing) { fresh.replaceWith(typing); typing.focus(); }
+		}
+		const list = el.querySelector(".xp-list");
+		if (list) list.scrollTop = listTop;
+		if (optFocus) [...el.querySelectorAll(".xp-opt")].find((o) => o.dataset.liveExec === optFocus)?.focus();
+		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
+		if (replaced) animateLive(el);
 		if (keep) {
 			const d = el.querySelector(".live-cancel");
 			if (d) { d.open = true; const r = d.querySelector("input[name=reason]"); r.value = keep.value; if (keep.focus) r.focus(); }
 		}
+	}
+
+	/**
+	 * Animaciones de En vivo: la vista se redibuja con cada evento, así que solo se anima lo que cambió
+	 * (un número, el estado de un test, un evento nuevo, una anomalía nueva) o lo que aparece (la vista
+	 * la primera vez, el panel al abrirse, la traza al mostrarse). Con "reducir movimiento", nada.
+	 */
+	const STATE_CLS = ["pass", "fail", "warning", "skip", "interrupted", "running", "turtle", "nosig"];
+	function animateLive(el) {
+		const L = S.liveView;
+		if (!L.exec) return;
+		const A = L.anim || (L.anim = { first: true, states: new Map(), counts: {}, bumps: {}, evs: null, anoms: null, panelKey: "", traceKey: "" });
+		const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+		const flag = (n, cls) => { if (!motion) return; n.classList.remove(cls); void n.offsetWidth; n.classList.add(cls); };
+		if (A.first) {
+			A.first = false;
+			if (motion) { el.classList.add("live-enter"); setTimeout(() => el.classList.remove("live-enter"), 1400); }
+		}
+		for (const n of el.querySelectorAll("tr[data-live-test], .lg-bar[data-live-test]")) {
+			const key = `${n.tagName}:${n.dataset.liveTest}`, st = STATE_CLS.find((c) => n.classList.contains(c)) || "";
+			const prev = A.states.get(key);
+			if (prev !== undefined && prev !== st) flag(n, "live-changed");
+			A.states.set(key, st);
+		}
+		for (const n of el.querySelectorAll("[data-count]")) {
+			const k = n.dataset.count, to = Number(n.dataset.n), from = A.counts[k]; // el valor, no el texto (que cuenta)
+			if (from !== undefined && from !== to) { flag(n.closest(".live-tile") || n, "bump"); if (motion) countUp(n, from, to); }
+			A.counts[k] = to;
+		}
+		for (const n of el.querySelectorAll("[data-bump]")) {
+			const k = n.dataset.bump, v = n.textContent;
+			if (A.bumps[k] !== undefined && A.bumps[k] !== v) flag(n, "bump");
+			A.bumps[k] = v;
+		}
+		const evs = new Set([...el.querySelectorAll("li[data-ev]")].map((n) => n.dataset.ev));
+		if (A.evs) for (const n of el.querySelectorAll("li[data-ev]")) if (!A.evs.has(n.dataset.ev)) flag(n, "lc-new");
+		A.evs = evs;
+		const anoms = new Set([...el.querySelectorAll(".lg-anom")].map((n) => n.dataset.liveTest));
+		if (A.anoms) for (const n of el.querySelectorAll(".lg-anom")) if (!A.anoms.has(n.dataset.liveTest)) flag(n, "lg-anom-new");
+		A.anoms = anoms;
+		const panel = el.querySelector(".live-panel");
+		if (panel && A.panelKey !== String(L.panel?.id)) flag(panel, "live-panel-in");
+		A.panelKey = panel ? String(L.panel?.id) : "";
+		const trace = el.querySelector(".lt-trace");
+		const tk = trace ? `${L.panel?.id}:${L.panel?.all ? 1 : 0}` : "";
+		if (trace && A.traceKey !== tk) flag(trace, "lt-trace-in");
+		A.traceKey = tk;
+	}
+	/** Un número que cuenta desde el valor anterior hasta el nuevo (600 ms, desacelerando). */
+	function countUp(n, from, to) {
+		const t0 = performance.now(), dur = 600;
+		const step = (now) => {
+			if (!n.isConnected) return;
+			const p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+			n.textContent = String(Math.round(from + (to - from) * e));
+			if (p < 1) requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
 	}
 
 	// ---- Inspector (web/inspector.js) ----
