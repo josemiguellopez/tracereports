@@ -286,6 +286,33 @@ func (s *Server) getLive(w http.ResponseWriter, r *http.Request) {
 }
 
 // getLiveExecution is one execution with its runs and tests (?key=x:… | g:…).
+// liveEndpoints is the backend seen by one execution in Live: its endpoints with errors first, then
+// by p95 (the same ranking as a run's, over all its runs).
+func (s *Server) liveEndpoints(w http.ResponseWriter, r *http.Request) {
+	list, err := s.liveExecutions(true, r.URL.Query().Get("key"))
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	if len(list) == 0 {
+		writeError(w, http.StatusNotFound, "execution not found")
+		return
+	}
+	ids := make([]int64, 0, len(list[0].Runs))
+	for _, run := range list[0].Runs {
+		ids = append(ids, run.ID)
+	}
+	eps, err := s.Store.RunsEndpoints(ids, liveEndpointsMax)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"endpoints": eps})
+}
+
+// liveEndpointsMax: how many endpoints Live shows for an execution.
+const liveEndpointsMax = 15
+
 func (s *Server) getLiveExecution(w http.ResponseWriter, r *http.Request) {
 	key := r.URL.Query().Get("key")
 	list, err := s.liveExecutions(true, key)

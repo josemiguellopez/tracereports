@@ -277,3 +277,44 @@ func TestLiveRunWithoutTestsIsAnEmptyList(t *testing.T) {
 		t.Fatalf("%s", body)
 	}
 }
+
+// El backend de toda una ejecución (una corrida por archivo): los endpoints de todas sus corridas
+// juntos, con errores primero; los de otra ejecución no entran y la query de la URL no se ve.
+func TestLiveEndpointsAcrossRuns(t *testing.T) {
+	srv, _ := newTestServer(t)
+	runOf := func(name, exec string) string {
+		var r struct {
+			RunID int64 `json:"run_id"`
+		}
+		json.Unmarshal(call(t, srv, "POST", "/api/v1/runs", `{"name":"`+name+`","project":"p","environment":"qa","execution_id":"`+exec+`"}`).Body.Bytes(), &r)
+		var tr struct {
+			TestID int64 `json:"test_id"`
+		}
+		json.Unmarshal(call(t, srv, "POST", fmt.Sprintf("/api/v1/runs/%d/tests", r.RunID), `{"name":"t_`+name+`"}`).Body.Bytes(), &tr)
+		return fmt.Sprint(tr.TestID)
+	}
+	a, b, other := runOf("a.py", "ep-1"), runOf("b.py", "ep-1"), runOf("c.py", "ep-2")
+	call(t, srv, "POST", "/api/v1/tests/"+a+"/network", `{"connections":[
+		{"method":"GET","url":"https://app.test/api/pacientes/12?token=s3cr3t","status":200,"duration_ms":120,"resource_type":"fetch"},
+		{"method":"GET","url":"https://app.test/api/agenda","status":200,"duration_ms":80,"resource_type":"xhr"}]}`)
+	call(t, srv, "POST", "/api/v1/tests/"+b+"/network", `{"connections":[
+		{"method":"GET","url":"https://app.test/api/pacientes/7","status":504,"duration_ms":30000,"resource_type":"fetch"},
+		{"method":"GET","url":"https://app.test/static/app.js","status":200,"duration_ms":5,"resource_type":"script"}]}`)
+	call(t, srv, "POST", "/api/v1/tests/"+other+"/network", `{"connections":[{"method":"POST","url":"https://otra.test/x","status":500,"resource_type":"fetch"}]}`)
+
+	rec := call(t, srv, "GET", "/api/v1/live/endpoints?key=x:ep-1", "")
+	var out struct {
+		Endpoints []db.EndpointStat `json:"endpoints"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &out)
+	if rec.Code != http.StatusOK || len(out.Endpoints) != 2 || strings.Contains(rec.Body.String(), "s3cr3t") || strings.Contains(rec.Body.String(), "otra.test") ||
+		strings.Contains(rec.Body.String(), "app.js") {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	if e := out.Endpoints[0]; e.Path != "/api/pacientes/:id" || e.Count != 2 || e.Errors != 1 || e.MaxMs != 30000 {
+		t.Fatalf("errores primero, de las dos corridas: %+v", e)
+	}
+	if rec := call(t, srv, "GET", "/api/v1/live/endpoints?key=x:no-existe", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("unknown execution: %d", rec.Code)
+	}
+}

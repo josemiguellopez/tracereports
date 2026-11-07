@@ -493,10 +493,24 @@ func NormalizeEndpoint(raw string) (string, string) {
 // RunEndpoints ranks the API/document endpoints called during a run: endpoints with errors
 // first, then by p95 duration. Static assets (scripts, images, fonts, css) are ignored.
 func (s *Store) RunEndpoints(runID int64, limit int) ([]EndpointStat, error) {
+	return s.RunsEndpoints([]int64{runID}, limit)
+}
+
+// RunsEndpoints is RunEndpoints over several runs: the backend seen by a whole execution (a
+// launcher that opens a run per file), for Live.
+func (s *Store) RunsEndpoints(runIDs []int64, limit int) ([]EndpointStat, error) {
+	if len(runIDs) == 0 {
+		return []EndpointStat{}, nil
+	}
+	marks := strings.TrimSuffix(strings.Repeat("?,", len(runIDs)), ",")
+	args := make([]any, len(runIDs))
+	for i, id := range runIDs {
+		args[i] = id
+	}
 	rows, err := s.db.Query(`
 		SELECT n.method, n.url, n.status, ((n.failed = 1 OR n.status >= 400) AND n.expected = 0), n.duration_ms, n.test_id
 		FROM network n JOIN tests t ON t.id = n.test_id
-		WHERE t.run_id = ? AND n.resource_type IN ('xhr', 'fetch', 'document', '')`, runID)
+		WHERE t.run_id IN (`+marks+`) AND n.resource_type IN ('xhr', 'fetch', 'document', '')`, args...)
 	if err != nil {
 		return nil, err
 	}
