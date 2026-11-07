@@ -546,7 +546,10 @@
 			cursors.querySelectorAll(".insp-ghost, .insp-simlabel").forEach((g) => g.remove());
 			layer.querySelectorAll(".similar, .failed-el").forEach((e) => e.classList.remove("similar", "failed-el"));
 			const sel = opts.failed?.selector;
-			if (!sel) { $(".insp-failinfo").textContent = t("No se pudo extraer el selector del error."); return; }
+			// el backend falló justo antes: el elemento no apareció por eso, no por el selector
+			const bk = opts.backend, cause = bk ? t(bk.status ? "El backend respondió {s} justo antes del fallo ({c}): no es un problema del selector."
+				: "El backend no respondió justo antes del fallo ({c}): no es un problema del selector.", { s: bk.status, c: `${bk.method} ${bk.endpoint}` }) : "";
+			if (!sel) { $(".insp-failinfo").textContent = cause || t("No se pudo extraer el selector del error."); return; }
 			const hit = query(sel);
 			if (!testCursor) testCursor = makeCursor("#0f1b2b", "test", "test");
 			if (hit.list?.length) { // existía en la página: el fallo fue de otra cosa (oculto, tapado, a destiempo)
@@ -558,16 +561,16 @@
 				if (at !== n) els[at.i]?.classList.add("failed-el");
 				place(testCursor, at.x + at.w / 2, at.y + at.h / 2);
 				say(t("{s} existe en la página: el fallo no fue el selector", { s: sel }), at, true);
-				$(".insp-failinfo").textContent = n.visible ? t("El elemento existe y es visible en el momento del fallo: revisa si estaba tapado, deshabilitado o si el test fue antes de tiempo.")
-					: t("El elemento existe pero no es visible en el momento del fallo.");
+				$(".insp-failinfo").textContent = (cause ? cause + " " : "") + (n.visible ? t("El elemento existe y es visible en el momento del fallo: revisa si estaba tapado, deshabilitado o si el test fue antes de tiempo.")
+					: t("El elemento existe pero no es visible en el momento del fallo."));
 				select(n.i);
 				return;
 			}
-			const sim = similarTo(sel, current.nodes);
+			const sim = cause ? null : similarTo(sel, current.nodes); // con el backend caído, un "parecido" despistaría
 			if (!sim) { // nada que se le parezca: solo el aviso, sin marcar un elemento cualquiera
 				place(testCursor, 24, 24);
 				say(t("{s} no existe en la página", { s: sel }), null, true);
-				$(".insp-failinfo").textContent = t("No existe en el momento del fallo y no hay un elemento parecido: puede ser un fallo de flujo o de contenido.");
+				$(".insp-failinfo").textContent = cause || t("No existe en el momento del fallo y no hay un elemento parecido: puede ser un fallo de flujo o de contenido.");
 				return;
 			}
 			const n = sim;

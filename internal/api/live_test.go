@@ -82,3 +82,31 @@ func TestLocatorEndpoint(t *testing.T) {
 		t.Errorf("non-locator failure: want 204, got %d", rec.Code)
 	}
 }
+
+// El elemento no apareció porque el backend falló justo antes: el reporte no sugiere reemplazos,
+// pero el Inspector recibe el selector y la llamada (sin la query) para decirlo en vez de "no se pudo
+// extraer el selector". El panel de locator lo ignora.
+func TestLocatorEndpointBackendCause(t *testing.T) {
+	srv, testID := newTestServer(t)
+	if rec := do(t, srv, http.MethodPost, "/api/v1/tests/1/network",
+		`{"connections":[{"method":"GET","url":"https://app.test/api/atenciones/actual?token=s3cr3t","status":504}]}`); rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("POST network: %d %s", rec.Code, rec.Body.String())
+	}
+	srv.Store.AddLog(testID, "FAIL", "Captura al fallar", 0, "")
+	srv.Store.FinishTest(testID, "FAIL",
+		`TimeoutError: Page.click: Timeout 3000ms exceeded. Call log: - waiting for locator("xpath=(//i[contains(@class,'fa-plus-circle')])[1]")`, "")
+	rec := do(t, srv, http.MethodGet, "/api/v1/tests/1/locator", "")
+	var rep LocatorReport
+	json.Unmarshal(rec.Body.Bytes(), &rep)
+	if rec.Code != http.StatusOK || rep.FailedSelector != `xpath=(//i[contains(@class,'fa-plus-circle')])[1]` || len(rep.Suggestions) != 0 ||
+		rep.BackendCause == nil || rep.BackendCause.Status != 504 || rep.BackendCause.Method != "GET" ||
+		rep.BackendCause.Endpoint != "app.test/api/atenciones/actual" || strings.Contains(rec.Body.String(), "s3cr3t") {
+		t.Fatalf("backend cause: %d %s", rec.Code, rec.Body.String())
+	}
+
+	// un fallo que no es de elemento no encontrado sigue sin reporte, aunque el backend haya fallado
+	srv.Store.FinishTest(testID, "FAIL", "AssertionError: 3 != 4", "")
+	if rec := do(t, srv, http.MethodGet, "/api/v1/tests/1/locator", ""); rec.Code != http.StatusNoContent {
+		t.Errorf("non-locator failure: want 204, got %d %s", rec.Code, rec.Body.String())
+	}
+}

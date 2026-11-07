@@ -13,6 +13,11 @@ All notable changes to TraceReports. The format follows
   like the browser stacking contexts (z-index and document order), applies the opacity of the ancestors,
   clips nodes to their scroll panels and wraps multi-line text. The Python client captures zIndex, overflow
   and line breaks; older snapshots fall back to document order.
+- **Inspector: "the selector could not be extracted" when the backend failed**: when a backend call failed
+  just before (no answer, 5xx, 408, 429) the locator report was empty, so the Inspector blamed the error
+  text. The report now carries the selector and that call (method and endpoint, never the query), with no
+  replacements; the Inspector says "the backend answered 504 just before the failure" and suggests no
+  look-alike element. The locator card and the "broken locator" mark still stay hidden in that case.
 - **The exported report (ZIP) had no Inspector**: the pages now go in dom/ (they open from file://), capped
   at 64 MB with failure pages first, then WARNING pages, then steps; the Inspector says what did not fit.
   Compare with the last PASS is disabled there, with the reason.
