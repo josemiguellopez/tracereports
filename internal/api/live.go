@@ -101,14 +101,37 @@ type LocatorReport struct {
 	// FailedSelectorTruncated: the selector reached the server cut (only its beginning is known), so
 	// no replacements are searched for it.
 	FailedSelectorTruncated bool `json:"failed_selector_truncated,omitempty"`
+	// BackendCause: the element did not show up because this backend call failed just before, so
+	// there are no replacements (the selector is not the problem). Only the Inspector uses it.
+	BackendCause *BackendCall `json:"backend_cause,omitempty"`
+}
+
+// BackendCall is a failed call, without the query (it can carry secrets).
+type BackendCall struct {
+	Method   string `json:"method"`
+	Endpoint string `json:"endpoint"`
+	Status   int    `json:"status"` // 0 = no answer
+	Error    string `json:"error,omitempty"`
 }
 
 func (s *Server) locatorReport(t *db.Test) (*LocatorReport, error) {
 	cands, failed, err := ai.LocatorCandidates(s.Store, t)
-	if err != nil || (failed == "" && len(cands) == 0) {
+	if err != nil {
 		return nil, err
 	}
-	rep := &LocatorReport{FailedSelector: failed, Suggestions: cands, FailedSelectorTruncated: locator.Truncated(failed)}
+	var cause *BackendCall
+	if failed == "" && len(cands) == 0 {
+		sel, c, err := ai.LocatorBackendCause(s.Store, t)
+		if err != nil || c == nil {
+			return nil, err
+		}
+		host, path := db.NormalizeEndpoint(c.URL)
+		failed, cause = sel, &BackendCall{Method: c.Method, Endpoint: host + path, Status: c.Status, Error: c.ErrorText}
+		if c.Failed {
+			cause.Status = 0
+		}
+	}
+	rep := &LocatorReport{FailedSelector: failed, Suggestions: cands, FailedSelectorTruncated: locator.Truncated(failed), BackendCause: cause}
 	if rep.Suggestions == nil {
 		rep.Suggestions = []locator.Suggestion{}
 	}

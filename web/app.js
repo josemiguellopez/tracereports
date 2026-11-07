@@ -1199,7 +1199,8 @@
 		const load = STATIC
 			? Promise.resolve(STATIC.locators?.[t.id] || false)
 			: fetch(`/api/v1/tests/${t.id}/locator`).then((r) => (r.status === 200 ? r.json() : false));
-		load.then((rep) => { S.loc[key] = rep; if (S.test?.id === t.id) renderTestDetail(); })
+		// backend_cause: el backend falló primero; sin reemplazos que mostrar (solo lo usa el Inspector)
+		load.then((rep) => { S.loc[key] = rep?.backend_cause ? false : rep; if (S.test?.id === t.id) renderTestDetail(); })
 			.catch(() => { S.loc[key] = false; });
 	}
 
@@ -1433,6 +1434,7 @@
 			loadStep: (seq) => get(`/api/v1/tests/${t.id}/dom/steps/${seq}`),
 			loadBaseline: (label) => get(`/api/v1/tests/${t.id}/dom/baseline?label=${encodeURIComponent(label || "")}`),
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
+			backend: loc?.backend_cause || null,
 			screenshot: loc?.screenshot || "",
 		});
 	}
@@ -1457,6 +1459,7 @@
 			steps: idx.steps.filter((s) => s.included),
 			loadStep: (seq) => page(`${t.id}/${seq}`),
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
+			backend: loc?.backend_cause || null,
 			screenshot: loc?.screenshot || "",
 			compareUnavailable: tr("Comparar con el último PASS necesita el servidor: el reporte exportado no trae ejecuciones anteriores."),
 			notice: omitted ? tr("{n} páginas de este test no entraron en el reporte exportado (tope de tamaño): siguen en el servidor.", { n: omitted }) : "",

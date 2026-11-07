@@ -297,3 +297,44 @@ test("sin snapshot no hay pestaña Inspector", async ({ page: p, request }) => {
 	await expect(p.locator('#test-detail [data-tab="steps"]')).toBeVisible();
 	await expect(p.locator('#test-detail [data-tab="inspector"]')).toHaveCount(0);
 });
+
+test("el contador de elementos es el de la página que se está viendo", async ({ page: p, request }) => {
+	const { run, id } = await failedTest(request);
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const status = insp.locator(".insp-status");
+	await expect(status).toHaveText(/\d+ elementos reconstruidos/);
+	const atFail = await status.textContent();
+	await insp.locator(".insp-steps li").nth(0).click(); // el paso: sin el botón ni los dos span del fallo
+	await expect(status).not.toHaveText(atFail);
+	const n = (s) => Number(s.match(/\d+/)[0]);
+	expect(n(atFail) - n(await status.textContent())).toBe(3);
+	await insp.locator(".insp-steps li").nth(2).click();
+	await expect(status).toHaveText(atFail);
+});
+
+test("si el backend falló justo antes, el Inspector lo dice en vez de culpar al selector", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector backend E2E", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "atención cargando" } })).json()).test_id;
+	await request.post(`/api/v1/tests/${id}/network`, { data: { connections: [
+		{ method: "GET", url: "https://shop.test/api/atenciones/actual?token=abc", status: 504 }] } });
+	await request.post(`/api/v1/tests/${id}/dom`, { data: page("Zapatilla Trail") });
+	await request.post(`/api/v1/tests/${id}/logs`, { data: { status: "FAIL", message: "no apareció el botón de pago" } });
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'waiting for locator("#btn-pagar")' } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-failinfo")).toHaveText(
+		"El backend respondió 504 justo antes del fallo (GET shop.test/api/atenciones/actual): no es un problema del selector.");
+	await expect(insp.locator(".insp-fail")).toContainText("#btn-pagar");
+	// sin "parecido": con el backend caído, sugerir otro elemento despistaría (y la query no se muestra)
+	await expect(insp.locator(".insp-ghost")).toHaveCount(0);
+	await expect(insp.locator(".insp-n.similar")).toHaveCount(0);
+	await expect(insp).not.toContainText("token=abc");
+	// el panel de locator del test sigue sin tarjeta ni marca "Locator roto"
+	await p.locator('#test-detail [data-tab="steps"]').click();
+	await expect(p.locator(".step-loc-flag")).toHaveCount(0);
+});

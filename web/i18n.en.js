@@ -932,7 +932,7 @@
 		"Elemento": "Element",
 		"Clic en un elemento para ver sus atributos. Clic derecho: opciones de QA / Automation (XPath robusto y código listo para Selenium o Playwright).":
 			"Click an element to see its attributes. Right click: QA / Automation options (robust XPath and code ready for Selenium or Playwright).",
-		"Expresión no válida: {e}": "Invalid expression: {e}", "Reconstruyendo {n} de {t}": "Rebuilding {n} of {t}", "{n} elementos reconstruidos": "{n} elements rebuilt",
+		"Expresión no válida: {e}": "Invalid expression: {e}", "Reconstruyendo {n} de {t}": "Rebuilding {n} of {t}", "{n} elementos reconstruidos": "{n} elements rebuilt", "El backend respondió {s} justo antes del fallo ({c}): no es un problema del selector.": "The backend answered {s} just before the failure ({c}): the selector is not the problem.", "El backend no respondió justo antes del fallo ({c}): no es un problema del selector.": "The backend did not answer just before the failure ({c}): the selector is not the problem.",
 		"Paso {n}": "Step {n}", "FALLÓ": "FAILED", "No se pudo extraer el selector del error.": "The selector could not be taken from the error.",
 		"{s} existe en la página: el fallo no fue el selector": "{s} exists on the page: the selector was not the problem",
 		"El elemento existe y es visible en el momento del fallo: revisa si estaba tapado, deshabilitado o si el test fue antes de tiempo.":
