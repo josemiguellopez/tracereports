@@ -18,7 +18,7 @@
 		view: "tests", testId: null, test: null,
 		status: "", search: "", stepFilter: "",
 		detailTab: "steps", net: { key: null, list: null }, netFilter: "", netSearch: "", netApiOnly: false,
-		hist: {}, histGen: 0, liveView: { list: [], exec: null, key: "", now: 0, no_signal_ms: 0, loaded: false }, insights: { key: null }, tlAll: false, epAll: false,
+		hist: {}, histGen: 0, liveView: { list: [], exec: null, key: "", now: 0, no_signal_ms: 0, loaded: false, ui: liveUI(), panel: null }, insights: { key: null }, tlAll: false, epAll: false,
 		loc: {}, locLang: "", locTool: "", replay: { testId: null, index: 0, speed: 1 }, player: null,
 		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
 		catSel: null, excSel: null,
@@ -1349,6 +1349,7 @@
 				L.exec = one.execution; L.now = one.now;
 			}
 			L.loaded = true;
+			if (L.panel) loadLivePanel(L.panel.id, true); // el test abierto en el panel sigue al día
 		} catch (err) {
 			if (!current()) return;
 			L.error = err.message;
@@ -1356,19 +1357,96 @@
 		if (S.view === "live") { renderLiveView(); writeHash(); }
 	}
 
+	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
+	function liveUI() { return { problems: null, states: [], group: "file", q: "", zoom: null, allLanes: false, showOk: false, open: {} }; }
+
+	/** El panel lateral: el test con sus pasos y su última captura, sin salir de la vista. */
+	async function loadLivePanel(id, refresh = false) {
+		const L = S.liveView;
+		if (!refresh) { L.panel = { id }; renderLiveView(); }
+		try {
+			const test = await api(`/api/v1/tests/${id}`);
+			if (L.panel?.id !== id) return;
+			L.panel = { id, test };
+		} catch (err) {
+			if (L.panel?.id !== id) return;
+			L.panel = { id, test: L.panel.test, error: refresh ? undefined : err.message };
+		}
+		if (S.view === "live") renderLiveView();
+	}
+
 	function bindLiveView() {
 		const el = $("#view-live");
 		if (!el) return;
+		const L = S.liveView, ui = () => L.ui;
+		const redraw = () => renderLiveView();
+		const pick = (key) => { L.key = key; L.exec = null; L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; renderLiveView(); loadLiveView(); };
 		el.addEventListener("click", (e) => {
-			const chip = e.target.closest("[data-live-exec]");
-			if (chip) { S.liveView.key = chip.dataset.liveExec; S.liveView.exec = null; renderLiveView(); loadLiveView(); return; }
-			// una fila de la tabla abre el test, en vivo (el enlace del nombre ya lo hace)
-			const row = e.target.closest("tr[data-live-test]");
-			if (row && !e.target.closest("a")) location.hash = `#run=${row.dataset.liveRun}&view=tests&test=${row.dataset.liveTest}`;
+			const d = (sel) => e.target.closest(sel);
+			let b;
+			if ((b = d("[data-live-state]"))) {
+				const k = b.dataset.liveState, st = ui().states;
+				ui().states = st.includes(k) ? st.filter((x) => x !== k) : [...st, k];
+				return redraw();
+			}
+			if (d("[data-live-clear]")) { ui().states = []; return redraw(); }
+			if (d("[data-live-problems]")) {
+				const g = window.TraceReportsLive.ganttLayout(L.exec, L.now, null);
+				ui().problems = !window.TraceReportsLive.problemsOn(L.exec, ui(), g.lanes.length);
+				return redraw();
+			}
+			if ((b = d("[data-live-groupby]"))) { ui().group = b.dataset.liveGroupby; ui().open = {}; return redraw(); }
+			if ((b = d("[data-live-group]"))) {
+				const k = b.dataset.liveGroup;
+				ui().open = { ...ui().open, [k]: b.getAttribute("aria-expanded") !== "true" };
+				return redraw();
+			}
+			if (d("[data-live-showok]")) { ui().showOk = !ui().showOk; return redraw(); }
+			if (d("[data-live-alllanes]")) { ui().allLanes = !ui().allLanes; return redraw(); }
+			if ((b = d("[data-live-zoom]"))) { ui().zoom = window.TraceReportsLive.zoomStep(ui().zoom, b.dataset.liveZoom); return redraw(); }
+			if (d("[data-live-close]")) { L.panel = null; return redraw(); }
+			// una fila o una barra abre el panel lateral (el nombre del test sigue llevando al test)
+			const row = d("[data-live-test]");
+			if (row && !d("a")) loadLivePanel(Number(row.dataset.liveTest));
+		});
+		el.addEventListener("change", (e) => { const sel = e.target.closest("[data-live-exec-select]"); if (sel) pick(sel.value); });
+		el.addEventListener("input", (e) => { if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; redraw(); } });
+		// Escape cierra el panel aunque el foco haya quedado fuera (un refresco redibuja la vista)
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "Escape" || S.view !== "live" || !L.panel || e.target.closest?.(".live-cancel, .modal, dialog")) return;
+			const id = L.panel.id;
+			L.panel = null; redraw();
+			el.querySelector(`tr[data-live-test="${id}"]`)?.focus();
 		});
 		el.addEventListener("keydown", (e) => {
 			const row = e.target.closest("tr[data-live-test]");
-			if (row && e.key === "Enter") location.hash = `#run=${row.dataset.liveRun}&view=tests&test=${row.dataset.liveTest}`;
+			if (row && e.key === "Enter") loadLivePanel(Number(row.dataset.liveTest));
+		});
+		// minimapa: arrastrar marca el tramo a acercar; un clic centra la ventana actual ahí
+		let drag = null;
+		const frac = (mini, x) => { const r = mini.getBoundingClientRect(); return Math.min(1, Math.max(0, (x - r.left) / r.width)); };
+		el.addEventListener("pointerdown", (e) => {
+			const mini = e.target.closest("[data-live-minimap]");
+			if (!mini || e.button !== 0) return;
+			e.preventDefault();
+			drag = { mini, a: frac(mini, e.clientX), box: document.createElement("div") };
+			drag.box.className = "lg-brush drawing";
+			mini.appendChild(drag.box);
+			mini.setPointerCapture?.(e.pointerId);
+		});
+		el.addEventListener("pointermove", (e) => {
+			if (!drag) return;
+			const b = frac(drag.mini, e.clientX), lo = Math.min(drag.a, b), hi = Math.max(drag.a, b);
+			Object.assign(drag.box.style, { left: lo * 100 + "%", width: (hi - lo) * 100 + "%" });
+		});
+		el.addEventListener("pointerup", (e) => {
+			if (!drag) return;
+			const b = frac(drag.mini, e.clientX), lo = Math.min(drag.a, b), hi = Math.max(drag.a, b);
+			drag.box.remove();
+			drag = null;
+			if (hi - lo >= 0.02) ui().zoom = { a: lo, b: hi };
+			else if (ui().zoom) { const w = ui().zoom.b - ui().zoom.a, a = Math.min(1 - w, Math.max(0, lo - w / 2)); ui().zoom = { a, b: a + w }; }
+			redraw();
 		});
 		el.addEventListener("submit", async (e) => {
 			const form = e.target.closest("[data-live-cancel]");
@@ -1396,10 +1474,21 @@
 		if (!el) return;
 		if (!L.loaded) { setHTML(el, `<div class="card placeholder">${L.error ? esc(L.error) : tr("Cargando…")}</div>`); return; }
 		const t = window.TraceReportsI18n.t;
-		setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, now: L.now, no_signal_ms: L.no_signal_ms }, {
+		// el refresco (cada evento) redibuja todo: el buscador no pierde el foco ni el cursor, ni el
+		// formulario de cancelar abierto lo que se estaba escribiendo
+		const q = el.querySelector("[data-live-q]"), typing = q && document.activeElement === q ? [q.selectionStart, q.selectionEnd] : null;
+		const reason = el.querySelector(".live-cancel[open] input[name=reason]");
+		const keep = reason ? { value: reason.value, focus: document.activeElement === reason } : null;
+		if (el.querySelector("[data-live-minimap] .lg-brush.drawing")) return; // arrastrando el zoom: al soltar se dibuja
+		setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel }, {
 			t, esc, icon, canAct,
-			clock: (ms) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit" }),
+			clock: (ms, secs) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", secs ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" }),
 		}));
+		if (typing) { const n = el.querySelector("[data-live-q]"); n.focus(); n.setSelectionRange(...typing); }
+		if (keep) {
+			const d = el.querySelector(".live-cancel");
+			if (d) { d.open = true; const r = d.querySelector("input[name=reason]"); r.value = keep.value; if (keep.focus) r.focus(); }
+		}
 	}
 
 	// ---- Inspector (web/inspector.js) ----

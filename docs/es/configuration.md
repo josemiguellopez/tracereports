@@ -630,8 +630,17 @@ cualquier cliente:
 - **Progreso y ETA** cuando el cliente dice cuántos tests recolectó (el plugin de pytest lo hace).
 - **Tortuga**: un test en curso más lento que su p90 en sus ejecuciones anteriores (o el doble de su mediana).
   **Sin señal**: no llega nada de él hace `TRACEREPORTS_NO_SIGNAL_MIN` minutos (3 por defecto). Van primero.
-- **Carriles por worker** (Gantt) y una **tabla por archivo y test** con la duración frente a la mediana y el
-  último paso.
+- **Tiles por estado** (Pass, Fallo, Warning, En curso, Tortuga, Sin señal) que filtran la tabla con un clic, y
+  **Solo con problemas** (fallo, interrumpido, tortuga, sin señal), activo por defecto con más de 20 corridas o
+  carriles.
+- **Línea de tiempo**: un minimapa de toda la ejecución (arrastra para acercar un tramo; −, + y Ajustar) y los
+  carriles por worker. Sin `worker` (una corrida por archivo), los carriles se reutilizan como procesos: cada
+  corrida toma el primer carril libre, así 86 corridas en 12 procesos se ven en 12 carriles.
+- Una **tabla** agrupada por archivo, worker o estado, lo más severo primero, con la duración frente a la
+  mediana y el último paso (en una línea, sin URLs; el texto completo en el tooltip), y una búsqueda por test,
+  archivo, worker o paso. Con muchos archivos, los sin problemas quedan en una línea.
+- **Panel lateral**: clic en un test (fila o barra) muestra su estado, los últimos 5 pasos y la captura más
+  reciente sin salir de En vivo; "Abrir el test" va al detalle.
 - **Cancelar ejecución…** (admin): una cancelación cooperativa. No se detiene ningún proceso: los clientes con
   `TRACEREPORTS_REMOTE_CONTROL=1` la ven entre un test y otro, saltan los que faltan y cierran la ejecución.
 - **Alertas** a Teams/Slack con `TRACEREPORTS_LIVE_ALERTS=1` (ver la referencia).

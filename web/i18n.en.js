@@ -987,6 +987,18 @@
 		"Tortuga: más lento que su p90 (o el doble de su mediana) en sus ejecuciones anteriores. Sin señal: nada del test hace {n} min.":
 			"Turtle: slower than its p90 (or twice its median) in its previous runs. No signal: nothing from the test for {n} min.",
 		"Sin señal": "No signal", "Tortuga": "Turtle", "Fallo": "Fail", "Interrumpido": "Interrupted",
+		"{n} ejecuciones": "{n} executions", "{n} corridas": "{n} runs", "Clic: ver solo estos tests": "Click: show only these tests",
+		"Solo con problemas ({n})": "Only with problems ({n})", "Quitar filtro de estado": "Clear status filter", "Agrupar:": "Group:",
+		"Buscar test, archivo o paso…": "Search test, file or step…", "Línea de tiempo": "Timeline", "zoom {a}–{b}": "zoom {a}–{b}",
+		"{n} carriles": "{n} lanes", "Alejar": "Zoom out", "Acercar": "Zoom in", "Ajustar": "Fit",
+		"Arrastra para acercar un tramo; clic para centrar": "Drag to zoom into a stretch; click to center",
+		"{n} carriles sin problemas": "{n} lanes without problems", "mostrar": "show", "Ocultar los carriles sin problemas": "Hide the lanes without problems",
+		"Nada en este tramo.": "Nothing in this stretch.", "{f} archivos sin problemas ({n} tests)": "{f} files without problems ({n} tests)",
+		"{n} con warning": "{n} with warnings", "{n} tests sin problemas ocultos": "{n} tests without problems hidden", "mostrar todos": "show all",
+		"Ocultar los archivos sin problemas": "Hide the files without problems", "Ningún test con problemas por ahora.": "No test with problems so far.",
+		"Ningún test coincide con el filtro.": "No test matches the filter.", "Worker / test": "Worker / test", "Estado / test": "Status / test",
+		"{n} de {t} tests": "{n} of {t} tests", "Archivo": "File", "Última señal": "Last signal", "Últimos pasos": "Last steps",
+		"Todavía sin pasos.": "No steps yet.", "Captura más reciente": "Latest screenshot", "Abrir el test": "Open the test",
 		"Ábrela en el Inspector: prueba el XPath sobre ella y, con clic derecho sobre un elemento, copia un XPath robusto y la espera para Selenium o Playwright.":
 			"Open it in the Inspector: try the XPath on it and, with a right click on an element, copy a robust XPath and the wait for Selenium or Playwright.",
 		"Constante para Page Object (Python)": "Page Object constant (Python)", "Espera explícita (Selenium Python)": "Explicit wait (Selenium Python)",

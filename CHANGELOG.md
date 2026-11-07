@@ -40,6 +40,23 @@ All notable changes to TraceReports. The format follows
 - Python client: `TRACEREPORTS_PLANNED=off` stops the plugin from reporting planned tests, for a custom
   launcher that creates a run per file and reports each one (documented with the bridge pattern).
 
+### Changed (client feedback, 06-11: Live redesign)
+
+- **Live, built for large executions** (a suite of 270 tests in 86 runs made the lanes take three
+  screens): a compact execution selector; status tiles with large counts that filter the table (Fail,
+  Turtle, No signal…) and a progress bar with the mix of states; "Only with problems" (fail, interrupted,
+  turtle, no signal), on by default with more than 20 runs or lanes; group by file, worker or status,
+  ordered by severity, with the files without problems in one line; search over test, file, worker and
+  step, which keeps focus and text while the view refreshes.
+- **Timeline**: a minimap of the whole execution (tests running at each moment, stacked by status) where
+  dragging zooms the lanes, plus −, + and Fit; with "Only with problems", the lanes without problems fold
+  into one line. Without `worker` (a run per file) the lanes are reused like processes: each run takes the
+  first lane that is free, so 86 runs in 12 processes show as 12 lanes; lane names drop the common prefix.
+- **Side panel**: clicking a test (row or bar) shows its status, worker, duration against p50, the last 5
+  steps and the latest screenshot without leaving Live, kept up to date; Escape closes it and "Open the
+  test" goes to the detail. The last step is one line without URLs (the full text is in the tooltip).
+- Phone: tiles in three columns, only the minimap, the table as cards.
+
 ### Fixed (client feedback, 06-11: Live)
 
 - A run without tests yet came as `tests: null` and broke Live.

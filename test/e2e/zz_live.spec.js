@@ -47,11 +47,11 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	const view = page.locator("#view-live");
 	await expect(view).toBeVisible();
 	await expect(page.locator('.side-nav a[data-view="live"]')).toHaveClass(/active/);
-	const chip = view.locator(".live-exec.on");
+	const chip = view.locator("[data-live-exec-select] option:checked");
 	await expect(chip).toContainText(exec);
 	await expect(view.locator(".live-head h3")).toHaveText(exec);
 	await expect(view.locator(".live-badge.on")).toContainText("EN CURSO");
-	await expect(view.locator(".live-pct")).toContainText("20% · 1 de 5 tests");
+	await expect(view.locator(".live-pct")).toContainText("1 de 5 tests · 20%");
 	await expect(view.locator(".lg-worker")).toHaveText(["gw0", "gw1"]);
 	await expect(view.locator(".lg-lane").first().locator(".lg-bar")).toHaveCount(2);
 
@@ -63,17 +63,32 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	await expect(view.locator(".live-count.nosig")).toBeVisible();
 	await expect(chip).toContainText("sin señal");
 	// la corrida con un problema va primero y abierta (aquí las dos: la agenda tampoco envió nada)
-	await expect(view.locator(".live-run").first()).toHaveAttribute("open", "");
+	await expect(view.locator(".live-run").first()).toHaveClass(/open/);
 	await expect(view.locator(".live-run").first().locator("tr.nosig")).toHaveCount(1);
 
 	// un resultado llega por SSE y la vista se pone al día
 	await request.post(`/api/v1/tests/${alive}/logs`, { data: { status: "PASS", message: "agenda filtrada" } });
 	await request.patch(`/api/v1/tests/${alive}/finish`, { data: { status: "PASS" } });
 	await expect(view.locator(`tr[data-live-test="${alive}"] .lt-state`)).toHaveText("Pass");
-	await expect(view.locator(".live-pct")).toContainText("40% · 2 de 5 tests");
+	await expect(view.locator(".live-pct")).toContainText("2 de 5 tests · 40%");
 
-	// una fila abre el test
+	// una fila abre el panel lateral (sin salir de la vista): estado, últimos pasos y abrir el test
 	await stuckRow.locator("td.lt-step").click();
+	const panel = view.locator(".live-panel");
+	await expect(panel.locator("h4")).toHaveText("test_periodontograma");
+	await expect(panel.locator(".live-facts")).toContainText("Sin señal");
+	await expect(panel.locator(".live-facts")).toContainText("gw1");
+	await expect(panel.locator(".live-steps li")).toHaveText(["Evidencia final del periodontograma"].map((m) => new RegExp(m)));
+	await expect(view.locator(`tr[data-live-test="${stuck}"]`)).toHaveClass(/sel/);
+	await expect(page).toHaveURL(/view=live/);
+	// sigue al día: un paso nuevo aparece arriba sin cerrar el panel
+	await request.post(`/api/v1/tests/${stuck}/logs`, { data: { status: "INFO", message: "reintenta guardar" } });
+	await expect(panel.locator(".live-steps li").first()).toContainText("reintenta guardar", { timeout: 15_000 });
+	await page.keyboard.press("Escape");
+	await expect(panel).toHaveCount(0);
+	// una barra del Gantt también lo abre, y desde el panel se va al test
+	await view.locator(`.lg-bar[data-live-test="${stuck}"]`).click();
+	await panel.getByRole("link", { name: "Abrir el test" }).click();
 	await expect(page).toHaveURL(new RegExp(`run=${ficha}&view=tests&test=${stuck}`));
 	await expect(page.locator("#test-detail .detail-name")).toHaveText("test_periodontograma");
 });

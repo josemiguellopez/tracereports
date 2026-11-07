@@ -627,8 +627,16 @@ from any client:
 - **Progress and ETA** when the client says how many tests it collected (the pytest plugin does).
 - **Turtle**: a running test slower than its p90 in its previous runs (or twice its median). **No signal**:
   nothing of it arrived for `TRACEREPORTS_NO_SIGNAL_MIN` minutes (3 by default). They go first.
-- **Lanes per worker** (Gantt) and a **table per file and test** with the duration against the median and the
-  last step.
+- **Status tiles** (Pass, Fail, Warning, Running, Turtle, No signal) that filter the table with a click, and
+  **Only with problems** (fail, interrupted, turtle, no signal), on by default with more than 20 runs or lanes.
+- **Timeline**: a minimap of the whole execution (drag to zoom into a stretch; −, + and Fit) and the lanes
+  per worker. Without `worker` (a run per file), lanes are reused like processes: each run takes the first
+  free lane, so 86 runs in 12 processes show as 12 lanes.
+- A **table** grouped by file, worker or status, most severe first, with the duration against the median
+  and the last step (one line, without URLs; the full text in the tooltip), and a search over test, file,
+  worker or step. With many files, the ones without problems fold into one line.
+- **Side panel**: clicking a test (row or bar) shows its status, the last 5 steps and the latest
+  screenshot without leaving Live; "Open the test" goes to the detail.
 - **Cancel execution…** (admin): a cooperative cancel. No process is killed: clients with
   `TRACEREPORTS_REMOTE_CONTROL=1` see it between tests, skip the rest and close the run.
 - **Alerts** to Teams/Slack with `TRACEREPORTS_LIVE_ALERTS=1` (see the reference).
