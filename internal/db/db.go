@@ -527,10 +527,10 @@ func (s *Store) GetRun(runID int64) (*Run, error) {
 	var r Run
 	var activity int64
 	err := s.db.QueryRow(`SELECT id, name, environment, status, started_at, ended_at, project, branch, commit_sha, framework, incomplete,
-		last_activity, closed_by, close_reason
+		last_activity, closed_by, close_reason, execution_id, planned
 		FROM runs WHERE id=?`, runID).
 		Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
-			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason)
+			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason, &r.ExecutionID, &r.Planned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -570,6 +570,7 @@ func (s *Store) listRunsWhere(where string, args []any, limit int) ([]Run, error
 	rows, err := s.db.Query(`
 		SELECT r.id, r.name, r.environment, r.status, r.started_at, r.ended_at,
 		       r.project, r.branch, r.commit_sha, r.framework, r.incomplete, r.last_activity, r.closed_by, r.close_reason,
+		       r.execution_id, r.planned,
 		       COUNT(t.id),
 		       COALESCE(SUM(t.status='PASS'),0),
 		       COALESCE(SUM(t.status='FAIL'),0),
@@ -591,6 +592,7 @@ func (s *Store) listRunsWhere(where string, args []any, limit int) ([]Run, error
 		var activity int64
 		if err := rows.Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
 			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason,
+			&r.ExecutionID, &r.Planned,
 			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Interrupted, &r.Quarantined); err != nil {
 			return nil, err
 		}
