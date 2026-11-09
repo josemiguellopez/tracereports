@@ -22,6 +22,14 @@
 	<!-- depth 5: el humo de la obra y los agentes que arman la tarjeta (decorativos) -->
 	<canvas class="smoke" id="smoke" aria-hidden="true"></canvas>
 	<div class="agents" id="agents" aria-hidden="true"></div>
+	<!-- la barra de la obra: quién trabaja, cuánto falta y saltarla (Esc); se va al terminar -->
+	<div class="buildbar" id="buildbar" role="group" aria-label="Construcción de la página" hidden>
+		<span class="bb-agents" id="bb-agents" aria-hidden="true"></span>
+		<span class="bb-text"><b id="bb-count" data-t="bbcount">7 agentes</b> <span id="bb-state" data-t="bbstate">construyendo</span> <span class="bb-pct" id="bb-pct">0 %</span></span>
+		<span class="bb-track" id="bb-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" aria-label="Progreso"><i id="bb-fill"></i></span>
+		<button type="button" class="bb-skip" id="bb-skip"><span data-t="skip">Saltar</span> <kbd>Esc</kbd></button>
+		<label class="bb-never"><input type="checkbox" id="bb-never"> <span data-t="never">No volver a mostrar</span></label>
+	</div>
 
 	<main class="shell">
 		<!-- depth 4: el mensaje, abajo a la izquierda sobre el lienzo -->
@@ -33,7 +41,7 @@
 
 		<!-- depth 4: el formulario; Trace Buddy, asomado encima -->
 		<section class="card" id="card" aria-labelledby="login-title">
-			<span class="artboard" aria-hidden="true"><i></i><span id="artboard-label">login.html</span> <span class="ab-state" id="ab-state"></span></span>
+			<span class="artboard"><i aria-hidden="true"></i><span id="artboard-label" aria-hidden="true">login.html</span> <span class="ab-state" id="ab-state" aria-hidden="true"></span><button type="button" class="ab-replay" id="ab-replay" hidden data-t="replay">↻ repetir</button></span>
 			<div class="buddy" id="buddy" aria-hidden="true"><img class="buddy-still" src="/buddy/tracebuddy-avatar.webp" alt=""></div>
 			<p class="say" id="say" role="status" aria-live="polite" hidden></p>
 			<header class="brand" data-build="brand">

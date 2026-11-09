@@ -158,7 +158,22 @@ test("la app: con la sesión vencida va al ingreso (y avisa); con sesión muestr
 	await expect(page.locator("#session-warn")).toBeHidden();
 	await page.unroute("**/api/v1/auth/session");
 	await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
+	// salir pide confirmación: Cancelar (con el foco) o Esc no salen; "Cerrar sesión" sí
 	await btn.click();
+	const confirm = page.locator("#session-confirm");
+	await expect(confirm).toBeVisible();
+	await expect(confirm).toContainText("¿Cerrar sesión?");
+	await expect(confirm.locator("[data-session-cancel]")).toBeFocused();
+	await expect(btn).toHaveAttribute("aria-expanded", "true");
+	await page.keyboard.press("Escape");
+	await expect(confirm).toBeHidden();
+	await expect(btn).toBeFocused();
+	await btn.click();
+	await confirm.locator("[data-session-cancel]").click();
+	await expect(confirm).toBeHidden();
+	expect(out).toBe(false);
+	await btn.click();
+	await confirm.locator("[data-session-out]").click();
 	await page.waitForURL(/\/login\/\?bye=1/);
 	expect(out).toBe(true);
 	await expect(page.locator("#notice")).toHaveText("Cerraste la sesión.");
@@ -271,5 +286,44 @@ test.describe("Trace Buddy conversa", () => {
 		await expect(t).toContainText("Hola, <img src=x onerror=alert(1)>");
 		await expect(page.locator("#say img")).toHaveCount(0);
 		await expect(t).toContainText("yo no miro");
+	});
+});
+
+test.describe("la barra de la obra", () => {
+	test("muestra a los agentes y el avance; Esc la salta; queda ↻ repetir", async ({ page }) => {
+		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
+		await page.goto("/login/");
+		const bar = page.locator("#buildbar");
+		await expect(bar).toBeVisible();
+		await expect(bar.locator(".bb-agents i")).toHaveCount(7);
+		await expect(page.locator("#bb-skip")).toContainText("Saltar");
+		await expect(page.locator("#bb-skip kbd")).toHaveText("Esc");
+		await expect.poll(async () => Number(await page.locator("#bb-prog").getAttribute("aria-valuenow")), { timeout: 8000 }).toBeGreaterThan(20);
+		await page.keyboard.press("Escape");
+		await expect(page.locator("#card")).not.toHaveClass(/building/);
+		await expect(bar).toBeHidden({ timeout: 3000 });
+		await expect(page.locator("#ab-replay")).toBeVisible();
+	});
+
+	test("el botón Saltar; No volver a mostrar se recuerda; ↻ repetir la vuelve a mostrar", async ({ page }) => {
+		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
+		await page.goto("/login/");
+		await expect(page.locator("#buildbar")).toBeVisible();
+		await page.locator("#bb-never").check();
+		await expect(page.locator("#card")).not.toHaveClass(/building/);
+		expect(await page.evaluate(() => localStorage.getItem("tracereports-login-build"))).toBe("off");
+		// otra pestaña (sin lo de esta sesión): igual no se muestra
+		await page.evaluate(() => sessionStorage.clear());
+		await page.reload();
+		await expect(page.locator("#user")).toBeFocused();
+		await expect(page.locator(".agent, #buildbar:not([hidden])")).toHaveCount(0);
+		// ↻ repetir: vuelve la obra (y deshace el "no volver a mostrar")
+		await page.locator("#ab-replay").click();
+		await expect(page.locator("#buildbar")).toBeVisible();
+		await expect(page.locator(".agent").first()).toBeVisible();
+		expect(await page.evaluate(() => localStorage.getItem("tracereports-login-build"))).toBeNull();
+		await page.locator("#bb-skip").click();
+		await expect(page.locator("#card")).not.toHaveClass(/building/);
+		await expect(page.locator(".agent")).toHaveCount(0, { timeout: 2000 });
 	});
 });

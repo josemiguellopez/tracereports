@@ -337,3 +337,41 @@ body {
 
 /* la medida de la guía horizontal, a la derecha (a la izquierda tapaba la etiqueta del carril) */
 .guide.y::after { left: auto; right: 16px; }
+
+/* ---------- la barra de la obra (como la barra de colaboración de un editor) ---------- */
+.buildbar { position: fixed; left: 50%; bottom: 22px; z-index: 8; translate: -50% 0; display: flex; align-items: center; gap: 14px;
+	padding: 8px 8px 8px 14px; border-radius: 14px; background: rgba(16, 19, 24, .88); border: 1px solid var(--line-2);
+	backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3);
+	box-shadow: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 20px 50px -14px rgba(0, 0, 0, .85); font-size: 12.5px; white-space: nowrap; }
+.bb-agents { display: inline-flex; }
+.bb-agents i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); margin-left: -4px; box-shadow: 0 0 0 2px #101318;
+	transition: opacity .3s, filter .3s, transform .3s var(--spring); }
+.bb-agents i:first-child { margin-left: 0; }
+.bb-agents i.done { opacity: .35; filter: grayscale(.6); transform: scale(.85); }
+.bb-text { color: var(--muted); }
+.bb-text b { color: var(--text); font-weight: 600; }
+.bb-pct { font: 600 11.5px "JetBrains Mono", monospace; color: var(--text); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.bb-track { position: relative; width: 120px; height: 3px; border-radius: 3px; background: #232a33; overflow: hidden; }
+.bb-track i { position: absolute; inset: 0; background: linear-gradient(90deg, var(--cyan), var(--lime)); transform-origin: left; transform: scaleX(0);
+	transition: transform .35s var(--out); }
+.bb-skip { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 12px; border-radius: 9px; border: 1px solid var(--line-2);
+	background: #1a1f27; color: var(--text); font: 600 12.5px Inter, sans-serif; cursor: pointer; transition: background .15s, border-color .15s, transform .2s var(--spring); }
+.bb-skip:hover { background: #222833; border-color: #3a434f; }
+.bb-skip:active { transform: scale(.96); }
+.bb-skip:focus-visible, .bb-never input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+.bb-skip kbd { font: 600 10.5px "JetBrains Mono", monospace; padding: 2px 6px; border-radius: 5px; color: var(--muted); background: #0d0f13; border: 1px solid var(--line-2); }
+.bb-never { display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.bb-never input { accent-color: var(--lime); margin: 0; cursor: pointer; }
+.bb-never:hover { color: var(--text); }
+/* ↻ repetir, junto al nombre del artboard */
+.ab-replay { pointer-events: auto; margin-left: 8px; padding: 0; border: 0; background: none; color: var(--muted); font: 500 11px "JetBrains Mono", monospace; cursor: pointer; }
+.ab-replay:hover { color: var(--cyan); text-decoration: underline; }
+.ab-replay:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+@media (max-width: 720px) {
+	.buildbar { bottom: 12px; gap: 10px; padding: 6px 6px 6px 10px; max-width: calc(100% - 24px); }
+	.bb-track, .bb-never span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .buildbar { display: none; } }
+
+/* hidden manda (display: flex no lo pisa) */
+.buildbar[hidden], .say[hidden], .notice[hidden], .ab-replay[hidden] { display: none !important; }

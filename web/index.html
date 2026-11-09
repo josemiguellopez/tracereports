@@ -92,7 +92,6 @@
 		<div class="topbar-right">
 			<span class="live-pill" id="live-pill" hidden role="status" aria-live="polite" tabindex="0"><span class="dot"></span><span class="live-text">En vivo</span></span>
 			<a class="live-of-run" id="live-of-run" hidden href="#" data-tip-title="Observabilidad de esta ejecución" data-tip="Abre la vista En vivo con esta ejecución: Requiere atención, línea de tiempo por worker, errores agrupados y la tabla. También si ya terminó."><svg aria-hidden="true"><use href="#i-chart"/></svg><span>Observabilidad</span></a>
-			<button type="button" class="session-btn" id="session-btn" hidden data-tip-title="Sesión"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span id="session-user" data-no-i18n></span><span class="sr-only">Salir</span></button>
 			<span class="static-pill" id="static-pill" hidden tabindex="0" data-tip-title="Reporte exportado" data-tip="Copia de solo lectura que funciona sin servidor. Lo que pase después de exportar no aparece aquí."></span>
 			<button class="new-run-badge" id="new-run-badge" hidden data-tip-title="Ejecución nueva en curso"><span class="dot" aria-hidden="true"></span><span class="nrb-text"></span></button>
 			<details class="recents-control" id="recents-control"><summary><span>Recientes</span><span class="recents-live" id="recents-live" hidden></span></summary>
@@ -118,6 +117,15 @@
 			<div class="theme-picker">
 				<button class="icon-btn" id="theme-btn" data-tip="Tema de la interfaz: 6 estilos, se recuerda en este navegador." aria-label="Tema de la interfaz" aria-haspopup="true" aria-expanded="false"><svg><use href="#i-palette"/></svg></button>
 				<div class="theme-menu" id="theme-menu" role="menu" aria-label="Temas" hidden></div>
+			</div>
+			<!-- la sesión: lo último arriba a la derecha; salir pide confirmación -->
+			<div class="session-picker" id="session-picker" hidden>
+				<button type="button" class="session-btn" id="session-btn" aria-haspopup="dialog" aria-expanded="false" aria-controls="session-confirm"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span id="session-user" data-no-i18n></span><span class="sr-only">Salir</span></button>
+				<div class="session-confirm" id="session-confirm" role="dialog" aria-modal="false" aria-labelledby="session-confirm-t" hidden>
+					<p class="sc-t" id="session-confirm-t">¿Cerrar sesión?</p>
+					<p class="sc-d" id="session-confirm-d"></p>
+					<div class="sc-a"><button type="button" class="cf-btn cf-btn-sm" data-session-cancel>Cancelar</button><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-session-out>Cerrar sesión</button></div>
+				</div>
 			</div>
 			<span class="suite-started-time" id="suite-started" hidden></span>
 		</div>

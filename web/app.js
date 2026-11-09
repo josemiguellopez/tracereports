@@ -6074,9 +6074,9 @@
 			let s;
 			try { s = await (await fetch("/api/v1/auth/session", { headers: { Accept: "application/json" } })).json(); } catch { return; }
 			SESSION.info = s;
-			const btn = $("#session-btn"), warn = $("#session-warn");
-			if (!btn || !warn) return;
-			btn.hidden = !s.logged_in;
+			const btn = $("#session-btn"), warn = $("#session-warn"), box = $("#session-picker");
+			if (!btn || !warn || !box) return;
+			box.hidden = !s.logged_in;
 			if (!s.logged_in) {
 				warn.hidden = true;
 				if (s.login_required && s.expired) toLogin(new Response(JSON.stringify({ error: "session expired" })));
@@ -6085,14 +6085,32 @@
 			$("#session-user").textContent = s.user;
 			const until = (ms) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-GB" : "es-CL", { hour: "2-digit", minute: "2-digit" });
 			btn.dataset.tip = tr("Sesión de {u} ({r}) · vence a las {h} sin uso · Clic para salir", { u: s.user, r: s.role === "viewer" ? tr("solo lectura") : "admin", h: until(s.idle_until) });
+			$("#session-confirm-d").textContent = tr("Sales como {u}. Para volver, ingresa de nuevo.", { u: s.user });
 			const left = s.idle_until - Date.now();
 			warn.hidden = !(left > 0 && left < 120_000);
 			if (!warn.hidden) $("#session-warn-text").textContent = tr("Tu sesión vence en {n} s por inactividad.", { n: Math.max(1, Math.round(left / 1000)) });
 		};
-		$("#session-btn")?.addEventListener("click", async () => {
+		// salir pide confirmación: una ventanita anclada al botón (Cancelar con el foco: lo seguro primero);
+		// Esc o un clic fuera la cierran y el foco vuelve al botón
+		const confirmBox = $("#session-confirm"), sessBtn = $("#session-btn");
+		const openConfirm = (open) => {
+			if (!confirmBox || !sessBtn) return;
+			confirmBox.hidden = !open;
+			sessBtn.setAttribute("aria-expanded", String(open));
+			if (open) confirmBox.querySelector("[data-session-cancel]").focus();
+			else sessBtn.focus();
+		};
+		sessBtn?.addEventListener("click", () => openConfirm(confirmBox.hidden));
+		confirmBox?.addEventListener("click", async (e) => {
+			if (e.target.closest("[data-session-cancel]")) return openConfirm(false);
+			const out = e.target.closest("[data-session-out]");
+			if (!out) return;
+			out.disabled = true;
 			try { await fetch("/api/v1/auth/logout", { method: "POST", headers: { Accept: "application/json" } }); } catch { /* igual se va */ }
 			location.href = "/login/?bye=1";
 		});
+		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && confirmBox && !confirmBox.hidden) { e.stopPropagation(); openConfirm(false); } }, true);
+		document.addEventListener("pointerdown", (e) => { if (confirmBox && !confirmBox.hidden && !e.target.closest("#session-picker")) { confirmBox.hidden = true; sessBtn.setAttribute("aria-expanded", "false"); } });
 		$("#session-warn")?.addEventListener("click", async (e) => {
 			if (!e.target.closest("[data-session-stay]")) return;
 			SESSION.lastInput = Date.now();

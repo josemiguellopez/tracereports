@@ -16,6 +16,7 @@ const EN = {
 	wrong: "Wrong user or password.", empty: "Enter your user and password.", locked: (t) => `Too many attempts. Try again in ${t}.`,
 	net: "Could not reach the server. Try again.", expired: "Your session expired. Sign in again to continue.", bye: "You signed out.",
 	open: "This server has no login: opening the reports…", welcome: "Welcome",
+	bbcount: "7 agents", bbstate: "building", skip: "Skip", never: "Don't show again", replay: "↻ replay",
 };
 const ES = {
 	days: (n) => `(${n} días)`, idle: (m) => `Sesión en cookie segura · vence tras ${m} min sin uso.`,
@@ -413,6 +414,7 @@ const LINES = {
 	},
 }[lang];
 const BUILT_KEY = "tracereports-login-built";
+const NEVER_KEY = "tracereports-login-build"; // "off": no mostrar la obra en este navegador
 
 // las travesuras de Buddy con la clave: al mostrarla, un susto y después, pícaro
 const PEEK = {
@@ -816,9 +818,10 @@ async function construct() {
 	for (const t of plan()) if (t.kind === "type") { const el = $(t.el); texts.set(el, el.textContent); }
 	smokeSize();
 	addEventListener("resize", smokeSize);
-	// la persona manda: escribir, hacer clic o pegar termina la obra al instante
-	const skip = () => finish(true);
-	for (const ev of ["keydown", "pointerdown", "paste"]) addEventListener(ev, skip, { once: true, capture: true });
+	// la persona manda: escribir, hacer clic o pegar termina la obra al instante (la barra tiene sus propios controles)
+	build.skip = (e) => { if (e.key !== "Escape" && e.target?.closest?.("#buildbar")) return; finish(true); };
+	for (const ev of ["keydown", "pointerdown", "paste"]) addEventListener(ev, build.skip, { capture: true });
+	buildbar(plan().length);
 	smoke.haze = true;
 	smokeLoop();
 	// los agentes toman, en paralelo, las tareas cuyas dependencias ya están hechas (cada una la hace su dueño)
@@ -845,8 +848,10 @@ async function construct() {
 			try { await RUN[t.kind](ag, t); } catch (err) { console.warn("obra:", t.id, err); }
 			build.log.push([t.id, Math.round(t1 - build.t0), Math.round(performance.now() - t1)]);
 			done.add(t.id);
+			progress(done.size);
 		}
 		const ag = build.agents.get(a.id);
+		$(`#bb-agents [data-a="${a.id}"]`)?.classList.add("done");
 		if (ag && !build.skipped) { job(ag, lang === "en" ? "done ✓" : "listo ✓"); await wait(200); anim(ag.el, { opacity: [1, 0], scale: [1, 0.7] }, { duration: 0.3 }).then(() => ag.el.remove()); }
 	}));
 	finish(false);
@@ -856,6 +861,9 @@ function finish(skipped) {
 	build.done = true;
 	build.skipped = true;
 	build.wake.splice(0).forEach((w) => w());
+	if (build.skip) for (const ev of ["keydown", "pointerdown", "paste"]) removeEventListener(ev, build.skip, { capture: true });
+	closeBar();
+	$("#ab-replay").hidden = false;
 	const card = $("#card");
 	card.classList.remove("building");
 	card.classList.add("framed");
@@ -879,11 +887,48 @@ function finish(skipped) {
 	buddy.ctl?.react("jump");
 	say(LINES.done(AGENTS.length, ((performance.now() - build.t0) / 1000).toFixed(1).replace(".", lang === "en" ? "." : ",")), 7000);
 }
+// la barra: los agentes (se apagan al terminar), el avance y saltar
+function buildbar(total) {
+	const bar = $("#buildbar");
+	build.total = total;
+	$("#bb-agents").innerHTML = AGENTS.map((a) => `<i data-a="${a.id}" style="--c:${a.color}" title="agente·${a.id}"></i>`).join("");
+	bar.hidden = false;
+	anim(bar, { opacity: [0, 1], y: [24, 0] }, { type: "spring", stiffness: 380, damping: 28 });
+	$("#bb-skip").addEventListener("click", () => finish(true));
+	$("#bb-never").addEventListener("change", (e) => {
+		try { if (e.target.checked) localStorage.setItem(NEVER_KEY, "off"); else localStorage.removeItem(NEVER_KEY); } catch { /* sin storage */ }
+		if (e.target.checked) finish(true);
+	});
+}
+function progress(n) {
+	const pct = Math.round((n / (build.total || 1)) * 100);
+	$("#bb-pct").textContent = `${pct} %`;
+	$("#bb-prog").setAttribute("aria-valuenow", String(pct));
+	$("#bb-fill").style.transform = `scaleX(${pct / 100})`;
+}
+function closeBar() {
+	const bar = $("#buildbar");
+	if (bar.hidden) return;
+	progress(build.total || 1);
+	$("#bb-state").textContent = lang === "en" ? "done" : "listo";
+	if (!M || reduced) { bar.hidden = true; return; }
+	M.animate(bar, { opacity: [1, 0], y: [0, 16] }, { duration: 0.25, delay: 0.35 }).then(() => { bar.hidden = true; });
+}
+// ↻ repetir: vuelve a mostrar la obra (y deshace "no volver a mostrar")
+document.addEventListener("click", (e) => {
+	if (!e.target.closest("#ab-replay")) return;
+	try { sessionStorage.removeItem(BUILT_KEY); localStorage.removeItem(NEVER_KEY); } catch { /* sin storage */ }
+	location.reload();
+});
+
 function startBuild() {
 	let seen = false;
 	try { seen = sessionStorage.getItem(BUILT_KEY) === "1"; } catch { /* sin storage */ }
-	if (reduced || seen || params.get("expired") || params.get("bye") || !M) {
+	let never = false;
+	try { never = localStorage.getItem(NEVER_KEY) === "off"; } catch { /* sin storage */ }
+	if (reduced || seen || never || params.get("expired") || params.get("bye") || !M) {
 		build.done = true;
+		$("#ab-replay").hidden = reduced;
 		$("#ab-state").textContent = lang === "en" ? "· ready" : "· listo";
 		$("#ab-state").classList.add("done");
 		say(params.get("expired") ? LINES.expired : seen ? LINES.again : LINES.skipped.replace(/¡Apurado! |In a hurry! /, ""), 5000);

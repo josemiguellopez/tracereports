@@ -109,6 +109,11 @@ All notable changes to TraceReports. The format follows
   Any key, click or paste finishes it at once (nothing that moves blocks signing in); it does not repeat in the same
   tab nor with "reduce motion". Animations with Motion (Framer Motion for plain JavaScript, vendored in
   `web/vendor/motion`).
+- **Skip it, or never see it again**: while the page builds, a bar at the bottom (like a design tool's
+  collaboration bar) shows the agents, the progress and **Skip** with its `Esc` shortcut, plus **Don't show again**,
+  remembered in that browser; **↻ replay** next to the artboard name brings it back.
+- **Sign out asks first**: the session button is the last one in the top bar and opens a small confirmation
+  (Cancel has the focus; Esc or a click outside cancel it).
 - **Trace Buddy talks**: a speech bubble with a header, a brief "typing…" and highlighted words. Showing the
   password gives him a fright (he jumps back, hands up) and then a cheeky look (red slanted eyes, little horns,
   rubbing his hands) with a line like "Did you just show me the password?"; hiding it again, he covers his eyes and

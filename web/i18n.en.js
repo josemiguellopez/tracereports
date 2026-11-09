@@ -1016,6 +1016,7 @@
 		"Facetas": "Facets", "Intentos": "Attempts", "Todavía sin capturas.": "No screenshots yet.", "Cargando la red…": "Loading the network…",
 		"Traza del test": "Test trace", "{n} pasos y llamadas": "{n} steps and calls", "{n} más sin mostrar": "{n} more not shown",
 		"solo API": "API only", "incluir {n} recursos estáticos": "include {n} static resources",
+		"¿Cerrar sesión?": "Sign out?", "Cerrar sesión": "Sign out", "Sales como {u}. Para volver, ingresa de nuevo.": "You sign out as {u}. To come back, sign in again.",
 		"Seguir conectado": "Stay signed in",
 		"Sesión": "Session",
 		"Salir": "Sign out",
