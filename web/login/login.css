@@ -328,3 +328,12 @@ body {
 .draft.lane-track { border: 0; height: 1px; background: repeating-linear-gradient(90deg, rgba(120, 135, 155, .45) 0 3px, transparent 3px 7px); box-shadow: none; }
 .draft.lane-bar { border: 0; height: 18px; border-radius: 3px; background: rgba(255, 255, 255, .03); box-shadow: none; }
 .draft.lane-bar .fill { opacity: .78; }
+
+/* el nombre del test dentro de la barra del boceto, como en la animación */
+.draft.lane-bar .lbl { position: absolute; left: 7px; top: 0; right: 4px; line-height: 18px; overflow: hidden; white-space: nowrap;
+	font: 500 10px "JetBrains Mono", monospace; color: #06120c; }
+.draft.lane-bar .lbl.warn { color: #2a1d00; }
+.draft.lane-label .type-caret, .draft.lane-bar .type-caret { height: 11px; vertical-align: -1px; }
+
+/* la medida de la guía horizontal, a la derecha (a la izquierda tapaba la etiqueta del carril) */
+.guide.y::after { left: auto; right: 16px; }

@@ -224,7 +224,11 @@ function stage() {
 		layout() {
 			const ys = lanesY(), end = limit - 40;
 			return { limit: end, lanes: LANES.map((lane, li) => ({ w: lane.w, y: ys[li],
-				bars: laneState(li, OFFSET).filter((b) => b.x < end).map((b) => ({ x: b.x, w: Math.max(4, Math.min(b.w - 1, end - b.x)), state: b.state })) })) };
+				bars: laneState(li, OFFSET).filter((b) => b.x < end).map((b) => {
+					const w = Math.max(4, Math.min(b.w - 1, end - b.x));
+					const text = w > 120 ? (b.state === "fail" ? "✕ " : b.state === "warn" ? "▲ " : "") + b.name.slice(0, Math.floor((w - 14) / 6.2)) : "";
+					return { x: b.x, w, state: b.state, text };
+				}) })) };
 		},
 	};
 }
@@ -522,8 +526,11 @@ function plan() {
 		{ id: "go", kind: "rect", el: "#go", paint: "lime", by: "forms", deps: ["f-user"] },
 		{ id: "go-t", kind: "type", el: ".go-text", by: "forms", deps: ["go"] },
 		{ id: "qa", kind: "check", el: "#card", by: "qa", deps: ["go-t", "foot", "sub"], say: "qa" },
-		{ id: "lanes", kind: "lanes", by: "grid", deps: ["palette"] },
-		{ id: "render", kind: "render", by: "grid", deps: ["qa", "lede", "kicker", "lanes"] },
+		// el boceto de la traza, repartido: tres agentes, dos carriles cada uno
+		{ id: "lanes", kind: "lanes", lanes: [0, 1], by: "grid", deps: ["palette"] },
+		{ id: "lanes-2", kind: "lanes", lanes: [2, 3], by: "qa", deps: ["palette"] },
+		{ id: "lanes-3", kind: "lanes", lanes: [4, 5], by: "layout", deps: ["palette", "foot"] },
+		{ id: "render", kind: "render", by: "grid", deps: ["qa", "lede", "kicker", "lanes", "lanes-2", "lanes-3"] },
 		{ id: "trace", kind: "trace", by: "grid", deps: ["render"] },
 	];
 }
@@ -649,27 +656,45 @@ async function paint(ag, d, r, name) {
 	}
 	await Promise.all([anim(fill, { scaleX: [0, 1] }, { duration: 0.24, ease: [0.65, 0, 0.35, 1] }), fly(ag, r.right - 6, r.top + r.height / 2, 0.24)]);
 }
+// escribe un texto corto en el boceto, letra por letra, con el cursor del agente (si está)
+async function typeInto(el, text, ag, color) {
+	const caret = document.createElement("i");
+	caret.className = "type-caret";
+	caret.style.background = color;
+	el.textContent = "";
+	el.appendChild(caret);
+	const node = document.createTextNode("");
+	el.insertBefore(node, caret);
+	const step = Math.max(1, Math.ceil(text.length / 10));
+	for (let i = step; i < text.length + step; i += step) {
+		if (build.skipped) break;
+		node.textContent = text.slice(0, Math.min(i, text.length));
+		if (ag) { const cr = caret.getBoundingClientRect(); ag.el.style.transform = `translate(${cr.right + 2}px, ${cr.top + 4}px)`; ag.x = cr.right + 2; ag.y = cr.top + 4; }
+		await wait(12);
+	}
+	node.textContent = text;
+	caret.remove();
+}
 // el boceto de la traza (agente grid): carril por carril, su etiqueta, su línea y las barras pintadas con el
 // color de su estado, donde después corre la animación de verdad
-async function doLanes(ag) {
+async function doLanes(ag, t) {
 	const L = build.stage?.layout();
 	if (!L || build.skipped) return;
 	const color = (st) => (PALETTE.find(([n]) => n === st) || PALETTE[5])[1];
-	for (const lane of L.lanes) {
+	for (const lane of L.lanes.filter((_, i) => !t.lanes || t.lanes.includes(i))) {
 		if (build.skipped) return;
 		job(ag, `${JOBS.sketch} ${lane.w}`);
 		await fly(ag, 30, lane.y - 6, 0.2);
 		const lab = document.createElement("div");
 		lab.className = "draft lane-label";
 		Object.assign(lab.style, { left: "40px", top: `${lane.y - 8}px` });
-		lab.textContent = lane.w;
 		const track = document.createElement("div");
 		track.className = "draft lane-track";
 		Object.assign(track.style, { left: "84px", top: `${lane.y}px`, width: `${L.limit - 84}px` });
 		document.body.append(lab, track);
 		build.drafts.push(lab, track);
-		anim(lab, { opacity: [0, 1], x: [-6, 0] }, { duration: 0.2 });
 		anim(track, { scaleX: [0, 1] }, { duration: 0.3, ease: [0.22, 1, 0.36, 1] });
+		await typeInto(lab, lane.w, ag, ag.color); // el nombre del carril, letra por letra
 		for (const b of lane.bars) {
 			if (build.skipped) return;
 			const st = b.state === "warn" ? "warn" : b.state;
@@ -678,12 +703,13 @@ async function doLanes(ag) {
 			const d = document.createElement("div");
 			d.className = "draft lane-bar";
 			Object.assign(d.style, { left: `${b.x}px`, top: `${lane.y - 9}px`, width: `${b.w}px` });
-			d.innerHTML = `<i class="fill" style="background:${color(st)}"></i>`;
+			d.innerHTML = `<i class="fill" style="background:${color(st)}"></i><span class="lbl ${st}"></span>`;
 			document.body.appendChild(d);
 			build.drafts.push(d);
 			const secs = Math.min(0.2, 0.08 + b.w / 2400);
 			await Promise.all([anim(d.firstChild, { scaleX: [0, 1] }, { duration: secs, ease: [0.65, 0, 0.35, 1] }), fly(ag, b.x + b.w, lane.y + 4, secs)]);
 			sw?.classList.remove("on");
+			if (b.text) await typeInto(d.querySelector(".lbl"), b.text, ag, "#06120c"); // el nombre del test, escribiéndose
 		}
 		puff(Math.min(L.limit - 60, (lane.bars.at(-1)?.x ?? 120) + (lane.bars.at(-1)?.w ?? 0)), lane.y, 4, 0.6);
 	}
