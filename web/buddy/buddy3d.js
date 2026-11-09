@@ -237,6 +237,8 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		gesture: null, gT: 0, gDur: 0, hop: 0, shake: 0, sparkLife: 0, hover: 0,
 		talk: 0, idleFor: 0, asleep: false, panel: false, nextFidget: 9,
 		hoverFor: 0, blush: 0, change: null, flying: [],
+		// el login: "cover" se tapa los ojos (escribes la clave), "peek" espía entre los dedos, "none" mira
+		privacy: "none", coverL: 0, coverR: 0, lookHold: 0,
 		running: false, visible: true, last: 0, t: 0,
 	};
 	const ease = (k) => k * k * (3 - 2 * k);
@@ -421,6 +423,9 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		mVisor.emissive.setRGB(0.12 * st.blush, 0.0, 0.03 * st.blush); // el visor se pone apenas rojizo
 		// cara: la del momento (gesto o reacción); tímido; dormido; si no, la del ánimo
 		st.face = st.faceUntil > t ? st.face : shy ? "shy" : st.asleep ? "sleepy" : MOOD_FACE[st.mood] || "normal";
+		// tapado: ojos cerrados detrás de las manos; espiando: un ojo abierto
+		if (st.faceUntil <= t && st.privacy === "cover" && st.coverR > 0.5) st.face = "sleepy"; // ojos cerrados
+		if (st.faceUntil <= t && st.privacy === "peek") st.face = "wink";
 		drawFace();
 
 		// gesto en curso: avance 0..1
@@ -452,6 +457,7 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		if (st.asleep) { hx = 0.32 + Math.sin(t * 0.8) * 0.03; hy *= 0.2; hz = 0.15; }
 		if (st.blush > 0.3) { hx += 0.16 * st.blush; hy -= 0.18 * st.blush; hz -= 0.1 * st.blush; } // agacha la cara, de lado
 		if (st.mood === "error") hz += Math.sin(t * 30) * 0.03 * st.shake;
+		hx += 0.14 * Math.max(st.coverL, st.coverR); // tapándose, agacha un poco la cabeza
 		head.rotation.x = lerp(head.rotation.x, hx, k);
 		head.rotation.y = lerp(head.rotation.y, hy, k);
 		head.rotation.z = lerp(head.rotation.z, hz, k);
@@ -483,6 +489,17 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 			if (st.mood === "thinking") { rz = 1.9; rx = -0.95; } // mano al mentón
 			if (st.mood === "success") { rz = 0.6; }
 		}
+		// las manos a la cara (con resorte: rápido, sin golpe); al espiar, la derecha baja un poco
+		const kc = Math.min(1, dt * 9);
+		st.coverL = lerp(st.coverL, st.privacy === "none" ? 0 : 1, kc);
+		st.coverR = lerp(st.coverR, st.privacy === "cover" ? 1 : st.privacy === "peek" ? 0.45 : 0, kc);
+		// la cabeza es grande: para llegar al visor el hombro se adelanta y sube, y el brazo apunta a la cara
+		// cada mano va sobre su ojo y crece (guantes de dibujo animado: a escala real no tapan nada)
+		rz = lerp(rz, -0.17, st.coverR); rx = lerp(rx, -2.46, st.coverR);
+		lz = lerp(lz, 0.17, st.coverL); lx = lerp(lx, -2.46, st.coverL);
+		armR.position.set(lerp(0.6, 0.42, st.coverR), lerp(-0.42, 0.05, st.coverR), lerp(0, 0.55, st.coverR));
+		armL.position.set(lerp(-0.6, -0.42, st.coverL), lerp(-0.42, 0.05, st.coverL), lerp(0, 0.55, st.coverL));
+		for (const [a, c] of [[armR, st.coverR], [armL, st.coverL]]) { const s = 1 + c * 1.15; a.children[2].scale.set(s, 1.1 * s, 0.9 * s); }
 		armR.rotation.z = lerp(armR.rotation.z, rz, k);
 		armR.rotation.x = lerp(armR.rotation.x, rx, k);
 		armL.rotation.z = lerp(armL.rotation.z, lz, k);
@@ -679,6 +696,34 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		/** Con el panel abierto mira hacia la conversación. */
 		setPanel(open) { st.panel = open; st.idleFor = 0; st.asleep = false; if (open) gesture("wave"); },
 		setVisible(v) { st.visible = v; setRunning(v && !document.hidden); },
+		/**
+		 * El login: "cover" se tapa los ojos (se escribe la clave), "peek" espía entre los dedos,
+		 * "none" mira (la clave a la vista: se destapa y la mira, sorprendido).
+		 */
+		setPrivacy(mode) {
+			if (!["none", "cover", "peek"].includes(mode) || mode === st.privacy) return;
+			const was = st.privacy;
+			st.privacy = mode;
+			st.asleep = false;
+			st.idleFor = 0;
+			if (mode === "none" && was === "cover") show("surprised", 0.8);
+			if (reducedMotion) { st.coverL = mode === "none" ? 0 : 1; st.coverR = mode === "cover" ? 1 : mode === "peek" ? 0.45 : 0; renderOnce(); }
+		},
+		/** Mira hacia un punto (x, y de -1 a 1): sigue lo que se escribe en el formulario. */
+		lookAt(x, y = 0) {
+			st.lookTarget.set(THREE.MathUtils.clamp(x, -1, 1), THREE.MathUtils.clamp(y, -1, 1));
+			st.asleep = false;
+			st.idleFor = 0;
+			if (reducedMotion) renderOnce();
+		},
+		/** Un gesto suelto: "nod" (sí), "shake" (no, la clave no era), "jump" (entró). */
+		react(kind) {
+			st.asleep = false;
+			st.idleFor = 0;
+			if (kind === "shake") { st.shake = 1; show("worried", 1.4); }
+			else if (kind === "jump") { gesture("spinJoy"); show("stars", 1.4); burst(SPARKS, 2.2); }
+			else gesture(kind);
+		},
 		destroy() {
 			setRunning(false);
 			window.removeEventListener("pointermove", onPointer);

@@ -56,6 +56,7 @@ type Server struct {
 	Notify         *notify.Notifier
 	Live           *live.Hub // eventos en vivo (SSE); nil = desactivado
 	Auth           Auth
+	authFails      *authFailures // fallos de credenciales por IP (Basic, tokens y la página de ingreso)
 	ScreenshotsDir string
 	// Vault encrypts the evidence at rest (TRACEREPORTS_ENCRYPT_AT_REST): the files of
 	// ScreenshotsDir and, through the Store, the DOM snapshots. nil = in clear, as before.
@@ -117,13 +118,19 @@ func (s *Server) Router() http.Handler {
 		securityHeaders(contentSecurityPolicy(s.Web)),
 		middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
 	// freno a la fuerza bruta, CSRF de otros sitios y después las credenciales
-	r.Use(s.authThrottle(newAuthFailures()), sameSiteWrites, s.Auth.middleware, s.hostGuard)
+	if s.authFails == nil {
+		s.authFails = newAuthFailures() // el mismo contador para HTTP Basic, los tokens y la página de ingreso
+	}
+	r.Use(s.authThrottle(s.authFails), sameSiteWrites, s.sessionAuth, s.Auth.middleware, s.hostGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(s.trackActivity, s.idempotent)
 		r.Get("/config", s.getConfig)
 		r.Get("/settings", s.getSettings)
 		r.Get("/auth/check", s.checkToken)
+		r.Get("/auth/session", s.getSession)
+		r.Post("/auth/login", s.postLogin)
+		r.Post("/auth/logout", s.postLogout)
 		r.Put("/settings", s.putSettings)
 		r.Post("/settings/ai/test", s.testAISettings)
 		r.Delete("/settings/ai", s.resetAISettings)

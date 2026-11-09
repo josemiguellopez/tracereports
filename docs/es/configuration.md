@@ -23,7 +23,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = cifra las capturas, traces, videos e instantáneas del DOM nuevas (AES-256-GCM). Exige `TRACEREPORTS_DB_KEY`. Ver [Cifrado de la evidencia](security-hardening.md#cifrado-de-la-evidencia-en-la-aplicación-opcional) |
 | `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Su clave (32 bytes en base64 o hex), o un archivo que la contiene; nunca dentro de `DATA_DIR` |
 | `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | La clave anterior, solo mientras la rotas (`tracereports evidence rekey`) |
-| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
+| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login para **ver** los reportes: la página de ingreso (`/login/`) en el navegador, HTTP Basic para la API |
+| `TRACEREPORTS_SESSION_IDLE_MIN` / `_MAX_HOURS` / `_REMEMBER_DAYS` | `30` / `8` / `7` | Sesión de la página de ingreso: vence tras esos minutos sin uso o esas horas en total; "Recordarme" la mantiene esos días |
 | `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | Login de **solo lectura** para el resto del equipo: ve todo, no escribe resultados, no cambia Ajustes ni usa acciones. Usuario distinto del de administración |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (todas) | Solo estas redes entran (`10.0.0.0/8,fd00::/8`, o IPs sueltas); el resto recibe `403`, también con token. Este equipo siempre entra. Ver [Restringir por red](#restringir-por-red-de-origen) |
@@ -95,8 +96,12 @@ TRACEREPORTS_UI_PASSWORD=una-clave-segura
 - **Ajustes → Conectar tus tests** te guía con el token: lo genera en el navegador, te da la línea
   del `.env`, los comandos para PowerShell, macOS/Linux, GitHub Actions y GitLab CI con tu URL, y
   verifica que el servidor lo acepte.
-- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: el navegador pide usuario y clave para ver la UI y
-  la API de lectura.
+- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: la UI abre en una página de ingreso (`/login/`) y guarda
+  la sesión en una cookie `HttpOnly` y `SameSite=Strict` (`Secure` con HTTPS); en la base queda solo su hash. Vence
+  tras `TRACEREPORTS_SESSION_IDLE_MIN` sin uso (una pestaña olvidada no la mantiene) o tras
+  `TRACEREPORTS_SESSION_MAX_HOURS` igual; "Recordarme" la mantiene `TRACEREPORTS_SESSION_REMEMBER_DAYS`. Cambiar la
+  clave cierra todas las sesiones. Los intentos fallidos cuentan para el mismo freno que HTTP Basic y los tokens.
+  La API de lectura sigue aceptando HTTP Basic y los tokens, como antes.
 - **Ajustes desde la UI** (proveedor de IA, idioma por defecto): se pueden cambiar con el login de
   la UI o con el token. Sin login ni token (modo local), también desde el mismo equipo donde corre
   el servidor, conectado directo: se mira la conexión real y una petición que llega por un proxy

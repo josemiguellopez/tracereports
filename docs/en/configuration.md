@@ -23,7 +23,8 @@ steps to apply it.
 | `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = encrypts new screenshots, traces, videos and DOM snapshots (AES-256-GCM). Needs `TRACEREPORTS_DB_KEY`. See [Evidence encryption](security-hardening.md#application-level-evidence-encryption-optional) |
 | `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Its key (32 bytes, base64 or hex), or a file holding it; never inside `DATA_DIR` |
 | `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | The previous key, only while rotating it (`tracereports evidence rekey`) |
-| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
+| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login to **view** the reports: the sign-in page (`/login/`) in the browser, HTTP Basic for the API |
+| `TRACEREPORTS_SESSION_IDLE_MIN` / `_MAX_HOURS` / `_REMEMBER_DAYS` | `30` / `8` / `7` | Sign-in page session: it expires after this many minutes without use, or after this many hours anyway; "Remember me" keeps it this many days |
 | `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | **Read-only** login for the rest of the team: sees everything, never sends results, changes Settings nor uses actions. A different user from the admin one |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (all) | Only these networks get in (`10.0.0.0/8,fd00::/8`, or single IPs); the rest gets `403`, even with a token. This machine always gets in. See [Restrict by source network](#restrict-by-source-network) |
@@ -95,8 +96,12 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
 - **Settings → Connect your tests** walks you through the token: it generates it in the browser,
   gives you the `.env` line, the commands for PowerShell, macOS/Linux, GitHub Actions and GitLab CI
   with your URL, and checks that the server accepts it.
-- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: the browser asks for a user and password to see
-  the UI and the read API.
+- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: the UI opens on a sign-in page (`/login/`) and keeps the
+  session in an `HttpOnly`, `SameSite=Strict` cookie (`Secure` with HTTPS); only a hash of it is stored. It expires
+  after `TRACEREPORTS_SESSION_IDLE_MIN` without use (a forgotten tab does not keep it alive) or
+  `TRACEREPORTS_SESSION_MAX_HOURS` anyway; "Remember me" keeps it `TRACEREPORTS_SESSION_REMEMBER_DAYS`. Changing the
+  password ends every session. Failed sign-ins count for the same brake as HTTP Basic and the tokens. The
+  read API keeps accepting HTTP Basic and the tokens, as before.
 - **Settings from the UI** (AI provider, default language): can be changed with the UI login or
   the token. Without login nor token (local mode), also from the machine where the server runs,
   connected directly: the real connection is checked and a request that comes through a proxy

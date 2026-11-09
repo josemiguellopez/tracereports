@@ -92,6 +92,7 @@
 		<div class="topbar-right">
 			<span class="live-pill" id="live-pill" hidden role="status" aria-live="polite" tabindex="0"><span class="dot"></span><span class="live-text">En vivo</span></span>
 			<a class="live-of-run" id="live-of-run" hidden href="#" data-tip-title="Observabilidad de esta ejecución" data-tip="Abre la vista En vivo con esta ejecución: Requiere atención, línea de tiempo por worker, errores agrupados y la tabla. También si ya terminó."><svg aria-hidden="true"><use href="#i-chart"/></svg><span>Observabilidad</span></a>
+			<button type="button" class="session-btn" id="session-btn" hidden data-tip-title="Sesión"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v8"/><path d="M6.3 6.8a8 8 0 1 0 11.4 0"/></svg><span id="session-user" data-no-i18n></span><span class="sr-only">Salir</span></button>
 			<span class="static-pill" id="static-pill" hidden tabindex="0" data-tip-title="Reporte exportado" data-tip="Copia de solo lectura que funciona sin servidor. Lo que pase después de exportar no aparece aquí."></span>
 			<button class="new-run-badge" id="new-run-badge" hidden data-tip-title="Ejecución nueva en curso"><span class="dot" aria-hidden="true"></span><span class="nrb-text"></span></button>
 			<details class="recents-control" id="recents-control"><summary><span>Recientes</span><span class="recents-live" id="recents-live" hidden></span></summary>
@@ -283,5 +284,6 @@
 	<div class="command-palette" id="command-palette" role="dialog" aria-modal="true" aria-label="Paleta de comandos" hidden>
 		<div class="command-panel"><label class="run-search-box"><svg><use href="#i-search"/></svg><input id="command-input" type="search" role="combobox" aria-expanded="true" aria-controls="command-results" placeholder="Buscar ejecuciones o ir a una vista…" autocomplete="off"><kbd>Esc</kbd></label><div id="command-results" role="listbox"></div></div>
 	</div>
+	<div class="session-warn" id="session-warn" role="alert" hidden><span id="session-warn-text"></span><button type="button" class="cf-btn cf-btn-sm cf-btn-primary" data-session-stay>Seguir conectado</button></div>
 </body>
 </html>

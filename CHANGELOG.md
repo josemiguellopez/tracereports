@@ -86,6 +86,24 @@ All notable changes to TraceReports. The format follows
   in and the trace bars grow. Only what changed animates (the view redraws on every event) and nothing moves
   with "reduce motion".
 
+### Added (sign-in page)
+
+- **Sign-in page** (`/login/`) instead of the browser's HTTP Basic box: user, password (with show/hide and a Caps
+  Lock warning), **Remember me**, a single message for a wrong user or password, a countdown when the address is
+  blocked, and back to where you were (with its `#`) after signing in; never to another site.
+- **Sessions**: an `HttpOnly`, `SameSite=Strict` cookie (`Secure` with HTTPS); the database keeps only a SHA-256 of
+  the token. It expires after 30 min without use or 8 h anyway (`TRACEREPORTS_SESSION_IDLE_MIN`, `_MAX_HOURS`); Remember
+  me keeps it 7 days (`_REMEMBER_DAYS`). Requests the page makes on its own do not keep it alive. Changing the
+  password ends every session. Sign-in failures share the brute-force brake with HTTP Basic and the tokens, and
+  another site cannot sign a browser in (same-site check). The admin and the read-only login keep their roles.
+- **In the app**: the user and **Sign out** in the top bar, a warning 2 min before the session expires (**Stay
+  signed in**) and, when it expires, back to the sign-in page saying so. A 401 of the UI no longer opens the
+  browser's login box; API clients still get the HTTP Basic challenge and tokens work as before.
+- **Look**: a dark canvas with rulers where six agents (the workers) run tests and leave their trace, the last
+  failure selected as in a design tool; Trace Buddy sits on the card, follows what you type, covers his eyes while
+  the password is hidden, peeks when the pointer goes to the eye and looks when it is shown. Layers move with the
+  pointer; nothing moves with "reduce motion".
+
 ### Changed (client feedback, 09-11: Live for monitoring)
 
 - **Needs attention** on top: the tests that failed, stopped sending, were interrupted or run slow (turtle),

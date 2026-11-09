@@ -65,6 +65,37 @@
 	// Exported ZIP: data.js defines window.TRACEREPORTS_STATIC and the report runs without a server.
 	const STATIC = window.TRACEREPORTS_STATIC || null;
 
+	// ---------- sesión (la página de ingreso, /login/) ----------
+	// Toda llamada a la API dice que viene de la UI (así un 401 no abre el cuadro de login del
+	// navegador) y, si nadie tocó la página en un minuto, que es automática: una pestaña olvidada no
+	// mantiene viva la sesión. Un 401 por falta de login o sesión vencida lleva a /login/ y vuelve aquí.
+	const SESSION = { lastInput: Date.now(), leaving: false, info: null };
+	if (!STATIC) {
+		for (const ev of ["pointerdown", "keydown", "wheel", "touchstart"]) addEventListener(ev, () => { SESSION.lastInput = Date.now(); }, { passive: true, capture: true });
+		const nativeFetch = window.fetch.bind(window);
+		window.fetch = async (input, init = {}) => {
+			const url = typeof input === "string" ? input : input?.url || "";
+			const path = url.startsWith(location.origin) ? url.slice(location.origin.length) : url;
+			if (!path.startsWith("/api/")) return nativeFetch(input, init);
+			const headers = new Headers(init.headers || (typeof input === "string" ? undefined : input.headers));
+			headers.set("X-TraceReports-UI", "1");
+			if (Date.now() - SESSION.lastInput > 60_000) headers.set("X-TraceReports-Passive", "1");
+			const res = await nativeFetch(input, { ...init, headers });
+			if (res.status === 401 && !path.startsWith("/api/v1/auth/")) toLogin(res);
+			return res;
+		};
+	}
+	async function toLogin(res) {
+		if (SESSION.leaving) return;
+		let msg = "";
+		try { msg = (await res.clone().json()).error || ""; } catch { /* sin cuerpo */ }
+		// un token que falta para escribir resultados no es falta de login
+		if (msg !== "authentication required" && msg !== "session expired") return;
+		SESSION.leaving = true;
+		const next = location.pathname + location.search + location.hash;
+		location.href = `/login/?next=${encodeURIComponent(next)}${msg === "session expired" ? "&expired=1" : ""}`;
+	}
+
 	function staticApi(path) {
 		const p = path.split("?")[0];
 		let m;
@@ -6033,6 +6064,44 @@
 		setInterval(() => { if (S.view === "live" && !document.hidden) loadLiveView(); }, 10000);
 		setTimeout(pollLoop, POLL_MS);
 		setTimeout(runsLoop, RUNS_POLL_MS);
+		sessionWatch();
+	}
+
+	// Con la página de ingreso: el usuario y Salir arriba, y un aviso 2 min antes de que la sesión venza
+	// por inactividad ("Seguir conectado" la renueva). Se consulta cada 30 s sin contar como uso.
+	async function sessionWatch() {
+		const check = async () => {
+			let s;
+			try { s = await (await fetch("/api/v1/auth/session", { headers: { Accept: "application/json" } })).json(); } catch { return; }
+			SESSION.info = s;
+			const btn = $("#session-btn"), warn = $("#session-warn");
+			if (!btn || !warn) return;
+			btn.hidden = !s.logged_in;
+			if (!s.logged_in) {
+				warn.hidden = true;
+				if (s.login_required && s.expired) toLogin(new Response(JSON.stringify({ error: "session expired" })));
+				return;
+			}
+			$("#session-user").textContent = s.user;
+			const until = (ms) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-GB" : "es-CL", { hour: "2-digit", minute: "2-digit" });
+			btn.dataset.tip = tr("Sesión de {u} ({r}) · vence a las {h} sin uso · Clic para salir", { u: s.user, r: s.role === "viewer" ? tr("solo lectura") : "admin", h: until(s.idle_until) });
+			const left = s.idle_until - Date.now();
+			warn.hidden = !(left > 0 && left < 120_000);
+			if (!warn.hidden) $("#session-warn-text").textContent = tr("Tu sesión vence en {n} s por inactividad.", { n: Math.max(1, Math.round(left / 1000)) });
+		};
+		$("#session-btn")?.addEventListener("click", async () => {
+			try { await fetch("/api/v1/auth/logout", { method: "POST", headers: { Accept: "application/json" } }); } catch { /* igual se va */ }
+			location.href = "/login/?bye=1";
+		});
+		$("#session-warn")?.addEventListener("click", async (e) => {
+			if (!e.target.closest("[data-session-stay]")) return;
+			SESSION.lastInput = Date.now();
+			try { await fetch("/api/v1/config", { headers: { Accept: "application/json" } }); } catch { /* sigue el aviso */ }
+			check();
+		});
+		await check();
+		if (!SESSION.info?.login_required) return; // sin login configurado no hay nada que vigilar
+		setInterval(check, 30_000);
 	}
 
 	init();
