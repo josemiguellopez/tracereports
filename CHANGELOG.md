@@ -99,6 +99,13 @@ All notable changes to TraceReports. The format follows
 - **In the app**: the user and **Sign out** in the top bar, a warning 2 min before the session expires (**Stay
   signed in**) and, when it expires, back to the sign-in page saying so. A 401 of the UI no longer opens the
   browser's login box; API clients still get the HTTP Basic challenge and tokens work as before.
+- **The page builds itself** (like a design tool with several people on it): seven agents, each with its cursor,
+  take the tasks whose dependencies are done and work in parallel: rulers, guides with their coordinate,
+  rectangles dragged with their size, text typed letter by letter, the QA sweep; smoke where each piece lands and
+  Trace Buddy telling what happens ("my team of agents is building your sign-in") and how many agents built it.
+  Any key, click or paste finishes it at once (nothing that moves blocks signing in); it does not repeat in the same
+  tab nor with "reduce motion". Animations with Motion (Framer Motion for plain JavaScript, vendored in
+  `web/vendor/motion`).
 - **Look**: a dark canvas with rulers where six agents (the workers) run tests and leave their trace, the last
   failure selected as in a design tool; Trace Buddy sits on the card, follows what you type, covers his eyes while
   the password is hidden, peeks when the pointer goes to the eye and looks when it is shown. Layers move with the

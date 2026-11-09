@@ -197,3 +197,66 @@ body {
 	*, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
 	.pitch, .card, .stage::before { transform: none !important; }
 }
+
+/* ---------- la obra: los agentes arman la tarjeta (Swarm: un sitio que se construye solo) ---------- */
+/* mientras se construye, cada pieza espera su agente; Motion las trae con resorte */
+.card.building { background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.card.building::before { opacity: 0; }
+.card.assembling [data-build] { opacity: 0; }
+.card.framed { transition: background .5s var(--out), border-color .5s var(--out), box-shadow .6s var(--out); }
+/* el marco de la mesa de trabajo, con su nombre arriba (como un frame de una herramienta de diseño) */
+.artboard { position: absolute; left: -1px; top: -24px; display: inline-flex; align-items: center; gap: 6px;
+	font: 500 11px "JetBrains Mono", monospace; color: var(--muted); white-space: nowrap; pointer-events: none; }
+.artboard i { width: 8px; height: 8px; border: 1.5px solid currentColor; border-radius: 2px; }
+.ab-state { color: var(--warn); }
+.ab-state.done { color: var(--pass); }
+.card.building .artboard, .card.framing .artboard { color: var(--cyan); }
+.card.building::after { content: ""; position: absolute; inset: 0; border-radius: inherit; border: 1px dashed rgba(41, 223, 255, .45); pointer-events: none; }
+/* la barrida del agente de QA */
+.scan { position: absolute; left: 0; right: 0; height: 2px; top: 0; pointer-events: none; z-index: 4;
+	background: linear-gradient(90deg, transparent, var(--cyan), transparent); box-shadow: 0 0 18px 2px rgba(41, 223, 255, .55); }
+
+/* los agentes: un cursor con su nombre, como los de un editor compartido */
+.agents { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+.agent { position: absolute; left: 0; top: 0; display: flex; align-items: flex-start; gap: 2px; will-change: transform; }
+.agent svg { width: 18px; height: 18px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .5)); }
+.agent b { margin-top: 14px; padding: 2px 7px 3px; border-radius: 6px; font: 600 10.5px "JetBrains Mono", monospace; color: #08090c; white-space: nowrap;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
+.agent em { display: block; font-style: normal; font-weight: 500; opacity: .75; }
+.chip-done { position: absolute; z-index: 5; padding: 2px 7px; border-radius: 6px; font: 600 10px "JetBrains Mono", monospace; pointer-events: none;
+	color: #04140c; background: var(--pass); white-space: nowrap; }
+
+/* el humo de la obra */
+.smoke { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; }
+
+/* lo que dice Trace Buddy: un globo a su izquierda */
+.say { position: absolute; right: 168px; top: -112px; z-index: 4; max-width: 270px; margin: 0; padding: 11px 14px; border-radius: 14px 14px 4px 14px;
+	background: #f3f6f9; color: #0c1117; font: 500 13px/1.4 Inter, sans-serif; box-shadow: 0 14px 40px -10px rgba(0, 0, 0, .7); }
+.say::after { content: ""; position: absolute; right: -7px; bottom: 10px; border: 7px solid transparent; border-left-color: #f3f6f9; border-right: 0; }
+.say b { font-weight: 650; }
+.say .who { display: block; margin-bottom: 2px; font: 600 10px "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: #5b6676; }
+@media (max-width: 960px) { .say { right: auto; left: 0; top: -128px; max-width: calc(100% - 150px); } .say::after { display: none; } }
+@media (max-width: 480px) { .say { top: -122px; font-size: 12px; padding: 9px 11px; } }
+@media (prefers-reduced-motion: reduce) { .agents, .smoke, .scan { display: none; } }
+
+/* ---------- la obra completa: reglas, guías, rectángulos que se arrastran y textos que se escriben ---------- */
+.unbuilt { opacity: 0 !important; }
+.ruler-top { transform-origin: left center; }
+.ruler-left { transform-origin: center top; }
+.stage canvas { transition: opacity .9s var(--out); }
+.stage.dark canvas { opacity: 0; }
+/* una guía (como las de una herramienta de diseño): fina, punteada, con su posición */
+.guide { position: fixed; z-index: 5; pointer-events: none; background: repeating-linear-gradient(var(--gdir, 180deg), rgba(255, 95, 162, .85) 0 4px, transparent 4px 8px); }
+.guide.x { top: 0; bottom: 0; width: 1px; --gdir: 180deg; transform-origin: top; }
+.guide.y { left: 0; right: 0; height: 1px; --gdir: 90deg; transform-origin: left; }
+.guide::after { content: attr(data-label); position: absolute; padding: 1px 5px; border-radius: 4px; background: #ff5fa2; color: #1a0610;
+	font: 600 9.5px "JetBrains Mono", monospace; white-space: nowrap; }
+.guide.x::after { top: calc(var(--ruler) + 4px); left: 4px; }
+.guide.y::after { left: calc(var(--ruler) + 4px); top: 4px; }
+/* el rectángulo que arrastra un agente, con su medida */
+.draft { position: fixed; z-index: 5; pointer-events: none; border: 1.5px solid; border-radius: 10px; transform-origin: top left;
+	background: color-mix(in srgb, currentColor 6%, transparent); box-shadow: 0 0 0 1px rgba(0, 0, 0, .3); }
+.draft span { position: absolute; right: -2px; bottom: -22px; padding: 1px 6px; border-radius: 4px; color: #08090c;
+	font: 600 10px "JetBrains Mono", monospace; white-space: nowrap; }
+/* el cursor de texto del agente que escribe */
+.type-caret { display: inline-block; width: 2px; height: .95em; margin-left: 2px; vertical-align: -.1em; border-radius: 1px; animation: blink .8s steps(1) infinite; }

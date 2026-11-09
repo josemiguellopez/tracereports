@@ -218,6 +218,7 @@ function stage() {
 		}, { passive: true });
 	}
 	if (reduced) { running = false; draw(26); } else requestAnimationFrame(frame);
+	return { restart() { t0 = performance.now() - OFFSET * 1000; } };
 }
 
 // ---------- 2) Trace Buddy ----------
@@ -350,10 +351,376 @@ function clock() {
 	setInterval(tick, 1000);
 }
 
+// ---------- 4) la obra: un equipo de agentes construye la página ----------
+// Como Swarm (un sitio que se construye solo): la página es una lista de tareas con dependencias (las
+// reglas, las guías, rectángulos que se arrastran, textos que se escriben letra por letra); varios agentes,
+// cada uno con su cursor, toman en paralelo las que ya pueden hacerse. Al terminar arrancan los agentes del
+// fondo y Trace Buddy cuenta cuántos la armaron. Cualquier tecla, clic o pegado la termina al instante
+// (nada que se mueva bloquea el ingreso); con "reducir movimiento", o si ya se vio en esta pestaña, no se repite.
+const M = window.Motion; // Motion: Framer Motion sin React (/vendor/motion)
+const AGENTS = [
+	{ id: "grid", color: "#ff5fa2" }, { id: "layout", color: "#29dfff" }, { id: "copy", color: "#ffd166" },
+	{ id: "marca", color: "#c9fa6b" }, { id: "forms", color: "#b69cff" }, { id: "seguridad", color: "#3ecf8e" }, { id: "qa", color: "#ff9f6b" },
+];
+const JOBS = {
+	es: { rulers: "pone las reglas", guide: "traza una guía", rect: "dibuja", type: "escribe", reveal: "coloca", check: "revisa", trace: "arranca la traza" },
+	en: { rulers: "sets the rulers", guide: "draws a guide", rect: "draws", type: "types", reveal: "places", check: "checks", trace: "starts the trace" },
+}[lang];
+const LINES = {
+	es: {
+		start: "<span class=\"who\">Trace Buddy</span>Espera un momento… tengo al equipo de agentes <b>armando tu login</b>.",
+		copy: "<span class=\"who\">Trace Buddy</span>El de textos escribe rápido, pero no le pidas poesía.",
+		forms: "<span class=\"who\">Trace Buddy</span>El de formularios es nuevo, pero promete.",
+		security: "<span class=\"who\">Trace Buddy</span>Seguridad está sellando tu sesión: <b>cookie HttpOnly</b>, nada en claro.",
+		qa: "<span class=\"who\">Trace Buddy</span>QA revisa que todo funcione con el teclado. Ojalá no encuentre bugs…",
+		done: (n, s) => `<span class="who">Trace Buddy</span>Listo: <b>${n} agentes</b> armaron este login en ${s} s. Y tranquilo: <b>prometo no mirar tu clave</b>.`,
+		skipped: "<span class=\"who\">Trace Buddy</span>¡Apurado! El equipo dejó todo listo. Prometo no mirar tu clave.",
+		again: "<span class=\"who\">Trace Buddy</span>Hola de nuevo. El equipo ya dejó todo listo.",
+		expired: "<span class=\"who\">Trace Buddy</span>Te fuiste un rato y la sesión se cerró sola. Por seguridad, ya sabes.",
+	},
+	en: {
+		start: "<span class=\"who\">Trace Buddy</span>Hang on… my team of agents is <b>building your sign-in</b>.",
+		copy: "<span class=\"who\">Trace Buddy</span>The copy agent types fast. Don't ask for poetry.",
+		forms: "<span class=\"who\">Trace Buddy</span>The forms agent is new, but promising.",
+		security: "<span class=\"who\">Trace Buddy</span>Security is sealing your session: <b>HttpOnly cookie</b>, nothing in clear.",
+		qa: "<span class=\"who\">Trace Buddy</span>QA is checking it all works with the keyboard. Fingers crossed…",
+		done: (n, s) => `<span class="who">Trace Buddy</span>Done: <b>${n} agents</b> built this sign-in in ${s} s. And relax: <b>I won't look at your password</b>.`,
+		skipped: "<span class=\"who\">Trace Buddy</span>In a hurry! The team left everything ready. I won't look at your password.",
+		again: "<span class=\"who\">Trace Buddy</span>Welcome back. The team left everything ready.",
+		expired: "<span class=\"who\">Trace Buddy</span>You stepped away and the session closed itself. Security, you know.",
+	},
+}[lang];
+const BUILT_KEY = "tracereports-login-built";
+
+let sayTimer = 0;
+function say(html, ms = 0) {
+	const el = $("#say");
+	clearTimeout(sayTimer);
+	el.innerHTML = html; // textos fijos de este archivo (nada del usuario ni del servidor)
+	const first = el.hidden;
+	el.hidden = false;
+	if (!reduced && M) M.animate(el, first ? { opacity: [0, 1], scale: [0.85, 1], y: [8, 0] } : { scale: [0.97, 1] }, { type: "spring", stiffness: 420, damping: 24 });
+	if (ms) sayTimer = setTimeout(() => hideSay(), ms);
+}
+function hideSay() {
+	const el = $("#say");
+	if (el.hidden) return;
+	if (reduced || !M) { el.hidden = true; return; }
+	M.animate(el, { opacity: [1, 0], scale: [1, 0.9] }, { duration: 0.18 }).then(() => { el.hidden = true; el.style.opacity = ""; });
+}
+
+// el humo de la obra: bocanadas donde cae una pieza y una bruma alrededor de la tarjeta mientras se construye
+const smoke = { ps: [], haze: false, run: false, last: 0, ctx: null };
+function smokeSize() {
+	const c = $("#smoke"), d = Math.min(2, devicePixelRatio || 1);
+	c.width = innerWidth * d; c.height = innerHeight * d;
+	smoke.ctx = c.getContext("2d");
+	smoke.ctx.setTransform(d, 0, 0, d, 0, 0);
+}
+function puff(x, y, n = 14, spread = 1) {
+	if (reduced || !smoke.ctx) return;
+	for (let i = 0; i < n; i++) {
+		smoke.ps.push({ x: x + (Math.random() - 0.5) * 24 * spread, y: y + (Math.random() - 0.5) * 10, vx: (Math.random() - 0.5) * 46 * spread, vy: -12 - Math.random() * 34,
+			r: 8 + Math.random() * 14, g: 24 + Math.random() * 30, a: 0.3 + Math.random() * 0.16, life: 0, max: 1.2 + Math.random() * 1.4 });
+	}
+	smokeLoop();
+}
+function smokeLoop() {
+	if (smoke.run || !smoke.ctx) return;
+	smoke.run = true;
+	smoke.last = performance.now();
+	const tick = (now) => {
+		const dt = Math.min(0.05, (now - smoke.last) / 1000);
+		smoke.last = now;
+		const g = smoke.ctx;
+		g.clearRect(0, 0, innerWidth, innerHeight);
+		if (smoke.haze && Math.random() < 0.85) {
+			const r = $("#card").getBoundingClientRect(), side = Math.random();
+			const x = side < 0.5 ? r.left + Math.random() * r.width : side < 0.75 ? r.left : r.right;
+			const y = side < 0.5 ? (side < 0.25 ? r.top : r.bottom) : r.top + Math.random() * r.height;
+			smoke.ps.push({ x, y, vx: (Math.random() - 0.5) * 18, vy: -8 - Math.random() * 14, r: 12, g: 26, a: 0.13, life: 0, max: 2 });
+		}
+		smoke.ps = smoke.ps.filter((p) => (p.life += dt) < p.max);
+		for (const p of smoke.ps) {
+			p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= 0.985; p.r += p.g * dt;
+			const a = p.a * Math.pow(1 - p.life / p.max, 1.6);
+			const grd = g.createRadialGradient(p.x, p.y, 0, p.x, p.y, p.r);
+			grd.addColorStop(0, `rgba(214,222,232,${a})`); grd.addColorStop(0.6, `rgba(170,182,198,${a * 0.45})`); grd.addColorStop(1, "rgba(150,160,175,0)");
+			g.fillStyle = grd; g.beginPath(); g.arc(p.x, p.y, p.r, 0, Math.PI * 2); g.fill();
+		}
+		if (smoke.ps.length || smoke.haze) requestAnimationFrame(tick);
+		else { smoke.run = false; g.clearRect(0, 0, innerWidth, innerHeight); }
+	};
+	requestAnimationFrame(tick);
+}
+
+// ---- el plan: qué se construye, quién lo hace y después de qué ----
+// kind: rulers | guide (axis x|y, at) | rect (se arrastra un rectángulo y aparece la pieza) | type (letra por
+// letra) | reveal (aparece con resorte) | check (la barrida de QA) | trace (arrancan los agentes del fondo)
+function plan() {
+	const R = (sel) => () => $(sel).getBoundingClientRect();
+	return [
+		{ id: "rulers", kind: "rulers", by: "grid" },
+		{ id: "g-card-l", kind: "guide", axis: "x", at: () => R("#card")().left, by: "grid", deps: ["rulers"] },
+		{ id: "g-card-t", kind: "guide", axis: "y", at: () => R("#card")().top, by: "layout", deps: ["rulers"] },
+		{ id: "g-pitch", kind: "guide", axis: "x", at: () => R(".pitch h1")().left, by: "copy", deps: ["rulers"], wide: true },
+		{ id: "card", kind: "rect", el: "#card", by: "layout", deps: ["g-card-l", "g-card-t"], say: "start" },
+		{ id: "kicker", kind: "rect", el: ".kicker", by: "copy", deps: ["g-pitch"], wide: true },
+		{ id: "h1", kind: "type", el: ".pitch h1", by: "copy", deps: ["kicker"], wide: true, say: "copy" },
+		{ id: "lede", kind: "type", el: ".lede", by: "copy", deps: ["h1"], wide: true },
+		{ id: "brand", kind: "reveal", el: ".brand", by: "marca", deps: ["card"] },
+		{ id: "title", kind: "type", el: "#login-title", by: "marca", deps: ["brand"] },
+		{ id: "sub", kind: "type", el: "#sub", by: "marca", deps: ["title"] },
+		{ id: "f-user", kind: "rect", el: "#user", show: ".field:nth-of-type(1)", by: "forms", deps: ["card"], say: "forms" },
+		{ id: "f-pass", kind: "rect", el: "#pass", show: ".field:nth-of-type(2)", by: "forms", deps: ["f-user"] },
+		{ id: "remember", kind: "reveal", el: ".remember", by: "seguridad", deps: ["f-pass"], say: "security" },
+		{ id: "foot", kind: "reveal", el: ".foot", by: "seguridad", deps: ["remember"] },
+		{ id: "go", kind: "rect", el: "#go", by: "forms", deps: ["f-pass"] },
+		{ id: "go-t", kind: "type", el: ".go-text", by: "forms", deps: ["go"] },
+		{ id: "qa", kind: "check", el: "#card", by: "qa", deps: ["go-t", "foot", "sub"], say: "qa" },
+		{ id: "trace", kind: "trace", by: "grid", deps: ["qa", "lede"] },
+	];
+}
+// lo que se construye empieza invisible (el texto que se escribe, vacío)
+const BUILT_SEL = [".ruler", ".kicker", ".pitch h1", ".lede", ".brand", "#login-title", "#sub", ".field", ".remember", ".foot", "#go"];
+const texts = new Map();
+
+const build = { skipped: false, done: false, wake: [], t0: 0, stage: null, agents: new Map(), guides: [], log: [] };
+window.__obra = build; // para mirar la obra desde las pruebas (qué tarea, cuándo empezó y cuánto tardó)
+const wait = (ms) => new Promise((ok) => { if (build.skipped) return ok(); const t = setTimeout(ok, ms); build.wake.push(() => { clearTimeout(t); ok(); }); });
+const anim = (el, kf, opt) => (build.skipped || !M ? Promise.resolve() : M.animate(el, kf, opt));
+
+function agentOf(id, i) {
+	let ag = build.agents.get(id);
+	if (ag) return ag;
+	const a = AGENTS.find((x) => x.id === id);
+	const el = document.createElement("div");
+	el.className = "agent";
+	el.dataset.agent = id;
+	el.innerHTML = `<svg viewBox="0 0 24 24"><path d="M3 2l7.2 19 2.5-7.6L20.5 11z" fill="${a.color}" stroke="#08090c" stroke-width="1.4" stroke-linejoin="round"/></svg>`
+		+ `<b style="background:${a.color}">agente·${id}<em></em></b>`;
+	$("#agents").appendChild(el);
+	const from = [[-60, innerHeight * 0.3], [innerWidth + 40, -40], [innerWidth * 0.5, innerHeight + 40], [innerWidth + 40, innerHeight * 0.8], [-60, innerHeight + 20], [innerWidth * 0.3, -50], [innerWidth + 40, innerHeight * 0.4]][(i ?? build.agents.size) % 7];
+	el.style.transform = `translate(${from[0]}px, ${from[1]}px)`;
+	ag = { el, x: from[0], y: from[1], color: a.color };
+	build.agents.set(id, ag);
+	return ag;
+}
+function job(ag, text) { ag.el.querySelector("em").textContent = text; }
+async function fly(ag, x, y, secs = 0.38) {
+	if (build.skipped) return;
+	const mid = [(ag.x + x) / 2 + (Math.random() - 0.5) * 120, Math.min(ag.y, y) - 40];
+	const k = { x: [ag.x, mid[0], x], y: [ag.y, mid[1], y] };
+	ag.x = x; ag.y = y;
+	await anim(ag.el, k, { duration: secs, ease: [0.22, 1, 0.36, 1] });
+}
+const visible = (el) => !!el && el.getClientRects().length > 0 && getComputedStyle(el).display !== "none";
+
+// ---- cada tipo de tarea ----
+async function doRulers(ag) {
+	job(ag, JOBS.rulers);
+	await fly(ag, 30, 30, 0.3);
+	const rulers = [...document.querySelectorAll(".ruler")];
+	rulers[0].style.transform = "scaleX(0)"; rulers[1].style.transform = "scaleY(0)"; // sin parpadeo al aparecer
+	rulers.forEach((r) => r.classList.remove("unbuilt"));
+	await Promise.all([anim(rulers[0], { scaleX: [0, 1] }, { duration: 0.3, ease: [0.22, 1, 0.36, 1] }), anim(rulers[1], { scaleY: [0, 1] }, { duration: 0.3, ease: [0.22, 1, 0.36, 1] })]);
+}
+async function doGuide(ag, t) {
+	const at = t.at();
+	if (!Number.isFinite(at)) return;
+	job(ag, JOBS.guide);
+	const g = document.createElement("div");
+	g.className = `guide ${t.axis}`;
+	g.style[t.axis === "x" ? "left" : "top"] = `${Math.round(at)}px`;
+	document.body.appendChild(g);
+	build.guides.push(g);
+	// el agente la saca de la regla y la arrastra por toda la página
+	if (t.axis === "x") { await fly(ag, at, 14, 0.32); g.dataset.label = `x ${Math.round(at)}`; await Promise.all([anim(g, { scaleY: [0, 1] }, { duration: 0.38 }), fly(ag, at, innerHeight * 0.55, 0.38)]); }
+	else { await fly(ag, 14, at, 0.32); g.dataset.label = `y ${Math.round(at)}`; await Promise.all([anim(g, { scaleX: [0, 1] }, { duration: 0.38 }), fly(ag, innerWidth * 0.45, at, 0.38)]); }
+}
+async function doRect(ag, t) {
+	const el = $(t.el), shown = t.show ? $(t.show) : el;
+	if (!visible(el)) return reveal(shown);
+	const r = el.getBoundingClientRect();
+	job(ag, `${JOBS.rect} ${Math.round(r.width)}×${Math.round(r.height)}`);
+	await fly(ag, r.left, r.top);
+	// el rectángulo crece desde la esquina con el cursor, mostrando su medida, y "pega" contra las guías
+	const d = document.createElement("div");
+	d.className = "draft";
+	Object.assign(d.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, borderColor: ag.color });
+	d.innerHTML = `<span style="background:${ag.color}">${Math.round(r.width)} × ${Math.round(r.height)}</span>`;
+	document.body.appendChild(d);
+	const secs = Math.min(0.55, 0.26 + (r.width + r.height) / 3200);
+	await Promise.all([anim(d, { scaleX: [0, 1], scaleY: [0, 1] }, { duration: secs, ease: [0.22, 1, 0.36, 1] }), fly(ag, r.right - 4, r.bottom - 4, secs)]);
+	if (t.id === "card") frameUp();
+	reveal(shown); // el resorte se asienta solo: el agente sigue con lo suyo
+	puff(r.left + r.width / 2, r.bottom, t.id === "card" ? 26 : 10, t.id === "card" ? 2.4 : 1);
+	anim(d, { opacity: [1, 0] }, { duration: 0.25 }).then(() => d.remove());
+	if (build.skipped) d.remove();
+}
+async function doType(ag, t) {
+	const el = $(t.el);
+	const full = texts.get(el) ?? el.textContent;
+	el.classList.remove("unbuilt");
+	el.style.opacity = "1";
+	if (!visible(el)) { el.textContent = full; return; }
+	job(ag, JOBS.type);
+	el.textContent = "";
+	const caret = document.createElement("i");
+	caret.className = "type-caret";
+	caret.style.background = ag.color;
+	el.appendChild(caret);
+	const r0 = el.getBoundingClientRect();
+	await fly(ag, r0.left, r0.top + 6, 0.32);
+	// unos 40 tics como máximo: un texto largo avanza varias letras por tic
+	const step = Math.max(1, Math.ceil(full.length / 40)), per = 16;
+	for (let i = step; i < full.length + step; i += step) {
+		if (build.skipped) break;
+		i = Math.min(i, full.length);
+		el.firstChild?.nodeType === 3 ? (el.firstChild.textContent = full.slice(0, i)) : el.insertBefore(document.createTextNode(full.slice(0, i)), caret);
+		{
+			const cr = caret.getBoundingClientRect();
+			ag.el.style.transform = `translate(${cr.right + 2}px, ${cr.top + cr.height * 0.4}px)`;
+			ag.x = cr.right + 2; ag.y = cr.top + cr.height * 0.4;
+		}
+		await wait(per);
+	}
+	caret.remove();
+	el.textContent = full;
+}
+function reveal(el) {
+	if (!el) return Promise.resolve();
+	if (build.skipped || !M) { el.classList.remove("unbuilt"); el.style.opacity = ""; return Promise.resolve(); }
+	el.style.opacity = "0";
+	el.classList.remove("unbuilt");
+	return M.animate(el, { opacity: [0, 1], y: [14, 0], scale: [0.95, 1] }, { type: "spring", stiffness: 380, damping: 24 });
+}
+async function doReveal(ag, t) {
+	const el = $(t.el);
+	if (visible(el)) { const r = el.getBoundingClientRect(); job(ag, JOBS.reveal); await fly(ag, r.left + 8, r.top + r.height / 2); }
+	reveal(el);
+	if (visible(el)) { const r = el.getBoundingClientRect(); puff(r.left + r.width / 2, r.bottom, 8); }
+	await wait(120);
+}
+async function doCheck(ag, t) {
+	const card = $(t.el), cr = card.getBoundingClientRect();
+	job(ag, JOBS.check);
+	await fly(ag, cr.right - 20, cr.top + 10);
+	const scan = document.createElement("div");
+	scan.className = "scan";
+	card.appendChild(scan);
+	await Promise.all([anim(scan, { y: [0, cr.height], opacity: [1, 1, 0] }, { duration: 0.55, ease: "easeInOut" }), fly(ag, cr.right - 20, cr.bottom - 10, 0.55)]);
+	scan.remove();
+	job(ag, "a11y ✓ · teclado ✓");
+	await wait(150);
+}
+async function doTrace(ag) {
+	job(ag, JOBS.trace);
+	await fly(ag, 90, $("#stage").getBoundingClientRect().top + 110, 0.5);
+	build.stage?.restart();
+	$(".stage").classList.remove("dark");
+}
+function frameUp() {
+	const card = $("#card");
+	card.classList.remove("building");
+	card.classList.add("framed");
+	anim(card, { scale: [0.97, 1] }, { type: "spring", stiffness: 260, damping: 20 });
+}
+
+const RUN = { rulers: doRulers, guide: doGuide, rect: doRect, type: doType, reveal: doReveal, check: doCheck, trace: doTrace };
+async function construct() {
+	const card = $("#card");
+	build.t0 = performance.now();
+	card.classList.add("building");
+	$(".stage").classList.add("dark");
+	$("#ab-state").textContent = lang === "en" ? "· building…" : "· construyendo…";
+	for (const sel of BUILT_SEL) for (const el of document.querySelectorAll(sel)) el.classList.add("unbuilt");
+	for (const t of plan()) if (t.kind === "type") { const el = $(t.el); texts.set(el, el.textContent); }
+	smokeSize();
+	addEventListener("resize", smokeSize);
+	// la persona manda: escribir, hacer clic o pegar termina la obra al instante
+	const skip = () => finish(true);
+	for (const ev of ["keydown", "pointerdown", "paste"]) addEventListener(ev, skip, { once: true, capture: true });
+	smoke.haze = true;
+	smokeLoop();
+	// los agentes toman, en paralelo, las tareas cuyas dependencias ya están hechas (cada una la hace su dueño)
+	const tasks = plan(), done = new Set(), taken = new Set();
+	const ready = (by) => tasks.find((t) => t.by === by && !taken.has(t.id) && (t.deps || []).every((d) => done.has(d)));
+	await Promise.all(AGENTS.map(async (a, i) => {
+		await wait(i * 90);
+		while (!build.skipped && done.size < tasks.length) {
+			const t = ready(a.id);
+			if (!t) {
+				if (!tasks.some((x) => x.by === a.id && !taken.has(x.id))) break; // no le queda nada: se va
+				const ag = build.agents.get(a.id);
+				if (ag && !ag.parked) { ag.parked = true; job(ag, lang === "en" ? "waiting…" : "esperando…"); fly(ag, 34 + i * 4, 60 + i * 34, 0.35); }
+				await wait(60);
+				continue;
+			}
+			const parked = build.agents.get(a.id);
+			if (parked) parked.parked = false;
+			taken.add(t.id);
+			if (t.wide && !visible($(".pitch h1"))) { if (t.kind === "type") $(t.el).textContent = texts.get($(t.el)); done.add(t.id); continue; }
+			const ag = agentOf(a.id, i);
+			if (t.say) say(LINES[t.say]);
+			const t1 = performance.now();
+			try { await RUN[t.kind](ag, t); } catch (err) { console.warn("obra:", t.id, err); }
+			build.log.push([t.id, Math.round(t1 - build.t0), Math.round(performance.now() - t1)]);
+			done.add(t.id);
+		}
+		const ag = build.agents.get(a.id);
+		if (ag && !build.skipped) { job(ag, lang === "en" ? "done ✓" : "listo ✓"); await wait(200); anim(ag.el, { opacity: [1, 0], scale: [1, 0.7] }, { duration: 0.3 }).then(() => ag.el.remove()); }
+	}));
+	finish(false);
+}
+function finish(skipped) {
+	if (build.done) return;
+	build.done = true;
+	build.skipped = true;
+	build.wake.splice(0).forEach((w) => w());
+	const card = $("#card");
+	card.classList.remove("building");
+	card.classList.add("framed");
+	for (const [el, full] of texts) el.textContent = full;
+	for (const el of document.querySelectorAll(".unbuilt")) el.classList.remove("unbuilt");
+	for (const el of document.querySelectorAll(BUILT_SEL.join(","))) { el.style.opacity = ""; el.style.transform = ""; }
+	document.querySelectorAll(".draft, .scan, .type-caret").forEach((n) => n.remove());
+	$(".stage").classList.remove("dark");
+	build.stage?.restart();
+	smoke.haze = false;
+	$("#ab-state").textContent = lang === "en" ? "· ready" : "· listo";
+	$("#ab-state").classList.add("done");
+	try { sessionStorage.setItem(BUILT_KEY, "1"); } catch { /* sin storage */ }
+	// las guías y los agentes se van (más rápido de lo que llegaron)
+	for (const el of [...document.querySelectorAll(".agent"), ...build.guides]) {
+		if (M && !reduced) M.animate(el, { opacity: [getComputedStyle(el).opacity, 0] }, { duration: 0.35 }).then(() => el.remove()); else el.remove();
+	}
+	if (skipped) { say(LINES.skipped, 6000); return; }
+	const r = card.getBoundingClientRect();
+	puff(r.left + r.width / 2, r.bottom, 30, 3);
+	buddy.ctl?.react("jump");
+	say(LINES.done(AGENTS.length, ((performance.now() - build.t0) / 1000).toFixed(1).replace(".", lang === "en" ? "." : ",")), 7000);
+}
+function startBuild() {
+	let seen = false;
+	try { seen = sessionStorage.getItem(BUILT_KEY) === "1"; } catch { /* sin storage */ }
+	if (reduced || seen || params.get("expired") || params.get("bye") || !M) {
+		build.done = true;
+		$("#ab-state").textContent = lang === "en" ? "· ready" : "· listo";
+		$("#ab-state").classList.add("done");
+		say(params.get("expired") ? LINES.expired : seen ? LINES.again : LINES.skipped.replace(/¡Apurado! |In a hurry! /, ""), 5000);
+		return;
+	}
+	construct();
+}
+// escribir esconde el globo (no tapa el formulario)
+document.addEventListener("input", () => { if (build.done) hideSay(); });
+
 // ---------- arranque ----------
 async function start() {
 	if (params.get("expired")) setNotice(T.expired, "warn");
 	else if (params.get("bye")) setNotice(T.bye);
+	startBuild(); // antes de esperar al servidor: la tarjeta no alcanza a verse armada y luego desarmarse
 	try {
 		const s = await (await fetch("/api/v1/auth/session", { headers: { Accept: "application/json" }, credentials: "same-origin" })).json();
 		if (s.logged_in) return leave(); // ya hay sesión: de vuelta
@@ -361,7 +728,7 @@ async function start() {
 		if (s.remember_days) $("#remember-days").textContent = T.days(Math.round(s.remember_days));
 		if (s.idle_min) $("#policy").textContent = T.idle(Math.round(s.idle_min));
 	} catch { /* sin servidor: el formulario avisará al enviar */ }
-	stage();
+	build.stage = stage();
 	form();
 	clock();
 	$("#user").focus({ preventScroll: true });

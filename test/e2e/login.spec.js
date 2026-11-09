@@ -175,3 +175,62 @@ test("a 2 min de vencer por inactividad avisa; Seguir conectado la renueva", asy
 	await warn.locator("[data-session-stay]").click();
 	await expect(warn).toBeHidden();
 });
+
+test.describe("la obra: un equipo de agentes construye la página (como Swarm)", () => {
+	test("reglas, guías, rectángulos con su medida y textos que se escriben; siete agentes y Buddy cuenta cuántos", async ({ page }) => {
+		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
+		await page.goto("/login/");
+		await expect(page.locator("#card")).toHaveClass(/building/);
+		await expect(page.locator("#ab-state")).toHaveText("· construyendo…");
+		await expect(page.locator(".pitch h1")).toHaveClass(/unbuilt/);
+		await expect(page.locator(".agent").first()).toBeVisible();
+		await expect(page.locator(".guide").first()).toBeAttached();
+		await expect(page.locator(".guide.x").first()).toHaveAttribute("data-label", /^x \d+$/);
+		await expect(page.locator(".draft span").first()).toHaveText(/^\d+ × \d+$/);
+		await expect(page.locator(".type-caret").first()).toBeAttached({ timeout: 6000 });
+		// termina sola: todo armado, sin guías ni agentes, y Buddy dice cuántos la construyeron
+		await expect(page.locator("#ab-state")).toHaveText("· listo", { timeout: 15_000 });
+		await expect(page.locator(".agent, .guide, .draft, .type-caret")).toHaveCount(0);
+		await expect(page.locator("#card")).not.toHaveClass(/building/);
+		await expect(page.locator("#say")).toContainText(/7 agentes armaron este login en \d+,\d s/);
+		await expect(page.locator("#say")).toContainText("prometo no mirar tu clave");
+		await expect(page.locator(".pitch h1")).toHaveText("Lo que falló, por qué y dónde.");
+		await expect(page.locator("#login-title")).toHaveText("Ingresar");
+		await expect(page.locator(".go-text")).toHaveText("Ingresar");
+		expect(await page.locator(".unbuilt").count()).toBe(0);
+		const obra = await page.evaluate(() => ({ agents: [...window.__obra.agents.keys()].sort(), tasks: window.__obra.log.map((x) => x[0]) }));
+		expect(obra.agents).toEqual(["copy", "forms", "grid", "layout", "marca", "qa", "seguridad"]);
+		expect(obra.tasks).toEqual(expect.arrayContaining(["rulers", "card", "h1", "f-user", "f-pass", "go", "qa", "trace"]));
+		expect(obra.tasks.indexOf("card")).toBeLessThan(obra.tasks.indexOf("f-user")); // las dependencias se respetan
+		for (const sel of ["#user", "#pass", "#go", ".remember", ".foot"]) await expect(page.locator(sel)).toBeVisible();
+	});
+
+	test("escribir termina la obra al instante (nada bloquea el ingreso) y no se repite en la misma pestaña", async ({ page }) => {
+		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
+		await page.goto("/login/");
+		await expect(page.locator(".agent").first()).toBeVisible();
+		await page.keyboard.type("admin");
+		await expect(page.locator("#user")).toHaveValue("admin");
+		await expect(page.locator("#card")).not.toHaveClass(/building/, { timeout: 1000 });
+		await expect(page.locator(".agent, .guide, .draft")).toHaveCount(0, { timeout: 1500 });
+		await expect(page.locator(".pitch h1")).toHaveText("Lo que falló, por qué y dónde.");
+		await expect(page.locator("#ab-state")).toHaveText("· listo");
+		await expect(page.locator("#say")).toContainText("Apurado");
+		await page.reload();
+		await expect(page.locator("#user")).toBeFocused();
+		await expect(page.locator(".agent")).toHaveCount(0);
+		await expect(page.locator("#card")).not.toHaveClass(/building/);
+		await expect(page.locator("#say")).toContainText("Hola de nuevo");
+	});
+
+	test("con reducir movimiento no hay obra: todo aparece armado", async ({ page }) => {
+		await page.emulateMedia({ reducedMotion: "reduce" });
+		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
+		await page.goto("/login/");
+		await expect(page.locator("#user")).toBeFocused();
+		await expect(page.locator(".agent, .guide")).toHaveCount(0);
+		await expect(page.locator(".unbuilt")).toHaveCount(0);
+		await expect(page.locator("#card")).not.toHaveClass(/building/);
+		await expect(page.locator("#go")).toBeVisible();
+	});
+});

@@ -142,7 +142,7 @@ func loginPublic(r *http.Request) bool {
 		return r.Method == http.MethodGet || r.Method == http.MethodHead
 	case p == "/api/v1/auth/login" || p == "/api/v1/auth/logout" || p == "/api/v1/auth/session":
 		return true
-	case strings.HasPrefix(p, "/buddy/") || strings.HasPrefix(p, "/vendor/fonts/") || p == "/favicon.svg" || p == "/favicon.ico":
+	case strings.HasPrefix(p, "/buddy/") || strings.HasPrefix(p, "/vendor/fonts/") || strings.HasPrefix(p, "/vendor/motion/") || p == "/favicon.svg" || p == "/favicon.ico":
 		return r.Method == http.MethodGet || r.Method == http.MethodHead
 	}
 	return false
