@@ -645,6 +645,15 @@ from any client:
   minimap, a ✕ marks each failure and a ! each test without signal.
 - **Facets** beside the table (status, error, file, worker), several at once, and the table sorts by status,
   name, duration or against the median. **Pause** freezes the view to analyze it.
+- **Needs attention**, on top: the tests that failed, have no signal, were interrupted or are turtles, with
+  file, worker, duration and ×p50; one click opens the detail.
+- The chosen statuses and the search go in the link (`&f=fail,warn`, `&lq=text`): sharing it opens the view
+  already filtered. Values of `f`: `fail`, `nosig`, `turtle`, `warn`, `run`, `pass`, `skip`, `int`.
+- `/` jumps to the search box and `Esc` clears it. The last step fits one line, with XPaths shortened and the
+  stack trace in a badge that opens below; the table has a **Worker** column and "Expand all / Collapse all".
+- **Past executions**: the list shows the last 2 hours, but any execution opens with the same view by its
+  key or by one of its runs (`#view=live&exec=r:888`). **View in Live**, in the top bar, opens the
+  execution of the run being looked at.
 - **Charts**: results over time (by status), cumulative failure rate (with the previous one as a reference)
   and the duration distribution (with p50 and p95); each with "Show data" as a table.
 - The **execution picker** shows the time, how long ago it started or ended and whether it is running,

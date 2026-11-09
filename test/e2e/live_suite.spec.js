@@ -43,13 +43,14 @@ test("una ejecución grande abre con lo que pide acción: tiles, Solo con proble
 	await expect(view.locator(".live-collapsed")).toContainText("tests sin problemas ocultos");
 	// sin worker: 12 carriles de proceso, los 6 sin problemas colapsados en una línea
 	await expect(view.locator(".lg-lane")).toHaveCount(6);
-	await expect(view.locator(".lg-worker").first()).toHaveText(/^P\d+ · \S+\.py$/); // sin "Clinico · test_"
+	await expect(view.locator(".lg-worker b").first()).toHaveText(/^P\d+$/); // corta y fija
+	await expect(view.locator(".lg-worker small").first()).toHaveText(/^\S+\.py$/); // el archivo actual, sin "Clinico · test_"
 	await view.locator(".lg-more").click();
 	await expect(view.locator(".lg-lane")).toHaveCount(12);
-	// el último paso en una línea, sin la URL; completo en el tooltip
-	const step = view.locator("tr.lt-row.turtle .lt-step span").first();
+	// el último paso en una línea, sin la URL (tampoco en el tooltip: puede llevar datos)
+	const step = view.locator("tr.lt-row.turtle .lt-steptext").first();
 	await expect(step).not.toContainText("http");
-	await expect(step).toHaveAttribute("title", /url: https:\/\/preclinico\.demo/);
+	await expect(step).toHaveAttribute("data-tip", /^Evidencia de .* del paciente$/);
 	// apagarlo: los archivos sin problemas quedan en una sola línea que se puede abrir
 	await chip.click();
 	await expect(chip).toHaveAttribute("aria-pressed", "false");

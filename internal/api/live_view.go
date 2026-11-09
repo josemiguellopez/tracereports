@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,9 +21,12 @@ import (
 // qué dejó de enviar ("sin señal"), por ejecución, worker y test. Se calcula con lo que el servidor ya
 // recibe de cualquier cliente; execution_id y los tests planificados del cliente lo mejoran.
 
+// liveWindow: cuánto tiempo sigue en la lista de En vivo una ejecución que terminó (una anterior se
+// abre igual por su clave o por un run). Variable para que los tests la acorten.
+var liveWindow = 2 * time.Hour
+
 const (
 	maxPlanned     = 100000
-	liveWindow     = 2 * time.Hour // ejecuciones terminadas que se siguen mostrando
 	statsTTL       = 10 * time.Minute
 	statsHistory   = 20     // ejecuciones anteriores para el p50 / p90
 	minTurtleHist  = 3      // con menos historial, solo "el doble del p50"
@@ -161,6 +165,7 @@ type liveExec struct {
 	EtaMs       int64          `json:"eta_ms,omitempty"`
 	Workers     int            `json:"workers"`
 	Cancel      bool           `json:"cancel_requested,omitempty"`
+	Past        bool           `json:"past,omitempty"` // fuera de la ventana de En vivo: se abrió por su clave o por un run
 	Runs        []liveRunView  `json:"runs,omitempty"`
 }
 
@@ -177,10 +182,19 @@ func (s *Server) liveExecutions(withTests bool, only string) ([]liveExec, error)
 		return nil, err
 	}
 	groups := db.GroupExecutions(runs, now)
+	// una ejecución pedida que ya no está entre las recientes (un enlace, un run anterior): se arma igual
+	past := false
+	if only != "" && !slices.ContainsFunc(groups, func(g db.Execution) bool { return execMatches(g, only) }) {
+		old, err := s.Store.ExecutionCandidates(only)
+		if err != nil {
+			return nil, err
+		}
+		groups, past = db.GroupExecutions(old, now), true
+	}
 	var out []liveExec
 	for i := len(groups) - 1; i >= 0; i-- { // la más nueva primero
 		g := groups[i]
-		if only != "" && g.Key != only {
+		if only != "" && !execMatches(g, only) {
 			continue
 		}
 		if err := s.Store.LiveTests(g.Runs); err != nil {
@@ -196,9 +210,18 @@ func (s *Server) liveExecutions(withTests bool, only string) ([]liveExec, error)
 		if !e.Running && e.EndedAt < now-liveWindow.Milliseconds() && only == "" {
 			continue
 		}
+		e.Past = past
 		out = append(out, e)
 	}
 	return out, nil
+}
+
+// execMatches: the execution of the key (x:…, g:…) or the one that has the run (r:<id>).
+func execMatches(g db.Execution, key string) bool {
+	if id, ok := strings.CutPrefix(key, "r:"); ok {
+		return slices.ContainsFunc(g.Runs, func(r db.LiveRun) bool { return strconv.FormatInt(r.ID, 10) == id })
+	}
+	return g.Key == key
 }
 
 func (s *Server) buildExec(g db.Execution, now int64, withTests bool) (liveExec, error) {

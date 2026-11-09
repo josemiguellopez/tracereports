@@ -2,6 +2,7 @@ package db
 
 import (
 	"errors"
+	"fmt"
 	"path/filepath"
 	"testing"
 )
@@ -153,5 +154,69 @@ func TestExecutionCancel(t *testing.T) {
 	s.MarkRunCancelled(run, c)
 	if rc, _ := s.GetRunControl(run); !rc.Cancel || rc.Reason != "de nuevo" {
 		t.Fatalf("%+v", rc)
+	}
+}
+
+// Una ejecución anterior se arma igual que una reciente: por su clave (x:, g:) o por uno de sus runs
+// (r:), aunque haya terminado hace días; lo de otro contexto o de otra ejecución no entra.
+func TestExecutionCandidatesPast(t *testing.T) {
+	s := openLive(t)
+	day := int64(24 * 3600 * 1000)
+	old := NowMs() - 3*day
+	mk := func(name string, m RunMeta, start int64) int64 {
+		id, err := s.CreateRunWithMeta(name, "qa", m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.db.Exec(`UPDATE runs SET status = 'PASS', started_at = ?, ended_at = ? WHERE id = ?`, start, start+60_000, id)
+		return id
+	}
+	box := RunMeta{Project: "box", Branch: "main", Commit: "abc"}
+	x1 := mk("a.py", RunMeta{Project: "box", ExecutionID: "suite-888"}, old)
+	x2 := mk("b.py", RunMeta{Project: "box", ExecutionID: "suite-888"}, old+5*60_000)
+	mk("c.py", RunMeta{Project: "box", ExecutionID: "otra"}, old)
+	g1 := mk("d.py", box, old)
+	g2 := mk("e.py", box, old+3*60_000) // misma ejecución sin execution_id (dentro del hueco)
+	mk("f.py", RunMeta{Project: "web", Branch: "main", Commit: "abc"}, old+60_000) // otro contexto
+	mk("g.py", box, old+2*day) // el mismo contexto, otro día
+
+	ids := func(runs []LiveRun) []int64 {
+		out := []int64{}
+		for _, r := range runs {
+			out = append(out, r.ID)
+		}
+		return out
+	}
+	group := func(key string, run int64) (string, []int64) {
+		runs, err := s.ExecutionCandidates(key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, g := range GroupExecutions(runs, NowMs()) {
+			for _, r := range g.Runs {
+				if r.ID == run {
+					return g.Key, ids(g.Runs)
+				}
+			}
+		}
+		return "", nil
+	}
+	eq := func(a, b []int64) bool { return fmt.Sprint(a) == fmt.Sprint(b) }
+	if k, got := group("x:suite-888", x1); k != "x:suite-888" || !eq(got, []int64{x1, x2}) {
+		t.Fatalf("x: %s %v", k, got)
+	}
+	if k, got := group(fmt.Sprintf("r:%d", x2), x2); k != "x:suite-888" || !eq(got, []int64{x1, x2}) {
+		t.Fatalf("r: de una con execution_id: %s %v", k, got)
+	}
+	if k, got := group(fmt.Sprintf("g:%d", g1), g1); k != fmt.Sprintf("g:%d", g1) || !eq(got, []int64{g1, g2}) {
+		t.Fatalf("g: %s %v", k, got)
+	}
+	if k, got := group(fmt.Sprintf("r:%d", g2), g2); k != fmt.Sprintf("g:%d", g1) || !eq(got, []int64{g1, g2}) {
+		t.Fatalf("r: en medio de un grupo sin execution_id: %s %v", k, got)
+	}
+	for _, bad := range []string{"", "x:", "r:abc", "z:1", "r:999999"} {
+		if runs, err := s.ExecutionCandidates(bad); err != nil || len(runs) != 0 {
+			t.Fatalf("%q: %v %v", bad, runs, err)
+		}
 	}
 }

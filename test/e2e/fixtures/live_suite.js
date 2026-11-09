@@ -108,4 +108,62 @@ function liveSuiteTest(id, now = Date.now()) {
 	return { test: { id, run_id: 1, name: "test_001_agenda_paso_1", status: "FAIL", started_at: t0, ended_at: t0 + 108000, logs }, network };
 }
 
-module.exports = { liveSuite, liveSuiteEndpoints, liveSuiteTest };
+/**
+ * Una ejecución como la del run 888 (feedback 09-11): pytest-xdist con 20 workers (gw0…gw19), 66 tests en
+ * 22 archivos con el prefijo "Clinico · test_…_chrome", 1 fallo, warnings, tortuga, sin señal y en curso;
+ * pasos con XPaths largos y un volcado de Selenium ("Stacktrace: … (No symbol) [0x7ff…]"). Inventada.
+ */
+function liveWorkers(now = Date.now()) {
+	const start = now - 7 * MIN;
+	const areas = ["modificar_paciente_espontaneo", "registrar_orden_procedimiento_imagenologia", "agregar_factores_riesgo", "despachar_receta_otro_nodo",
+		"registro_atencion_sic", "cargar_preparacion_paciente_espontaneo", "modificar_orden_procedimiento_imagenologia", "agregar_docs_agregar_programas_salud",
+		"ficha_plantillas_de_texto_indicaciones", "visualizar_nuevo_odontograma", "cancelar_atencion_pacientes", "modificar_orden_procedimiento_laboratorio",
+		"modificar_preparacion_paciente_espontaneo", "agregar_acuerdo_paciente", "cancelar_preparacion_pacientes", "alerta_paciente_espontaneo",
+		"crear_editar_solicitud_pedidos", "agregar_alergia", "agregar_modif_descart_farmacos", "registrar_llegada_paciente", "crear_agenda_individual", "derivar_paciente"];
+	const XPATH = "//div[contains(@class, 'rt-tr') and (./div[contains(normalize-space(), 'Qaeayeb') or contains(translate(normalize-space(.), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', 'abcdefghijklmnopqrstuvwxyz'), 'pendiente')])]//button[@class=\"text-white grey-btn btn btn-secondary\"]";
+	const STACK = "Message: Stacktrace: Symbols not available. Dumping unresolved backtrace: (No symbol) [0x7ff67e619ca5] (No symbol) [0x7ff67e5194f0] (No symbol) [0x7ff67e5ad9f3] (No symbol) [0x7ff67e3c2763]";
+	const runs = [];
+	let id = 5000, k = 0;
+	areas.forEach((area, r) => {
+		const name = `Clinico · test_${area}_chrome`;
+		const tests = [];
+		let t0 = start + r * 4000;
+		for (let i = 0; i < 3; i++) {
+			k++;
+			const worker = `gw${(r + i * 7) % 20}`;
+			const dur = (35 + ((r * 11 + i * 17) % 80)) * 1000;
+			let state = k % 11 === 0 ? "WARNING" : "PASS";
+			if (r === 3 && i === 1) state = "FAIL";
+			if (r === 12 && i === 0) state = "turtle";
+			if (r === 15 && i === 0) state = "no_signal";
+			const end = t0 + dur;
+			const going = state === "turtle" || state === "no_signal" || end > now || i === 2;
+			if (going && (state === "PASS" || state === "WARNING")) state = "running";
+			const step = state === "FAIL" ? `Upss, no se encontró el elemento '//div[contains(@class, 'modal-dialog')]' , el detalle del error es: ${STACK}`
+				: r === 10 && i === 0 ? `Cantidad de pacientes citados que comience con el nombre de : el xpath fue: ${XPATH} en Rayen Admin - url: https://preadministrativo.demo/#/mantenedor-agenda`
+					: `Evidencia de ${area.replace(/_/g, " ")} - url: https://preclinico.demo/main`;
+			const t = { id: ++id, run_id: r + 1, name: `test_00${i + 1}_box_${area}`, worker, state, status: going ? "RUNNING" : state, started_at: t0, attempts: 1,
+				p50: dur, p90: dur * 1.4, hist: 6, last_step: step, last_signal: going ? now - (state === "no_signal" ? 4 * MIN : 2000) : end };
+			if (going) {
+				t.elapsed = now - t0; t.idle = now - t.last_signal;
+				t.factor = state === "no_signal" ? 5.2 : state === "turtle" ? 2.6 : t.elapsed / dur;
+				tests.push(t);
+				break;
+			}
+			Object.assign(t, { ended_at: end, elapsed: dur, factor: state === "FAIL" ? 1.1 : 1 });
+			tests.push(t);
+			t0 = end + 1000;
+		}
+		const running = tests.some((t) => !t.ended_at);
+		runs.push({ id: r + 1, name, environment: "preproduccion", project: "rayen_salud_box_clinico", execution_id: "suite-ntbk", status: running ? "RUNNING" : "PASS",
+			started_at: start + r * 4000, ...(running ? {} : { ended_at: tests[tests.length - 1].ended_at }), planned: 3, last_activity: now, tests });
+	});
+	const all = runs.flatMap((r) => r.tests);
+	const counts = {};
+	for (const t of all) counts[t.state] = (counts[t.state] || 0) + 1;
+	const exec = { key: "x:suite-ntbk", title: "suite-ntbk-20261109-081806", running: true, started_at: start, project: "rayen_salud_box_clinico",
+		environment: "preproduccion", planned: 66, total: all.length, done: all.filter((t) => t.ended_at).length, eta_ms: 3 * MIN, workers: 20, counts };
+	return { list: { now, no_signal_ms: 180000, executions: [exec] }, execution: { now, execution: { ...exec, runs } } };
+}
+
+module.exports = { liveSuite, liveSuiteEndpoints, liveSuiteTest, liveWorkers };

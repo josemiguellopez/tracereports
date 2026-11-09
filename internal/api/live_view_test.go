@@ -318,3 +318,61 @@ func TestLiveEndpointsAcrossRuns(t *testing.T) {
 		t.Fatalf("unknown execution: %d", rec.Code)
 	}
 }
+
+// Una ejecución que ya salió de la lista de En vivo (terminó hace más que la ventana) se abre igual
+// por su clave o por uno de sus runs (r:<id>), marcada como anterior; su backend también. Desconocida: 404.
+func TestLivePastExecution(t *testing.T) {
+	srv, _ := newTestServer(t)
+	runOf := func(name string) int64 {
+		var r struct {
+			RunID int64 `json:"run_id"`
+		}
+		json.Unmarshal(call(t, srv, "POST", "/api/v1/runs", `{"name":"`+name+`","project":"box","environment":"qa","execution_id":"suite-888"}`).Body.Bytes(), &r)
+		var tr struct {
+			TestID int64 `json:"test_id"`
+		}
+		json.Unmarshal(call(t, srv, "POST", fmt.Sprintf("/api/v1/runs/%d/tests", r.RunID), `{"name":"t_`+name+`","worker":"gw3"}`).Body.Bytes(), &tr)
+		call(t, srv, "PATCH", fmt.Sprintf("/api/v1/tests/%d/finish", tr.TestID), `{"status":"FAIL"}`)
+		call(t, srv, "PATCH", fmt.Sprintf("/api/v1/runs/%d/finish", r.RunID), `{"status":"FAIL"}`)
+		return r.RunID
+	}
+	a, b := runOf("a.py"), runOf("b.py")
+	old := liveWindow
+	liveWindow = time.Millisecond
+	t.Cleanup(func() { liveWindow = old })
+	time.Sleep(20 * time.Millisecond)
+
+	if body := call(t, srv, "GET", "/api/v1/live", "").Body.String(); strings.Contains(body, "suite-888") {
+		t.Fatalf("ya no está en la lista: %s", body)
+	}
+	for _, key := range []string{"x:suite-888", fmt.Sprintf("r:%d", b)} {
+		rec := call(t, srv, "GET", "/api/v1/live/execution?key="+url.QueryEscape(key), "")
+		var out struct {
+			Execution struct {
+				Key     string         `json:"key"`
+				Past    bool           `json:"past"`
+				Running bool           `json:"running"`
+				Counts  map[string]int `json:"counts"`
+				Runs    []struct {
+					ID int64 `json:"id"`
+				} `json:"runs"`
+			} `json:"execution"`
+		}
+		json.Unmarshal(rec.Body.Bytes(), &out)
+		e := out.Execution
+		if rec.Code != 200 || e.Key != "x:suite-888" || !e.Past || e.Running || len(e.Runs) != 2 || e.Counts["FAIL"] != 2 {
+			t.Fatalf("%s: %d %s", key, rec.Code, rec.Body)
+		}
+		if e.Runs[0].ID != a && e.Runs[1].ID != a {
+			t.Fatalf("%s: falta la corrida %d", key, a)
+		}
+	}
+	if rec := call(t, srv, "GET", fmt.Sprintf("/api/v1/live/endpoints?key=r:%d", a), ""); rec.Code != 200 {
+		t.Fatalf("backend de una anterior: %d %s", rec.Code, rec.Body)
+	}
+	for _, key := range []string{"x:no-existe", "r:999999", "r:abc"} {
+		if rec := call(t, srv, "GET", "/api/v1/live/execution?key="+url.QueryEscape(key), ""); rec.Code != http.StatusNotFound {
+			t.Fatalf("%s: %d", key, rec.Code)
+		}
+	}
+}

@@ -46,7 +46,7 @@ test("ganttLayout: un carril por worker, barras en % del tramo, los en curso has
 	assert.equal(Math.round(stuck.left + stuck.width), 100, "sigue corriendo: llega hasta ahora");
 	// sin worker (otro cliente): un carril por proceso, con el archivo que corre
 	const noWorker = { ...exec, runs: [{ id: 3, name: "suite.py", tests: [{ id: 1, run_id: 3, name: "a", state: "PASS", started_at: 0, ended_at: 5 }] }] };
-	assert.deepEqual(plain(L.ganttLayout(noWorker, 10).lanes.map((l) => l.worker)), ["P1 · suite.py"]);
+	assert.deepEqual(plain(L.ganttLayout(noWorker, 10).lanes.map((l) => [l.worker, l.sub])), [["P1", "suite.py"]]);
 });
 
 test("sortRuns: la corrida con algo sin señal o tortuga primero", () => {
@@ -82,7 +82,7 @@ test("todo t(\"…\") de live.js tiene traducción", () => {
 	const used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)+)"/g)].map((m) => m[1]);
 	used.push(...Object.values(L.STATES).map((s) => s.label).filter((s) => !["Pass", "Skip", "Warning"].includes(s)));
 	// iguales en inglés
-	const same = new Set(["Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests"]);
+	const same = new Set(["Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
 	assert.ok(used.length > 25);
 	assert.deepEqual([...new Set(used)].filter((s) => !same.has(s) && en.t(s) === s), []);
 });
@@ -101,7 +101,8 @@ test("sin worker los carriles se reutilizan: una corrida toma el primer proceso 
 	// 1 y 2 a la vez; 3 empieza cuando 1 terminó (va a su carril); 4 empieza con 2 y 3 ocupados
 	const e = { started_at: 0, running: true, runs: [run(1, "a.py", 0, 10), run(2, "b.py", 1, 50), run(3, "c.py", 12, null), run(4, "d.py", 20, 30)] };
 	const lanes = L.lanesOf(e, 100);
-	assert.deepEqual(plain(lanes.map((l) => l.label)), ["P1 · c.py", "P2 · b.py", "P3 · d.py"], "sin el prefijo común, con el archivo actual");
+	assert.deepEqual(plain(lanes.map((l) => l.label)), ["P1", "P2", "P3"], "la etiqueta corta y fija: el proceso");
+	assert.deepEqual(plain(lanes.map((l) => l.sub)), ["c.py", "b.py", "d.py"], "al lado, el archivo actual sin el prefijo común");
 	assert.deepEqual(plain(lanes[0].tests.map((t) => t.id)), [10, 30]);
 	assert.ok(lanes[0].title.includes("Clinico · a.py") && lanes[0].title.includes("Clinico · c.py"), "el tooltip dice todos los archivos");
 	// la suite grande: 79 corridas en 12 procesos → 12 carriles
@@ -171,7 +172,7 @@ test("render: tiles que filtran, Solo con problemas y los archivos sin problemas
 	assert.equal((html.match(/class="lt-row /g) || []).length, 6, "solo los 6 con problemas");
 	assert.ok(html.includes("tests sin problemas ocultos"));
 	assert.ok(html.includes("carriles sin problemas"), "los carriles sin problemas, colapsados");
-	assert.ok(!/>[^<]*token=abc/.test(html) && html.includes('title="Evidencia'), "el último paso visible sin la URL; completo en el tooltip");
+	assert.ok(!html.includes("token=abc") && html.includes('data-tip="Evidencia'), "el último paso sin la URL, ni en la fila ni en el tooltip");
 	// apagado: los problemas abiertos y el resto en una línea
 	const off = L.render({ list: d.list.executions, exec: big, now: d.execution.now, ui: { problems: false } }, h);
 	assert.ok(/\d+ archivos sin problemas \(\d+ tests\)/.test(off));
@@ -358,4 +359,93 @@ test("selector de ejecución: hora, antigüedad (en curso, reciente, de hoy, ant
 	const found = L.render({ list: many, exec: null, key: "x:0", now, ui: { pickerOpen: true, pickerQ: "build 3" } }, h);
 	assert.deepEqual([...found.matchAll(/data-live-exec="(x:\d+)"/g)].map((m) => m[1]), ["x:3", "x:30", "x:31", "x:32", "x:33", "x:34", "x:35", "x:36", "x:37", "x:38", "x:39"]);
 	assert.ok(L.render({ list: many, exec: null, key: "x:0", now, ui: { pickerOpen: true, pickerQ: "zzz" } }, h).includes("Ninguna ejecución coincide."));
+});
+
+// ---------- feedback 09-11 (run 888): monitorear rápido lo que falla, legible a 20 workers ----------
+const { liveWorkers } = require("../e2e/fixtures/live_suite.js");
+
+test("último paso legible: XPaths acortados, sin URLs y el stack trace aparte", () => {
+	assert.equal(L.shortXPaths("en (//i[contains(@class,'fa-plus-circle')])[1] tras 10 s"), "en fa-plus-circle tras 10 s");
+	assert.equal(L.shortXPaths("no se encontró '//div[contains(@class, 'modal-dialog')]' , sigue"), "no se encontró 'modal-dialog' , sigue");
+	assert.equal(L.shortXPaths("clic en //table/tbody/tr/td"), "clic en td", "sin atributos: la última etiqueta");
+	assert.equal(L.shortXPaths("//span[normalize-space()='Pendiente']"), '"Pendiente"', "un XPath de texto: el texto que busca");
+	assert.equal(L.shortXPaths("ver https://a.cl/x//y"), "ver https://a.cl/x//y", "una URL no es un XPath");
+	const p = L.stepParts("Upss, no se encontró '//div[contains(@class, 'modal-dialog')]' , el detalle del error es: Message: Stacktrace: Symbols not available. (No symbol) [0x7ff67e619ca5]");
+	assert.equal(p.text, "Upss, no se encontró 'modal-dialog' , el detalle del error es");
+	assert.ok(p.trace.startsWith("Message: Stacktrace:") && p.trace.includes("0x7ff67e619ca5"));
+	assert.deepEqual(plain(L.stepParts("Evidencia del paciente - url: https://x.cl/a?token=1")), { text: "Evidencia del paciente", trace: "", full: "Evidencia del paciente" });
+	const java = L.stepParts("NoSuchElementException: boton\n\tat org.openqa.Driver.find(Driver.java:10)");
+	assert.equal(java.text, "NoSuchElementException: boton");
+	assert.ok(java.trace.includes("Driver.java"));
+	const huge = L.stepParts(liveWorkers(1e12).execution.execution.runs[10].tests[0].last_step);
+	assert.equal(huge.text, "Cantidad de pacientes citados que comience con el nombre de : el xpath fue: btn-secondary en Rayen Admin", "un XPath de 300 caracteres: su clase");
+});
+
+test("filtros en la URL: &f=fail,warn ida y vuelta; lo desconocido se ignora", () => {
+	assert.deepEqual(plain(L.statesFromHash("fail,warn,zzz,FAIL")), ["FAIL", "WARNING"]);
+	assert.deepEqual(plain(L.statesFromHash("")), []);
+	assert.equal(L.statesToHash(["FAIL", "no_signal", "turtle"]), "fail,nosig,turtle");
+	for (const k of Object.keys(L.STATES)) assert.deepEqual(plain(L.statesFromHash(L.statesToHash([k]))), [k], k);
+});
+
+test("Requiere atención: fallo, sin señal y tortuga, lo más grave primero y estable; vacío lo dice", () => {
+	const d = liveWorkers(1_794_000_000_000), e = d.execution.execution;
+	const list = L.attention(L.allTests(e));
+	assert.deepEqual(plain(list.map((x) => x.state)), ["no_signal", "FAIL", "turtle"]);
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {} }, h);
+	const card = html.match(/<section class="card live-attn"[\s\S]*?<\/section>/)[0];
+	assert.ok(card.includes('<b class="la-n" data-bump="attn">3</b>'));
+	assert.equal((card.match(/class="la-row /g) || []).length, 3);
+	assert.ok(card.includes("test_002_box_despachar_receta_otro_nodo") && card.includes("Clinico · test_despachar_receta_otro_nodo_chrome") && /la-wk" data-no-i18n>gw\d+/.test(card));
+	assert.ok(/data-live-test="\d+"/.test(card), "un clic abre el detalle");
+	assert.ok(html.indexOf("live-attn") < html.indexOf("live-gantt"), "arriba, antes de la línea de tiempo");
+	const calm = { ...exec, runs: [{ id: 1, name: "a.py", tests: [{ id: 1, run_id: 1, name: "ok", state: "PASS", started_at: 0, ended_at: 5, elapsed: 5 }] }], counts: { PASS: 1 } };
+	assert.ok(L.render({ list: [calm], exec: calm, now: 10, ui: {} }, h).includes("Nada requiere atención"));
+});
+
+test("tabla: una sola grilla con Worker, último paso en una línea, stack trace a pedido y Expandir/Colapsar todo", () => {
+	const d = liveWorkers(1_794_000_000_000), e = d.execution.execution;
+	const fail = L.allTests(e).find((x) => x.state === "FAIL");
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false } }, h);
+	assert.equal((html.match(/<table class="live-table">/g) || []).length, 1, "todos los archivos en una tabla");
+	assert.ok(html.includes('<col class="c-wk">') && /<th>Worker<\/th><th>Último paso<\/th>/.test(html));
+	const row = html.match(new RegExp(`<tr class="lt-row fail[^>]*data-live-test="${fail.id}"[\\s\\S]*?</tr>`))[0];
+	assert.ok(/class="lt-wk" data-no-i18n>gw\d+</.test(row));
+	assert.ok(row.includes(">Upss, no se encontró el elemento 'modal-dialog' , el detalle del error es</span>"), row);
+	assert.ok(row.includes(`data-tip="Upss, no se encontró el elemento '//div[contains(@class, 'modal-dialog')]' , el detalle del error es"`), "el tooltip, con el XPath completo y sin el volcado");
+	assert.ok(!row.includes("0x7ff") && row.includes(`data-live-stack="${fail.id}" aria-expanded="false"`), "el volcado no va en la fila");
+	assert.ok(!html.includes("lt-stackrow"));
+	const open = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, stacks: { [fail.id]: true } } }, h);
+	assert.ok(/<tr class="lt-stackrow"><td colspan="6"><pre data-no-i18n>Message: Stacktrace:[^<]*0x7ff67e619ca5/.test(open));
+	assert.ok(html.includes('data-live-openall="1"') && html.includes('data-live-openall="0"'));
+	const closedAll = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, openAll: false } }, h);
+	assert.equal((closedAll.match(/class="lt-row /g) || []).length, 0, "Colapsar todo: solo los encabezados");
+	const openAll = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, openAll: true } }, h);
+	assert.equal((openAll.match(/class="lt-row /g) || []).length, L.allTests(e).length, "Expandir todo: también los sin problemas");
+	assert.ok(!openAll.includes("archivos sin problemas ("));
+});
+
+test("orden estable: con el mismo estado no salta cuando cambia la duración", () => {
+	const mk = (id, started_at, factor) => ({ id, run_id: 1, name: `t${id}`, file: "a.py", state: "running", started_at, factor });
+	const a = L.groupTests([mk(1, 0, 1), mk(2, 10, 3)], "file")[0].tests.map((x) => x.id);
+	const b = L.groupTests([mk(1, 0, 4), mk(2, 10, 0.5)], "file")[0].tests.map((x) => x.id);
+	assert.deepEqual(plain(a), [1, 2]);
+	assert.deepEqual(plain(b), [1, 2]);
+});
+
+test("chips: Todos, en 0 visibles pero deshabilitados; el Gantt atenúa lo que no coincide y etiqueta gw3", () => {
+	const d = liveWorkers(1_794_000_000_000), e = d.execution.execution;
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false } }, h);
+	assert.ok(/class="live-chip all on" data-live-all aria-pressed="true">Todos \(\d+\)/.test(html));
+	assert.ok(/data-live-state="SKIP"/.test(html) === false && /data-live-state="INTERRUPTED"/.test(html) === false, "Skip e Interrumpido solo si hay");
+	const zero = { ...e, counts: { ...e.counts, turtle: 0 } };
+	assert.ok(/data-live-state="turtle" aria-pressed="false" disabled/.test(L.render({ list: d.list.executions, exec: zero, now: d.execution.now, ui: {} }, h)));
+	assert.ok(/<span class="lg-worker"[^>]*><b>gw0<\/b><small>[^<]+<\/small><\/span>/.test(html), "gw0 y el archivo actual");
+	assert.ok(!/<b>Clinico · t/.test(html));
+	assert.ok(!html.includes(" dim\""), "sin filtro no se atenúa nada");
+	const f = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { states: ["FAIL"] } }, h);
+	const bars = [...f.matchAll(/class="lg-bar ([^"]+)"/g)].map((m) => m[1]);
+	assert.ok(bars.some((c) => c.startsWith("fail") && !c.includes("dim")) && bars.filter((c) => !c.startsWith("fail")).every((c) => c.includes("dim")));
+	assert.ok(/class="lg-bar fail[^"]*"[^>]*data-tip-title="test_002_box_despachar_receta_otro_nodo" data-tip="[^"]*10:00 → 10:00/.test(f), "tooltip con nombre, archivo, estado, duración e inicio → fin");
+	assert.ok(f.includes('<i aria-hidden="true">✕</i>'), "la forma del estado además del color");
 });

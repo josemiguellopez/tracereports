@@ -53,7 +53,7 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	await expect(view.locator(".live-head h3")).toHaveText(exec);
 	await expect(view.locator(".live-badge.on")).toContainText("EN CURSO");
 	await expect(view.locator(".live-pct")).toContainText("1 de 5 tests · 20%");
-	await expect(view.locator(".lg-worker")).toHaveText(["gw0", "gw1"]);
+	await expect(view.locator(".lg-worker b")).toHaveText(["gw0", "gw1"]);
 	await expect(view.locator(".lg-lane").first().locator(".lg-bar")).toHaveCount(2);
 
 	// el test que dejó de enviar pasa a "sin señal" sin recargar (sin eventos: el reloj de la vista)

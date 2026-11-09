@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -74,9 +75,52 @@ func scanLiveRun(rows *sql.Rows) (LiveRun, error) {
 
 // LiveCandidates are the runs Live can show: those still running and those that ended after since.
 func (s *Store) LiveCandidates(since int64) ([]LiveRun, error) {
-	rows, err := s.db.Query(`SELECT `+liveRunCols+` FROM runs r
-		WHERE r.status = 'RUNNING' OR r.ended_at >= ? OR r.started_at >= ?
-		ORDER BY r.started_at, r.id LIMIT 2000`, since, since)
+	return s.liveRunsWhere(`r.status = 'RUNNING' OR r.ended_at >= ? OR r.started_at >= ?`, since, since)
+}
+
+// ExecutionCandidates are the runs that can make up one execution, however old, by its key
+// ("x:<execution_id>", "g:<first run>") or by one of its runs ("r:<run id>"). Live lists the last hours;
+// this opens a past execution with the same view (a shared link, the run being looked at).
+// GroupExecutions then decides the group, as it does for the recent ones.
+func (s *Store) ExecutionCandidates(key string) ([]LiveRun, error) {
+	kind, val, ok := strings.Cut(key, ":")
+	if !ok || val == "" {
+		return nil, nil
+	}
+	if kind == "x" {
+		return s.liveRunsWhere(`r.execution_id = ?`, val)
+	}
+	if kind != "g" && kind != "r" {
+		return nil, nil
+	}
+	id, err := strconv.ParseInt(val, 10, 64)
+	if err != nil {
+		return nil, nil
+	}
+	one, err := s.liveRunsWhere(`r.id = ?`, id)
+	if err != nil || len(one) == 0 {
+		return nil, err
+	}
+	r := one[0]
+	if r.ExecutionID != "" {
+		return s.liveRunsWhere(`r.execution_id = ?`, r.ExecutionID)
+	}
+	// sin execution_id: el mismo contexto alrededor. g: es la primera corrida del grupo (desde ella);
+	// r: puede estar en medio, así que también hacia atrás
+	from := r.StartedAt
+	if kind == "r" {
+		from -= executionReach
+	}
+	return s.liveRunsWhere(`r.execution_id = '' AND r.project = ? AND r.environment = ? AND r.branch = ? AND r.commit_sha = ?
+		AND r.started_at BETWEEN ? AND ?`, r.Project, r.Environment, r.Branch, r.Commit, from, r.StartedAt+executionReach)
+}
+
+// executionReach: how far from a run ExecutionCandidates looks for the rest of its execution.
+const executionReach int64 = 12 * 3600 * 1000
+
+func (s *Store) liveRunsWhere(where string, args ...any) ([]LiveRun, error) {
+	rows, err := s.db.Query(`SELECT `+liveRunCols+` FROM runs r WHERE `+where+`
+		ORDER BY r.started_at, r.id LIMIT 2000`, args...)
 	if err != nil {
 		return nil, err
 	}

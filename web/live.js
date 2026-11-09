@@ -22,6 +22,8 @@
 		SKIP: { cls: "skip", icon: "i-skip", label: "Skip", rank: 7 },
 	};
 	const stateOf = (s) => STATES[s] || { cls: "running", icon: "i-running", label: s, rank: 5 };
+	/** La forma del estado dentro de una barra del Gantt (además del color y su patrón). */
+	const GLYPH = { FAIL: "✕", no_signal: "!", turtle: "🐢", WARNING: "▲", INTERRUPTED: "■" };
 	/** Lo que pide acción: con "Solo con problemas" se ve solo esto. */
 	const PROBLEM = new Set(["no_signal", "FAIL", "INTERRUPTED", "turtle"]);
 	const isProblem = (s) => PROBLEM.has(s);
@@ -81,6 +83,78 @@
 		return String(s || "").replace(/\s*[-–—]?\s*url:\s*\S+/gi, "").replace(/\bhttps?:\/\/\S+/gi, "…").replace(/\s+/g, " ").trim();
 	}
 
+	/**
+	 * Un XPath en el texto de un paso, por lo que identifica: el último atributo (clase, id, name…) o,
+	 * si no tiene, el texto que busca o la última etiqueta. `//div[contains(@class,'modal-dialog')]` →
+	 * `modal-dialog`. Recorre corchetes, paréntesis y comillas para saber dónde termina.
+	 */
+	function shortXPaths(s) {
+		const text = String(s || "");
+		let out = "", i = 0;
+		while (i < text.length) {
+			const at = text.indexOf("//", i);
+			// un XPath empieza el texto o va tras un espacio, comilla, paréntesis o "="; "https://a/b//c" no
+			if (at < 0 || (at > 0 && !/[\s'"(\[=,]/.test(text[at - 1]))) {
+				out += text.slice(i, at < 0 ? text.length : at + 2);
+				if (at < 0) break;
+				i = at + 2;
+				continue;
+			}
+			const start = at > 0 && text[at - 1] === "(" ? at - 1 : at;
+			let j = start, depth = 0, quote = "";
+			for (; j < text.length; j++) {
+				const c = text[j];
+				if (quote) { if (c === quote) quote = ""; continue; }
+				if (c === "'" || c === '"') { if (depth === 0) break; quote = c; continue; }
+				if (c === "[" || c === "(") depth++;
+				else if (c === "]" || c === ")") { if (depth === 0) break; depth--; }
+				else if (depth === 0 && /[\s,]/.test(c)) break;
+			}
+			const expr = text.slice(start, j);
+			const attrs = [...expr.matchAll(/@(?:class|id|name|data-[\w-]+|aria-label|placeholder|title)\s*(?:,|=)\s*(['"])(.*?)\1/g)].map((m) => m[2].trim()).filter(Boolean);
+			const lits = [...expr.matchAll(/(['"])(.*?)\1/g)].map((m) => m[2].trim()).filter(Boolean);
+			const tags = [...expr.matchAll(/\/([a-zA-Z][\w-]*)/g)].map((m) => m[1]);
+			// una lista de clases ("text-white grey-btn btn btn-secondary"): la última, la más específica
+			const attr = attrs.pop();
+			let label = attr ? attr.split(/\s+/).pop() : lits.length ? `"${lits[0]}"` : tags.pop() || "xpath";
+			if (label.length > 32) label = label.slice(0, 31) + "…";
+			out += text.slice(i, start) + label;
+			i = Math.max(j, start + 1);
+		}
+		return out;
+	}
+
+	// donde empieza el volcado técnico de un error (Selenium/Chrome, Python, Java): no va en la fila
+	const STACK_AT = /(?:\b(?:Message|Mensaje):\s*)?(?:Stacktrace:|Backtrace:|Dumping unresolved backtrace|Traceback \(most recent call last\)|\(No symbol\)|\s0x[0-9a-f]{6,}|\n\s*at [\w$.<>]+\()/i;
+
+	/**
+	 * El último paso para la fila: una línea sin URLs, con los XPaths acortados y sin stack trace
+	 * (que vuelve aparte, para abrirlo a pedido). {text, trace, full}: full conserva los XPaths, para el tooltip.
+	 */
+	function stepParts(s) {
+		const raw = String(s || "");
+		const at = raw.search(STACK_AT);
+		const head = at >= 0 ? raw.slice(0, at) : raw, trace = at >= 0 ? raw.slice(at).trim() : "";
+		const full = stepText(head).replace(/[\s:;,.\-–—]+$/, "").trim();
+		return { text: shortXPaths(full), trace, full };
+	}
+
+	// los estados en la URL (&f=fail,warn): cortos y estables, para compartir el enlace ya filtrado
+	const HASH_STATES = { fail: "FAIL", nosig: "no_signal", turtle: "turtle", warn: "WARNING", run: "running", pass: "PASS", skip: "SKIP", int: "INTERRUPTED" };
+	function statesFromHash(v) {
+		return [...new Set(String(v || "").split(",").map((s) => HASH_STATES[s.trim().toLowerCase()]).filter(Boolean))];
+	}
+	function statesToHash(states) {
+		const keys = Object.keys(HASH_STATES);
+		return (states || []).map((s) => keys.find((k) => HASH_STATES[k] === s)).filter(Boolean).join(",");
+	}
+
+	/** Lo que requiere atención (fallo, sin señal, interrumpido, tortuga), lo más grave primero y sin saltar. */
+	function attention(tests) {
+		return tests.filter((x) => isProblem(x.state))
+			.sort((a, b) => stateOf(a.state).rank - stateOf(b.state).rank || a.started_at - b.started_at || a.id - b.id);
+	}
+
 	/** Tramo total de la ejecución: [inicio, ahora o su fin]. */
 	function span(exec, now) {
 		const tests = allTests(exec);
@@ -104,7 +178,12 @@
 				byWorker.get(k).push(t);
 			}
 			const natural = (a, b) => a.localeCompare(b, undefined, { numeric: true });
-			return [...byWorker.entries()].sort((a, b) => natural(a[0], b[0])).map(([k, ts]) => ({ key: k, label: k, title: k, tests: ts }));
+			const shortW = shortNames(tests.map((t) => t.file), 80); // sin el prefijo común; si es largo, la elipsis la pone el CSS al final
+			return [...byWorker.entries()].sort((a, b) => natural(a[0], b[0])).map(([k, ts]) => {
+				const files = [...new Set([...ts].sort((a, b) => a.started_at - b.started_at).map((t) => t.file))];
+				const current = files[files.length - 1];
+				return { key: k, label: k, sub: shortW.get(current) || current || "", title: files.join("\n"), current, tests: ts };
+			});
 		}
 		const runs = [...(exec.runs || [])].sort((a, b) => a.started_at - b.started_at || a.id - b.id);
 		const lanes = [];
@@ -117,10 +196,10 @@
 			lane.runs.push(r.name);
 			lane.tests.push(...ts);
 		}
-		const short = shortNames(runs.map((r) => r.name));
+		const short = shortNames(runs.map((r) => r.name), 80);
 		return lanes.map((l) => {
 			const current = l.runs[l.runs.length - 1];
-			return { key: l.key, label: `${l.key} · ${short.get(current) || current}`, title: l.runs.join("\n"), tests: l.tests };
+			return { key: l.key, label: l.key, sub: short.get(current) || current, title: l.runs.join("\n"), current, tests: l.tests };
 		});
 	}
 
@@ -141,9 +220,9 @@
 				if (end < a || t.started_at > b) continue; // fuera de la ventana del zoom
 				const left = ((Math.max(t.started_at, a) - a) / view) * 100, right = ((Math.min(end, b) - a) / view) * 100;
 				bars.push({ id: t.id, run_id: t.run_id, name: t.name, short: names.get(t.name) || t.name, file: t.file, state: t.state,
-					left, width: Math.max(0.4, right - left), elapsed: t.elapsed, factor: t.factor });
+					left, width: Math.max(0.4, right - left), elapsed: t.elapsed, factor: t.factor, started_at: t.started_at, ended_at: t.ended_at });
 			}
-			return { key: l.key, worker: l.label, title: l.title, bars, problem: l.tests.some((t) => isProblem(t.state)) };
+			return { key: l.key, worker: l.label, sub: l.sub || "", current: l.current || "", title: l.title, bars, problem: l.tests.some((t) => isProblem(t.state)) };
 		});
 		return { from, to, a, b, lanes };
 	}
@@ -223,7 +302,8 @@
 			groups.get(k).push(t);
 		}
 		return [...groups.entries()].map(([k, ts]) => {
-			const sorted = [...ts].sort((a, b) => stateOf(a.state).rank - stateOf(b.state).rank || (b.factor || 0) - (a.factor || 0));
+			// por gravedad y, dentro, por orden de inicio: con cada evento el factor cambia y la fila no debe saltar
+			const sorted = [...ts].sort((a, b) => stateOf(a.state).rank - stateOf(b.state).rank || a.started_at - b.started_at || a.id - b.id);
 			const counts = {};
 			for (const t of ts) counts[t.state] = (counts[t.state] || 0) + 1;
 			return { key: k, tests: sorted, worst: stateOf(sorted[0].state).rank, problem: ts.some((t) => isProblem(t.state)), counts,
@@ -604,7 +684,8 @@
 		const tiles = TILES.filter((k) => !OPTIONAL_TILES.has(k) || e.counts[k]).map((k) => {
 			const st = stateOf(k), on = ui.states.includes(k);
 			const sub = k === "no_signal" && e.counts[k] ? ` ${esc(t("hace {t}", { t: fmtDur(Math.max(0, ...tests.filter((x) => x.state === k).map((x) => x.idle || 0))) }))}` : "";
-			return `<button type="button" class="live-tile live-count ${st.cls} ${on ? "on" : ""} ${e.counts[k] ? "" : "zero"}" data-live-state="${k}" aria-pressed="${on}"
+			// en 0: visible (se sabe que no hay) pero sin clic, salvo que esté elegido y haya que poder quitarlo
+			return `<button type="button" class="live-tile live-count ${st.cls} ${on ? "on" : ""} ${e.counts[k] ? "" : "zero"}" data-live-state="${k}" aria-pressed="${on}"${!e.counts[k] && !on ? " disabled" : ""}
 				data-tip="${esc(t("Clic: ver solo estos tests"))}"><b data-count="${k}" data-n="${e.counts[k] || 0}">${e.counts[k] || 0}</b><span>${icon(st.icon)}${esc(t(st.label))}${sub}</span></button>`;
 		}).join("");
 		const head = `<div class="card live-head">
@@ -620,14 +701,22 @@
 		// (2) filtros: solo con problemas, agrupar, buscar
 		const nProblems = tests.filter((x) => isProblem(x.state)).length;
 		const groupBtn = (k, l) => `<button type="button" class="cf-btn cf-btn-sm ${ui.group === k ? "on" : ""}" data-live-groupby="${k}" aria-pressed="${ui.group === k}">${esc(t(l))}</button>`;
+		const all = !problems && !ui.states.length;
 		const filters = `<div class="card live-filters">
+			<button type="button" class="live-chip all ${all ? "on" : ""}" data-live-all aria-pressed="${all}">${esc(t("Todos ({n})", { n: tests.length }))}</button>
 			<button type="button" class="live-chip ${problems ? "on" : ""}" data-live-problems aria-pressed="${problems}">${esc(t("Solo con problemas ({n})", { n: nProblems }))}</button>
 			${activeChips(ui, h)}
 			<span class="live-spacer"></span>
 			<button type="button" class="cf-btn cf-btn-sm live-pause ${ui.paused ? "on" : ""}" data-live-pause aria-pressed="${!!ui.paused}">${icon(ui.paused ? "i-running" : "i-pause")}${esc(ui.paused ? t("Reanudar") : t("Pausar"))}</button>
 			<span class="m-hint">${esc(t("Agrupar:"))}</span>${groupBtn("file", "Archivo")}${groupBtn("worker", "Worker")}${groupBtn("state", "Estado")}
-			<input type="search" class="live-q" data-live-q value="${esc(ui.q)}" placeholder="${esc(t("Buscar test, archivo o paso…"))}" aria-label="${esc(t("Buscar"))}">
+			<span class="live-qw"><input type="search" class="live-q" data-live-q value="${esc(ui.q)}" placeholder="${esc(t("Buscar test, archivo o paso…"))}" aria-label="${esc(t("Buscar"))}" aria-keyshortcuts="/"><kbd aria-hidden="true" data-tip="${esc(t("Atajo: / para buscar, Esc para limpiar"))}">/</kbd></span>
 			${ui.paused ? `<p class="live-paused" role="status">${icon("i-pause")}${esc(t("En pausa: la vista no se actualiza. Los datos siguen llegando al servidor."))}</p>` : ""}</div>`;
+
+		// lo que muestra la tabla; con un filtro elegido (tile, faceta o búsqueda) el Gantt atenúa el resto
+		const visible = filterTests(tests, ui, problems);
+		const faceted = ui.states.length || ui.files.length || ui.workers.length || ui.errors.length;
+		const dimOn = !!(faceted || (ui.q || "").trim());
+		const match = new Set(visible.map((x) => x.id));
 
 		// (3) línea de tiempo: minimapa con el recuadro del zoom, carriles (los sin problemas colapsados)
 		let gantt = "";
@@ -636,10 +725,13 @@
 			const brush = ui.zoom ? `<div class="lg-brush" style="left:${ui.zoom.a * 100}%;width:${(ui.zoom.b - ui.zoom.a) * 100}%"></div>` : "";
 			const shown = problems && !ui.allLanes ? g.lanes.filter((l) => l.problem) : g.lanes;
 			const hidden = g.lanes.length - shown.length;
-			const laneHTML = (l) => `<div class="lg-lane"><span class="lg-worker" data-no-i18n title="${esc(l.title)}">${esc(l.worker)}</span><div class="lg-track">${l.bars.map((b) => {
+			// etiqueta del carril: el worker o proceso (gw3, P1) y, al lado, el archivo que corre ahora; todo en el tooltip
+			const laneHTML = (l) => `<div class="lg-lane ${l.problem ? "problem" : ""}"><span class="lg-worker" data-no-i18n data-tip-title="${esc(l.worker)}" data-tip="${esc(l.current ? t("Archivo actual: {f}", { f: l.current }) + (l.title.includes("\n") ? "\n" + l.title : "") : l.title)}" tabindex="0"><b>${esc(l.worker)}</b>${l.sub ? `<small>${esc(l.sub)}</small>` : ""}</span><div class="lg-track">${l.bars.map((b) => {
 				const st = stateOf(b.state);
-				const tip = `${b.name} · ${b.file} · ${t(st.label)} · ${fmtDur(b.elapsed)}${b.factor ? ` · ×${b.factor.toFixed(1)} p50` : ""}`;
-				return `<button type="button" class="lg-bar ${st.cls}" data-live-test="${b.id}" data-live-run="${b.run_id}" style="left:${b.left.toFixed(3)}%;width:${b.width.toFixed(3)}%" data-tip="${esc(tip)}" aria-label="${esc(tip)}"><span data-no-i18n>${esc(b.short)}</span></button>`;
+				const tip = [b.file, `${t(st.label)} · ${fmtDur(b.elapsed)}${b.factor ? ` · ×${b.factor.toFixed(1)} p50` : ""}`,
+					t("{a} → {b}", { a: h.clock(b.started_at, true), b: b.ended_at ? h.clock(b.ended_at, true) : t("ahora") })].join("\n");
+				const off = dimOn && !match.has(b.id);
+				return `<button type="button" class="lg-bar ${st.cls}${off ? " dim" : ""}${data.panel?.id === b.id ? " sel" : ""}" data-live-test="${b.id}" data-live-run="${b.run_id}" style="left:${b.left.toFixed(3)}%;width:${b.width.toFixed(3)}%" data-tip-title="${esc(b.name)}" data-tip="${esc(tip)}" aria-label="${esc(`${b.name} · ${tip.replace(/\n/g, " · ")}`)}"><span data-no-i18n>${GLYPH[b.state] ? `<i aria-hidden="true">${GLYPH[b.state]}</i>` : ""}${esc(b.short)}</span></button>`;
 			}).join("")}</div></div>`;
 			gantt = `<div class="card live-gantt">
 				<div class="lg-head"><h6>${esc(t("Línea de tiempo"))}</h6><span class="m-hint">${ui.zoom ? esc(t("zoom {a}–{b}", { a: h.clock(g.a), b: h.clock(g.b) })) : esc(t("{n} carriles", { n: g.lanes.length }))}</span>
@@ -657,28 +749,36 @@
 		}
 
 		// tabla: grupos por severidad; los sin problemas colapsados en una línea
-		const visible = filterTests(tests, ui, problems);
-		const faceted = ui.states.length || ui.files.length || ui.workers.length || ui.errors.length;
 		const groups = ui.sort?.col ? [] : groupTests(visible, ui.group);
-		// con muchos archivos, los sin problemas en una sola línea (con pocos, se ven todos)
-		const plainGroups = ui.group === "file" && !problems && !faceted && !ui.q && !ui.showOk && groups.length > COLLAPSE_FROM ? groups.filter((x) => !x.problem) : [];
+		// con muchos archivos, los sin problemas en una sola línea (con pocos, se ven todos); "Expandir todo" los abre
+		const plainGroups = ui.group === "file" && !problems && !faceted && !ui.q && !ui.showOk && ui.openAll !== true && groups.length > COLLAPSE_FROM ? groups.filter((x) => !x.problem) : [];
 		const listed = groups.filter((x) => !plainGroups.includes(x));
+		// columnas fijas para todos los archivos (una sola tabla): el worker, columna propia si el cliente lo informa
+		const wcol = ui.group !== "worker" && tests.some((x) => x.worker);
+		const ncols = wcol ? 6 : 5;
+		const colgroup = `<colgroup><col class="c-name"><col class="c-state"><col class="c-dur"><col class="c-vs">${wcol ? `<col class="c-wk">` : ""}<col class="c-step"></colgroup>`;
 		const row = (x) => {
 			const st = stateOf(x.state);
 			const vs = x.p50 ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${x.factor.toFixed(1)}</span>` : `<span class="m-hint">—</span>`;
-			const ago = x.state === "running" || x.state === "turtle" || x.state === "no_signal" ? ` <small>${esc(t("hace {t}", { t: fmtDur(x.idle) }))}</small>` : "";
-			const step = stepText(x.last_step);
+			const ago = x.state === "running" || x.state === "turtle" || x.state === "no_signal" ? `<small class="lt-ago">${esc(t("hace {t}", { t: fmtDur(x.idle) }))}</small>` : "";
+			// una línea: XPaths acortados, sin URLs; el stack trace, en un badge que lo abre debajo
+			const sp = stepParts(x.last_step);
+			const stackOpen = !!(sp.trace && ui.stacks?.[x.id]);
+			const stack = sp.trace ? `<button type="button" class="lt-stack ${stackOpen ? "on" : ""}" data-live-stack="${x.id}" aria-expanded="${stackOpen}" data-tip="${esc(t("Ver el stack trace"))}">${esc(t("stack trace"))}</button>` : "";
+			const full = sp.full.slice(0, 700); // el tooltip: el paso completo, con su XPath (el volcado va en el badge)
 			return `<tr class="lt-row ${st.cls} ${data.panel?.id === x.id ? "sel" : ""}" data-live-test="${x.id}" data-live-run="${x.run_id}" tabindex="0">
-				<td class="lt-name"><a href="#run=${x.run_id}&view=tests&test=${x.id}" data-no-i18n title="${esc(x.name)}">${esc(x.name)}</a>${x.worker && ui.group !== "worker" ? ` <span class="m-hint" data-no-i18n>${esc(x.worker)}</span>` : ""}</td>
+				<td class="lt-name"><a href="#run=${x.run_id}&view=tests&test=${x.id}" data-no-i18n title="${esc(x.name)}">${esc(x.name)}</a>${x.worker && ui.group !== "worker" && !wcol ? ` <span class="m-hint" data-no-i18n>${esc(x.worker)}</span>` : ""}</td>
 				<td><span class="lt-state ${st.cls}">${icon(st.icon)}${esc(t(st.label))}</span></td>
 				<td class="lt-num">${esc(fmtDur(x.elapsed))}</td><td class="lt-num">${vs}</td>
-				<td class="lt-step"><span data-no-i18n title="${esc(x.last_step || "")}">${esc(step || "—")}</span>${ago}</td></tr>`;
+				${wcol ? `<td class="lt-wk" data-no-i18n>${esc(x.worker || "—")}</td>` : ""}
+				<td class="lt-step"><div class="lt-stepw"><span class="lt-steptext" data-no-i18n${full ? ` data-tip="${esc(full)}"` : ""}>${esc(sp.text || (sp.trace ? "" : "—"))}</span>${stack}${ago}</div></td></tr>
+				${stackOpen ? `<tr class="lt-stackrow"><td colspan="${ncols}"><pre data-no-i18n>${esc(sp.trace)}</pre></td></tr>` : ""}`;
 		};
 		const groupHTML = (gr) => {
-			const open = gr.key in ui.open ? ui.open[gr.key] : gr.problem || listed.length <= 3 || !!ui.q || faceted > 0;
+			const open = gr.key in ui.open ? ui.open[gr.key] : typeof ui.openAll === "boolean" ? ui.openAll : gr.problem || listed.length <= 3 || !!ui.q || faceted > 0;
 			const sum = Object.keys(STATES).filter((k) => gr.counts[k]).map((k) => `<span class="lt-state ${stateOf(k).cls}">${icon(stateOf(k).icon)}${gr.counts[k]}</span>`).join(" ");
 			const name = ui.group === "state" ? t(stateOf(gr.key).label) : gr.key;
-			return `<tbody class="live-run ${open ? "open" : ""}"><tr class="lt-group"><td colspan="5"><button type="button" class="live-run-h" data-live-group="${esc(gr.key)}" aria-expanded="${open}">
+			return `<tbody class="live-run ${open ? "open" : ""}" data-group="${esc(gr.key)}"><tr class="lt-group"><td colspan="${ncols}"><button type="button" class="live-run-h" data-live-group="${esc(gr.key)}" aria-expanded="${open}">
 					<span class="live-chev" aria-hidden="true">${icon("i-chevron")}</span><span class="live-sev ${stateOf(gr.tests[0].state).cls}" aria-hidden="true"></span><b data-no-i18n>${esc(name)}</b>
 					<span class="live-run-sum">${sum}${gr.worker ? ` · <span data-no-i18n>${esc(gr.worker)}</span>` : ""}</span></button></td></tr>
 				${open ? gr.tests.map(row).join("") : ""}</tbody>`;
@@ -701,19 +801,50 @@
 			const on = ui.sort?.col === col, dir = on ? (ui.sort.dir > 0 ? "ascending" : "descending") : "none";
 			return `<th aria-sort="${dir}"${tip ? ` title="${esc(tip)}"` : ""}><button type="button" class="lt-sort ${on ? "on" : ""}" data-live-sort="${col}">${esc(t(label))}${on ? (ui.sort.dir > 0 ? " ▲" : " ▼") : ""}</button></th>`;
 		};
-		const thead = `<thead><tr>${th("name", "Test")}${th("state", "Estado")}${th("elapsed", "Dura.")}${th("factor", "vs p50", t("Duración frente a la mediana de sus ejecuciones anteriores"))}<th>${esc(t("Último paso"))}</th></tr></thead>`;
+		const thead = `<thead><tr>${th("name", "Test")}${th("state", "Estado")}${th("elapsed", "Dura.")}${th("factor", "vs p50", t("Duración frente a la mediana de sus ejecuciones anteriores"))}${wcol ? `<th>${esc(t("Worker"))}</th>` : ""}<th>${esc(t("Último paso"))}</th></tr></thead>`;
 		const MAX_ROWS = 500;
-		const flat = sorted.length ? `<table class="live-table">${thead}<tbody>${sorted.slice(0, MAX_ROWS).map(row).join("")}</tbody></table>
+		const flat = sorted.length ? `<table class="live-table">${colgroup}${thead}<tbody>${sorted.slice(0, MAX_ROWS).map(row).join("")}</tbody></table>
 			${sorted.length > MAX_ROWS ? `<p class="m-hint">${esc(t("Mostrando {n} de {t}: filtra o busca para acotar.", { n: MAX_ROWS, t: sorted.length }))}</p>` : ""}
 			<button type="button" class="live-collapsed" data-live-sort="">${esc(t("Volver a agrupar"))}</button>` : "";
-		const table = `<div class="card live-runs"><h6>${esc(ui.group === "worker" ? t("Worker / test") : ui.group === "state" ? t("Estado / test") : t("Archivo / test"))} <span class="m-hint">${esc(t("{n} de {t} tests", { n: visible.length, t: tests.length }))}</span></h6>
-			${flat}${listed.length ? `<table class="live-table">${thead}
+		const canFold = !sorted.length && groups.length > 1;
+		const table = `<div class="card live-runs"><div class="lr-head"><h6>${esc(ui.group === "worker" ? t("Worker / test") : ui.group === "state" ? t("Estado / test") : t("Archivo / test"))} <span class="m-hint">${esc(t("{n} de {t} tests", { n: visible.length, t: tests.length }))}</span></h6>
+			${canFold ? `<span class="live-spacer"></span><button type="button" class="cf-btn cf-btn-sm" data-live-openall="1">${icon("i-chevron")}${esc(t("Expandir todo"))}</button><button type="button" class="cf-btn cf-btn-sm" data-live-openall="0">${esc(t("Colapsar todo"))}</button>` : ""}</div>
+			${flat}${listed.length ? `<table class="live-table">${colgroup}${thead}
 				${listed.map(groupHTML).join("")}</table>` : ""}${collapsed}${nothing}
 			${emptyRuns.length && ui.group === "file" && !problems ? emptyRuns.map((r) => `<div class="live-run"><div class="live-run-h"><b data-no-i18n>${esc(r.name)}</b> <span class="m-hint">${esc(t("Todavía sin tests."))}</span></div></div>`).join("") : ""}
 			<p class="m-hint">${esc(t("Tortuga: más lento que su p90 (o el doble de su mediana) en sus ejecuciones anteriores. Sin señal: nada del test hace {n} min.", { n: Math.round((data.no_signal_ms || 180000) / 60000 * 10) / 10 }))}</p></div>`;
 
 		const explore = `<div class="live-explore">${facetsHTML(tests, ui, h)}${table}</div>`;
-		return `${head}${filters}${insightsHTML(e, tests, data, ui, now, h)}${chartsHTML(e, data, ui, now, h)}${gantt}${explore}${panelHTML(data.panel, tests, h, now)}`;
+		return `${head}${filters}${attentionHTML(tests, data, ui, h)}${insightsHTML(e, tests, data, ui, now, h)}${chartsHTML(e, data, ui, now, h)}${gantt}${explore}${panelHTML(data.panel, tests, h, now)}`;
+	}
+
+	/**
+	 * "Requiere atención": arriba de todo, los tests en fallo, sin señal, interrumpidos o tortuga, con
+	 * archivo, worker, duración y ×p50; un clic abre el detalle. Si no hay, una línea que lo dice.
+	 */
+	function attentionHTML(tests, data, ui, h) {
+		const { t, esc, icon } = h;
+		const list = attention(tests);
+		if (!list.length) {
+			return `<div class="card live-attn ok" role="status">${icon("i-pass")}<b>${esc(t("Nada requiere atención"))}</b><span class="m-hint">${esc(t("Sin fallos, tests sin señal ni tortugas."))}</span></div>`;
+		}
+		const MAX = 8, shown = ui.attnAll ? list : list.slice(0, MAX);
+		const by = {};
+		for (const x of list) by[x.state] = (by[x.state] || 0) + 1;
+		const sum = Object.keys(STATES).filter((k) => by[k]).map((k) => `<span class="lt-state ${stateOf(k).cls}">${icon(stateOf(k).icon)}${by[k]} ${esc(t(stateOf(k).label))}</span>`).join("");
+		const rows = shown.map((x, i) => {
+			const st = stateOf(x.state);
+			return `<li style="--i:${i}" data-attn="${x.id}"><button type="button" class="la-row ${st.cls} ${data.panel?.id === x.id ? "sel" : ""}" data-live-test="${x.id}" data-live-run="${x.run_id}" aria-label="${esc(`${t(st.label)} · ${x.name} · ${x.file}`)}">
+				<span class="lt-state ${st.cls}">${icon(st.icon)}${esc(t(st.label))}</span>
+				<span class="la-name" data-no-i18n title="${esc(x.name)}">${esc(x.name)}</span>
+				<span class="la-file" data-no-i18n title="${esc(x.file)}">${esc(x.file)}</span>
+				<span class="la-wk" data-no-i18n>${esc(x.worker || "")}</span>
+				<span class="la-dur lt-num">${esc(fmtDur(x.elapsed))}${x.state === "no_signal" ? ` <small>${esc(t("sin señal hace {t}", { t: fmtDur(x.idle) }))}</small>` : ""}</span>
+				<span class="la-vs">${x.p50 && x.factor ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${x.factor.toFixed(1)}</span>` : ""}</span></button></li>`;
+		}).join("");
+		const more = list.length > MAX ? `<button type="button" class="live-collapsed" data-live-attnmore>${icon("i-chevron")}${esc(ui.attnAll ? t("ver menos") : t("ver {n} más", { n: list.length - MAX }))}</button>` : "";
+		return `<section class="card live-attn" aria-label="${esc(t("Requiere atención"))}"><div class="la-head"><h6>${icon("i-warning")}${esc(t("Requiere atención"))} <b class="la-n" data-bump="attn">${list.length}</b></h6><span class="la-sum">${sum}</span></div>
+			<ol class="la-list">${rows}</ol>${more}</section>`;
 	}
 
 	/** El estado de un paso: los de test (Pass, Fallo…) o informativo. */
@@ -877,7 +1008,7 @@
 			<a class="cf-btn cf-btn-primary" href="#run=${live?.run_id || full?.run_id}&view=tests&test=${panel.id}">${esc(t("Abrir el test"))}</a></aside>`;
 	}
 
-	window.TraceReportsLive = { STATES, PROBLEM, AUTO_PROBLEMS, fmtDur, sortRuns, allTests, shortNames, stepText, span, lanesOf, ganttLayout, ticks, minimap,
+	window.TraceReportsLive = { STATES, PROBLEM, AUTO_PROBLEMS, fmtDur, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,
 		zoomStep, problemsOn, filterTests, groupTests, progress, mix, percentile, health, errorSignature, errorGroups, slowest, events, anomalies,
 		facets, sortTests, endpointOf, traceLayout, timeBuckets, resultsOverTime, failRateOverTime, durationHistogram, ago, freshness, render };
 })();

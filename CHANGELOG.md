@@ -86,6 +86,30 @@ All notable changes to TraceReports. The format follows
   in and the trace bars grow. Only what changed animates (the view redraws on every event) and nothing moves
   with "reduce motion".
 
+### Changed (client feedback, 09-11: Live for monitoring)
+
+- **Needs attention** on top: the tests that failed, stopped sending, were interrupted or run slow (turtle),
+  with file, worker, duration and ×p50; one click opens the detail. Without any, one line says so.
+- **Filters in the link**: the chosen statuses and the search go in the URL (`&f=fail,warn`, `&lq=`), so a
+  shared link opens already filtered. An **All** chip; status chips at 0 stay visible but disabled.
+- **Search shortcut**: `/` focuses the search box from anywhere in the view; `Esc` clears it, then leaves it.
+- **One table, aligned**: fixed column widths for every file and a **Worker** column when the client sends it;
+  **Expand all / Collapse all**. Rows keep their order while their status stays the same (no jumps on every
+  event); when a test moves, its row slides to its new place (FLIP) instead of jumping.
+- **Readable last step**: one line, XPaths shortened to what identifies them
+  (`//div[contains(@class,'modal-dialog')]` → `modal-dialog`) with the full text in the tooltip, and the
+  technical dump (Selenium/Chrome `Stacktrace … (No symbol) [0x7ff…]`, Python, Java) moved to a "stack trace"
+  badge that opens it below the row.
+- **Readable timeline**: the lane label is short and fixed (`gw3`, `P1`) with the current file next to it and
+  every file in the tooltip; a bar shows its name only when it fits, has a gap from the next one, a shape
+  for its status (✕, !, ▲, turtle stripes) and a tooltip with name, file, status, duration, ×p50 and start →
+  end. Clicking a bar opens the detail and scrolls to its row, highlighted. A filter dims the bars that do
+  not match.
+- **Past executions in Live**: an execution that already left the Live list (it ended more than 2 h ago)
+  opens with the same view, by its key (`x:<execution_id>`, `g:<first run>`) or by any of its runs
+  (`exec=r:<run id>`), marked as earlier in the picker. **View in Live** in the top bar opens the run being
+  looked at (and the other runs of its execution). An unknown key falls back to the newest execution.
+
 ### Fixed (client feedback, 06-11: Live)
 
 - A run without tests yet came as `tests: null` and broke Live.

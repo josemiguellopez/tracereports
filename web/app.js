@@ -95,6 +95,11 @@
 		if (p.get("run")) S.runId = Number(p.get("run"));
 		if (p.get("test")) S.testId = Number(p.get("test"));
 		if (p.get("exec")) S.liveView.key = p.get("exec");
+		// En vivo ya filtrado desde un enlace: &f=fail,warn (estados) y &lq= (búsqueda)
+		if (p.get("view") === "live" && window.TraceReportsLive) {
+			S.liveView.ui.states = window.TraceReportsLive.statesFromHash(p.get("f"));
+			S.liveView.ui.q = p.get("lq") || "";
+		}
 		if (p.get("view") === "search") {
 			const x = S.runSearch;
 			["q", "project", "environment", "branch", "tag", "status", "from", "to", "sort"].forEach((k) => { x[k] = p.get(k) || (k === "sort" ? "recent" : ""); });
@@ -107,6 +112,11 @@
 		p.set("view", S.view);
 		if (S.testId && S.view === "tests") p.set("test", S.testId);
 		if (S.view === "live" && S.liveView.key) p.set("exec", S.liveView.key);
+		if (S.view === "live" && window.TraceReportsLive) {
+			const f = window.TraceReportsLive.statesToHash(S.liveView.ui.states);
+			if (f) p.set("f", f);
+			if (S.liveView.ui.q) p.set("lq", S.liveView.ui.q);
+		}
 		if (S.view === "search") {
 			const x = S.runSearch;
 			["q", "project", "environment", "branch", "tag", "status", "from", "to"].forEach((k) => { if (x[k]) p.set(k, x[k]); });
@@ -279,6 +289,9 @@
 		document.title = `${S.newRuns.length ? "● " : ""}${r.name} · TraceReports`;
 		$("#export-li").hidden = !!STATIC;
 		$("#export-btn").href = `/api/v1/runs/${r.id}/export`;
+		// esta ejecución (y las demás corridas de su ejecución) en En vivo, aunque haya terminado hace días
+		const toLive = $("#live-of-run");
+		if (toLive) { toLive.href = `#view=live&exec=${encodeURIComponent(`r:${r.id}`)}`; toLive.hidden = !!STATIC; } // en las vistas globales (En vivo, Buscar…) lo oculta el CSS
 		if (STATIC) {
 			const pill = $("#static-pill");
 			pill.textContent = `Exportado ${fmtDateTime(STATIC.exported_at)}`;
@@ -1346,12 +1359,22 @@
 			const list = await api("/api/v1/live");
 			if (!current()) return;
 			L.list = list.executions; L.now = list.now; L.no_signal_ms = list.no_signal_ms;
-			if (!L.list.some((e) => e.key === L.key)) L.key = (L.list.find((e) => e.running) || L.list[0])?.key || "";
+			const fallback = (L.list.find((e) => e.running) || L.list[0])?.key || "";
+			// una ejecución pedida que ya no está en la lista (un enlace, "Ver en En vivo" de un run anterior,
+			// r:<run>) se pide igual: el servidor la arma por su clave; si no existe, la más nueva
+			if (!L.key) L.key = fallback;
 			L.exec = null;
 			if (L.key) {
-				const one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`);
+				let one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`).catch((err) => {
+					if (L.list.some((e) => e.key === L.key) || !fallback) throw err;
+					return null;
+				});
 				if (!current()) return;
+				if (!one) { L.key = fallback; one = await api(`/api/v1/live/execution?key=${encodeURIComponent(fallback)}`); if (!current()) return; }
 				L.exec = one.execution; L.now = one.now;
+				if (L.key.startsWith("r:")) L.key = one.execution.key; // pedida por un run: desde ahora, su clave
+				// la anterior también en el selector (con su hora: "Anteriores")
+				if (!L.list.some((e) => e.key === L.key)) { const { runs, ...summary } = one.execution; L.list = [...L.list, summary]; }
 			}
 			L.loaded = true;
 			if (L.panel) loadLivePanel(L.panel.id, true); // el test abierto en el panel sigue al día
@@ -1366,7 +1389,7 @@
 	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
 	function liveUI() {
 		return { problems: null, states: [], files: [], workers: [], errors: [], more: {}, sort: null, paused: false,
-			group: "file", q: "", zoom: null, allLanes: false, showOk: false, open: {}, pickerOpen: false, pickerQ: "", tables: {} };
+			group: "file", q: "", zoom: null, allLanes: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", tables: {} };
 	}
 
 	/** El panel lateral: el test con sus pasos y su última captura, sin salir de la vista. */
@@ -1403,7 +1426,8 @@
 		const el = $("#view-live");
 		if (!el) return;
 		const L = S.liveView, ui = () => L.ui;
-		const redraw = () => renderLiveView();
+		// cada cambio de filtro queda en la URL (&f=, &lq=) para compartir el enlace tal cual se ve
+		const redraw = () => { renderLiveView(); if (S.view === "live") writeHash(); };
 		const pick = (key) => {
 			L.key = key; L.exec = null; L.endpoints = undefined; L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; L.anim = null;
 			renderLiveView(); loadLiveView(true);
@@ -1466,9 +1490,33 @@
 			if (d("[data-live-alllanes]")) { ui().allLanes = !ui().allLanes; return redraw(); }
 			if ((b = d("[data-live-zoom]"))) { ui().zoom = window.TraceReportsLive.zoomStep(ui().zoom, b.dataset.liveZoom); return redraw(); }
 			if (d("[data-live-close]")) { L.panel = null; return redraw(); }
-			// una fila o una barra abre el panel lateral (el nombre del test sigue llevando al test)
+			if (d("[data-live-all]")) { ui().states = []; ui().problems = false; ui().open = {}; return redraw(); }
+			if ((b = d("[data-live-stack]"))) { const id = b.dataset.liveStack; ui().stacks = { ...ui().stacks, [id]: !ui().stacks?.[id] }; return redraw(); }
+			if ((b = d("[data-live-openall]"))) { const on = b.dataset.liveOpenall === "1"; ui().openAll = on; ui().open = {}; ui().showOk = on; return redraw(); }
+			if (d("[data-live-attnmore]")) { ui().attnAll = !ui().attnAll; return redraw(); }
+			// una barra del Gantt: abre el detalle y lleva a su fila en la tabla (abriendo su grupo), resaltada
+			const bar = d(".lg-bar[data-live-test]");
+			if (bar) {
+				const id = Number(bar.dataset.liveTest);
+				const x = window.TraceReportsLive.allTests(L.exec).find((y) => y.id === id);
+				if (x) { const k = ui().group === "worker" ? x.worker || "—" : ui().group === "state" ? x.state : x.file; ui().open = { ...ui().open, [k]: true }; }
+				loadLivePanel(id);
+				const tr = el.querySelector(`tr[data-live-test="${id}"]`);
+				if (tr) {
+					tr.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+					tr.classList.remove("lt-flash"); void tr.offsetWidth; tr.classList.add("lt-flash");
+				}
+				return;
+			}
+			// una fila abre el panel lateral (el nombre del test sigue llevando al test)
 			const row = d("[data-live-test]");
 			if (row && !d("a")) loadLivePanel(Number(row.dataset.liveTest));
+		});
+		// "/" lleva al buscador desde cualquier parte de la vista (salvo que se esté escribiendo en otro campo)
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "/" || S.view !== "live" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+			const q = el.querySelector("[data-live-q]");
+			if (q) { e.preventDefault(); q.focus(); q.select(); }
 		});
 		el.addEventListener("change", (e) => { const sel = e.target.closest("[data-live-exec-select]"); if (sel) pick(sel.value); });
 		el.addEventListener("input", (e) => {
@@ -1495,6 +1543,12 @@
 			el.querySelector(`tr[data-live-test="${id}"]`)?.focus();
 		});
 		el.addEventListener("keydown", (e) => {
+			// Esc en el buscador: primero lo limpia; vacío, sale de él (y no cierra el panel)
+			if (e.key === "Escape" && e.target.matches("[data-live-q]")) {
+				e.preventDefault(); e.stopPropagation();
+				if (e.target.value || ui().q) { e.target.value = ""; ui().q = ""; ui().open = {}; redraw(); } else e.target.blur();
+				return;
+			}
 			const row = e.target.closest("tr[data-live-test]");
 			if (row && e.key === "Enter") loadLivePanel(Number(row.dataset.liveTest));
 		});
@@ -1560,6 +1614,7 @@
 		const reason = el.querySelector(".live-cancel[open] input[name=reason]");
 		const keep = reason ? { value: reason.value, focus: document.activeElement === reason } : null;
 		if (el.querySelector("[data-live-minimap] .lg-brush.drawing")) return; // arrastrando el zoom: al soltar se dibuja
+		const flip = S.liveView.anim && !S.liveView.anim.first ? flipSnapshot(el) : null;
 		const replaced = setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints }, {
 			t, esc, icon, canAct,
 			clock: (ms, secs) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", secs ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" }),
@@ -1574,7 +1629,7 @@
 		if (list) list.scrollTop = listTop;
 		if (optFocus) [...el.querySelectorAll(".xp-opt")].find((o) => o.dataset.liveExec === optFocus)?.focus();
 		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
-		if (replaced) animateLive(el);
+		if (replaced) { fitBars(el); animateLive(el); if (flip) flipPlay(el, flip); }
 		if (keep) {
 			const d = el.querySelector(".live-cancel");
 			if (d) { d.open = true; const r = d.querySelector("input[name=reason]"); r.value = keep.value; if (keep.focus) r.focus(); }
@@ -1616,6 +1671,10 @@
 		const evs = new Set([...el.querySelectorAll("li[data-ev]")].map((n) => n.dataset.ev));
 		if (A.evs) for (const n of el.querySelectorAll("li[data-ev]")) if (!A.evs.has(n.dataset.ev)) flag(n, "lc-new");
 		A.evs = evs;
+		// algo nuevo que requiere atención entra deslizándose y destella
+		const attn = new Set([...el.querySelectorAll(".la-list li[data-attn]")].map((n) => n.dataset.attn));
+		if (A.attn) for (const n of el.querySelectorAll(".la-list li[data-attn]")) if (!A.attn.has(n.dataset.attn)) flag(n, "la-new");
+		A.attn = attn;
 		const anoms = new Set([...el.querySelectorAll(".lg-anom")].map((n) => n.dataset.liveTest));
 		if (A.anoms) for (const n of el.querySelectorAll(".lg-anom")) if (!A.anoms.has(n.dataset.liveTest)) flag(n, "lg-anom-new");
 		A.anoms = anoms;
@@ -1627,6 +1686,40 @@
 		if (trace && A.traceKey !== tk) flag(trace, "lt-trace-in");
 		A.traceKey = tk;
 	}
+	// Reordenar sin saltos (la técnica FLIP, como el `layout` de Framer Motion): se anotan dónde estaban
+	// las filas antes de redibujar y, si un test cambió de lugar, se lo desliza desde ahí con un resorte.
+	const FLIP_SEL = "tr.lt-row[data-live-test], .la-list li[data-attn]";
+	const FLIP_MAX = 400;
+	function flipSnapshot(el) {
+		if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
+		const nodes = el.querySelectorAll(FLIP_SEL);
+		if (!nodes.length || nodes.length > FLIP_MAX) return null;
+		const pos = new Map();
+		for (const n of nodes) pos.set(n.dataset.liveTest ? "r" + n.dataset.liveTest : "a" + n.dataset.attn, n.getBoundingClientRect().top);
+		return pos;
+	}
+	function flipPlay(el, pos) {
+		for (const n of el.querySelectorAll(FLIP_SEL)) {
+			const prev = pos.get(n.dataset.liveTest ? "r" + n.dataset.liveTest : "a" + n.dataset.attn);
+			if (prev === undefined) continue;
+			const dy = prev - n.getBoundingClientRect().top;
+			if (Math.abs(dy) < 2 || Math.abs(dy) > 1200) continue;
+			n.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 520, easing: "cubic-bezier(.22, 1.25, .36, 1)" });
+		}
+	}
+	/** El nombre dentro de una barra del Gantt solo si cabe; si no, la barra queda limpia (el tooltip lo dice). */
+	function fitBars(el) {
+		const bars = [...el.querySelectorAll(".lg-bar")];
+		for (const b of bars) b.classList.remove("notext"); // medir con el texto puesto (el ancho pudo cambiar)
+		const over = bars.map((b) => b.scrollWidth > b.clientWidth + 1); // todas las lecturas juntas: un solo cálculo de layout
+		bars.forEach((b, i) => { if (over[i]) b.classList.add("notext"); });
+	}
+	let fitTimer = null;
+	window.addEventListener("resize", () => {
+		clearTimeout(fitTimer);
+		fitTimer = setTimeout(() => { const el = $("#view-live"); if (el && S.view === "live") fitBars(el); }, 150);
+	});
+
 	/** Un número que cuenta desde el valor anterior hasta el nuevo (600 ms, desacelerando). */
 	function countUp(n, from, to) {
 		const t0 = performance.now(), dur = 600;
