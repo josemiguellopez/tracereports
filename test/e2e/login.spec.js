@@ -188,7 +188,10 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		await expect(page.locator(".guide.x").first()).toHaveAttribute("data-label", /^x \d+$/);
 		await expect(page.locator(".draft span").first()).toHaveText(/^\d+ × \d+$/);
 		// el agente grid abre la paleta y los rectángulos quedan pintados con sus colores (el boceto)
-		await expect(page.locator(".palette .sw")).toHaveCount(7);
+		await expect(page.locator(".palette .sw")).toHaveCount(8);
+		// el agente grid bosqueja la traza de gw0…gw5 (las barras con el color de su estado) antes de la animación
+		await expect(page.locator(".lane-label").first()).toHaveText("gw0", { timeout: 6000 });
+		await expect.poll(() => page.locator(".lane-bar").count(), { timeout: 8000 }).toBeGreaterThan(6);
 		await expect(page.locator(".palette")).toContainText("lime");
 		await expect(page.locator(".draft .fill").first()).toBeAttached({ timeout: 6000 });
 		await expect(page.locator(".type-caret").first()).toBeAttached({ timeout: 6000 });
@@ -204,8 +207,9 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		expect(await page.locator(".unbuilt").count()).toBe(0);
 		const obra = await page.evaluate(() => ({ agents: [...window.__obra.agents.keys()].sort(), tasks: window.__obra.log.map((x) => x[0]) }));
 		expect(obra.agents).toEqual(["copy", "forms", "grid", "layout", "marca", "qa", "seguridad"]);
-		expect(obra.tasks).toEqual(expect.arrayContaining(["rulers", "palette", "card", "h1", "f-user", "f-pass", "go", "qa", "render", "trace"]));
-		expect(obra.tasks.indexOf("render")).toBeGreaterThan(obra.tasks.indexOf("qa")); // el boceto se "renderiza" al final
+		expect(obra.tasks).toEqual(expect.arrayContaining(["rulers", "palette", "lanes", "card", "h1", "f-user", "f-pass", "go", "qa", "render", "trace"]));
+		expect(obra.tasks.indexOf("render")).toBeGreaterThan(Math.max(obra.tasks.indexOf("qa"), obra.tasks.indexOf("lanes"))); // el boceto se "renderiza" al final
+		expect(obra.tasks.indexOf("trace")).toBeGreaterThan(obra.tasks.indexOf("render")); // y recién ahí corre la animación
 		expect(obra.tasks.indexOf("card")).toBeLessThan(obra.tasks.indexOf("f-user")); // las dependencias se respetan
 		for (const sel of ["#user", "#pass", "#go", ".remember", ".foot"]) await expect(page.locator(sel)).toBeVisible();
 	});

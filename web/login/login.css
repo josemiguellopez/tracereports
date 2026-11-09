@@ -317,3 +317,14 @@ body {
 	.palette { grid-auto-flow: column; align-items: center; top: calc(var(--ruler) + 8px); left: 50%; transform: translateX(-50%); padding: 6px 8px; }
 	.palette .sw small, .palette b { display: none; }
 }
+
+/* ---------- paleta horizontal (no tapa a los agentes) y el boceto de la traza ---------- */
+.palette { z-index: 4; display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.palette b { margin: 0 4px 0 0; }
+.palette .sw { flex-direction: column; gap: 4px; align-items: center; }
+.palette .sw small { text-align: center; }
+.palette .sw em { display: none; }
+.draft.lane-label { border: 0; background: none; box-shadow: none; height: auto; font: 600 11px "JetBrains Mono", monospace; color: #8a94a2; }
+.draft.lane-track { border: 0; height: 1px; background: repeating-linear-gradient(90deg, rgba(120, 135, 155, .45) 0 3px, transparent 3px 7px); box-shadow: none; }
+.draft.lane-bar { border: 0; height: 18px; border-radius: 3px; background: rgba(255, 255, 255, .03); box-shadow: none; }
+.draft.lane-bar .fill { opacity: .78; }

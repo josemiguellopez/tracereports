@@ -218,7 +218,15 @@ function stage() {
 		}, { passive: true });
 	}
 	if (reduced) { running = false; draw(26); } else requestAnimationFrame(frame);
-	return { restart() { t0 = performance.now() - OFFSET * 1000; } };
+	return {
+		restart() { t0 = performance.now() - OFFSET * 1000; },
+		// los carriles y sus barras tal como se verán al arrancar (para que el boceto calce con la animación)
+		layout() {
+			const ys = lanesY(), end = limit - 40;
+			return { limit: end, lanes: LANES.map((lane, li) => ({ w: lane.w, y: ys[li],
+				bars: laneState(li, OFFSET).filter((b) => b.x < end).map((b) => ({ x: b.x, w: Math.max(4, Math.min(b.w - 1, end - b.x)), state: b.state })) })) };
+		},
+	};
 }
 
 // ---------- 2) Trace Buddy ----------
@@ -373,8 +381,8 @@ const AGENTS = [
 	{ id: "marca", color: "#c9fa6b" }, { id: "forms", color: "#b69cff" }, { id: "seguridad", color: "#3ecf8e" }, { id: "qa", color: "#ff9f6b" },
 ];
 const JOBS = {
-	es: { rulers: "pone las reglas", guide: "traza una guía", rect: "dibuja", paint: "pinta", palette: "abre la paleta", render: "renderiza", type: "escribe", reveal: "coloca", check: "revisa", trace: "arranca la traza" },
-	en: { rulers: "sets the rulers", guide: "draws a guide", rect: "draws", paint: "paints", palette: "opens the palette", render: "renders", type: "types", reveal: "places", check: "checks", trace: "starts the trace" },
+	es: { sketch: "bosqueja", rulers: "pone las reglas", guide: "traza una guía", rect: "dibuja", paint: "pinta", palette: "abre la paleta", render: "renderiza", type: "escribe", reveal: "coloca", check: "revisa", trace: "arranca la traza" },
+	en: { sketch: "sketches", rulers: "sets the rulers", guide: "draws a guide", rect: "draws", paint: "paints", palette: "opens the palette", render: "renders", type: "types", reveal: "places", check: "checks", trace: "starts the trace" },
 }[lang];
 const LINES = {
 	es: {
@@ -514,13 +522,14 @@ function plan() {
 		{ id: "go", kind: "rect", el: "#go", paint: "lime", by: "forms", deps: ["f-user"] },
 		{ id: "go-t", kind: "type", el: ".go-text", by: "forms", deps: ["go"] },
 		{ id: "qa", kind: "check", el: "#card", by: "qa", deps: ["go-t", "foot", "sub"], say: "qa" },
-		{ id: "render", kind: "render", by: "grid", deps: ["qa", "lede", "kicker"] },
+		{ id: "lanes", kind: "lanes", by: "grid", deps: ["palette"] },
+		{ id: "render", kind: "render", by: "grid", deps: ["qa", "lede", "kicker", "lanes"] },
 		{ id: "trace", kind: "trace", by: "grid", deps: ["render"] },
 	];
 }
 // la paleta del agente grid: los colores del sistema (los mismos tokens del CSS)
 const PALETTE = [
-	["ink", "#0a0c10"], ["surface", "#171b22"], ["line", "#2a313b"], ["lime", "#c9fa6b"], ["cyan", "#29dfff"], ["pass", "#3ecf8e"], ["fail", "#ff5d5d"],
+	["ink", "#0a0c10"], ["surface", "#171b22"], ["line", "#2a313b"], ["lime", "#c9fa6b"], ["cyan", "#29dfff"], ["pass", "#3ecf8e"], ["warn", "#f5b83d"], ["fail", "#ff5d5d"],
 ];
 // lo que se construye empieza invisible (el texto que se escribe, vacío)
 const BUILT_SEL = [".ruler", ".kicker", ".pitch h1", ".lede", ".brand", "#login-title", "#sub", ".field", ".remember", ".foot", "#go"];
@@ -606,6 +615,11 @@ async function doPalette(ag) {
 	pal.innerHTML = `<b>${lang === "en" ? "Palette" : "Paleta"}</b>` + PALETTE.map(([n, c]) => `<span class="sw" data-sw="${n}"><i style="background:${c}"></i><small>${n}<em>${c}</em></small></span>`).join("");
 	document.body.appendChild(pal);
 	build.palette = pal;
+	const L = build.stage?.layout();
+	if (L && innerWidth >= 960) { // en el espacio libre entre la traza y el titular
+		pal.style.top = `${Math.round(L.lanes[L.lanes.length - 1].y + 46)}px`;
+		pal.style.left = "calc(var(--ruler) + 76px)";
+	}
 	const r = pal.getBoundingClientRect();
 	await fly(ag, r.left + 12, r.top + 10, 0.35);
 	await anim(pal, { opacity: [0, 1], x: [-30, 0], scale: [0.92, 1] }, { type: "spring", stiffness: 420, damping: 26 });
@@ -635,6 +649,45 @@ async function paint(ag, d, r, name) {
 	}
 	await Promise.all([anim(fill, { scaleX: [0, 1] }, { duration: 0.24, ease: [0.65, 0, 0.35, 1] }), fly(ag, r.right - 6, r.top + r.height / 2, 0.24)]);
 }
+// el boceto de la traza (agente grid): carril por carril, su etiqueta, su línea y las barras pintadas con el
+// color de su estado, donde después corre la animación de verdad
+async function doLanes(ag) {
+	const L = build.stage?.layout();
+	if (!L || build.skipped) return;
+	const color = (st) => (PALETTE.find(([n]) => n === st) || PALETTE[5])[1];
+	for (const lane of L.lanes) {
+		if (build.skipped) return;
+		job(ag, `${JOBS.sketch} ${lane.w}`);
+		await fly(ag, 30, lane.y - 6, 0.2);
+		const lab = document.createElement("div");
+		lab.className = "draft lane-label";
+		Object.assign(lab.style, { left: "40px", top: `${lane.y - 8}px` });
+		lab.textContent = lane.w;
+		const track = document.createElement("div");
+		track.className = "draft lane-track";
+		Object.assign(track.style, { left: "84px", top: `${lane.y}px`, width: `${L.limit - 84}px` });
+		document.body.append(lab, track);
+		build.drafts.push(lab, track);
+		anim(lab, { opacity: [0, 1], x: [-6, 0] }, { duration: 0.2 });
+		anim(track, { scaleX: [0, 1] }, { duration: 0.3, ease: [0.22, 1, 0.36, 1] });
+		for (const b of lane.bars) {
+			if (build.skipped) return;
+			const st = b.state === "warn" ? "warn" : b.state;
+			const sw = build.palette?.querySelector(`[data-sw="${st}"]`);
+			sw?.classList.add("on");
+			const d = document.createElement("div");
+			d.className = "draft lane-bar";
+			Object.assign(d.style, { left: `${b.x}px`, top: `${lane.y - 9}px`, width: `${b.w}px` });
+			d.innerHTML = `<i class="fill" style="background:${color(st)}"></i>`;
+			document.body.appendChild(d);
+			build.drafts.push(d);
+			const secs = Math.min(0.2, 0.08 + b.w / 2400);
+			await Promise.all([anim(d.firstChild, { scaleX: [0, 1] }, { duration: secs, ease: [0.65, 0, 0.35, 1] }), fly(ag, b.x + b.w, lane.y + 4, secs)]);
+			sw?.classList.remove("on");
+		}
+		puff(Math.min(L.limit - 60, (lane.bars.at(-1)?.x ?? 120) + (lane.bars.at(-1)?.w ?? 0)), lane.y, 4, 0.6);
+	}
+}
 // el render: una barrida recorre la página, el boceto se desvanece y aparece la página de verdad
 async function doRender(ag) {
 	job(ag, JOBS.render);
@@ -648,7 +701,7 @@ async function doRender(ag) {
 	await Promise.all([
 		anim(sweep, { y: [0, innerHeight], opacity: [0, 1, 1, 0] }, { duration: 0.7, ease: [0.4, 0, 0.2, 1] }),
 		fly(ag, innerWidth / 2, innerHeight - 60, 0.7),
-		anim(drafts, { opacity: [1, 0], filter: ["blur(0px)", "blur(8px)"], scale: [1, 1.02] }, { duration: 0.5, delay: M ? M.stagger(0.035) : 0 }),
+		anim(drafts, { opacity: [1, 0], filter: ["blur(0px)", "blur(8px)"], scale: [1, 1.02] }, { duration: 0.45, delay: M ? M.stagger(Math.min(0.035, 0.5 / Math.max(1, drafts.length))) : 0 }),
 		...pieces.map((n, i) => wait(i * 40).then(() => reveal(n))),
 	]);
 	drafts.forEach((d) => d.remove());
@@ -726,7 +779,7 @@ function frameUp() {
 	anim(card, { scale: [0.97, 1] }, { type: "spring", stiffness: 260, damping: 20 });
 }
 
-const RUN = { rulers: doRulers, guide: doGuide, palette: doPalette, rect: doRect, type: doType, reveal: doReveal, check: doCheck, render: doRender, trace: doTrace };
+const RUN = { rulers: doRulers, guide: doGuide, palette: doPalette, lanes: doLanes, rect: doRect, type: doType, reveal: doReveal, check: doCheck, render: doRender, trace: doTrace };
 async function construct() {
 	const card = $("#card");
 	build.t0 = performance.now();

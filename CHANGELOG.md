@@ -102,7 +102,8 @@ All notable changes to TraceReports. The format follows
 - **The page builds itself** (like a design tool with several people on it): seven agents, each with its cursor,
   take the tasks whose dependencies are done and work in parallel: rulers, guides with their coordinate,
   rectangles dragged with their size and painted from the grid agent's palette (a drop of color travels from the
-  swatch), text typed letter by letter, the QA sweep, and a final render that turns the painted mock into the real
+  swatch), the grid agent sketching the trace of gw0…gw5 with the color of each status, text typed letter by
+  letter, the QA sweep, and a final render that turns the painted mock into the real
   page; smoke where each piece lands and
   Trace Buddy telling what happens ("my team of agents is building your sign-in") and how many agents built it.
   Any key, click or paste finishes it at once (nothing that moves blocks signing in); it does not repeat in the same
