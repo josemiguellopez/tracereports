@@ -2416,3 +2416,8 @@ body.lf-full-open #cf-tooltip { z-index: 9200; }
 .live-tablebar .live-status { margin: 0 2px; }
 .live-title .live-pause { margin-left: 0; }
 .live-title .live-paused { flex-basis: 100%; margin: 0; }
+
+/* Inspector: los íconos de la página (glifos de fuentes de íconos, imágenes chicas y <svg> en línea) */
+.insp-n.has-icon { background-image: none; }
+.insp-n .insp-g { position: absolute; pointer-events: none; image-rendering: auto; }
+.insp-n .insp-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

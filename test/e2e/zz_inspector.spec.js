@@ -338,3 +338,36 @@ test("si el backend falló justo antes, el Inspector lo dice en vez de culpar al
 	await p.locator('#test-detail [data-tab="steps"]').click();
 	await expect(p.locator(".step-loc-flag")).toHaveCount(0);
 });
+
+test("el Inspector dibuja los íconos de la página (fuentes de íconos, ligaduras, <svg>), nunca como HTML", async ({ page: p, request }) => {
+	const PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector íconos", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "ficha con íconos" } })).json()).test_id;
+	const snap = page("Ficha clínica", { extra: [
+		// <i class="fa-solid fa-plus-circle"> dentro del botón: su ::before, como lo dibujó la página
+		{ p: 4, tag: "i", attrs: { class: "fa-solid fa-plus-circle" }, text: "", x: 70, y: 312, w: 18, h: 20, visible: true, depth: 3, style: style("rgba(0, 0, 0, 0)"), icons: [{ g: "g0", pos: "before", w: 18, h: 20 }] },
+		// Material: la palabra es una ligadura; se ve el ícono, la palabra queda para XPath
+		{ p: 1, tag: "span", attrs: { class: "material-icons" }, text: "notifications", x: 900, y: 18, w: 24, h: 24, visible: true, depth: 2, style: style("rgba(0, 0, 0, 0)"), icons: [{ g: "g0", pos: "text", w: 24, h: 30 }] },
+		{ p: 2, tag: "svg", attrs: { class: "tooth" }, text: "", x: 500, y: 120, w: 24, h: 24, visible: true, depth: 2, style: style("rgba(0, 0, 0, 0)"),
+			svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" onload="window.__pwned=1"><script>window.__pwned=1</script><path fill="rgb(106, 27, 154)" d="M2 2h20v20H2z"/></svg>' },
+	] });
+	snap.glyphs = { g0: PNG, g1: "javascript:window.__pwned=1" };
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "no se pudo agregar" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-g")).toHaveCount(2);
+	await expect(insp.locator(".insp-g").first()).toHaveAttribute("src", PNG);
+	const svg = insp.locator(".insp-svg");
+	await expect(svg).toHaveCount(1);
+	const src = decodeURIComponent((await svg.getAttribute("src")).split(",")[1]);
+	expect(src).toContain('fill="rgb(106, 27, 154)"');
+	expect(src).not.toMatch(/script|onload/);
+	await expect(insp.locator('.insp-n:has(.insp-g) .t').filter({ hasText: "notifications" })).toHaveCount(0); // la ligadura no se escribe
+	// la palabra sigue en la página reconstruida: un XPath por su texto la encuentra
+	await insp.locator(".insp-probe").fill("//span[.='notifications']");
+	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");
+	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
+});

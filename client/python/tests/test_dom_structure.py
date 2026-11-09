@@ -208,3 +208,36 @@ def test_layers_overflow_and_line_breaks_for_the_inspector(page):
         assert item["text"] == "06-11-2026 16:43\nControl general"
     finally:
         page.set_content(PAGE)
+
+
+def test_icons_travel_as_the_page_drew_them(page, monkeypatch):
+    # Inspector "realista": los íconos de fuente (::before de Font Awesome, ligaduras de Material), los
+    # <svg> en línea (con sus colores y sus <use>) y las imágenes chicas viajan; lo tapado no.
+    monkeypatch.setenv("TRACEREPORTS_SCREENSHOT_MASK", ".secreto")
+    page.set_content(
+        '<style>.fa-plus::before{content:"\2795";color:rgb(25, 118, 210)} .req::after{content:" *"} '
+        '.material-icons{font-family:"Material Icons", monospace} .secreto::before{content:"\2605"}</style>'
+        '<svg width="0" height="0" style="position:absolute"><symbol id="ic" viewBox="0 0 24 24"><path fill="currentColor" d="M2 2h20v20H2z"/></symbol></svg>'
+        '<button><i class="fa-plus"></i>Agregar</button><label class="req">Motivo</label>'
+        '<span class="material-icons">home</span>'
+        '<svg class="s" style="width:20px;height:20px;color:rgb(106, 27, 154)"><use href="#ic"/></svg>'
+        '<img id="png" width="16" height="16" src="data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==">'
+        '<span class="secreto">dato</span>')
+    page.wait_for_function("document.getElementById('png').complete")
+    try:
+        snap = capturar_dom(page)
+        nodes, glyphs = snap["nodes"], snap.get("glyphs") or {}
+        by = lambda pred: next(n for n in nodes if pred(n))  # noqa: E731
+        plus = by(lambda n: n["attrs"].get("class") == "fa-plus")
+        assert plus["icons"][0]["pos"] == "before" and glyphs[plus["icons"][0]["g"]].startswith("data:image/png;base64,")
+        assert by(lambda n: n["attrs"].get("class") == "req")["icons"][0]["pos"] == "after"
+        home = by(lambda n: n["attrs"].get("class") == "material-icons")
+        assert home["text"] == "home" and home["icons"][0]["pos"] == "text", "the ligature travels as its icon (and its text, for XPath)"
+        svg = by(lambda n: n["tag"] == "svg" and n["attrs"].get("class") == "s")["svg"]
+        assert "<use" not in svg and 'd="M2 2h20v20H2z"' in svg, "the <use> is inlined"
+        assert "currentColor" not in svg and "rgb(106, 27, 154)" in svg, "colors resolved: as an image currentColor would be black"
+        assert by(lambda n: n["tag"] == "img")["icons"][0]["pos"] == "img"
+        assert "icons" not in by(lambda n: n["attrs"].get("class") == "secreto"), "what is masked keeps no icon either"
+        assert len({g for n in nodes for g in [i["g"] for i in n.get("icons", [])]}) == len(glyphs), "one glyph per distinct icon"
+    finally:
+        page.set_content(PAGE)

@@ -85,6 +85,57 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
   const nodes = [], elements = [];
   const hidden = (el) => { try { return !!(mask && el.closest(mask)); } catch (e) { return false; } };
   const sx = window.scrollX, sy = window.scrollY;
+  // Los íconos, como se ven: un ícono de fuente (Font Awesome, Material: un carácter en ::before o una
+  // ligadura) se dibuja aquí en un canvas con la fuente que la página ya cargó y viaja como un PNG chico,
+  // una sola vez por snapshot (glyphs). Sin la fuente el Inspector no podría dibujarlo, y la fuente misma
+  // (con su licencia) nunca sale de la página. Lo mismo para las imágenes chicas (íconos PNG).
+  const glyphs = {}, gkeys = new Map();
+  let gbytes = 0;
+  const cv = document.createElement('canvas');
+  const store = (key, w, h, draw) => {
+    if (gkeys.has(key)) return gkeys.get(key);
+    if (gkeys.size >= 250 || gbytes > 1500000 || !(w >= 1) || !(h >= 1) || w > 256 || h > 256) return null;
+    try {
+      cv.width = Math.ceil(w * 2); cv.height = Math.ceil(h * 2);
+      const c = cv.getContext('2d'); c.setTransform(2, 0, 0, 2, 0, 0); c.clearRect(0, 0, w, h);
+      draw(c);
+      const url = cv.toDataURL('image/png');
+      if (url.length > 24000) return null;
+      const g = { id: 'g' + gkeys.size, w: Math.round(w), h: Math.round(h) };
+      gkeys.set(key, g); glyphs[g.id] = url; gbytes += url.length;
+      return g;
+    } catch (e) { return null; } // una imagen de otro origen "ensucia" el canvas: queda la caja
+  };
+  const glyph = (txt, cs) => {
+    const fs = parseFloat(cs.fontSize) || 14, font = cs.fontStyle + ' ' + cs.fontWeight + ' ' + fs + 'px ' + cs.fontFamily;
+    const ctx = cv.getContext('2d'); ctx.font = font;
+    const w = Math.ceil(ctx.measureText(txt).width), h = Math.ceil(fs * 1.25);
+    return store(txt + '|' + font + '|' + cs.color, w, h, (c) => { c.font = font; c.fillStyle = cs.color; c.textBaseline = 'middle'; c.fillText(txt, 0, h / 2); });
+  };
+  const unq = (v) => { const m = /^["']([\s\S]*)["']$/.exec(v || ''); return m ? m[1].replace(/\\([0-9a-fA-F]{1,6})\s?/g, (x, hx) => String.fromCodePoint(parseInt(hx, 16))) : null; };
+  const ICON_FONT = /material (icons|symbols)/i;
+  const PAINT = ['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'fill-rule', 'stroke-linecap', 'stroke-linejoin'];
+  // un <svg> en línea, con sus colores resueltos (el CSS de la página no viaja) y sus <use href="#…"> adentro
+  const svgOf = (el, r) => {
+    const all = [el, ...el.querySelectorAll('*')];
+    if (all.length > 250) return '';
+    const clone = el.cloneNode(true), copy = [clone, ...clone.querySelectorAll('*')];
+    all.forEach((o, i) => { const k = copy[i], s = getComputedStyle(o); if (k) for (const p of PAINT) { const v = s.getPropertyValue(p); if (v) k.setAttribute(p, v); } });
+    for (const u of clone.querySelectorAll('use')) {
+      const ref = u.getAttribute('href') || u.getAttribute('xlink:href') || '';
+      const src = ref.startsWith('#') ? document.getElementById(ref.slice(1)) : null;
+      if (!src) continue;
+      if (src.getAttribute('viewBox') && !clone.getAttribute('viewBox')) clone.setAttribute('viewBox', src.getAttribute('viewBox'));
+      const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+      for (const p of PAINT) if (u.getAttribute(p)) g.setAttribute(p, u.getAttribute(p));
+      for (const c of src.childNodes) g.appendChild(c.cloneNode(true));
+      u.replaceWith(g);
+    }
+    clone.setAttribute('width', Math.round(r.width)); clone.setAttribute('height', Math.round(r.height));
+    // como imagen, "currentColor" sería negro: el color que tiene el <svg> en la página
+    const s = new XMLSerializer().serializeToString(clone).replace(/currentColor/g, getComputedStyle(el).color);
+    return s.length <= 12000 ? s : '';
+  };
   const walk = (el, parent, depth) => {
     if (nodes.length >= 5000 || depth > 60) return;
     const tag = el.tagName.toLowerCase();
@@ -113,6 +164,28 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
     const node = { i: nodes.length, p: parent, tag, attrs, text, x: Math.round(r.x + sx), y: Math.round(r.y + sy),
       w: Math.round(r.width), h: Math.round(r.height), visible, depth, style };
     if (tb) { node.tx = Math.round(tb.x - r.x); node.ty = Math.round(tb.y - r.y); }
+    if (visible && !covered) {
+      const icons = [];
+      // ::before / ::after con uno a tres caracteres: el ícono de fuente (o una marca como "*")
+      for (const pos of ['before', 'after']) {
+        const ps = getComputedStyle(el, '::' + pos), txt = unq(ps.content);
+        if (!txt || !txt.trim() || [...txt].length > 3 || ps.display === 'none' || ps.visibility === 'hidden') continue;
+        const g = glyph(txt, ps);
+        if (g) icons.push({ g: g.id, pos, w: g.w, h: g.h });
+      }
+      // Material Icons / Symbols: la palabra ("home") es una ligadura que la fuente dibuja como ícono
+      if (text && !el.children.length && text.length <= 40 && ICON_FONT.test(st.fontFamily)) {
+        const g = glyph(text, st);
+        if (g) icons.push({ g: g.id, pos: 'text', w: g.w, h: g.h });
+      }
+      // una imagen chica (un ícono PNG): se copia si es del mismo origen
+      if (tag === 'img' && el.complete && el.naturalWidth && r.width <= 64 && r.height <= 64) {
+        const g = store('img|' + el.currentSrc + '|' + Math.round(r.width) + 'x' + Math.round(r.height), r.width, r.height, (c) => c.drawImage(el, 0, 0, r.width, r.height));
+        if (g) icons.push({ g: g.id, pos: 'img', w: g.w, h: g.h });
+      }
+      if (icons.length) node.icons = icons.slice(0, 4);
+      if (tag === 'svg') { try { const s = svgOf(el, r); if (s) node.svg = s; } catch (e) { /* queda la caja */ } }
+    }
     nodes.push(node);
     if (elements.length < 1500 && el.matches(SEL)) {
       const testAttr = ['data-testid', 'data-test-id', 'data-test'].find((a) => el.hasAttribute(a)) || '';
@@ -124,14 +197,16 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
         text: covered && inner ? '•••' : inner.slice(0, 120),
         x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), visible });
     }
-    if (tag === 'svg') return; // el dibujo no se copia: una caja basta (y la captura lo muestra)
+    if (tag === 'svg') return; // el dibujo viaja en node.svg; sus partes no son nodos
     for (const c of el.children) walk(c, node.i, depth + 1);
     if (el.shadowRoot) for (const c of el.shadowRoot.children) walk(c, node.i, depth + 1);
   };
   walk(document.body, -1, 0);
   const doc = document.documentElement;
-  return { url: location.href, title: document.title, viewport: { w: innerWidth, h: innerHeight },
+  const out = { url: location.href, title: document.title, viewport: { w: innerWidth, h: innerHeight },
     page: { w: Math.max(doc.scrollWidth, innerWidth), h: Math.max(doc.scrollHeight, innerHeight) }, nodes, elements };
+  if (gkeys.size) out.glyphs = glyphs;
+  return out;
 }"""
 
 

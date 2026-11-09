@@ -193,3 +193,15 @@ test("paintPlan y clipInset: un panel con scroll recorta a sus hijos; un fixed n
 	assert.equal(I.clipInset(nodes[5], clip[5]), "");
 	assert.equal(clip[1], null, "el panel mismo no se recorta a sí mismo");
 });
+
+test("íconos: el de fuente va a la izquierda del texto (::before) o a la derecha (::after); solo, centrado; la ligadura reemplaza la palabra", () => {
+	const btn = { tag: "button", text: "Agregar", w: 140, h: 36, tx: 36 };
+	assert.deepEqual(plain(I.iconBox(btn, { pos: "before", w: 16, h: 20 })), { x: 16, y: 8 }, "pegado al comienzo del texto");
+	assert.deepEqual(plain(I.iconBox({ ...btn, tx: 2 }, { pos: "before", w: 16, h: 20 })), { x: 0, y: 8 }, "nunca fuera de su caja");
+	assert.deepEqual(plain(I.iconBox(btn, { pos: "after", w: 10, h: 20 })), { x: 128, y: 8 });
+	assert.deepEqual(plain(I.iconBox({ tag: "i", text: "", w: 20, h: 20 }, { pos: "before", w: 16, h: 20 })), { x: 2, y: 0 }, "un <i class=fa> solo: centrado");
+	const lig = { tag: "span", text: "home", w: 24, h: 24, icons: [{ pos: "text", g: "g0", w: 24, h: 30 }] };
+	assert.equal(I.shownText(lig), "", "la palabra de la ligadura no se escribe: se dibuja su ícono");
+	assert.equal(I.shownText(btn), "Agregar");
+	assert.deepEqual(plain(I.iconBox(lig, lig.icons[0])), { x: 0, y: 0 });
+});

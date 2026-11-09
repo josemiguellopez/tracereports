@@ -28,6 +28,18 @@ type Snapshot struct {
 	Kind  string `json:"kind,omitempty"`
 	Label string `json:"label,omitempty"`
 	At    int64  `json:"at,omitempty"`
+	// Glyphs: the icons as the page drew them (an icon-font character, a Material ligature or a small
+	// image), rendered by the client into small PNG data URLs and referenced by id from Node.Icons.
+	Glyphs map[string]string `json:"glyphs,omitempty"`
+}
+
+// NodeIcon is an icon drawn on a node: G is its glyph id; Pos says where it goes ("before", "after",
+// "text" for a ligature that replaces the text, "img" for a small image); W and H, its size.
+type NodeIcon struct {
+	G   string `json:"g"`
+	Pos string `json:"pos"`
+	W   int    `json:"w"`
+	H   int    `json:"h"`
 }
 
 // Node is one element of a structural snapshot. P is the index of its parent (-1 for the root),
@@ -48,6 +60,9 @@ type Node struct {
 	TX      *int              `json:"tx,omitempty"`
 	TY      *int              `json:"ty,omitempty"`
 	Style   map[string]string `json:"style,omitempty"`
+	// Icons drawn on it and, for an inline <svg>, its markup (sanitized by the server).
+	Icons []NodeIcon `json:"icons,omitempty"`
+	SVG   string     `json:"svg,omitempty"`
 }
 
 // Size is a viewport in CSS pixels.
