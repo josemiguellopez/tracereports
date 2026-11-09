@@ -214,6 +214,12 @@ try XPath or CSS on it and copy robust locators (right click → *QA / Automatio
 the failure again**. If the selector that failed does not exist, it marks it and points to the most
 similar element.
 
+**Icons** look like in the application: icon-font icons (Font Awesome and the like in `::before`/`::after`,
+and Material Icons/Symbols ligatures) are drawn in the test's browser with the font the page already loaded
+and travel as small PNG images (one per distinct icon); inline `<svg>` travel with their colors resolved
+and the server rebuilds them with shapes and colors only; same-origin images up to 64 px too. The font
+itself never leaves the page, and what is masked carries no icon.
+
 | Variable | Effect |
 |---|---|
 | `TRACEREPORTS_DOM=basic` | Only the interactive elements, as before (the Inspector draws just those). Default: `structure` |

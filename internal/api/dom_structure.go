@@ -49,6 +49,7 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 	if len(snap.Nodes) > maxDOMNodes {
 		snap.Nodes = snap.Nodes[:maxDOMNodes]
 	}
+	snap.Glyphs = cleanGlyphs(snap.Glyphs)
 	for i := range snap.Nodes {
 		n := &snap.Nodes[i]
 		if n.I != i || n.P >= i || n.P < -1 || !tagRe.MatchString(n.Tag) {
@@ -77,6 +78,10 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 			}
 		}
 		n.Style = style
+		n.Icons = cleanIcons(n.Icons, snap.Glyphs)
+		if n.SVG != "" {
+			n.SVG = cleanSVG(n.SVG)
+		}
 		for _, c := range []**int{&n.TX, &n.TY} {
 			if *c != nil && (**c < 0 || **c > 100000) {
 				*c = nil

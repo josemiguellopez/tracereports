@@ -214,6 +214,12 @@ había en pantalla, probar XPath o CSS sobre ella y copiar locators robustos (cl
 Automation*) **sin volver a reproducir el fallo**. Si el selector que falló no existe, lo marca y señala
 el elemento más parecido.
 
+Los **íconos** se ven como en la aplicación: los de fuentes de íconos (Font Awesome y similares en
+`::before`/`::after`, y las ligaduras de Material Icons/Symbols) se dibujan en el navegador del test, con la
+fuente que la página ya cargó, y viajan como imágenes PNG chicas (una por ícono distinto); los `<svg>` en
+línea viajan con sus colores resueltos y el servidor los rehace solo con formas y colores; las imágenes de
+hasta 64 px del mismo origen, también. La fuente misma nunca sale de la página y lo tapado no lleva ícono.
+
 | Variable | Efecto |
 |---|---|
 | `TRACEREPORTS_DOM=basic` | Solo los elementos interactivos, como antes (el Inspector dibuja solo esos). Por defecto: `structure` |

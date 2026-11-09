@@ -2063,3 +2063,8 @@ tr.lt-flash > td { animation: live-flash 1800ms ease-out; }
 .insp-steps li.warn { border-color: var(--color-warning); }
 .insp-steps li.warn small { color: var(--color-warning); }
 [data-insp="diff"][aria-pressed="true"] { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-on-primary); }
+
+/* Inspector: los íconos de la página (glifos de fuentes de íconos, imágenes chicas y <svg> en línea) */
+.insp-n.has-icon { background-image: none; }
+.insp-n .insp-g { position: absolute; pointer-events: none; image-rendering: auto; }
+.insp-n .insp-svg { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }

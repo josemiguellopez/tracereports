@@ -276,6 +276,41 @@
 	 * Monta el Inspector en root. opts: { snapshot (el del fallo o null), steps ([{seq,label,at}]),
 	 * loadStep(seq) → Promise<snapshot>, failed ({selector, error}), screenshot (url), t (traducción) }.
 	 */
+	/** El texto que se ve: una ligadura de Material ("home") la dibuja su ícono, no la palabra. */
+	const shownText = (n) => (n.icons || []).some((ic) => ic.pos === "text") ? "" : n.text || "";
+
+	/**
+	 * Dónde va cada ícono dentro de su caja (en px desde la esquina): solo el ícono (un <i class="fa">,
+	 * una ligadura, una imagen) va centrado; ::before, a la izquierda del texto; ::after, a la derecha.
+	 */
+	function iconBox(n, ic) {
+		const cy = Math.max(0, (n.h - ic.h) / 2);
+		const alone = !shownText(n) || ic.pos === "text" || ic.pos === "img";
+		if (alone) return { x: Math.max(0, (n.w - ic.w) / 2), y: cy };
+		if (ic.pos === "before") return { x: Math.max(0, (n.tx ?? ic.w + 4) - ic.w - 4), y: cy };
+		return { x: Math.max(0, n.w - ic.w - 2), y: cy };
+	}
+
+	/** Los íconos del nodo como imágenes (nunca HTML): los glifos del cliente y el <svg> ya limpio en el servidor. */
+	function drawIcons(el, n, glyphs) {
+		if (n.svg && n.tag === "svg") {
+			const img = document.createElement("img");
+			img.className = "insp-svg"; img.alt = ""; img.draggable = false;
+			img.src = "data:image/svg+xml;charset=utf-8," + encodeURIComponent(n.svg);
+			el.appendChild(img);
+			el.classList.add("has-icon");
+		}
+		for (const ic of n.icons || []) {
+			const src = glyphs[ic.g];
+			if (!src || !/^data:image\/png;base64,/.test(src)) continue;
+			const img = document.createElement("img"), at = iconBox(n, ic);
+			img.className = "insp-g"; img.alt = ""; img.draggable = false; img.src = src;
+			Object.assign(img.style, { left: at.x + "px", top: at.y + "px", width: ic.w + "px", height: ic.h + "px" });
+			el.appendChild(img);
+			el.classList.add("has-icon");
+		}
+	}
+
 	function mount(root, opts) {
 		const t = opts.t || ((s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s));
 		let speed = 1, paused = false, runId = 0, current = null, mirror = null, els = [], testCursor = null, ctx = null;
@@ -386,6 +421,7 @@
 				const tx = document.createElement("span"); tx.className = "t";
 				if (n.tx !== undefined && n.tx !== null) Object.assign(tx.style, { position: "absolute", left: n.tx + "px", top: (n.ty || 0) + "px" });
 				el.appendChild(tx);
+				drawIcons(el, n, current.snap.glyphs || {});
 				layer.appendChild(el);
 				els[n.i] = el;
 			}
@@ -450,7 +486,7 @@
 		const ro = new ResizeObserver(fit); ro.observe(viewport);
 		const drawable = () => current.nodes.filter((n) => els[n.i]);
 		function hideAll() { for (const n of drawable()) { const el = els[n.i]; el.style.clipPath = "inset(0 100% 100% 0)"; el.style.backgroundColor = ""; el.firstChild.textContent = ""; } }
-		function showAll() { for (const n of drawable()) { const el = els[n.i]; el.style.clipPath = el.dataset.clip || "none"; el.style.backgroundColor = el.dataset.bg; el.firstChild.textContent = n.text || ""; el.classList.remove("drawing"); } }
+		function showAll() { for (const n of drawable()) { const el = els[n.i]; el.style.clipPath = el.dataset.clip || "none"; el.style.backgroundColor = el.dataset.bg; el.firstChild.textContent = shownText(n); el.classList.remove("drawing"); } }
 
 		async function tween(ms, id, fn) {
 			let tt = 0, last = performance.now();
@@ -506,12 +542,13 @@
 					});
 					el.style.clipPath = el.dataset.clip || "none"; // el recorte de su panel con scroll, si tiene
 					el.style.backgroundColor = el.dataset.bg;
-					if (n.text) {
+					const shown = shownText(n);
+					if (shown) {
 						const tx = el.firstChild, typed = document.createTextNode(""), caret = document.createElement("span");
 						caret.className = "caret"; tx.textContent = ""; tx.append(typed, caret);
-						const per = Math.max(8, Math.min(34, 650 / n.text.length)) / k;
-						await tween(n.text.length * per, id, (p) => { typed.data = n.text.slice(0, Math.round(p * n.text.length)); });
-						tx.textContent = n.text;
+						const per = Math.max(8, Math.min(34, 650 / shown.length)) / k;
+						await tween(shown.length * per, id, (p) => { typed.data = shown.slice(0, Math.round(p * shown.length)); });
+						tx.textContent = shown;
 					}
 					el.classList.remove("drawing");
 					built++;
@@ -761,5 +798,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
 })();

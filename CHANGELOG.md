@@ -6,6 +6,19 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed (client feedback, 09-11, run 1084: Inspector)
+
+- **Inspector: icons were missing, or showed as loose words**: the structural snapshot did not carry
+  pseudo-elements nor fonts, so Font Awesome icons (drawn in `::before`) were not there, Material ligatures
+  showed their word ("notifications", "vaccines") and inline `<svg>` were an empty box. The Python client now
+  draws each icon-font glyph in the page with the font it already loaded and sends it as a small PNG, once per
+  distinct icon (`glyphs`, referenced by `icons` on each node); inline `<svg>` travel with their colors and
+  `<use>` resolved; same-origin images up to 64 px too. The server keeps only real PNGs within a budget and
+  rebuilds each SVG from a whitelist of shapes and paint attributes (no scripts, events, links, styles or
+  `url()`); the viewer shows them as images, never as HTML. On a page modeled on the client's (Font Awesome 6,
+  Material Icons, an SVG sprite and a PNG icon), the Inspector went from 0 to 23 icons drawn, +4 ms of capture
+  and +23 KB per page. Older snapshots and the JS and Java clients keep the boxes as before.
+
 ### Fixed (client feedback, 06-11: Inspector)
 
 - **Inspector: elements on top of each other and black areas**: it painted by tree depth and ignored
