@@ -309,6 +309,30 @@ test("temas: cada uno se aplica", async ({ page }) => {
 	}
 });
 
+test("temas: el menú lateral sigue el estándar (vertical, ícono con su nombre completo debajo, Ajustes al alcance)", async ({ page }) => {
+	await page.setViewportSize({ width: 1366, height: 700 }); // una pantalla baja
+	for (const th of ["trace", "trace-dark", "midnight", "paper", "pixel", "terminal"]) {
+		await page.addInitScript((t) => { try { localStorage.setItem("tracereports-theme", t); } catch {} }, th);
+		await openRun(page);
+		await expect(page.locator("body")).toHaveAttribute("data-theme", th);
+		const items = await page.locator(".side-nav a").evaluateAll((as) => as.filter((a) => a.offsetParent).map((a) => {
+			const ic = a.querySelector("svg").getBoundingClientRect(), sp = a.querySelector("span"), tx = sp.getBoundingClientRect();
+			return { label: sp.textContent, shown: getComputedStyle(sp).display !== "none" && tx.width > 0, whole: sp.scrollWidth <= Math.ceil(a.clientWidth),
+				below: tx.top >= ic.bottom - 1, x: Math.round(a.getBoundingClientRect().left) };
+		}));
+		expect(items.length, th).toBeGreaterThanOrEqual(12);
+		for (const it of items) {
+			expect(it.shown, `${th}: "${it.label}" con su nombre`).toBe(true);
+			expect(it.whole, `${th}: "${it.label}" entero`).toBe(true);
+			expect(it.below, `${th}: "${it.label}" bajo el ícono`).toBe(true);
+		}
+		expect(new Set(items.map((i) => i.x)).size, `${th}: una columna (no pestañas arriba)`).toBe(1);
+		const settings = page.locator(".side-nav .nav-settings");
+		await settings.scrollIntoViewIfNeeded();
+		await expect(settings).toBeInViewport({ ratio: 1 });
+	}
+});
+
 test("inglés: la navegación se traduce", async ({ page }) => {
 	await page.addInitScript(() => { try { localStorage.setItem("tracereports-lang", "en"); } catch {} });
 	await openRun(page);
