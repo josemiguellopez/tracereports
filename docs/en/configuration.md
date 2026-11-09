@@ -644,10 +644,10 @@ from any client:
   the backend calls on one timeline, failed calls in red and the moment of the failure marked), the last 5
   steps and the latest screenshot, without leaving Live; "Open the test" goes to the detail.
 - **Execution health**: failure rate (and the difference against the previous execution of the same
-  project), duration p50 · p95 and pace in tests per minute.
+  project), typical (p50) and slow (p95) duration and pace in tests per minute, each with its sparkline.
 - **Diagnosis**: errors grouped by signature (a click filters), the slowest against their history, the
   **execution backend** (endpoints of all its runs, errors first, with p95) and the recent activity. On the
-  minimap, a ✕ marks each failure and a ! each test without signal.
+  minimap, the failure or no-signal icon marks where each one happened.
 - **Facets** beside the table (status, error, file, worker), several at once, and the table sorts by status,
   name, duration or against the median. **Pause** freezes the view to analyze it.
 - **Needs attention**, on top: the tests that failed, have no signal, were interrupted or are turtles, with
@@ -659,6 +659,23 @@ from any client:
 - **Past executions**: the list shows the last 2 hours, but any execution opens with the same view by its
   key or by one of its runs (`#view=live&exec=r:888`). **Observability**, in the top bar, opens the
   execution of the run being looked at.
+- **Show** (All / With problems) and **Group by** (file, worker, status) are segmented controls: they answer
+  in the same frame as the click (the control changes and a thin bar says it is recomputing) and a status
+  line says what is shown: "Showing 6 of 234 tests · Only with problems · Grouped by file".
+- **Execution map**: one square per test, in the order they started, colored by status (and the planned ones
+  still to come, empty); a click opens its detail. On top, a **ticker** with the latest events that stops
+  on hover, and a clock.
+- The **timeline** starts at the first test (not at the start of the execution), marks **now** with a line
+  and compresses long pauses with no test running (≈, with how long they lasted). Ctrl + wheel zooms in or
+  out; **Fit to window** goes back to everything; **Hide idle** keeps only the lanes that are running.
+  Without `worker`, lanes are called **Process 1, Process 2…** (a parallel lane); the legend explains it, and
+  **×1.7** too (took 1.7 times normal: its median in earlier executions).
+- Long names carry the **ellipsis in the middle** (the start and the end, which tells one test from another,
+  stay visible), with the full name in the tooltip and a button to copy it; the Test column widens by
+  dragging its edge (or with ← →) and **Names on 2 lines** shows them whole. Both preferences are remembered
+  in that browser.
+- Every control, icon, column and status has a **tooltip** (mouse or keyboard focus) saying what it is or
+  does. Statuses have their own icon set (the turtle is an icon, not the word).
 - **Charts**: results over time (by status), cumulative failure rate (with the previous one as a reference)
   and the duration distribution (with p50 and p95); each with "Show data" as a table.
 - The **execution picker** shows the time, how long ago it started or ended and whether it is running,

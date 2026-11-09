@@ -69,7 +69,7 @@ test("el enlace con &f=fail abre filtrado (solo el fallo, arriba y abierto); los
 	await view.locator('.live-tile[data-live-state="WARNING"]').click();
 	await expect(page).toHaveURL(/[#&]f=fail%2Cwarn(&|$)/);
 	await view.locator("[data-live-all]").click();
-	await expect(view.locator("[data-live-all]")).toHaveAttribute("aria-pressed", "true");
+	await expect(view.locator("[data-live-all]")).toHaveAttribute("aria-checked", "true");
 	await expect(page).not.toHaveURL(/[#&]f=/);
 	// un chip en 0 se ve, pero no se puede elegir
 	mutate = (e) => { e.counts = { ...e.counts, turtle: 0 }; };
@@ -103,7 +103,7 @@ test("una sola tabla: columnas alineadas entre archivos, Worker, último paso en
 	await view.locator("[data-live-all]").click();
 	await view.locator('[data-live-openall="1"]').click();
 	await expect(view.locator("table.live-table")).toHaveCount(1);
-	await expect(view.locator("table.live-table thead th")).toHaveText(["Test", "Estado", "Dura.", "vs p50", "Worker", "Último paso"]);
+	await expect(view.locator("table.live-table thead th")).toHaveText(["Test", "Estado", "Dura.", "vs normal", "Worker", "Último paso"]);
 	// la columna Estado empieza en el mismo x en todos los archivos
 	const xs = await view.locator("tr.lt-row td:nth-child(2)").evaluateAll((tds) => [...new Set(tds.map((td) => Math.round(td.getBoundingClientRect().left)))]);
 	expect(xs).toHaveLength(1);

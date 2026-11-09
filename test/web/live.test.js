@@ -69,8 +69,8 @@ test("render: lo del cliente entra escapado; lo que pide acción con ícono y te
 	assert.ok(!html.includes("<script>") && html.includes("test_&lt;script&gt;"));
 	assert.ok(!html.includes("build <b>") && html.includes("build &lt;b&gt;1&lt;/b&gt;"));
 	assert.ok(html.includes("Evidencia &lt;final&gt;"));
-	assert.ok(/class="lt-state nosig"><svg data-i="i-warning"><\/svg>Sin señal/.test(html), "sin señal con ícono y texto");
-	assert.ok(html.includes("2 de 10 tests · 20%") && html.includes("ETA 2 min"));
+	assert.ok(/class="lt-state nosig" data-tip="El test dejó de enviar[^"]*"><svg data-i="i-st-nosig"><\/svg>Sin señal/.test(html), "sin señal con ícono, texto y qué significa");
+	assert.ok(html.includes('<b data-count="pct" data-n="20">20</b>') && html.includes("2 de 10 tests") && html.includes("ETA 2 min"));
 	assert.ok(html.includes("data-live-cancel"), "un admin puede pedir la cancelación");
 	assert.ok(!L.render({ list: [exec], exec, now: 1 }, { ...h, canAct: () => false }).includes("data-live-cancel"), "un viewer no");
 	assert.ok(L.render({ list: [exec], exec: { ...exec, cancel_requested: true }, now: 1 }, h).includes("Cancelación pedida"));
@@ -168,7 +168,8 @@ test("render: tiles que filtran, Solo con problemas y los archivos sin problemas
 	const big = d.execution.execution;
 	const html = L.render({ list: d.list.executions, exec: big, now: d.execution.now, ui: {} }, h);
 	assert.ok(/data-live-state="FAIL" aria-pressed="false"/.test(html) && html.includes('<b data-count="FAIL" data-n="3">3</b>'), "tile Fallo con su número");
-	assert.ok(/class="live-chip on" data-live-problems aria-pressed="true">Solo con problemas \(6\)/.test(html), "activo por ser grande");
+	assert.ok(/class="seg-o on" data-live-problems aria-checked="true"[^>]*>.*?Con problemas<\/span><b class="seg-n bad">6<\/b>/.test(html), "activo por ser grande");
+	assert.ok(/<p class="live-status"[\s\S]*?Mostrando <b data-count="shown" data-n="6">6<\/b> de \d+ tests[\s\S]*?Solo con problemas[\s\S]*?Agrupado por archivo/.test(html), "la línea de estado dice qué se ve");
 	assert.equal((html.match(/class="lt-row /g) || []).length, 6, "solo los 6 con problemas");
 	assert.ok(html.includes("tests sin problemas ocultos"));
 	assert.ok(html.includes("carriles sin problemas"), "los carriles sin problemas, colapsados");
@@ -268,7 +269,7 @@ test("slowest, events y anomalies: lo lento, lo reciente y dónde cayó cada fal
 	assert.deepEqual(plain(an.map((x) => [x.id, x.state])), [[12, "FAIL"], [21, "no_signal"]]);
 	assert.equal(Math.round(an[0].left), 15, "el fallo a los 90 s de 600 s");
 	const html = L.render({ list: [exec], exec, now: 600000, ui: {} }, h);
-	assert.ok(/class="lg-anom fail" data-live-test="12"[^>]*>✕<\/button>/.test(html), "con forma y texto, no solo color");
+	assert.ok(/class="lg-anom fail" data-live-test="12"[^>]*><svg data-i="i-st-fail"><\/svg><\/button>/.test(html), "con forma y tooltip, no solo color");
 	assert.ok(html.includes("Errores agrupados") && html.includes("Más lentos que su historial") && html.includes("Actividad reciente"));
 });
 
@@ -279,8 +280,8 @@ test("sortTests y la tabla ordenada: por duración (lo mayor arriba), lista plan
 	assert.equal(L.sortTests(tests, null), tests);
 	const html = L.render({ list: [exec], exec, now: 600000, ui: { sort: { col: "elapsed", dir: -1 } } }, h);
 	assert.ok(!html.includes("lt-group"), "sin grupos");
-	assert.ok(/aria-sort="descending"><button type="button" class="lt-sort on" data-live-sort="elapsed">Dura\. ▼/.test(html));
-	assert.ok(html.includes('data-live-sort="">Volver a agrupar'));
+	assert.ok(/aria-sort="descending"><button type="button" class="lt-sort on" data-live-sort="elapsed" data-tip-title="Dura\." data-tip="[^"]+">Dura\. ▼/.test(html));
+	assert.ok(/data-live-sort="" data-tip="[^"]+">Volver a agrupar/.test(html));
 });
 
 test("endpoints: la tarjeta del backend con errores primero, sin la query; endpointOf", () => {
@@ -408,7 +409,7 @@ test("tabla: una sola grilla con Worker, último paso en una línea, stack trace
 	const fail = L.allTests(e).find((x) => x.state === "FAIL");
 	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false } }, h);
 	assert.equal((html.match(/<table class="live-table">/g) || []).length, 1, "todos los archivos en una tabla");
-	assert.ok(html.includes('<col class="c-wk">') && /<th>Worker<\/th><th>Último paso<\/th>/.test(html));
+	assert.ok(html.includes('<col class="c-wk">') && /<th><span data-tip="[^"]+">Worker<\/span><\/th><th><span data-tip="[^"]+">Último paso<\/span><\/th>/.test(html));
 	const row = html.match(new RegExp(`<tr class="lt-row fail[^>]*data-live-test="${fail.id}"[\\s\\S]*?</tr>`))[0];
 	assert.ok(/class="lt-wk" data-no-i18n>gw\d+</.test(row));
 	assert.ok(row.includes(">Upss, no se encontró el elemento 'modal-dialog' , el detalle del error es</span>"), row);
@@ -436,16 +437,131 @@ test("orden estable: con el mismo estado no salta cuando cambia la duración", (
 test("chips: Todos, en 0 visibles pero deshabilitados; el Gantt atenúa lo que no coincide y etiqueta gw3", () => {
 	const d = liveWorkers(1_794_000_000_000), e = d.execution.execution;
 	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false } }, h);
-	assert.ok(/class="live-chip all on" data-live-all aria-pressed="true">Todos \(\d+\)/.test(html));
+	assert.ok(/class="seg-o on" data-live-all aria-checked="true"[^>]*>.*?Todos<\/span><b class="seg-n">\d+<\/b>/.test(html));
 	assert.ok(/data-live-state="SKIP"/.test(html) === false && /data-live-state="INTERRUPTED"/.test(html) === false, "Skip e Interrumpido solo si hay");
 	const zero = { ...e, counts: { ...e.counts, turtle: 0 } };
 	assert.ok(/data-live-state="turtle" aria-pressed="false" disabled/.test(L.render({ list: d.list.executions, exec: zero, now: d.execution.now, ui: {} }, h)));
-	assert.ok(/<span class="lg-worker"[^>]*><b>gw0<\/b><small>[^<]+<\/small><\/span>/.test(html), "gw0 y el archivo actual");
+	assert.ok(/<span class="lg-worker"[^>]*><b>(<i class="lg-live" aria-hidden="true"><\/i>)?<span data-no-i18n>gw0<\/span><\/b><small data-no-i18n>[^<]+<\/small><\/span>/.test(html), "gw0 y el archivo actual");
 	assert.ok(!/<b>Clinico · t/.test(html));
 	assert.ok(!html.includes(" dim\""), "sin filtro no se atenúa nada");
 	const f = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { states: ["FAIL"] } }, h);
 	const bars = [...f.matchAll(/class="lg-bar ([^"]+)"/g)].map((m) => m[1]);
 	assert.ok(bars.some((c) => c.startsWith("fail") && !c.includes("dim")) && bars.filter((c) => !c.startsWith("fail")).every((c) => c.includes("dim")));
 	assert.ok(/class="lg-bar fail[^"]*"[^>]*data-tip-title="test_002_box_despachar_receta_otro_nodo" data-tip="[^"]*10:00 → 10:00/.test(f), "tooltip con nombre, archivo, estado, duración e inicio → fin");
-	assert.ok(f.includes('<i aria-hidden="true">✕</i>'), "la forma del estado además del color");
+	assert.ok(/class="lg-bar fail[^"]*"[^>]*><svg data-i="i-st-fail"><\/svg>/.test(f), "la forma del estado (su ícono) además del color");
+});
+// ---------- ronda 2 (run 1084): cómo se ven los datos ----------
+
+test("línea de tiempo sin vacío: empieza en el primer test y comprime las pausas largas (≈) con su duración", () => {
+	const MIN = 60000;
+	const mk = (id, a, b) => ({ id, run_id: 1, name: `t${id}`, state: "PASS", started_at: a, ended_at: b, elapsed: b - a });
+	// el lanzador tardó 10 min en abrir la corrida y hubo 30 min sin nada entre dos tandas
+	const e = { key: "x:g", running: false, started_at: 0, counts: {}, runs: [{ id: 1, name: "a.py", started_at: 10 * MIN, tests: [mk(1, 10 * MIN, 15 * MIN), mk(2, 15 * MIN, 20 * MIN), mk(3, 50 * MIN, 55 * MIN)] }] };
+	const sc = L.timeScale(e, 60 * MIN);
+	assert.equal(sc.from, 10 * MIN, "el eje empieza en el primer test, no en el inicio de la ejecución");
+	assert.equal(sc.gaps.length, 1);
+	assert.deepEqual([sc.gaps[0].a, sc.gaps[0].b, sc.gaps[0].dur], [20 * MIN, 50 * MIN, 30 * MIN]);
+	assert.ok(sc.gaps[0].x1 - sc.gaps[0].x0 < 0.05, "la pausa de 30 min ocupa un ancho chico");
+	assert.ok(Math.abs(sc.x(55 * MIN) - 1) < 1e-9 && sc.x(10 * MIN) === 0);
+	for (const t of [11, 19, 21, 49, 51].map((m) => m * MIN)) assert.ok(Math.abs(sc.t(sc.x(t)) - t) < 1, "x y t son inversas");
+	const g = L.ganttLayout(e, 60 * MIN);
+	assert.equal(g.gaps.length, 1);
+	assert.equal(g.nowLeft, null, "terminada: sin línea de ahora");
+	const bars = g.lanes[0].bars;
+	assert.ok(bars[2].left - (bars[1].left + bars[1].width) < 5, "la tanda de después queda al lado, no al final de un vacío");
+	assert.ok(L.scaleTicks(g).every((k) => !(k.at > 20 * MIN && k.at < 50 * MIN)), "sin marcas dentro del corte");
+	const html = L.render({ list: [e], exec: e, now: 60 * MIN, ui: { problems: false } }, h);
+	assert.ok(/class="lg-gap"[^>]*><b>≈<\/b><small>30 min<\/small>/.test(html), "el corte dice cuánto duró");
+	assert.ok(html.includes("1 pausas comprimidas (≈)") && html.includes("= pausa comprimida"));
+	// en curso: la línea de "ahora" al final
+	const run = { ...e, running: true, runs: [{ ...e.runs[0], tests: [...e.runs[0].tests.slice(0, 2), { ...mk(3, 50 * MIN, 0), ended_at: undefined, state: "running" }] }] };
+	assert.ok(Math.abs(L.ganttLayout(run, 60 * MIN).nowLeft - 100) < 0.01);
+	assert.ok(L.render({ list: [run], exec: run, now: 60 * MIN, ui: {} }, h).includes('class="lg-now"'));
+	// sin pausas: lineal, como antes
+	assert.equal(L.timeScale(exec, 600000).gaps.length, 0);
+});
+
+test("P1, P2…: los carriles inferidos dicen Proceso N, con su explicación y una leyenda (también ×1.7)", () => {
+	const d = liveSuite(1_794_000_000_000);
+	const html = L.render({ list: d.list.executions, exec: d.execution.execution, now: d.execution.now, ui: { allLanes: true } }, h);
+	assert.ok(/<span data-no-i18n>Proceso 1<\/span>/.test(html) && !/>P1</.test(html), "nunca la sigla sola");
+	assert.ok(/data-tip-title="Proceso 1" data-tip="Carril inferido: el cliente no informa el worker/.test(html));
+	assert.ok(html.includes("<b>Proceso N</b> = carril en paralelo") && html.includes("<b>×1.7</b> = 1,7 veces lo normal"));
+	assert.ok(html.includes("Duración típica · lenta") && !html.includes("Duración p50 · p95"), "sin siglas sueltas en la salud");
+	assert.ok(/data-live-sort="factor"[^>]*>vs normal/.test(html), "la columna dice qué compara");
+	assert.ok(/class="lt-vs hi" data-tip="Tardó 8\.3 veces lo normal para este test/.test(html), "×8.3 explicado en su tooltip");
+});
+
+test("nombres largos: elipsis en el medio (conserva el comienzo y el final), copiar y 2 líneas", () => {
+	const long = "test_004_box_atencion_agregar_dispositivo_medico_con_receta_paso_3";
+	const [a, b] = L.splitName(long);
+	assert.equal(a + b, long);
+	assert.ok(a.startsWith("test_004_") && b.endsWith("paso_3") && b.length >= 10, "el final, que distingue un test de otro, se ve siempre");
+	assert.ok(/^[_\s·./:-]/.test(b) || /[_\s·./:-]$/.test(a), "se corta en un separador");
+	assert.deepEqual(plain(L.splitName("test_ok")), ["test_ok", ""], "un nombre corto, entero");
+	const e = { ...exec, runs: [{ ...exec.runs[0], tests: [{ ...exec.runs[0].tests[1], name: long }] }] };
+	const html = L.render({ list: [e], exec: e, now: 600000, ui: { problems: false } }, h);
+	assert.ok(html.includes(`<span class="mid" data-no-i18n><span class="mid-a">${a}</span><span class="mid-b">${b}</span></span>`));
+	assert.ok(html.includes(`data-live-copy="${long}"`) && html.includes(`data-tip-title="${long}"`), "copiar y el nombre completo en el tooltip");
+	assert.ok(html.includes("data-live-resize") && html.includes("data-live-wrap"), "columna redimensionable y nombres en 2 líneas");
+	assert.ok(L.render({ list: [e], exec: e, now: 600000, ui: { wrap: true, nameW: 420 } }, h).includes('<col class="c-name" style="width:420px">'));
+	assert.ok(/class="live-card[^"]*"|class="card live-runs wrap-names"/.test(L.render({ list: [e], exec: e, now: 600000, ui: { wrap: true } }, h)));
+});
+
+test("Mostrar y Agrupar por: controles segmentados con su contador, y la línea de estado de lo que se ve", () => {
+	const d = liveWorkers(1_794_000_000_000), e = d.execution.execution;
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, group: "worker" } }, h);
+	assert.ok(/<div class="seg" role="radiogroup" aria-label="Mostrar" data-seg="show"><span class="seg-thumb"/.test(html));
+	assert.ok(/<div class="seg" role="radiogroup" aria-label="Agrupar por" data-seg="group">/.test(html));
+	assert.equal((html.match(/role="radio" class="seg-o on"/g) || []).length, 2, "una opción elegida en cada control");
+	assert.ok(/class="seg-o on" data-live-groupby="worker" aria-checked="true" data-tip-title="Agrupar por worker"/.test(html));
+	assert.ok(/<svg data-i="i-cpu"><\/svg><span>Worker<\/span>/.test(html), "con ícono");
+	assert.ok(/Agrupado por worker<\/span><\/p>/.test(html));
+	assert.ok(html.includes('<i class="live-busybar" aria-hidden="true"></i>'), "la barra de trabajo que aparece tras un clic");
+	const st = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { states: ["FAIL"] } }, h);
+	assert.equal((st.match(/role="radio" class="seg-o on"/g) || []).length, 1, "con un tile elegido, Mostrar no marca Todos ni Con problemas");
+	assert.ok(/<span>Fallo<\/span>\s*<span class="ls-sep">·<\/span><span>Agrupado por archivo/.test(st));
+});
+
+test("tooltips en todo: cada botón de la vista dice qué hace", () => {
+	for (const ui of [{ problems: false }, { problems: true }, { sort: { col: "elapsed", dir: -1 } }]) {
+		const d = liveSuite(1_794_000_000_000);
+		const html = L.render({ list: d.list.executions, exec: d.execution.execution, now: d.execution.now, ui }, h);
+		const bare = [...html.matchAll(/<(button|summary)\b[^>]*>/g)].map((m) => m[0]).filter((b) => !/data-tip=/.test(b));
+		assert.deepEqual(bare, [], JSON.stringify(ui));
+	}
+	// un ícono sin texto siempre lleva aria-label
+	const d = liveSuite(1_794_000_000_000);
+	const html = L.render({ list: d.list.executions, exec: d.execution.execution, now: d.execution.now, ui: { zoom: { a: 0, b: 0.5 } } }, h);
+	for (const dir of ["in", "out"]) assert.ok(new RegExp(`data-live-zoom="${dir}" aria-label="[^"]+"`).test(html));
+});
+
+test("íconos propios: cada estado con el suyo (la tortuga es un ícono, no un emoji) y definidos en index.html", () => {
+	const sprite = read("index.html");
+	for (const st of Object.values(L.STATES)) {
+		assert.ok(st.icon.startsWith("i-st-") && sprite.includes(`<symbol id="${st.icon}"`), st.icon);
+		assert.ok(st.tip && en.t(st.tip) !== st.tip, `qué significa ${st.label}, también en inglés`);
+	}
+	assert.equal(new Set(Object.values(L.STATES).map((s) => s.icon)).size, Object.keys(L.STATES).length, "un ícono distinto por estado");
+	for (const id of Object.values(L.GROUPS).map((g) => g.icon).concat(["i-zoom-in", "i-zoom-out", "i-fit", "i-wrap", "i-unfold", "i-fold"])) assert.ok(sprite.includes(`<symbol id="${id}"`), id);
+	for (const g of Object.values(L.GROUPS)) assert.ok(en.t(g.tip) !== g.tip && en.t(g.label) !== g.label || g.label === "Worker");
+	const d = liveSuite(1_794_000_000_000);
+	const html = L.render({ list: d.list.executions, exec: d.execution.execution, now: d.execution.now, ui: { allLanes: true } }, h);
+	assert.ok(!/🐢|✕/.test(html), "sin emojis ni caracteres sueltos como ícono");
+	assert.ok(/class="lg-bar turtle[^"]*"[^>]*><svg data-i="i-st-turtle"><\/svg>/.test(html));
+});
+
+test("mapa de la ejecución: un cuadro por test (y los pendientes), atenuado según el filtro; cinta, reloj y sparklines", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const n = L.allTests(e).length;
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false } }, h);
+	assert.equal((html.match(/class="hm-c [^"]*" data-live-test=/g) || []).length, n);
+	assert.equal((html.match(/class="hm-c pending"/g) || []).length, e.planned - n, "los planificados que faltan, vacíos");
+	assert.ok(!/class="hm-c [a-z]+ dim"/.test(html), "con Todos no se atenúa nada");
+	const pr = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {} }, h);
+	assert.equal((pr.match(/class="hm-c [a-z]+" data-live-test/g) || []).length, 6, "con problemas: solo esos a color");
+	assert.ok(html.includes("data-live-tape-track") && /class="tp-tag on"><i class="live-dot on"[^>]*><\/i>EN VIVO/.test(html), "la cinta de eventos");
+	assert.ok(html.includes("data-live-clock"));
+	assert.ok(/<svg class="spark bad"/.test(html) && /<svg class="spark pace"/.test(html), "sparklines de tasa de fallo y ritmo");
+	assert.equal(L.sparkline([1]), "", "un punto no es una tendencia");
 });

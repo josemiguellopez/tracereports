@@ -1420,7 +1420,15 @@
 	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
 	function liveUI() {
 		return { problems: null, states: [], files: [], workers: [], errors: [], more: {}, sort: null, paused: false,
-			group: "file", q: "", zoom: null, allLanes: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", tables: {} };
+			group: "file", q: "", zoom: null, allLanes: false, hideIdle: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", tables: {},
+			// preferencias de lectura de esta persona: el ancho de la columna Test y los nombres en 2 líneas
+			...livePrefs() };
+	}
+	function livePrefs() {
+		try { const p = JSON.parse(localStorage.getItem("tr-live-prefs") || "{}"); return { nameW: Number(p.nameW) || 0, wrap: !!p.wrap }; } catch { return { nameW: 0, wrap: false }; }
+	}
+	function saveLivePrefs(ui) {
+		try { localStorage.setItem("tr-live-prefs", JSON.stringify({ nameW: ui.nameW || 0, wrap: !!ui.wrap })); } catch { /* sin almacenamiento: queda para esta sesión */ }
 	}
 
 	/** El panel lateral: el test con sus pasos y su última captura, sin salir de la vista. */
@@ -1473,13 +1481,47 @@
 		// clic fuera del selector lo cierra
 		document.addEventListener("pointerdown", (e) => { if (S.view === "live" && ui().pickerOpen && !e.target.closest(".live-xpick")) openPicker(false); });
 		const FACET = { state: "states", file: "files", worker: "workers", error: "errors" };
+		/**
+		 * Un clic en Mostrar o Agrupar por responde en el mismo cuadro: el control cambia y su indicador se
+		 * desliza, y la tabla, el mapa y la línea de tiempo se atenúan con una barra de trabajo; recién en el
+		 * cuadro siguiente se recalcula y redibuja (nunca con la UI congelada sin señal). Los tiempos quedan
+		 * en window.__trLiveTiming: feedback (clic → primer pintado) y list (clic → lista redibujada).
+		 */
+		const instant = (btn, mutate) => {
+			const t0 = performance.now();
+			const segEl = btn.closest(".seg");
+			if (segEl) {
+				for (const o of segEl.querySelectorAll(".seg-o")) { const on = o === btn; o.classList.toggle("on", on); o.setAttribute("aria-checked", String(on)); }
+				placeThumb(segEl, true);
+			}
+			el.classList.add("live-busy");
+			requestAnimationFrame(() => {
+				const feedback = performance.now() - t0;
+				setTimeout(() => {
+					mutate();
+					redraw();
+					el.classList.remove("live-busy");
+					requestAnimationFrame(() => { window.__trLiveTiming = { feedback, list: performance.now() - t0 }; });
+				}, 0);
+			});
+		};
 		el.addEventListener("click", (e) => {
 			const d = (sel) => e.target.closest(sel);
 			let b;
+			if ((b = d("[data-live-copy]"))) {
+				e.preventDefault(); e.stopPropagation();
+				const name = b.dataset.liveCopy;
+				const done = () => { b.classList.add("done"); b.dataset.tip = tr("Copiado"); setTimeout(() => { b.classList.remove("done"); b.dataset.tip = tr("Copiar el nombre completo"); }, 1400); };
+				navigator.clipboard?.writeText(name).then(done, () => {});
+				return;
+			}
+			if (d("[data-live-resize]")) return; // el borde de la columna no ordena
+			if (d("[data-live-wrap]")) { ui().wrap = !ui().wrap; saveLivePrefs(ui()); return redraw(); }
+			if (d("[data-live-hideidle]")) { ui().hideIdle = !ui().hideIdle; return redraw(); }
 			if ((b = d("[data-live-state]"))) {
 				const k = b.dataset.liveState, st = ui().states;
-				ui().states = st.includes(k) ? st.filter((x) => x !== k) : [...st, k];
-				return redraw();
+				b.classList.toggle("on"); b.setAttribute("aria-pressed", String(b.classList.contains("on"))); // el tile responde ya
+				return instant(b, () => { ui().states = st.includes(k) ? st.filter((x) => x !== k) : [...st, k]; });
 			}
 			if (d("[data-live-xpick]")) return openPicker(!ui().pickerOpen);
 			if ((b = d(".xp-opt[data-live-exec]"))) { ui().pickerOpen = false; return pick(b.dataset.liveExec); }
@@ -1506,12 +1548,13 @@
 			}
 			if ((b = d("[data-live-ptab]"))) { L.panel = { ...L.panel, tab: b.dataset.livePtab }; return redraw(); }
 			if (d("[data-live-trace-all]")) { L.panel = { ...L.panel, all: !L.panel.all }; return redraw(); }
-			if (d("[data-live-problems]")) {
+			if ((b = d("[data-live-problems]"))) {
+				// en el control: elegir "Con problemas" (si ya está, no cambia); el enlace "mostrar todos" lo apaga
 				const g = window.TraceReportsLive.ganttLayout(L.exec, L.now, null);
-				ui().problems = !window.TraceReportsLive.problemsOn(L.exec, ui(), g.lanes.length);
-				return redraw();
+				const on = b.classList.contains("seg-o") ? true : !window.TraceReportsLive.problemsOn(L.exec, ui(), g.lanes.length);
+				return instant(b, () => { ui().problems = on; ui().states = on ? [] : ui().states; ui().open = {}; });
 			}
-			if ((b = d("[data-live-groupby]"))) { ui().group = b.dataset.liveGroupby; ui().open = {}; return redraw(); }
+			if ((b = d("[data-live-groupby]"))) { const k = b.dataset.liveGroupby; return instant(b, () => { ui().group = k; ui().open = {}; }); }
 			if ((b = d("[data-live-group]"))) {
 				const k = b.dataset.liveGroup;
 				ui().open = { ...ui().open, [k]: b.getAttribute("aria-expanded") !== "true" };
@@ -1519,9 +1562,9 @@
 			}
 			if (d("[data-live-showok]")) { ui().showOk = !ui().showOk; return redraw(); }
 			if (d("[data-live-alllanes]")) { ui().allLanes = !ui().allLanes; return redraw(); }
-			if ((b = d("[data-live-zoom]"))) { ui().zoom = window.TraceReportsLive.zoomStep(ui().zoom, b.dataset.liveZoom); return redraw(); }
+			if ((b = d("[data-live-zoom]"))) { const z = b.dataset.liveZoom; return instant(b, () => { ui().zoom = window.TraceReportsLive.zoomStep(ui().zoom, z); }); }
 			if (d("[data-live-close]")) { L.panel = null; return redraw(); }
-			if (d("[data-live-all]")) { ui().states = []; ui().problems = false; ui().open = {}; return redraw(); }
+			if ((b = d("[data-live-all]"))) return instant(b, () => { ui().states = []; ui().problems = false; ui().open = {}; });
 			if ((b = d("[data-live-stack]"))) { const id = b.dataset.liveStack; ui().stacks = { ...ui().stacks, [id]: !ui().stacks?.[id] }; return redraw(); }
 			if ((b = d("[data-live-openall]"))) { const on = b.dataset.liveOpenall === "1"; ui().openAll = on; ui().open = {}; ui().showOk = on; return redraw(); }
 			if (d("[data-live-attnmore]")) { ui().attnAll = !ui().attnAll; return redraw(); }
@@ -1609,6 +1652,51 @@
 			else if (ui().zoom) { const w = ui().zoom.b - ui().zoom.a, a = Math.min(1 - w, Math.max(0, lo - w / 2)); ui().zoom = { a, b: a + w }; }
 			redraw();
 		});
+		// la columna Test se ensancha arrastrando su borde (o con ← → sobre él); doble clic, al ancho de antes
+		const setNameW = (w) => {
+			ui().nameW = Math.round(Math.min(900, Math.max(160, w)));
+			for (const c of el.querySelectorAll("col.c-name")) c.style.width = ui().nameW + "px";
+		};
+		let resizing = null;
+		el.addEventListener("pointerdown", (e) => {
+			const hnd = e.target.closest("[data-live-resize]");
+			if (!hnd || e.button !== 0) return;
+			e.preventDefault(); e.stopPropagation();
+			const th = hnd.closest("th");
+			resizing = { x: e.clientX, w: th.getBoundingClientRect().width, hnd };
+			hnd.classList.add("drag");
+			hnd.setPointerCapture?.(e.pointerId);
+		}, true);
+		el.addEventListener("pointermove", (e) => { if (resizing) setNameW(resizing.w + e.clientX - resizing.x); });
+		el.addEventListener("pointerup", () => {
+			if (!resizing) return;
+			resizing.hnd.classList.remove("drag"); resizing = null;
+			saveLivePrefs(ui()); redraw();
+		});
+		el.addEventListener("dblclick", (e) => { if (e.target.closest("[data-live-resize]")) { ui().nameW = 0; saveLivePrefs(ui()); redraw(); } });
+		el.addEventListener("keydown", (e) => {
+			const hnd = e.target.closest?.("[data-live-resize]");
+			if (!hnd || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+			e.preventDefault();
+			setNameW((ui().nameW || hnd.closest("th").getBoundingClientRect().width) + (e.key === "ArrowRight" ? 24 : -24));
+			saveLivePrefs(ui());
+		});
+		// Ctrl + rueda sobre la línea de tiempo: acerca o aleja alrededor del puntero (la rueda sola sigue
+		// desplazando la página)
+		el.addEventListener("wheel", (e) => {
+			const area = e.target.closest("[data-live-lanes], [data-live-minimap]");
+			if (!area || !(e.ctrlKey || e.metaKey)) return;
+			e.preventDefault();
+			const track = area.matches("[data-live-minimap]") ? area : area.querySelector(".lg-track") || area;
+			const r = track.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+			const z = ui().zoom || { a: 0, b: 1 }, minimapArea = area.matches("[data-live-minimap]");
+			const at = minimapArea ? f : z.a + f * (z.b - z.a); // en el minimapa la fracción ya es del total
+			const w = Math.min(1, Math.max(0.02, (z.b - z.a) * (e.deltaY < 0 ? 0.7 : 1 / 0.7)));
+			if (w >= 1) { ui().zoom = null; return redraw(); }
+			const a = Math.min(1 - w, Math.max(0, at - (minimapArea ? w / 2 : f * w)));
+			ui().zoom = { a, b: a + w };
+			redraw();
+		}, { passive: false });
 		el.addEventListener("submit", async (e) => {
 			const form = e.target.closest("[data-live-cancel]");
 			if (!form) return;
@@ -1644,8 +1732,9 @@
 		const optFocus = act?.closest?.(".xp-opt")?.dataset.liveExec, listTop = el.querySelector(".xp-list")?.scrollTop || 0;
 		const reason = el.querySelector(".live-cancel[open] input[name=reason]");
 		const keep = reason ? { value: reason.value, focus: document.activeElement === reason } : null;
-		if (el.querySelector("[data-live-minimap] .lg-brush.drawing")) return; // arrastrando el zoom: al soltar se dibuja
+		if (el.querySelector("[data-live-minimap] .lg-brush.drawing, [data-live-resize].drag")) return; // arrastrando: al soltar se dibuja
 		const flip = S.liveView.anim && !S.liveView.anim.first ? flipSnapshot(el) : null;
+		const thumbs = thumbSnapshot(el);
 		const replaced = setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints }, {
 			t, esc, icon, canAct,
 			clock: (ms, secs) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", secs ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" }),
@@ -1660,7 +1749,14 @@
 		if (list) list.scrollTop = listTop;
 		if (optFocus) [...el.querySelectorAll(".xp-opt")].find((o) => o.dataset.liveExec === optFocus)?.focus();
 		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
-		if (replaced) { fitBars(el); animateLive(el); if (flip) flipPlay(el, flip); }
+		if (replaced) {
+			const tr0 = el.querySelector("[data-live-tape-track]");
+			if (tr0 && S.tapeX) tr0.style.transform = `translateX(${-S.tapeX}px)`; // la cinta sigue donde iba
+			fitBars(el);
+			for (const s of el.querySelectorAll(".seg")) placeThumb(s, false, thumbs.get(s.dataset.seg));
+			animateLive(el);
+			if (flip) flipPlay(el, flip);
+		}
 		if (keep) {
 			const d = el.querySelector(".live-cancel");
 			if (d) { d.open = true; const r = d.querySelector("input[name=reason]"); r.value = keep.value; if (keep.focus) r.focus(); }
@@ -1683,11 +1779,22 @@
 			A.first = false;
 			if (motion) { el.classList.add("live-enter"); setTimeout(() => el.classList.remove("live-enter"), 1400); }
 		}
-		for (const n of el.querySelectorAll("tr[data-live-test], .lg-bar[data-live-test]")) {
-			const key = `${n.tagName}:${n.dataset.liveTest}`, st = STATE_CLS.find((c) => n.classList.contains(c)) || "";
+		// cambio de estado: pulso del color nuevo; lo que no estaba (un test nuevo, o filas que entran al
+		// cambiar el filtro), entra deslizándose; como mucho 40 por redibujo, para no marear
+		let entered = 0;
+		const firstSeen = !A.seen;
+		A.seen = A.seen || new Set();
+		for (const n of el.querySelectorAll("tr[data-live-test], .lg-bar[data-live-test], .hm-c[data-live-test]")) {
+			const key = `${n.tagName}${n.className.split(" ")[0]}:${n.dataset.liveTest}`, st = STATE_CLS.find((c) => n.classList.contains(c)) || "";
 			const prev = A.states.get(key);
 			if (prev !== undefined && prev !== st) flag(n, "live-changed");
+			else if (!firstSeen && motion && !A.seen.has(key) && (n.tagName === "TR" || n.classList.contains("hm-c")) && entered++ < 40) {
+				n.classList.add("lt-new");
+				n.style.animationDelay = `${Math.min(entered, 20) * 12}ms`;
+				setTimeout(() => { n.classList.remove("lt-new"); n.style.animationDelay = ""; }, 600);
+			}
 			A.states.set(key, st);
+			A.seen.add(key);
 		}
 		for (const n of el.querySelectorAll("[data-count]")) {
 			const k = n.dataset.count, to = Number(n.dataset.n), from = A.counts[k]; // el valor, no el texto (que cuenta)
@@ -1748,8 +1855,54 @@
 	let fitTimer = null;
 	window.addEventListener("resize", () => {
 		clearTimeout(fitTimer);
-		fitTimer = setTimeout(() => { const el = $("#view-live"); if (el && S.view === "live") fitBars(el); }, 150);
+		fitTimer = setTimeout(() => { const el = $("#view-live"); if (el && S.view === "live") { fitBars(el); for (const s of el.querySelectorAll(".seg")) placeThumb(s, false); } }, 150);
 	});
+
+	/**
+	 * El indicador de un control segmentado bajo la opción elegida. Con `from` (dónde estaba antes de
+	 * redibujar) o `slide` (un clic en el control que sigue en pantalla) se desliza hasta ella.
+	 */
+	function placeThumb(seg, slide, from) {
+		const th = seg.querySelector(".seg-thumb"), on = seg.querySelector(".seg-o.on");
+		seg.classList.toggle("has-on", !!on);
+		if (!th || !on) return;
+		const prev = slide ? { left: th.offsetLeft, width: th.offsetWidth } : from;
+		th.style.left = on.offsetLeft + "px"; th.style.width = on.offsetWidth + "px";
+		if (!prev || !prev.width || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		const dx = prev.left - on.offsetLeft, sx = prev.width / Math.max(1, on.offsetWidth);
+		if (Math.abs(dx) < 1 && Math.abs(sx - 1) < 0.01) return;
+		th.animate([{ transform: `translateX(${dx}px) scaleX(${sx})`, transformOrigin: "left" }, { transform: "none", transformOrigin: "left" }],
+			{ duration: 220, easing: "cubic-bezier(.2, .8, .2, 1)" });
+	}
+	function thumbSnapshot(el) {
+		const m = new Map();
+		for (const s of el.querySelectorAll(".seg")) { const th = s.querySelector(".seg-thumb"); if (th && s.classList.contains("has-on")) m.set(s.dataset.seg, { left: th.offsetLeft, width: th.offsetWidth }); }
+		return m;
+	}
+
+	// La cinta de eventos se desplaza sola (unos 40 px/s) y conserva su posición aunque la vista se
+	// redibuje; se detiene con el mouse encima, con la pestaña oculta y con "reducir movimiento". El reloj
+	// de la cabecera avanza cada segundo sin redibujar nada.
+	const tape = { x: 0, last: 0, hover: false };
+	function tapeTick(ts) {
+		const el = S.view === "live" ? document.querySelector("#view-live [data-live-tape-track]") : null;
+		const dt = tape.last ? Math.min(64, ts - tape.last) : 0;
+		tape.last = ts;
+		if (el && !tape.hover && !document.hidden && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+			const half = el.scrollWidth / 2;
+			if (half > el.parentElement.clientWidth * 0.5) {
+				tape.x = (tape.x + dt * 0.04) % half; S.tapeX = tape.x;
+				el.style.transform = `translateX(${-tape.x}px)`;
+			} else el.style.transform = "none";
+		}
+		requestAnimationFrame(tapeTick);
+	}
+	requestAnimationFrame(tapeTick);
+	document.addEventListener("pointerover", (e) => { tape.hover = !!e.target.closest?.("[data-live-tape]"); });
+	setInterval(() => {
+		const c = S.view === "live" ? document.querySelector("#view-live [data-live-clock]") : null;
+		if (c) c.textContent = new Date().toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+	}, 1000);
 
 	/** Un número que cuenta desde el valor anterior hasta el nuevo (600 ms, desacelerando). */
 	function countUp(n, from, to) {

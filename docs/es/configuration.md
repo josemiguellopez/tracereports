@@ -648,10 +648,10 @@ cualquier cliente:
   las llamadas al backend en una misma línea de tiempo, con las fallidas en rojo y el momento del fallo
   marcado), los últimos 5 pasos y la captura más reciente, sin salir de En vivo; "Abrir el test" va al detalle.
 - **Salud de la ejecución**: tasa de fallo (y la diferencia con la ejecución anterior del mismo proyecto),
-  duración p50 · p95 y ritmo en tests por minuto.
+  duración típica (p50) y lenta (p95) y ritmo en tests por minuto, cada uno con su sparkline.
 - **Diagnóstico**: errores agrupados por firma (un clic filtra), los más lentos frente a su historial, el
   **backend de la ejecución** (los endpoints de todas sus corridas, con errores primero y p95) y la actividad
-  reciente. En el minimapa, un ✕ marca cada fallo y un ! cada test sin señal.
+  reciente. En el minimapa, el ícono de fallo o de sin señal marca dónde ocurrió cada uno.
 - **Facetas** junto a la tabla (estado, error, archivo, worker), varias a la vez, y la tabla se ordena por
   estado, nombre, duración o frente a la mediana. **Pausar** congela la vista para analizarla.
 - **Requiere atención**, arriba de todo: los tests en fallo, sin señal, interrumpidos o tortuga, con archivo,
@@ -663,6 +663,23 @@ cualquier cliente:
 - **Ejecuciones anteriores**: la lista muestra las de las últimas 2 horas, pero cualquier ejecución se abre
   con la misma vista por su clave o por uno de sus runs (`#view=live&exec=r:888`). **Observabilidad**, en la
   barra superior, abre la ejecución del run que se está mirando.
+- **Mostrar** (Todos / Con problemas) y **Agrupar por** (archivo, worker, estado) son controles segmentados:
+  responden en el mismo cuadro del clic (el control cambia y una barra fina avisa que se recalcula) y una
+  línea de estado dice qué se ve: «Mostrando 6 de 234 tests · Solo con problemas · Agrupado por archivo».
+- **Mapa de la ejecución**: un cuadro por test, en el orden en que empezaron, con el color de su estado (y los
+  planificados que faltan, vacíos); un clic abre su detalle. Arriba, una **cinta** con los últimos eventos que
+  se detiene con el mouse, y un reloj.
+- La **línea de tiempo** empieza en el primer test (no en el inicio de la ejecución), marca **ahora** con una
+  línea y comprime las pausas largas sin ningún test corriendo (≈, con cuánto duraron). Ctrl + rueda acerca o
+  aleja; **Ajustar a la ventana** vuelve a todo; **Ocultar inactivos** deja solo los carriles que corren.
+  Sin `worker`, los carriles se llaman **Proceso 1, Proceso 2…** (un carril en paralelo); la leyenda lo explica,
+  igual que **×1.7** (tardó 1,7 veces lo normal: su mediana en ejecuciones anteriores).
+- Los nombres largos llevan la **elipsis en el medio** (se ve el comienzo y el final, que distingue un test de
+  otro), con el nombre completo en el tooltip y un botón para copiarlo; la columna Test se ensancha
+  arrastrando su borde (o con ← →) y **Nombres en 2 líneas** los muestra enteros. Ambas preferencias se
+  recuerdan en ese navegador.
+- Cada control, ícono, columna y estado tiene **tooltip** (con el mouse o el foco del teclado) que dice qué es
+  o qué hace. Los estados tienen un set de íconos propio (la tortuga es un ícono, no la palabra).
 - **Gráficos**: resultados en el tiempo (por estado), tasa de fallo acumulada (con la anterior como referencia)
   y la distribución de duraciones (con p50 y p95); cada uno con "Ver datos" en tabla.
 - El **selector de ejecución** muestra la hora, hace cuánto empezó o terminó y si está en curso, es reciente,

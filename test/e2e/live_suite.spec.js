@@ -35,15 +35,17 @@ test("una ejecución grande abre con lo que pide acción: tiles, Solo con proble
 	await expect(view.locator('.live-tile[data-live-state="no_signal"]')).toContainText("Sin señal");
 	await expect(view.locator(".live-pct")).toContainText("de 270 tests");
 	// más de 20 corridas: Solo con problemas viene activo
-	const chip = view.locator(".live-chip[data-live-problems]");
-	await expect(chip).toHaveAttribute("aria-pressed", "true");
-	await expect(chip).toHaveText("Solo con problemas (6)");
+	const chip = view.locator(".seg-o[data-live-problems]");
+	await expect(chip).toHaveAttribute("aria-checked", "true");
+	await expect(chip).toHaveText(/Con problemas\s*6/);
+	await expect(view.locator(".live-status")).toContainText(/Mostrando 6 de \d+ tests\s*·\s*Solo con problemas\s*·\s*Agrupado por archivo/);
 	await expect(view.locator("tr.lt-row")).toHaveCount(6);
 	await expect(view.locator("tr.lt-row").first()).toHaveClass(/nosig/); // lo más severo primero
 	await expect(view.locator(".live-collapsed")).toContainText("tests sin problemas ocultos");
 	// sin worker: 12 carriles de proceso, los 6 sin problemas colapsados en una línea
 	await expect(view.locator(".lg-lane")).toHaveCount(6);
-	await expect(view.locator(".lg-worker b").first()).toHaveText(/^P\d+$/); // corta y fija
+	await expect(view.locator(".lg-worker b").first()).toHaveText(/^Proceso \d+$/); // fija y sin siglas (antes "P1")
+	await expect(view.locator(".lg-legend")).toContainText("Proceso N = carril en paralelo");
 	await expect(view.locator(".lg-worker small").first()).toHaveText(/^\S+\.py$/); // el archivo actual, sin "Clinico · test_"
 	await view.locator(".lg-more").click();
 	await expect(view.locator(".lg-lane")).toHaveCount(12);
@@ -51,9 +53,10 @@ test("una ejecución grande abre con lo que pide acción: tiles, Solo con proble
 	const step = view.locator("tr.lt-row.turtle .lt-steptext").first();
 	await expect(step).not.toContainText("http");
 	await expect(step).toHaveAttribute("data-tip", /^Evidencia de .* del paciente$/);
-	// apagarlo: los archivos sin problemas quedan en una sola línea que se puede abrir
-	await chip.click();
-	await expect(chip).toHaveAttribute("aria-pressed", "false");
+	// Todos: los archivos sin problemas quedan en una sola línea que se puede abrir
+	await view.locator(".seg-o[data-live-all]").click();
+	await expect(chip).toHaveAttribute("aria-checked", "false");
+	await expect(view.locator(".seg-o[data-live-all]")).toHaveAttribute("aria-checked", "true");
 	await expect(view.locator(".live-collapsed")).toContainText(/\d+ archivos sin problemas \(\d+ tests\) · \d+ con warning/);
 	const before = await view.locator(".live-run").count();
 	await view.locator(".live-collapsed").click();
@@ -142,7 +145,8 @@ test("salud y diagnóstico: tasa de fallo frente a la anterior, errores agrupado
 	await expect(health).toContainText("Tasa de fallo");
 	await expect(health).toContainText(/1\.3%\s*3 de 223 terminados/);
 	await expect(health.locator(".lh-delta.worse")).toContainText("frente a la anterior");
-	await expect(health).toContainText("Duración p50 · p95");
+	await expect(health).toContainText("Duración típica · lenta");
+	await expect(health).toContainText("mediana (p50)");
 	await expect(health).toContainText(/\d+\.\d tests\/min/);
 	// errores agrupados: los 3 fallos tienen la misma firma; un clic filtra por ella
 	const err = view.locator(".lc-errors .lc-row").first();
@@ -161,9 +165,9 @@ test("salud y diagnóstico: tasa de fallo frente a la anterior, errores agrupado
 	await expect(ep).toContainText("/api/atenciones/:id");
 	await expect(ep.locator("a")).toHaveAttribute("href", /view=tests&test=1001&tab=network/);
 	await expect(view.locator(".lc-activity li")).toHaveCount(12);
-	// las anomalías del minimapa: un ✕ por fallo y un ! por el sin señal; abren el test
+	// las anomalías del minimapa: el ícono de fallo o de sin señal (no solo color); abren el test
 	await expect(view.locator(".lg-anom.fail")).toHaveCount(3);
-	await expect(view.locator(".lg-anom.nosig")).toHaveText("!");
+	await expect(view.locator(".lg-anom.nosig use")).toHaveAttribute("href", "#i-st-nosig");
 	await view.locator(".lg-anom.nosig").click();
 	await expect(view.locator(".live-panel h4")).toHaveText("test_001_periodontograma_paso_1");
 });
@@ -189,7 +193,7 @@ test("facetas: archivo y estado a la vez, ver más, y cada filtro como chip que 
 
 test("ordenar por duración da una lista plana; tercer clic vuelve a agrupar", async ({ page }) => {
 	const view = page.locator("#view-live");
-	await view.locator(".live-chip[data-live-problems]").click(); // todos
+	await view.locator(".seg-o[data-live-all]").click(); // todos
 	const sort = view.locator('.lt-sort[data-live-sort="elapsed"]');
 	await sort.click();
 	await expect(view.locator(".lt-group")).toHaveCount(0);
@@ -333,4 +337,137 @@ test.describe("animaciones", () => {
 		const anim = await view.locator(".lch-stack").first().evaluate((n) => getComputedStyle(n).animationName);
 		expect(anim).toBe("none");
 	});
+});
+
+// ---------- ronda 2 (run 1084): respuesta inmediata, controles, nombres, línea de tiempo, tooltips ----------
+
+test("un clic en Mostrar o Agrupar por responde en el mismo cuadro y la línea de estado dice qué se ve", async ({ page }) => {
+	const view = page.locator("#view-live");
+	const all = view.locator(".seg-o[data-live-all]");
+	// en el mismo cuadro del clic (antes de recalcular la lista): el control cambia y aparece la barra de trabajo
+	const same = await all.evaluate((b) => {
+		b.click();
+		return { checked: b.getAttribute("aria-checked"), busy: document.querySelector("#view-live").classList.contains("live-busy") };
+	});
+	expect(same).toEqual({ checked: "true", busy: true });
+	await expect(view).not.toHaveClass(/live-busy/);
+	const tm = await page.waitForFunction(() => window.__trLiveTiming).then((h) => h.jsonValue());
+	expect(tm.feedback, "clic → primer pintado").toBeLessThan(100);
+	expect(tm.list, "clic → lista redibujada").toBeLessThan(800); // en la máquina de desarrollo, ~100 ms con 234 tests
+	await expect(view.locator(".live-status")).toContainText(/Mostrando\s*\d+\s*de 234 tests\s*·\s*Todos/);
+	// Agrupar por worker: el indicador se desliza bajo la opción elegida
+	const thumb = view.locator('.seg[data-seg="group"] .seg-thumb');
+	const x0 = await thumb.evaluate((n) => n.offsetLeft);
+	await view.locator('.seg-o[data-live-groupby="worker"]').click();
+	await expect(view.locator('.seg-o[data-live-groupby="worker"]')).toHaveAttribute("aria-checked", "true");
+	await expect(view.locator(".live-status")).toContainText("Agrupado por worker");
+	const w = await view.locator('.seg-o[data-live-groupby="worker"]').evaluate((n) => n.offsetLeft);
+	await expect.poll(() => thumb.evaluate((n) => n.offsetLeft)).toBe(w);
+	expect(w).toBeGreaterThan(x0);
+	await expect(view.locator('.seg[data-seg="group"]')).toHaveClass(/has-on/);
+});
+
+test("tooltips: con el mouse (tras un instante) y con el teclado dicen qué hace cada control", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await view.locator(".seg-o[data-live-problems]").hover();
+	const tip = page.locator("#cf-tooltip");
+	await expect(tip).toBeVisible();
+	await expect(tip).toContainText("Con problemas");
+	await expect(tip).toContainText("Solo lo que pide acción");
+	await page.mouse.move(0, 0);
+	await view.locator('[data-live-zoom="in"]').focus();
+	await page.keyboard.press("Shift+Tab");
+	await page.keyboard.press("Tab");
+	await expect(tip).toContainText("Acercar");
+	await expect(tip.locator("kbd")).toHaveText("Ctrl + rueda");
+	// los íconos de estado tienen su explicación: la tortuga
+	await view.locator('.live-tile[data-live-state="turtle"]').hover();
+	await expect(tip).toContainText("Sigue corriendo y ya tarda más que su p90");
+	await expect(view.locator('.live-tile[data-live-state="turtle"] use')).toHaveAttribute("href", "#i-st-turtle");
+});
+
+test("nombres largos: elipsis en el medio, copiar el nombre, columna más ancha y 2 líneas que se recuerdan", async ({ page }) => {
+	const view = page.locator("#view-live");
+	const row = view.locator("tr.lt-row").first();
+	const name = await row.locator(".lt-copy").getAttribute("data-live-copy");
+	await expect(row.locator(".mid-b")).toHaveText(/paso_1$/); // el final se ve siempre
+	await row.hover();
+	await row.locator(".lt-copy").click();
+	await expect(row.locator(".lt-copy")).toHaveClass(/done/);
+	expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(name);
+	await expect(view.locator(".live-panel")).toHaveCount(0); // copiar no abre el detalle
+	// la columna se ensancha con el teclado (o arrastrando su borde)
+	const before = await view.locator("th.th-name").evaluate((n) => n.getBoundingClientRect().width);
+	await view.locator("[data-live-resize]").focus();
+	await page.keyboard.press("ArrowRight");
+	await page.keyboard.press("ArrowRight");
+	await expect.poll(() => view.locator("th.th-name").evaluate((n) => n.getBoundingClientRect().width)).toBeGreaterThan(before + 30);
+	// nombres en 2 líneas: se recuerda al volver
+	await view.locator("[data-live-wrap]").click();
+	await expect(view.locator(".live-runs")).toHaveClass(/wrap-names/);
+	await page.reload();
+	await expect(page.locator("#view-live .live-runs")).toHaveClass(/wrap-names/);
+	await page.evaluate(() => localStorage.removeItem("tr-live-prefs"));
+});
+
+test("mapa de la ejecución y cinta de eventos: un cuadro por test que abre su detalle; la cinta avanza y se detiene", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await expect(view.locator(".hm-c[data-live-test]")).toHaveCount(234);
+	await expect(view.locator(".hm-c.pending")).toHaveCount(36);
+	await expect(view.locator(".hm-c.fail:not(.dim)")).toHaveCount(3); // Con problemas: lo demás atenuado
+	await view.locator(".hm-c.nosig").click();
+	await expect(view.locator(".live-panel h4")).toHaveText("test_001_periodontograma_paso_1");
+	await page.keyboard.press("Escape");
+	const x = () => view.locator("[data-live-tape-track]").evaluate((n) => new DOMMatrix(getComputedStyle(n).transform).m41);
+	const a = await x();
+	await expect.poll(x, { timeout: 5000 }).toBeLessThan(a - 10);
+	await view.locator(".live-tape").hover();
+	const b = await x();
+	await page.waitForTimeout(500);
+	expect(Math.abs((await x()) - b)).toBeLessThan(2);
+});
+
+test("línea de tiempo: Proceso N con su leyenda, la línea de ahora y Ctrl + rueda acerca", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await expect(view.locator(".lg-worker b").first()).toHaveText(/^Proceso \d+$/);
+	await expect(view.locator(".lg-legend")).toContainText("×1.7 = 1,7 veces lo normal");
+	await expect(view.locator(".lg-now")).toHaveCount(1);
+	// Ctrl + rueda (o el pellizco del trackpad, que llega igual): Playwright no pasa el Ctrl a la rueda, así que el evento va directo
+	const prevented = await view.locator("[data-live-lanes] .lg-track").first().evaluate((n) => {
+		const r = n.getBoundingClientRect();
+		const ev = new WheelEvent("wheel", { deltaY: -200, ctrlKey: true, clientX: r.left + r.width / 2, clientY: r.top + 4, bubbles: true, cancelable: true });
+		n.dispatchEvent(ev);
+		return ev.defaultPrevented;
+	});
+	expect(prevented, "no hace zoom de la página").toBe(true);
+	await expect(view.locator(".lg-head")).toContainText("zoom");
+	await view.locator('[data-live-zoom="fit"]').click();
+	await expect(view.locator(".lg-head")).not.toContainText("zoom");
+});
+
+test("línea de tiempo sin vacío: una pausa larga entre tandas se comprime con ≈ y dice cuánto duró", async ({ page }) => {
+	// dos tandas con 40 min sin nada entre ellas (el lanzador esperando un ambiente, por ejemplo)
+	const MIN = 60_000;
+	const gapped = (now) => {
+		const t0 = now - 60 * MIN;
+		const mk = (id, run, a, b, state = "PASS") => ({ id, run_id: run, name: `test_${String(id).padStart(3, "0")}_tanda`, state, status: b ? state : "RUNNING", started_at: t0 + a * MIN,
+			...(b ? { ended_at: t0 + b * MIN, elapsed: (b - a) * MIN } : { elapsed: now - (t0 + a * MIN), idle: 2000, last_signal: now - 2000 }), p50: 3 * MIN, factor: 1, attempts: 1 });
+		const runs = [
+			{ id: 1, name: "tanda_1.py", status: "PASS", started_at: t0, ended_at: t0 + 10 * MIN, tests: [mk(1, 1, 0, 4), mk(2, 1, 4, 10)] },
+			{ id: 2, name: "tanda_2.py", status: "RUNNING", started_at: t0 + 50 * MIN, tests: [mk(3, 2, 50, 54), mk(4, 2, 54, 0, "running")] },
+		];
+		const exec = { key: "x:suite-demo", title: "dos tandas", running: true, started_at: t0, planned: 4, total: 4, done: 3, workers: 1, counts: { PASS: 3, running: 1 } };
+		return { list: { now, no_signal_ms: 180000, executions: [exec] }, execution: { now, execution: { ...exec, runs } } };
+	};
+	await page.unroute("**/api/v1/live");
+	await page.unroute("**/api/v1/live/execution?**");
+	await page.route("**/api/v1/live", (r) => r.fulfill({ json: gapped(Date.now()).list }));
+	await page.route("**/api/v1/live/execution?**", (r) => r.fulfill({ json: gapped(Date.now()).execution }));
+	await page.reload();
+	const view = page.locator("#view-live");
+	await expect(view.locator(".lg-gap").first()).toBeVisible();
+	await expect(view.locator(".lg-gap small").first()).toHaveText(/min/);
+	await expect(view.locator(".lg-head")).toContainText("pausas comprimidas (≈)");
+	const w = await view.locator(".lg-gap").first().evaluate((n) => n.getBoundingClientRect().width / n.parentElement.getBoundingClientRect().width);
+	expect(w, "la pausa ocupa un ancho chico").toBeLessThan(0.06);
 });

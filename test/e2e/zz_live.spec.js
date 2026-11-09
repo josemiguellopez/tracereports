@@ -52,7 +52,8 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	await expect(chip.locator(".xp-fresh")).toHaveText("en curso");
 	await expect(view.locator(".live-head h3")).toHaveText(exec);
 	await expect(view.locator(".live-badge.on")).toContainText("EN CURSO");
-	await expect(view.locator(".live-pct")).toContainText("1 de 5 tests · 20%");
+	await expect(view.locator(".live-pct")).toContainText("1 de 5 tests");
+	await expect(view.locator(".live-hero b")).toHaveText("20");
 	await expect(view.locator(".lg-worker b")).toHaveText(["gw0", "gw1"]);
 	await expect(view.locator(".lg-lane").first().locator(".lg-bar")).toHaveCount(2);
 
@@ -71,7 +72,8 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	await request.post(`/api/v1/tests/${alive}/logs`, { data: { status: "PASS", message: "agenda filtrada" } });
 	await request.patch(`/api/v1/tests/${alive}/finish`, { data: { status: "PASS" } });
 	await expect(view.locator(`tr[data-live-test="${alive}"] .lt-state`)).toHaveText("Pass");
-	await expect(view.locator(".live-pct")).toContainText("2 de 5 tests · 40%");
+	await expect(view.locator(".live-pct")).toContainText("2 de 5 tests");
+	await expect(view.locator(".live-hero b")).toHaveText("40"); // el número protagonista cuenta hasta el nuevo valor
 
 	// una fila abre el panel lateral (sin salir de la vista): estado, últimos pasos y abrir el test
 	await stuckRow.locator("td.lt-step").click();

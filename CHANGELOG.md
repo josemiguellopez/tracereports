@@ -6,6 +6,36 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed (client feedback, 09-11, run 1084: the Live view)
+
+- **Visible answer to every click**: "All / With problems" and "Group by" were loose chips and buttons that
+  gave no sign for a moment, so it looked like nothing happened. They are now segmented controls whose
+  indicator slides to the choice in the same frame as the click; the table, map and timeline dim with a thin
+  progress bar while the list is recomputed, and a status line says what is shown ("Showing 6 of 234 tests ·
+  Only with problems · Grouped by file", with the number counting). Measured with the 270-test suite and
+  with 327 and 518 tests: click to first paint 5-17 ms, click to the redrawn list 82-281 ms.
+- **"P1, P2…" did not say anything**: they are lanes inferred when the client does not report a worker. They
+  are now "Process 1, Process 2…", with the explanation in their tooltip and a legend under the timeline
+  (also for "×1.7 = 1.7 times normal"). "vs p50" is now "vs normal" and the health strip says "typical ·
+  slow duration" with what p50 and p95 mean.
+- **Long test names**: the ellipsis goes in the middle, so the start (`test_004_`) and the end, which tell
+  one test from another, stay visible; full name in the tooltip and a copy button; the Test column widens by
+  dragging its edge (or with the arrow keys) and "Names on 2 lines" shows them whole. Also in the Gantt bars.
+- **Timeline without empty space**: the axis starts at the first test, not at the start of the execution;
+  long pauses with no test running are compressed to a narrow cut (≈) that says how long they lasted; a
+  "now" line moves with the execution; Ctrl + wheel zooms around the pointer, "Fit to window" goes back;
+  idle lanes can be hidden.
+- **Tooltips everywhere**: every control, icon, column, chip and status says what it is and what it does, on
+  hover (300 ms) or on keyboard focus, with its shortcut when there is one; a unit test checks that no button
+  of the view is left without one.
+- **Icons instead of words**: an own status icon set (same grid and stroke) for Pass, Fail, Warning, Skip,
+  Running, Turtle (a drawn turtle, not the word or an emoji), No signal and Interrupted, also inside the Gantt
+  bars and on the minimap; icons for grouping, zoom, fit and folding.
+- **More life, without noise**: a ticker with the latest events (stops on hover), a clock, the execution map
+  (one square per test, a click opens it), sparklines in the health strip, a moving shine on running bars and
+  the progress bar, a pulse of the new color when a test changes status, entering rows slide in, a slow pulse
+  for "no signal" and 150-250 ms transitions; everything off with `prefers-reduced-motion`.
+
 ### Fixed (client feedback, 06-11: Inspector)
 
 - **Inspector: elements on top of each other and black areas**: it painted by tree depth and ignored

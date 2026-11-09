@@ -630,7 +630,7 @@ cy.intercept(${jsStr(m.method)}, ${jsStr(m.glob)}, {
 				const t = e.target.closest("[data-tip]");
 				if (t === target) return;
 				hide();
-				if (t && e.pointerType !== "touch") timer = setTimeout(() => show(t), 380);
+				if (t && e.pointerType !== "touch") timer = setTimeout(() => show(t), 300);
 			});
 			document.addEventListener("pointerdown", hide);
 			document.addEventListener("focusin", (e) => {
