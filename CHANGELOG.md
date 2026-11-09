@@ -101,11 +101,17 @@ All notable changes to TraceReports. The format follows
   browser's login box; API clients still get the HTTP Basic challenge and tokens work as before.
 - **The page builds itself** (like a design tool with several people on it): seven agents, each with its cursor,
   take the tasks whose dependencies are done and work in parallel: rulers, guides with their coordinate,
-  rectangles dragged with their size, text typed letter by letter, the QA sweep; smoke where each piece lands and
+  rectangles dragged with their size and painted from the grid agent's palette (a drop of color travels from the
+  swatch), text typed letter by letter, the QA sweep, and a final render that turns the painted mock into the real
+  page; smoke where each piece lands and
   Trace Buddy telling what happens ("my team of agents is building your sign-in") and how many agents built it.
   Any key, click or paste finishes it at once (nothing that moves blocks signing in); it does not repeat in the same
   tab nor with "reduce motion". Animations with Motion (Framer Motion for plain JavaScript, vendored in
   `web/vendor/motion`).
+- **Trace Buddy talks**: a speech bubble with a header, a brief "typing…" and highlighted words. Showing the
+  password gives him a fright (he jumps back, hands up) and then a cheeky look (red slanted eyes, little horns,
+  rubbing his hands) with a line like "Did you just show me the password?"; hiding it again, he covers his eyes and
+  says he is not looking. He greets the user by name (escaped) when moving on to the password.
 - **Look**: a dark canvas with rulers where six agents (the workers) run tests and leave their trace, the last
   failure selected as in a design tool; Trace Buddy sits on the card, follows what you type, covers his eyes while
   the password is hidden, peeks when the pointer goes to the eye and looks when it is shown. Layers move with the

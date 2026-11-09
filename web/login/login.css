@@ -260,3 +260,60 @@ body {
 	font: 600 10px "JetBrains Mono", monospace; white-space: nowrap; }
 /* el cursor de texto del agente que escribe */
 .type-caret { display: inline-block; width: 2px; height: .95em; margin-left: 2px; vertical-align: -.1em; border-radius: 1px; animation: blink .8s steps(1) infinite; }
+
+/* ---------- el globo de Trace Buddy (v2): encabezado, "escribiendo…", resaltador y el tono pícaro ---------- */
+.say { position: absolute; right: 172px; top: -122px; z-index: 4; width: max-content; max-width: 280px; margin: 0; padding: 10px 14px 12px;
+	border-radius: 16px; color: #0c1117; transform-origin: 100% 100%;
+	background: linear-gradient(180deg, #ffffff, #eef2f7);
+	box-shadow: 0 1px 0 #fff inset, 0 0 0 1px rgba(255, 255, 255, .06), 0 22px 44px -14px rgba(0, 0, 0, .8), 0 0 40px -10px rgba(41, 223, 255, .35); }
+/* la colita: un cuadrado girado, redondeado, que apunta a Buddy */
+.say::after { content: ""; position: absolute; right: -6px; bottom: 16px; width: 14px; height: 14px; border: 0; border-radius: 3px;
+	background: #eef2f7; transform: rotate(45deg); }
+.say-h { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font: 600 10px "JetBrains Mono", monospace; letter-spacing: .05em;
+	text-transform: uppercase; color: #5b6676; }
+.say-h i { width: 7px; height: 7px; border-radius: 50%; background: var(--pass); box-shadow: 0 0 0 3px rgba(62, 207, 142, .2); }
+.say-h small { margin-left: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: #9aa4b2; }
+.say-t { display: block; font: 500 13.5px/1.45 Inter, sans-serif; }
+.say-t b { font-weight: 650; background: linear-gradient(transparent 58%, rgba(201, 250, 107, .7) 58%); border-radius: 2px; padding: 0 1px; }
+/* escribiendo… */
+.say-t.typing { display: inline-flex; gap: 4px; padding: 6px 2px 2px; }
+.say-t.typing i { width: 6px; height: 6px; border-radius: 50%; background: #9aa6b6; animation: say-dot 1s ease-in-out infinite; }
+.say-t.typing i:nth-child(2) { animation-delay: .15s; } .say-t.typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes say-dot { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
+/* pícaro (al mostrar la clave): rojo, con chispa */
+.say.devil { background: linear-gradient(180deg, #fff5f6, #ffe6ea); box-shadow: 0 1px 0 #fff inset, 0 22px 44px -14px rgba(0, 0, 0, .8), 0 0 46px -8px rgba(255, 45, 85, .55); }
+.say.devil::after { background: #ffe6ea; }
+.say.devil .say-h { color: #c4163a; }
+.say.devil .say-h i { background: #ff2d55; box-shadow: 0 0 0 3px rgba(255, 45, 85, .2); animation: pulse-red 1.2s infinite; }
+.say.devil .say-t b { background: linear-gradient(transparent 58%, rgba(255, 45, 85, .3) 58%); }
+@keyframes pulse-red { 50% { box-shadow: 0 0 0 6px rgba(255, 45, 85, 0); } }
+@media (max-width: 960px) { .say { right: auto; left: 0; top: -136px; max-width: calc(100% - 150px); } .say::after { display: none; } }
+@media (max-width: 480px) { .say { top: -128px; padding: 8px 11px 10px; } .say-t { font-size: 12.5px; } }
+
+/* ---------- boceto pintado y render (el agente grid y su paleta) ---------- */
+.draft { z-index: 1; overflow: visible; }
+.draft .fill { position: absolute; inset: 0; border-radius: inherit; transform-origin: left center; opacity: .92;
+	background-blend-mode: overlay; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+/* la textura de la pincelada, apenas */
+.draft .fill::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+	background: repeating-linear-gradient(100deg, rgba(255, 255, 255, .05) 0 2px, transparent 2px 9px); }
+.palette { position: fixed; z-index: 6; left: calc(var(--ruler) + 18px); top: calc(var(--ruler) + 18px); display: grid; gap: 6px; padding: 10px 12px 12px;
+	border-radius: 12px; background: rgba(13, 15, 19, .92); border: 1px solid var(--line-2); box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .8);
+	font: 500 10.5px "JetBrains Mono", monospace; color: var(--muted); }
+.palette b { color: var(--text); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px; }
+.palette .sw { display: flex; align-items: center; gap: 8px; }
+.palette .sw i { width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .15); transition: transform .25s var(--spring), box-shadow .25s; }
+.palette .sw small { display: grid; line-height: 1.15; font-size: 10.5px; color: var(--text); }
+.palette .sw em { font-style: normal; color: var(--faint); font-size: 9.5px; }
+.palette .sw.on i { transform: scale(1.35); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3), 0 0 0 3px rgba(255, 255, 255, .2), 0 0 18px rgba(255, 255, 255, .25); }
+/* la gota de color que viaja de la paleta al rectángulo */
+.drop { position: fixed; left: 0; top: 0; z-index: 7; width: 12px; height: 12px; border-radius: 50% 50% 50% 0; pointer-events: none;
+	box-shadow: 0 0 12px rgba(255, 255, 255, .25); }
+/* la barrida del render */
+.render-sweep { position: fixed; left: 0; right: 0; top: 0; height: 120px; z-index: 6; pointer-events: none;
+	background: linear-gradient(180deg, transparent, rgba(41, 223, 255, .08) 60%, rgba(201, 250, 107, .35) 98%, transparent);
+	box-shadow: 0 2px 30px rgba(201, 250, 107, .35); }
+@media (max-width: 960px) {
+	.palette { grid-auto-flow: column; align-items: center; top: calc(var(--ruler) + 8px); left: 50%; transform: translateX(-50%); padding: 6px 8px; }
+	.palette .sw small, .palette b { display: none; }
+}

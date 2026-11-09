@@ -288,6 +288,14 @@ function form() {
 	user.addEventListener("input", () => follow(user));
 	pass.addEventListener("input", () => { if (pass.type === "text") follow(pass); });
 	for (const el of [user, pass, eye]) { el.addEventListener("focus", watch); el.addEventListener("blur", () => setTimeout(watch, 0)); }
+	let greeted = "";
+	user.addEventListener("blur", () => {
+		const name = user.value.trim();
+		if (!name || name === greeted || !build.done) return;
+		greeted = name;
+		buddy.ctl?.react("nod");
+		say(lang === "en" ? `Hi, <b>${escHTML(name.slice(0, 40))}</b>. Now the password… I'm not looking.` : `Hola, <b>${escHTML(name.slice(0, 40))}</b>. Ahora la clave… yo no miro.`, 3800);
+	});
 	eye.addEventListener("pointerenter", () => { if (pass.type === "password" && document.activeElement === pass && buddy.ctl) { buddy.ctl.setPrivacy("peek"); $("#buddy").dataset.pose = "peek"; } });
 	eye.addEventListener("pointerleave", () => setTimeout(watch, 0));
 	eye.addEventListener("click", () => {
@@ -299,6 +307,8 @@ function form() {
 		const end = pass.value.length;
 		pass.setSelectionRange(end, end);
 		watch();
+		if (show) { buddy.ctl?.react("startle"); say(pick(PEEK), 5200, "devil"); }
+		else say(pick(HIDE), 2600);
 	});
 	// Bloq Mayús, mientras se escribe la clave
 	const caps = (e) => { $("#caps").hidden = !(e.getModifierState && e.getModifierState("CapsLock")); };
@@ -363,8 +373,8 @@ const AGENTS = [
 	{ id: "marca", color: "#c9fa6b" }, { id: "forms", color: "#b69cff" }, { id: "seguridad", color: "#3ecf8e" }, { id: "qa", color: "#ff9f6b" },
 ];
 const JOBS = {
-	es: { rulers: "pone las reglas", guide: "traza una guía", rect: "dibuja", type: "escribe", reveal: "coloca", check: "revisa", trace: "arranca la traza" },
-	en: { rulers: "sets the rulers", guide: "draws a guide", rect: "draws", type: "types", reveal: "places", check: "checks", trace: "starts the trace" },
+	es: { rulers: "pone las reglas", guide: "traza una guía", rect: "dibuja", paint: "pinta", palette: "abre la paleta", render: "renderiza", type: "escribe", reveal: "coloca", check: "revisa", trace: "arranca la traza" },
+	en: { rulers: "sets the rulers", guide: "draws a guide", rect: "draws", paint: "paints", palette: "opens the palette", render: "renders", type: "types", reveal: "places", check: "checks", trace: "starts the trace" },
 }[lang];
 const LINES = {
 	es: {
@@ -392,21 +402,45 @@ const LINES = {
 }[lang];
 const BUILT_KEY = "tracereports-login-built";
 
-let sayTimer = 0;
-function say(html, ms = 0) {
+// las travesuras de Buddy con la clave: al mostrarla, un susto y después, pícaro
+const PEEK = {
+	es: ["¡Ey! ¿Me acabas de mostrar la clave? …Ya la vi. Es broma. Creo.", "¡Uy! Eso no se le muestra a un robot. Ahora sé tu secreto.",
+		"¿En serio? ¿A mí? Tranquilo, mis labios están sellados… casi siempre.", "¡Ajá! Clave a la vista. Un villano de película ya estaría adentro."],
+	en: ["Hey! Did you just show me the password? …I saw it. Kidding. I think.", "Whoa! You don't show that to a robot. Now I know your secret.",
+		"Really? To me? Relax, my lips are sealed… mostly.", "Aha! Password in plain sight. A movie villain would be in by now."],
+}[lang];
+const HIDE = { es: ["Ya, ya… no miro.", "Vale, me tapo. Pero ya era tarde.", "Ojos cerrados. Palabra de robot."], en: ["OK, OK… not looking.", "Fine, covering up. A bit late though.", "Eyes shut. Robot's honor."] }[lang];
+const pick = (list) => list[Math.floor(Math.random() * list.length)];
+const escHTML = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+// el globo: encabezado con su estado, "escribiendo…" un instante y el texto (más humano que aparecer de golpe)
+let sayTimer = 0, sayType = 0, sayGen = 0; // sayGen: una salida vieja no esconde un globo nuevo
+function say(html, ms = 0, kind = "") {
 	const el = $("#say");
-	clearTimeout(sayTimer);
-	el.innerHTML = html; // textos fijos de este archivo (nada del usuario ni del servidor)
+	clearTimeout(sayTimer); clearTimeout(sayType);
+	sayGen++;
+	html = html.replace('<span class="who">Trace Buddy</span>', "");
+	const devil = kind === "devil";
+	const head = `<span class="say-h"><i></i>Trace Buddy<small>${lang === "en" ? "now" : "ahora"}</small></span>`;
 	const first = el.hidden;
 	el.hidden = false;
-	if (!reduced && M) M.animate(el, first ? { opacity: [0, 1], scale: [0.85, 1], y: [8, 0] } : { scale: [0.97, 1] }, { type: "spring", stiffness: 420, damping: 24 });
-	if (ms) sayTimer = setTimeout(() => hideSay(), ms);
+	el.className = `say${devil ? " devil" : ""}`;
+	const text = () => { el.innerHTML = `${head}<span class="say-t">${html}</span>`; if (M && !reduced) M.animate(el.querySelector(".say-t"), { opacity: [0, 1], y: [4, 0] }, { duration: 0.22 }); };
+	if (reduced || !M) text();
+	else {
+		el.innerHTML = `${head}<span class="say-t typing" aria-hidden="true"><i></i><i></i><i></i></span>`;
+		sayType = setTimeout(text, first ? 420 : 260); // el texto es fijo de este archivo, o escapado (el usuario)
+		M.animate(el, first ? { opacity: [0, 1], scale: [0.85, 1], y: [10, 0] } : { opacity: 1, y: 0, scale: [0.96, 1] }, { type: "spring", stiffness: 420, damping: 22 });
+	}
+	if (ms) sayTimer = setTimeout(() => hideSay(), ms + 420);
 }
 function hideSay() {
 	const el = $("#say");
 	if (el.hidden) return;
+	clearTimeout(sayType);
 	if (reduced || !M) { el.hidden = true; return; }
-	M.animate(el, { opacity: [1, 0], scale: [1, 0.9] }, { duration: 0.18 }).then(() => { el.hidden = true; el.style.opacity = ""; });
+	const gen = sayGen;
+	M.animate(el, { opacity: [1, 0], scale: [1, 0.9], y: [0, 6] }, { duration: 0.18 }).then(() => { if (gen !== sayGen) return; el.hidden = true; el.style.opacity = ""; el.style.transform = ""; });
 }
 
 // el humo de la obra: bocanadas donde cae una pieza y una bruma alrededor de la tarjeta mientras se construye
@@ -459,33 +493,40 @@ function smokeLoop() {
 // letra) | reveal (aparece con resorte) | check (la barrida de QA) | trace (arrancan los agentes del fondo)
 function plan() {
 	const R = (sel) => () => $(sel).getBoundingClientRect();
+	const P = ["palette"];
 	return [
 		{ id: "rulers", kind: "rulers", by: "grid" },
-		{ id: "g-card-l", kind: "guide", axis: "x", at: () => R("#card")().left, by: "grid", deps: ["rulers"] },
+		{ id: "palette", kind: "palette", by: "grid", deps: ["rulers"] },
+		{ id: "g-card-l", kind: "guide", axis: "x", at: () => R("#card")().left, by: "qa", deps: ["rulers"] },
 		{ id: "g-card-t", kind: "guide", axis: "y", at: () => R("#card")().top, by: "layout", deps: ["rulers"] },
 		{ id: "g-pitch", kind: "guide", axis: "x", at: () => R(".pitch h1")().left, by: "copy", deps: ["rulers"], wide: true },
-		{ id: "card", kind: "rect", el: "#card", by: "layout", deps: ["g-card-l", "g-card-t"], say: "start" },
-		{ id: "kicker", kind: "rect", el: ".kicker", by: "copy", deps: ["g-pitch"], wide: true },
+		{ id: "card", kind: "rect", el: "#card", paint: "surface", by: "layout", deps: ["g-card-l", "g-card-t", ...P], say: "start" },
+		{ id: "kicker", kind: "rect", el: ".kicker", paint: "line", by: "copy", deps: ["g-pitch", ...P], wide: true },
 		{ id: "h1", kind: "type", el: ".pitch h1", by: "copy", deps: ["kicker"], wide: true, say: "copy" },
 		{ id: "lede", kind: "type", el: ".lede", by: "copy", deps: ["h1"], wide: true },
-		{ id: "brand", kind: "reveal", el: ".brand", by: "marca", deps: ["card"] },
+		{ id: "brand", kind: "rect", el: ".brand .mark", show: ".brand", paint: "lime", by: "marca", deps: ["card"] },
 		{ id: "title", kind: "type", el: "#login-title", by: "marca", deps: ["brand"] },
 		{ id: "sub", kind: "type", el: "#sub", by: "marca", deps: ["title"] },
-		{ id: "f-user", kind: "rect", el: "#user", show: ".field:nth-of-type(1)", by: "forms", deps: ["card"], say: "forms" },
-		{ id: "f-pass", kind: "rect", el: "#pass", show: ".field:nth-of-type(2)", by: "forms", deps: ["f-user"] },
-		{ id: "remember", kind: "reveal", el: ".remember", by: "seguridad", deps: ["f-pass"], say: "security" },
-		{ id: "foot", kind: "reveal", el: ".foot", by: "seguridad", deps: ["remember"] },
-		{ id: "go", kind: "rect", el: "#go", by: "forms", deps: ["f-pass"] },
+		{ id: "f-user", kind: "rect", el: "#user", show: ".field:nth-of-type(1)", paint: "ink", by: "forms", deps: ["card"], say: "forms" },
+		{ id: "f-pass", kind: "rect", el: "#pass", show: ".field:nth-of-type(2)", paint: "ink", by: "seguridad", deps: ["card"] },
+		{ id: "remember", kind: "rect", el: ".remember .switch", show: ".remember", paint: "pass", by: "seguridad", deps: ["f-pass"], say: "security" },
+		{ id: "foot", kind: "rect", el: ".foot", paint: "line", by: "layout", deps: ["card"] },
+		{ id: "go", kind: "rect", el: "#go", paint: "lime", by: "forms", deps: ["f-user"] },
 		{ id: "go-t", kind: "type", el: ".go-text", by: "forms", deps: ["go"] },
 		{ id: "qa", kind: "check", el: "#card", by: "qa", deps: ["go-t", "foot", "sub"], say: "qa" },
-		{ id: "trace", kind: "trace", by: "grid", deps: ["qa", "lede"] },
+		{ id: "render", kind: "render", by: "grid", deps: ["qa", "lede", "kicker"] },
+		{ id: "trace", kind: "trace", by: "grid", deps: ["render"] },
 	];
 }
+// la paleta del agente grid: los colores del sistema (los mismos tokens del CSS)
+const PALETTE = [
+	["ink", "#0a0c10"], ["surface", "#171b22"], ["line", "#2a313b"], ["lime", "#c9fa6b"], ["cyan", "#29dfff"], ["pass", "#3ecf8e"], ["fail", "#ff5d5d"],
+];
 // lo que se construye empieza invisible (el texto que se escribe, vacío)
 const BUILT_SEL = [".ruler", ".kicker", ".pitch h1", ".lede", ".brand", "#login-title", "#sub", ".field", ".remember", ".foot", "#go"];
 const texts = new Map();
 
-const build = { skipped: false, done: false, wake: [], t0: 0, stage: null, agents: new Map(), guides: [], log: [] };
+const build = { skipped: false, done: false, wake: [], t0: 0, stage: null, agents: new Map(), guides: [], drafts: [], palette: null, log: [] };
 window.__obra = build; // para mirar la obra desde las pruebas (qué tarea, cuándo empezó y cuánto tardó)
 const wait = (ms) => new Promise((ok) => { if (build.skipped) return ok(); const t = setTimeout(ok, ms); build.wake.push(() => { clearTimeout(t); ok(); }); });
 const anim = (el, kf, opt) => (build.skipped || !M ? Promise.resolve() : M.animate(el, kf, opt));
@@ -540,7 +581,7 @@ async function doGuide(ag, t) {
 }
 async function doRect(ag, t) {
 	const el = $(t.el), shown = t.show ? $(t.show) : el;
-	if (!visible(el)) return reveal(shown);
+	if (!visible(el)) return;
 	const r = el.getBoundingClientRect();
 	job(ag, `${JOBS.rect} ${Math.round(r.width)}×${Math.round(r.height)}`);
 	await fly(ag, r.left, r.top);
@@ -550,13 +591,71 @@ async function doRect(ag, t) {
 	Object.assign(d.style, { left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, borderColor: ag.color });
 	d.innerHTML = `<span style="background:${ag.color}">${Math.round(r.width)} × ${Math.round(r.height)}</span>`;
 	document.body.appendChild(d);
-	const secs = Math.min(0.55, 0.26 + (r.width + r.height) / 3200);
+	const secs = Math.min(0.42, 0.2 + (r.width + r.height) / 3600);
 	await Promise.all([anim(d, { scaleX: [0, 1], scaleY: [0, 1] }, { duration: secs, ease: [0.22, 1, 0.36, 1] }), fly(ag, r.right - 4, r.bottom - 4, secs)]);
-	if (t.id === "card") frameUp();
-	reveal(shown); // el resorte se asienta solo: el agente sigue con lo suyo
+	build.drafts.push(d);
+	if (t.paint) await paint(ag, d, r, t.paint);
 	puff(r.left + r.width / 2, r.bottom, t.id === "card" ? 26 : 10, t.id === "card" ? 2.4 : 1);
-	anim(d, { opacity: [1, 0] }, { duration: 0.25 }).then(() => d.remove());
 	if (build.skipped) d.remove();
+}
+// la paleta: el agente grid la abre; cada color con su muestra y su hex
+async function doPalette(ag) {
+	job(ag, JOBS.palette);
+	const pal = document.createElement("div");
+	pal.className = "palette";
+	pal.innerHTML = `<b>${lang === "en" ? "Palette" : "Paleta"}</b>` + PALETTE.map(([n, c]) => `<span class="sw" data-sw="${n}"><i style="background:${c}"></i><small>${n}<em>${c}</em></small></span>`).join("");
+	document.body.appendChild(pal);
+	build.palette = pal;
+	const r = pal.getBoundingClientRect();
+	await fly(ag, r.left + 12, r.top + 10, 0.35);
+	await anim(pal, { opacity: [0, 1], x: [-30, 0], scale: [0.92, 1] }, { type: "spring", stiffness: 420, damping: 26 });
+	anim(pal.querySelectorAll(".sw"), { opacity: [0, 1], x: [-8, 0] }, { delay: M ? M.stagger(0.04) : 0, duration: 0.25 });
+	await fly(ag, r.right - 16, r.bottom - 12, 0.3);
+}
+// pintar: la muestra late, una gota viaja de la paleta al rectángulo y el color lo cubre como una pincelada
+async function paint(ag, d, r, name) {
+	const color = (PALETTE.find(([n]) => n === name) || PALETTE[1])[1];
+	job(ag, `${JOBS.paint} ${name}`);
+	const sw = build.palette?.querySelector(`[data-sw="${name}"]`);
+	const fill = document.createElement("i");
+	fill.className = "fill";
+	fill.style.background = color;
+	d.prepend(fill);
+	if (sw && !build.skipped) {
+		sw.classList.add("on");
+		const s = sw.querySelector("i").getBoundingClientRect();
+		const drop = document.createElement("i");
+		drop.className = "drop";
+		drop.style.background = color;
+		document.body.appendChild(drop);
+		const tx = r.left + Math.min(40, r.width / 2), ty = r.top + r.height / 2;
+		await anim(drop, { x: [s.left + 4, (s.left + tx) / 2, tx], y: [s.top + 4, Math.min(s.top, ty) - 70, ty], scale: [1, 1.3, 0.6] }, { duration: 0.3, ease: [0.3, 0, 0.3, 1] });
+		drop.remove();
+		sw.classList.remove("on");
+	}
+	await Promise.all([anim(fill, { scaleX: [0, 1] }, { duration: 0.24, ease: [0.65, 0, 0.35, 1] }), fly(ag, r.right - 6, r.top + r.height / 2, 0.24)]);
+}
+// el render: una barrida recorre la página, el boceto se desvanece y aparece la página de verdad
+async function doRender(ag) {
+	job(ag, JOBS.render);
+	await fly(ag, innerWidth / 2, 36, 0.35);
+	const sweep = document.createElement("div");
+	sweep.className = "render-sweep";
+	document.body.appendChild(sweep);
+	const pieces = [...document.querySelectorAll(".unbuilt")].filter((n) => !n.classList.contains("ruler"));
+	const drafts = build.drafts.splice(0);
+	frameUp();
+	await Promise.all([
+		anim(sweep, { y: [0, innerHeight], opacity: [0, 1, 1, 0] }, { duration: 0.7, ease: [0.4, 0, 0.2, 1] }),
+		fly(ag, innerWidth / 2, innerHeight - 60, 0.7),
+		anim(drafts, { opacity: [1, 0], filter: ["blur(0px)", "blur(8px)"], scale: [1, 1.02] }, { duration: 0.5, delay: M ? M.stagger(0.035) : 0 }),
+		...pieces.map((n, i) => wait(i * 40).then(() => reveal(n))),
+	]);
+	drafts.forEach((d) => d.remove());
+	sweep.remove();
+	if (build.palette) anim(build.palette, { opacity: [1, 0], x: [0, -24] }, { duration: 0.25 }).then(() => build.palette?.remove());
+	const cr = $("#card").getBoundingClientRect();
+	puff(cr.left + cr.width / 2, cr.bottom, 24, 2.6);
 }
 async function doType(ag, t) {
 	const el = $(t.el);
@@ -627,7 +726,7 @@ function frameUp() {
 	anim(card, { scale: [0.97, 1] }, { type: "spring", stiffness: 260, damping: 20 });
 }
 
-const RUN = { rulers: doRulers, guide: doGuide, rect: doRect, type: doType, reveal: doReveal, check: doCheck, trace: doTrace };
+const RUN = { rulers: doRulers, guide: doGuide, palette: doPalette, rect: doRect, type: doType, reveal: doReveal, check: doCheck, render: doRender, trace: doTrace };
 async function construct() {
 	const card = $("#card");
 	build.t0 = performance.now();
@@ -684,7 +783,7 @@ function finish(skipped) {
 	for (const [el, full] of texts) el.textContent = full;
 	for (const el of document.querySelectorAll(".unbuilt")) el.classList.remove("unbuilt");
 	for (const el of document.querySelectorAll(BUILT_SEL.join(","))) { el.style.opacity = ""; el.style.transform = ""; }
-	document.querySelectorAll(".draft, .scan, .type-caret").forEach((n) => n.remove());
+	document.querySelectorAll(".draft, .scan, .type-caret, .drop, .render-sweep, .palette").forEach((n) => n.remove());
 	$(".stage").classList.remove("dark");
 	build.stage?.restart();
 	smoke.haze = false;

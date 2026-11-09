@@ -187,10 +187,14 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		await expect(page.locator(".guide").first()).toBeAttached();
 		await expect(page.locator(".guide.x").first()).toHaveAttribute("data-label", /^x \d+$/);
 		await expect(page.locator(".draft span").first()).toHaveText(/^\d+ × \d+$/);
+		// el agente grid abre la paleta y los rectángulos quedan pintados con sus colores (el boceto)
+		await expect(page.locator(".palette .sw")).toHaveCount(7);
+		await expect(page.locator(".palette")).toContainText("lime");
+		await expect(page.locator(".draft .fill").first()).toBeAttached({ timeout: 6000 });
 		await expect(page.locator(".type-caret").first()).toBeAttached({ timeout: 6000 });
 		// termina sola: todo armado, sin guías ni agentes, y Buddy dice cuántos la construyeron
 		await expect(page.locator("#ab-state")).toHaveText("· listo", { timeout: 15_000 });
-		await expect(page.locator(".agent, .guide, .draft, .type-caret")).toHaveCount(0);
+		await expect(page.locator(".agent, .guide, .draft, .type-caret, .palette, .drop, .render-sweep")).toHaveCount(0);
 		await expect(page.locator("#card")).not.toHaveClass(/building/);
 		await expect(page.locator("#say")).toContainText(/7 agentes armaron este login en \d+,\d s/);
 		await expect(page.locator("#say")).toContainText("prometo no mirar tu clave");
@@ -200,7 +204,8 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		expect(await page.locator(".unbuilt").count()).toBe(0);
 		const obra = await page.evaluate(() => ({ agents: [...window.__obra.agents.keys()].sort(), tasks: window.__obra.log.map((x) => x[0]) }));
 		expect(obra.agents).toEqual(["copy", "forms", "grid", "layout", "marca", "qa", "seguridad"]);
-		expect(obra.tasks).toEqual(expect.arrayContaining(["rulers", "card", "h1", "f-user", "f-pass", "go", "qa", "trace"]));
+		expect(obra.tasks).toEqual(expect.arrayContaining(["rulers", "palette", "card", "h1", "f-user", "f-pass", "go", "qa", "render", "trace"]));
+		expect(obra.tasks.indexOf("render")).toBeGreaterThan(obra.tasks.indexOf("qa")); // el boceto se "renderiza" al final
 		expect(obra.tasks.indexOf("card")).toBeLessThan(obra.tasks.indexOf("f-user")); // las dependencias se respetan
 		for (const sel of ["#user", "#pass", "#go", ".remember", ".foot"]) await expect(page.locator(sel)).toBeVisible();
 	});
@@ -209,13 +214,15 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
 		await page.goto("/login/");
 		await expect(page.locator(".agent").first()).toBeVisible();
+		await page.mouse.click(300, 500); // un clic en cualquier parte la termina
+		await expect(page.locator("#say")).toContainText("Apurado");
+		await page.locator("#user").click();
 		await page.keyboard.type("admin");
 		await expect(page.locator("#user")).toHaveValue("admin");
 		await expect(page.locator("#card")).not.toHaveClass(/building/, { timeout: 1000 });
 		await expect(page.locator(".agent, .guide, .draft")).toHaveCount(0, { timeout: 1500 });
 		await expect(page.locator(".pitch h1")).toHaveText("Lo que falló, por qué y dónde.");
 		await expect(page.locator("#ab-state")).toHaveText("· listo");
-		await expect(page.locator("#say")).toContainText("Apurado");
 		await page.reload();
 		await expect(page.locator("#user")).toBeFocused();
 		await expect(page.locator(".agent")).toHaveCount(0);
@@ -232,5 +239,32 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		await expect(page.locator(".unbuilt")).toHaveCount(0);
 		await expect(page.locator("#card")).not.toHaveClass(/building/);
 		await expect(page.locator("#go")).toBeVisible();
+	});
+});
+
+test.describe("Trace Buddy conversa", () => {
+	test("mostrar la clave: un susto y el globo pícaro (rojo); ocultarla: se tapa y lo dice", async ({ page }) => {
+		await openLogin(page);
+		await page.keyboard.type("admin"); // termina la obra
+		await page.locator("#pass").fill("secreta");
+		await page.locator("#eye").click();
+		const bubble = page.locator("#say");
+		await expect(bubble).toHaveClass(/devil/);
+		await expect(bubble.locator(".say-h")).toHaveText(/^Trace Buddy/);
+		await expect(bubble.locator(".say-t")).toHaveText(/clave|robot|secreto|villano|sellados/); // una de las frases (al azar)
+		await page.locator("#eye").click();
+		await expect(bubble).not.toHaveClass(/devil/);
+		await expect(bubble.locator(".say-t")).toHaveText(/no miro|me tapo|Ojos cerrados/);
+		await expect(page.locator("#buddy")).toHaveAttribute("data-pose", "cover");
+	});
+
+	test("saluda por su nombre al pasar a la clave, escapado (un usuario con HTML se ve como texto)", async ({ page }) => {
+		await openLogin(page);
+		await page.locator("#user").fill("<img src=x onerror=alert(1)>");
+		await page.locator("#pass").click();
+		const t = page.locator("#say .say-t");
+		await expect(t).toContainText("Hola, <img src=x onerror=alert(1)>");
+		await expect(page.locator("#say img")).toHaveCount(0);
+		await expect(t).toContainText("yo no miro");
 	});
 });
