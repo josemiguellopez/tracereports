@@ -666,8 +666,20 @@ cualquier cliente:
 - **Mostrar** (Todos / Con problemas) y **Agrupar por** (archivo, worker, estado) son controles segmentados:
   responden en el mismo cuadro del clic (el control cambia y una barra fina avisa que se recalcula) y una
   línea de estado dice qué se ve: «Mostrando 6 de 234 tests · Solo con problemas · Agrupado por archivo».
-- **Mapa de la ejecución**: un cuadro por test, en el orden en que empezaron, con el color de su estado (y los
-  planificados que faltan, vacíos); un clic abre su detalle. Arriba, una **cinta** con los últimos eventos que
+- **Mapa de la ejecución**, en dos vistas. **Campo** (por defecto): la ejecución como un toroide de partículas que se lee como un reloj; el ángulo es
+  el tiempo (arriba el comienzo, en sentido horario, con las pausas comprimidas) y cada anillo un worker o
+  proceso. Cada test es un punto donde terminó (o donde va, sobre la aguja roja de "ahora"), más grande cuanto
+  más lento fue, con una estela fina de lo que duró; los fallos brillan. Pasar el mouse lo muestra, un clic (o
+  las flechas y Enter) abre su detalle. Alrededor, los canales (tests, fallos, red, workers: cada uno filtra o
+  agrupa), la **ingesta real** (los eventos de esta ejecución que llegaron por el stream en el último minuto y
+  hace cuánto el último; terminada o sin eventos nunca dice "activa"), el progreso, la anomalía dominante (un
+  clic filtra por su firma), las últimas señales y la presión de errores. Cada evento que llega lanza un pulso
+  desde su canal hasta su test. El campo se maneja: arrastrar gira e inclina, Shift + arrastrar lo mueve,
+  +/− (o Ctrl + rueda; en pantalla completa, la rueda) acerca, F lo pone a pantalla completa (Esc vuelve), 0
+  restablece la vista; doble clic en una partícula abre el test. **Pausar vista** (o Espacio) congela el campo
+  para analizar mientras la ingesta sigue en el servidor: cuenta los eventos que llegan y "Reanudar (+N)" se
+  pone al día. **Cuadrícula**: un cuadro por test, en el orden en que empezaron; un clic abre
+  su detalle. Arriba, una **cinta** con los últimos eventos que
   se detiene con el mouse, y un reloj.
 - La **línea de tiempo** empieza en el primer test (no en el inicio de la ejecución), marca **ahora** con una
   línea y comprime las pausas largas sin ningún test corriendo (≈, con cuánto duraron). Ctrl + rueda acerca o

@@ -761,6 +761,73 @@
 		return { tests, pending: Math.min(pending, 2000) };
 	}
 
+	// ---------- el campo de la ejecución (web/livefield.js dibuja el anillo; aquí, lo que lo rodea) ----------
+
+	/** Cómo está la ingesta: activa solo si llegan eventos de esta ejecución; nunca "activa" sobre datos viejos. */
+	const INGEST = {
+		active: { label: "INGESTA ACTIVA", cls: "ok" }, quiet: { label: "SIN EVENTOS", cls: "warn" },
+		offline: { label: "SIN CONEXIÓN", cls: "bad" }, done: { label: "EJECUCIÓN TERMINADA", cls: "done" },
+	};
+
+	/**
+	 * El campo: a la izquierda los cuatro canales (tests, fallos, red, workers), al centro el anillo con
+	 * su HUD (ingesta real, progreso, la anomalía dominante y los carriles activos) y a la derecha las
+	 * últimas señales y la presión de errores por firma. Todo es un botón: filtra, agrupa o abre el test.
+	 */
+	function fieldHTML(e, tests, data, ui, now, h, g) {
+		const { t, esc, icon } = h;
+		const ing = data.ingest || { state: e.running ? "quiet" : "done", perMin: 0, lastAgo: null, byKind: {} };
+		const I = INGEST[ing.state] || INGEST.quiet;
+		const done = tests.filter((x) => x.ended_at).length, fails = tests.filter((x) => isFailed(x.state)).length;
+		const eps = data.endpoints || [], calls = eps.reduce((s, x) => s + (x.count || 0), 0), epErr = eps.reduce((s, x) => s + (x.errors || 0), 0);
+		const active = g.lanes.filter((l) => l.running).length;
+		const errs = errorGroups(tests), top = errs[0];
+		const p = progress(e);
+		const per = (k) => (ing.byKind?.[k] ? ` · ${t("{n}/min", { n: ing.byKind[k] })}` : "");
+		const lane = (cls, idx, name, big, sub, attrs, tip) => `<button type="button" class="lf-lane ${cls}" ${attrs} data-tip-title="${esc(name)}" data-tip="${esc(tip)}">
+			<span>${idx} / ${esc(name)}</span><b>${big}</b><small>${esc(sub)}</small><i class="lf-flow" aria-hidden="true"></i></button>`;
+		const lanes = [
+			lane("pass", "01", t("TESTS"), `<span data-count="f-done" data-n="${done}">${done}</span>`, `${t("{n} terminados", { n: done })}${per("test")}`, "data-live-all",
+				t("Tests terminados de la ejecución. Clic: ver todos.")),
+			lane("fail", "02", t("FALLOS"), `<span data-count="f-fail" data-n="${fails}">${fails}</span>`, `${t("{n} firmas", { n: errs.length })}${per("fail")}`, `data-live-state="FAIL"`,
+				t("Tests en fallo o interrumpidos, agrupados por la firma de su error. Clic: ver solo esos.")),
+			lane("net", "03", t("RED"), String(calls), eps.length ? t("{n} con error", { n: epErr }) : t("sin llamadas"), `data-live-scroll=".lc-backend"`,
+				t("Llamadas al backend de todas las corridas (las captura el cliente con Playwright). Clic: ir al backend de la ejecución.")),
+			lane("work", "04", t("WORKERS"), `${active}<small>/${g.lanes.length}</small>`, t("con un test corriendo"), `data-live-groupby="worker"`,
+				t("Carriles en paralelo con un test corriendo ahora, del total. Clic: agrupar la tabla por worker.")),
+		].join("");
+		const ago = ing.lastAgo === null ? t("todavía nada") : t("último hace {t}", { t: fmtDur(ing.lastAgo) });
+		// la ingesta del último minuto en tramos de 5 s (el más nuevo a la derecha)
+		const series = ing.series || Array(12).fill(0), smax = Math.max(1, ...series);
+		const bars = series.map((n) => `<i class="${n ? "" : "z"}" style="--h:${Math.max(8, Math.round((n / smax) * 100))}%"></i>`).join("");
+		const hud = `<div class="lf-hud tl ${I.cls}" tabindex="0" data-tip-title="${esc(t(I.label))}" data-tip="${esc(t("Eventos de esta ejecución que llegaron a esta pestaña por el stream en vivo en el último minuto, y hace cuánto llegó el último. Terminada o sin eventos, nunca dice activa."))}">
+				<span>${esc(t("INGESTA"))}</span><b><i class="lf-dot" aria-hidden="true"></i>${esc(t(I.label))}</b><small>${esc(t("{n} eventos/min", { n: ing.perMin }))} · ${esc(ago)}</small>
+				<span class="lf-bars" aria-hidden="true">${bars}</span></div>
+			<div class="lf-hud tr" tabindex="0" data-tip="${esc(t("Tests terminados de los planificados (o de los iniciados, si el cliente no dice cuántos hay)."))}">
+				<span>${esc(t("PROGRESO"))}</span><b>${p.pct}%</b><small>${esc(p.known ? t("{d} de {n} tests", { d: e.done, n: e.planned }) : t("{d} terminados de {n} iniciados", { d: e.done, n: e.total }))}</small></div>
+			${top ? `<button type="button" class="lf-hud bl bad" data-live-facet="error" data-v="${esc(top.sig)}" data-tip-title="${esc(t("Anomalía dominante"))}" data-tip="${esc(`${top.sig}\n${t("Clic: ver solo los tests con este error.")}`)}">
+				<span>${esc(t("ANOMALÍA"))}</span><b data-no-i18n>${esc(top.sig.length > 34 ? top.sig.slice(0, 33) + "…" : top.sig)}</b><small>${esc(t("{n} tests · {f} archivos", { n: top.count, f: top.files.length }))}</small></button>`
+				: `<div class="lf-hud bl ok"><span>${esc(t("ANOMALÍA"))}</span><b>${esc(t("Sin fallos"))}</b><small>${esc(t("nada que agrupar"))}</small></div>`}
+			<div class="lf-hud br" tabindex="0" data-tip="${esc(t("Carriles con un test corriendo ahora, del total de carriles de la ejecución."))}">
+				<span>${esc(t("CARRILES"))}</span><b>${active} / ${g.lanes.length}</b><small>${esc(t("activos"))}</small></div>
+			<div class="lf-core" aria-hidden="true"><span>${esc(t("EJECUCIÓN"))}</span><b>${p.pct}<small>%</small></b><small data-no-i18n>${esc(e.commit ? e.commit.slice(0, 7) : String(e.title || "").slice(-12))}</small></div>`;
+		const verb = { start: t("empezó"), no_signal: t("dejó de enviar"), FAIL: t("falló"), INTERRUPTED: t("se interrumpió"), WARNING: t("warning"), PASS: t("pasó"), SKIP: t("se saltó") };
+		const sig = events(tests, 7).map((x) => {
+			const st = x.kind === "start" ? stateOf("running") : stateOf(x.kind);
+			return `<li><button type="button" class="lf-sig ${st.cls}" data-live-test="${x.test.id}" data-live-run="${x.test.run_id}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura)."))}">
+				<small>${esc(h.clock(x.at, true))}</small><i aria-hidden="true"></i><span data-no-i18n>${esc(x.test.name)}</span><em>${esc(verb[x.kind] || x.kind)}</em></button></li>`;
+		}).join("");
+		const max = Math.max(1, ...errs.slice(0, 3).map((x) => x.count));
+		const pressure = errs.length ? errs.slice(0, 3).map((x) => `<button type="button" class="lf-pr" data-live-facet="error" data-v="${esc(x.sig)}" data-tip-title="${esc(x.sig)}" data-tip="${esc(t("Clic: ver solo los tests con este error."))}">
+				<b data-no-i18n>${esc(x.sig.replace(/^(\w+(?:Error|Exception)).*/, "$1").slice(0, 16))}</b><i style="--bar:${((x.count / max) * 100).toFixed(0)}%"></i><em>${x.count}</em></button>`).join("")
+			: `<p class="m-hint">${esc(t("Sin fallos por ahora."))}</p>`;
+		return `<div class="lf">
+			<div class="lf-lanes" aria-label="${esc(t("Canales"))}">${lanes}</div>
+			<div class="lf-stage">${hud}${ui.paused ? `<div class="lf-pausebar" role="status">${icon("i-pause")}<b>${esc(t("EN PAUSA"))}</b><span>${esc(t("la ingesta sigue:"))} <b data-live-pausecount>${data.pausedNew || 0}</b> ${esc(t("eventos nuevos"))}</span>
+				<button type="button" class="cf-btn cf-btn-sm" data-live-pause aria-pressed="true" data-tip="${esc(t("Vuelve a actualizar la vista con lo que llegó mientras estaba en pausa."))}">${icon("i-play")}${esc(t("Reanudar"))}</button></div>` : ""}<div class="lf-slot" data-live-field></div><div class="lf-foot" aria-hidden="true"><span>${esc(t("INGESTA → CORRELACIÓN → TRIAGE"))}</span><span>${esc(t("↑ comienzo · sentido horario"))}</span></div></div>
+			<div class="lf-side"><h6>${esc(t("Últimas señales"))}</h6><ol class="lf-sigs">${sig}</ol><h6>${esc(t("Presión de errores"))}</h6><div class="lf-press">${pressure}</div></div></div>`;
+	}
+
 	// ---------- dibujo ----------
 
 	/** Lo que hace cada forma de agrupar, para el control y la línea de estado. */
@@ -797,11 +864,12 @@
 		const evVerb = { start: t("empezó"), no_signal: t("dejó de enviar"), FAIL: t("falló"), INTERRUPTED: t("se interrumpió"), WARNING: t("terminó con warning"), PASS: t("pasó"), SKIP: t("se saltó") };
 		const tapeItem = (x) => {
 			const st = x.kind === "start" ? stateOf("running") : stateOf(x.kind);
-			return `<span class="tp-i ${st.cls}"><small>${esc(h.clock(x.at, true))}</small>${icon(st.icon)}<b data-no-i18n>${esc(x.test.name)}</b>${esc(evVerb[x.kind] || x.kind)}</span>`;
+			// cada evento de la cinta abre su test (como una fila); la copia duplicada del bucle no se enfoca
+			return `<button type="button" class="tp-i ${st.cls}" data-live-test="${x.test.id}" data-live-run="${x.test.run_id}" data-tip-title="${esc(x.test.name)}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura)."))}"><small>${esc(h.clock(x.at, true))}</small>${icon(st.icon)}<b data-no-i18n>${esc(x.test.name)}</b>${esc(evVerb[x.kind] || x.kind)}</button>`;
 		};
 		const tapeHTML = tape.length ? `<div class="live-tape" data-live-tape data-tip="${esc(t("Lo último que pasó en la ejecución, en vivo. Pasa el mouse para detenerla; el detalle está en Actividad reciente."))}">
 			<span class="tp-tag ${e.running ? "on" : ""}">${e.running ? `<i class="live-dot on" aria-hidden="true"></i>${esc(t("EN VIVO"))}` : esc(t("ÚLTIMOS"))}</span>
-			<div class="tp-win"><div class="tp-track" data-live-tape-track>${tape.map(tapeItem).join("")}<span class="tp-dup" aria-hidden="true">${tape.map(tapeItem).join("")}</span></div></div></div>` : "";
+			<div class="tp-win"><div class="tp-track" data-live-tape-track>${tape.map(tapeItem).join("")}<span class="tp-dup" aria-hidden="true" inert>${tape.map(tapeItem).join("")}</span></div></div></div>` : "";
 
 		// (1) cabecera: ejecución, estado, meta, reloj, cancelar; tiles con la mezcla de estados
 		const p = progress(e);
@@ -827,7 +895,9 @@
 			<div class="live-title">${selector}
 				${e.running ? `<span class="live-badge on" data-tip="${esc(t("La ejecución sigue recibiendo resultados; la vista se actualiza sola."))}">${icon("i-st-running")}${esc(t("EN CURSO"))}</span>` : `<span class="live-badge">${esc(t("Terminada"))}</span>`}
 				<h3 data-no-i18n>${esc(e.title)}</h3><span class="live-meta">${meta}${meta ? " · " : ""}${extra}</span>
-				<span class="live-clock" data-live-clock data-tip="${esc(t("La hora, para leer los tiempos de la vista."))}">${esc(h.clock(Date.now(), true))}</span>${cancel}</div>
+				<span class="live-clock" data-live-clock data-tip="${esc(t("La hora, para leer los tiempos de la vista."))}">${esc(h.clock(Date.now(), true))}</span>
+				<button type="button" class="cf-btn cf-btn-sm live-pause ${ui.paused ? "on" : ""}" data-live-pause aria-pressed="${!!ui.paused}" data-tip="${esc(ui.paused ? t("Vuelve a actualizar la vista con lo que llegó mientras estaba en pausa.") : t("Congela toda la vista para leer con calma; los datos siguen llegando al servidor."))}" data-tip-keys="${esc(t("Espacio en el campo"))}">${icon(ui.paused ? "i-play" : "i-pause")}${esc(ui.paused ? t("Reanudar") : t("Pausar"))}</button>${cancel}
+				${ui.paused ? `<p class="live-paused" role="status">${icon("i-pause")}${esc(t("En pausa: la vista no se actualiza. Los datos siguen llegando al servidor."))}</p>` : ""}</div>
 			<div class="live-tiles">
 				<div class="live-tile live-prog" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${p.pct}" aria-label="${esc(t("Progreso"))}">
 					<span class="live-prog-l">${esc(t("Progreso"))}${p.eta ? ` · <span data-tip="${esc(t("Tiempo estimado para terminar, según el ritmo de los últimos minutos y los tests que faltan."))}">${esc(t("ETA {t}", { t: fmtDur(p.eta) }))}</span>` : ""}</span>
@@ -848,9 +918,7 @@
 			<span class="lf-lbl">${esc(t("Agrupar por"))}</span>${groupSeg}
 			${activeChips(ui, h)}
 			<span class="live-spacer"></span>
-			<button type="button" class="cf-btn cf-btn-sm live-pause ${ui.paused ? "on" : ""}" data-live-pause aria-pressed="${!!ui.paused}" data-tip="${esc(ui.paused ? t("Vuelve a actualizar la vista con lo que llegó mientras estaba en pausa.") : t("Congela la vista para leer con calma; los datos siguen llegando al servidor."))}">${icon(ui.paused ? "i-play" : "i-pause")}${esc(ui.paused ? t("Reanudar") : t("Pausar"))}</button>
 			<span class="live-qw">${icon("i-search")}<input type="search" class="live-q" data-live-q value="${esc(ui.q)}" placeholder="${esc(t("Buscar test, archivo o paso…"))}" aria-label="${esc(t("Buscar"))}" aria-keyshortcuts="/"><kbd aria-hidden="true" data-tip="${esc(t("Atajo: / para buscar, Esc para limpiar"))}">/</kbd></span>
-			${ui.paused ? `<p class="live-paused" role="status">${icon("i-pause")}${esc(t("En pausa: la vista no se actualiza. Los datos siguen llegando al servidor."))}</p>` : ""}
 			<i class="live-busybar" aria-hidden="true"></i></div>`;
 
 		// lo que muestra la tabla; con un filtro elegido (tile, faceta o búsqueda) el Gantt y el mapa atenúan el resto
@@ -873,10 +941,16 @@
 			const tip = `${t(st.label)} · ${fmtDur(x.elapsed)}${x.p50 && x.factor ? ` · ×${x.factor.toFixed(1)} ${t("de lo normal")}` : ""}\n${x.file}`;
 			return `<button type="button" class="hm-c ${st.cls}${off ? " dim" : ""}${data.panel?.id === x.id ? " sel" : ""}" data-live-test="${x.id}" data-live-run="${x.run_id}" data-tip-title="${esc(x.name)}" data-tip="${esc(tip)}" aria-label="${esc(`${x.name} · ${tip.replace(/\n/g, " · ")}`)}"></button>`;
 		};
-		const map = tests.length ? `<section class="card live-map" aria-label="${esc(t("Mapa de la ejecución"))}">
-			<header class="lp-h"><h6>${esc(t("Mapa de la ejecución"))}</h6><span class="m-hint">${esc(t("un cuadro por test, en el orden en que empezaron"))}</span><span class="live-spacer"></span>
-				<span class="hm-legend">${["PASS", "WARNING", "FAIL", "turtle", "no_signal", "running"].filter((k) => e.counts[k]).map((k) => `<span class="${stateOf(k).cls}" data-tip="${esc(stTip(stateOf(k)))}"><i></i>${esc(t(stateOf(k).label))}</span>`).join("")}${hm.pending ? `<span class="pending" data-tip="${esc(t("Tests planificados que todavía no empiezan."))}"><i></i>${esc(t("Pendiente"))}</span>` : ""}</span></header>
-			<div class="hm-grid">${hm.tests.map(cell).join("")}${hm.pending ? `<span class="hm-c pending" aria-hidden="true"></span>`.repeat(hm.pending) : ""}</div></section>` : "";
+		const legend = `<span class="hm-legend">${["PASS", "WARNING", "FAIL", "turtle", "no_signal", "running"].filter((k) => e.counts[k]).map((k) => `<span class="${stateOf(k).cls}" data-tip="${esc(stTip(stateOf(k)))}"><i></i>${esc(t(stateOf(k).label))}</span>`).join("")}${hm.pending ? `<span class="pending" data-tip="${esc(t("Tests planificados que todavía no empiezan."))}"><i></i>${esc(t("Pendiente"))}</span>` : ""}</span>`;
+		const grid = `<div class="hm-grid">${hm.tests.map(cell).join("")}${hm.pending ? `<span class="hm-c pending" aria-hidden="true"></span>`.repeat(hm.pending) : ""}</div>`;
+		const view = ui.fieldView === "grid" ? "grid" : "field";
+		const tabs = `<div class="seg seg-sm" role="radiogroup" aria-label="${esc(t("Vista del mapa"))}" data-seg="field"><span class="seg-thumb" aria-hidden="true"></span>
+			<button type="button" role="radio" class="seg-o ${view === "field" ? "on" : ""}" data-live-fieldview="field" aria-checked="${view === "field"}" data-tip-title="${esc(t("Campo"))}" data-tip="${esc(t("La ejecución como un reloj: el ángulo es el tiempo y cada anillo un worker o proceso. Cada arco es un test; clic para abrirlo."))}">${icon("i-orbit")}<span>${esc(t("Campo"))}</span></button>
+			<button type="button" role="radio" class="seg-o ${view === "grid" ? "on" : ""}" data-live-fieldview="grid" aria-checked="${view === "grid"}" data-tip-title="${esc(t("Cuadrícula"))}" data-tip="${esc(t("Un cuadro por test, en el orden en que empezaron. La misma información, más compacta y navegable con Tab."))}">${icon("i-grid")}<span>${esc(t("Cuadrícula"))}</span></button></div>`;
+		const map = tests.length ? `<section class="card live-map ${view === "field" ? "is-field" : ""}" aria-label="${esc(t("Mapa de la ejecución"))}">
+			<header class="lp-h"><h6>${esc(t("Mapa de la ejecución"))}</h6><span class="m-hint">${esc(view === "field" ? t("el tiempo en círculo: arriba el comienzo, la aguja roja es ahora") : t("un cuadro por test, en el orden en que empezaron"))}</span><span class="live-spacer"></span>
+				${legend}${tabs}</header>
+			${view === "field" ? fieldHTML(e, tests, data, ui, now, h, g) : grid}</section>` : "";
 
 		// (3) línea de tiempo: minimapa con el recuadro del zoom, carriles con las pausas comprimidas y "ahora"
 		let gantt = "";
@@ -993,7 +1067,8 @@
 			<p class="m-hint lt-foot">${icon("i-st-turtle")}<span>${esc(t("Tortuga: más lento que su p90 (o el doble de su mediana) en sus ejecuciones anteriores. Sin señal: nada del test hace {n} min.", { n: Math.round((data.no_signal_ms || 180000) / 60000 * 10) / 10 }))}</span></p></div>`;
 
 		const explore = `<div class="live-explore">${facetsHTML(tests, ui, h)}${table}</div>`;
-		return `${head}${filters}${status}${attentionHTML(tests, data, ui, h)}${map}${insightsHTML(e, tests, data, ui, now, h)}${chartsHTML(e, data, ui, now, h)}${gantt}${explore}${panelHTML(data.panel, tests, h, now)}`;
+		// Mostrar, Agrupar por y Buscar son de la tabla (y sus facetas): van pegados a ella, con su línea de estado
+		return `${head}${attentionHTML(tests, data, ui, h)}${map}${insightsHTML(e, tests, data, ui, now, h)}${chartsHTML(e, data, ui, now, h)}${gantt}<div class="live-tablebar">${filters}${status}</div>${explore}${panelHTML(data.panel, tests, h, now)}`;
 	}
 
 	/**
@@ -1192,7 +1267,7 @@
 			<a class="cf-btn cf-btn-primary" href="#run=${live?.run_id || full?.run_id}&view=tests&test=${panel.id}">${esc(t("Abrir el test"))}</a></aside>`;
 	}
 
-	window.TraceReportsLive = { STATES, PROBLEM, AUTO_PROBLEMS, GROUPS, fmtDur, timeScale, scaleTicks, splitName, sparkline, heatCells, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,
+	window.TraceReportsLive = { STATES, PROBLEM, AUTO_PROBLEMS, GROUPS, INGEST, fieldHTML, fmtDur, timeScale, scaleTicks, splitName, sparkline, heatCells, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,
 		zoomStep, problemsOn, filterTests, groupTests, progress, mix, percentile, health, errorSignature, errorGroups, slowest, events, anomalies,
 		facets, sortTests, endpointOf, traceLayout, timeBuckets, resultsOverTime, failRateOverTime, durationHistogram, ago, freshness, render };
 })();

@@ -6,6 +6,37 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added (Live: the execution field, an observability console)
+
+- **Execution field**: the execution as a torus of particles that reads like a clock, and every bright
+  particle is a real test. The angle is time (start on top, clockwise, pauses compressed) and each worker or
+  process is one turn around the tube; the particle sits where the test ended (or where it is, on the "now"
+  hand), grows with how slow it was against normal, and failures glow. The tube turns slowly on itself (time
+  never moves) and stops under the mouse so a particle is easy to hit: hover shows it with its trail, a click
+  or Enter opens its detail panel, the arrow keys walk the tests. The rays around it are how many tests ran at
+  each moment, colored by how the ones that ended there finished; the faint dust only gives the torus volume
+  and is not clickable. Around it: channels (tests, failures, network, workers) that filter or group, the
+  real ingestion (events of this execution received through `/api/v1/stream`, with the last minute in 5 s
+  bars; "active" only then, never for a finished or silent execution), progress, the dominant anomaly
+  (filters by its error signature), latest signals and error pressure. Each stream event fires a pulse from
+  its channel to its test. One canvas that survives the view's redraws, at 30 fps at most, stopped
+  off-screen, with "Pause", and static with `prefers-reduced-motion`. The grid of squares stays as the
+  alternative view.
+- **The field can be handled**: drag to rotate and tilt the torus, Shift + drag to move it, zoom with the
+  buttons, the keys or the wheel (Ctrl + wheel in the page, the plain wheel in full screen), full screen with
+  F (Esc returns), Reset (0) back to the usual view. A double click on a particle opens its test; a click
+  keeps opening the side panel. The ticker events at the top open their test too (the ticker stops under the
+  mouse).
+- **Pause from the field**: "Pause view" (or Space) freezes the field and the data to look into something,
+  while ingestion goes on in the server: the field says "PAUSED · ingestion goes on: N new events", the count
+  rises live, and "Resume (+N)" catches up.
+- **"Another execution started" for every file of the same execution**: runs did not carry their
+  `execution_id` in `/api/v1/runs` and `/api/v1/runs/{id}` (only Live read it), so a launcher that opens a run
+  per file triggered the notice with each file, covering the screen. Runs now carry `execution_id` and
+  `planned`, and the notice only fires for a different execution.
+- **The exported report carried a fixed list of files**: a script added to the interface would be missing
+  from the ZIP. A test now checks that every script and stylesheet `index.html` loads is exported.
+
 ### Changed (client feedback, 09-11, run 1084: the Live view)
 
 - **Visible answer to every click**: "All / With problems" and "Group by" were loose chips and buttons that

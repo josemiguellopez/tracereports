@@ -72,6 +72,9 @@ test("En vivo: progreso, carriles por worker, sin señal primero y el último pa
 	await request.post(`/api/v1/tests/${alive}/logs`, { data: { status: "PASS", message: "agenda filtrada" } });
 	await request.patch(`/api/v1/tests/${alive}/finish`, { data: { status: "PASS" } });
 	await expect(view.locator(`tr[data-live-test="${alive}"] .lt-state`)).toHaveText("Pass");
+	// la ingesta del campo es la real: los eventos de esta ejecución que llegaron por el stream
+	await expect(view.locator(".lf-hud.tl")).toContainText("INGESTA ACTIVA");
+	await expect(view.locator(".lf-hud.tl")).toContainText(/[1-9]\d* eventos\/min/);
 	await expect(view.locator(".live-pct")).toContainText("2 de 5 tests");
 	await expect(view.locator(".live-hero b")).toHaveText("40"); // el número protagonista cuenta hasta el nuevo valor
 

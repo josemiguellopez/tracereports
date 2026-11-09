@@ -2263,3 +2263,156 @@ tr.lt-new > td { animation: lt-in 220ms var(--mo-ease) both; }
 @media (max-width: 900px) { .live-clock { display: none; } .lf-lbl { display: none; } }
 @media (max-width: 640px) { .seg { width: 100%; } .seg-o { flex: 1; justify-content: center; padding: 4px 6px; } .hm-grid { grid-template-columns: repeat(auto-fill, minmax(11px, 1fr)); } }
 @media (prefers-reduced-motion: reduce) { .seg-thumb { transition: none; } .tp-track { transform: none !important; } }
+
+/* ===== En vivo: el campo de la ejecución (consola de observabilidad). Con los tokens del tema: se ve
+   en todos los temas; lo "de consola" es la retícula, el HUD en mono y los canales con su barra. ===== */
+.live-map.is-field { padding-bottom: 10px; }
+.seg-sm .seg-o { min-height: 26px; padding: 2px 9px; font-size: 12px; }
+.live-map .lp-h .hm-legend { margin-right: 6px; }
+.lf { display: grid; grid-template-columns: 178px minmax(0, 1fr) 236px; gap: 10px; min-height: 420px; }
+/* canales: tests, fallos, red, workers (cada uno filtra o lleva a su parte) */
+.lf-lanes { display: grid; gap: 8px; align-content: stretch; }
+.lf-lane { position: relative; display: grid; align-content: center; gap: 1px; padding: 8px 12px 10px 14px; text-align: left; cursor: pointer;
+	border: 1px solid var(--color-border); border-left: 3px solid var(--lane, var(--color-success)); border-radius: 6px; font: inherit; color: var(--color-text);
+	background: linear-gradient(90deg, color-mix(in srgb, var(--lane, var(--color-success)) 10%, var(--color-surface)), var(--color-surface) 70%);
+	transition: transform 120ms var(--live-spring), box-shadow var(--mo-fast); overflow: hidden; }
+.lf-lane:hover { transform: translateX(2px); box-shadow: 0 4px 16px -8px var(--lane); }
+.lf-lane:active { transform: scale(.98); }
+.lf-lane:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 2px; }
+.lf-lane > span { font: 600 10px var(--font-mono); letter-spacing: .1em; color: var(--color-text-muted); }
+.lf-lane > b { font: 700 24px/1.1 var(--font-mono); color: var(--lane); font-variant-numeric: tabular-nums; }
+.lf-lane > b small { font-size: 13px; color: var(--color-text-muted); }
+.lf-lane > small { font-size: 11.5px; color: var(--color-text-muted); }
+.lf-lane.pass { --lane: var(--color-success); } .lf-lane.fail { --lane: var(--color-danger); }
+.lf-lane.net { --lane: var(--color-info); } .lf-lane.work { --lane: var(--color-warning); }
+/* la barra de cada canal "fluye" hacia el campo: la ingesta, a la vista */
+.lf-flow { position: absolute; left: 14px; right: 12px; bottom: 5px; height: 2px; border-radius: 2px;
+	background: linear-gradient(90deg, transparent, var(--lane) 50%, transparent) 0 0 / 40% 100% no-repeat, color-mix(in srgb, var(--lane) 18%, transparent);
+	animation: lf-flow 2.2s linear infinite; }
+@keyframes lf-flow { from { background-position: -40% 0, 0 0; } to { background-position: 140% 0, 0 0; } }
+/* el escenario: retícula tenue, el anillo (canvas), el HUD en las esquinas y el núcleo */
+.lf-stage { position: relative; min-height: 420px; border: 1px solid var(--color-border); border-radius: 8px; overflow: hidden;
+	background:
+		radial-gradient(ellipse at 50% 52%, color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 62%),
+		linear-gradient(var(--color-border) 1px, transparent 1px) 0 0 / 100% 32px,
+		linear-gradient(90deg, var(--color-border) 1px, transparent 1px) 0 0 / 32px 100%,
+		var(--color-surface-raised);
+	background-blend-mode: normal; }
+.lf-stage::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, var(--color-surface-raised) 85%); pointer-events: none; }
+.lf-slot { position: absolute; inset: 0; z-index: 3; } /* encima del núcleo: el tooltip del campo nunca queda tapado */
+.lf-wrap { position: absolute; inset: 0; }
+.lf-canvas { display: block; width: 100%; height: 100%; outline: none; }
+.lf-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--color-focus); }
+.lf-tip { position: absolute; z-index: 5; max-width: 300px; padding: 7px 10px; border-radius: 8px; pointer-events: none; white-space: pre-line;
+	background: var(--color-tooltip-bg, #111); color: var(--color-tooltip-text, #fff); font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
+.lf-tip b { display: block; font-size: 12.5px; margin-bottom: 2px; overflow-wrap: anywhere; }
+.lf-hud { position: absolute; z-index: 4; display: grid; gap: 1px; padding: 6px 9px; min-width: 128px; max-width: 46%; text-align: left;
+	border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent); border-radius: 6px; font: inherit; color: var(--color-text);
+	background: color-mix(in srgb, var(--color-surface) 82%, transparent); backdrop-filter: blur(4px); }
+.lf-hud.tl { top: 10px; left: 10px; } .lf-hud.tr { top: 10px; right: 10px; text-align: right; }
+.lf-hud.bl { bottom: 50px; left: 10px; } .lf-hud.br { bottom: 50px; right: 10px; text-align: right; }
+.lf-hud > span { font: 600 9.5px var(--font-mono); letter-spacing: .12em; color: var(--color-text-muted); }
+.lf-hud > b { display: flex; align-items: center; gap: 6px; font: 700 13px var(--font-mono); letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-hud.tr > b, .lf-hud.br > b { justify-content: flex-end; }
+.lf-hud > small { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lf-hud.ok > b { color: var(--color-success); } .lf-hud.warn > b { color: var(--color-warning); }
+.lf-hud.bad > b { color: var(--color-danger); } .lf-hud.done > b { color: var(--color-text-muted); }
+button.lf-hud { cursor: pointer; } button.lf-hud:hover { border-color: var(--color-danger); }
+.lf-hud:focus-visible { outline: 2px solid var(--color-focus); }
+.lf-dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.lf-hud.ok .lf-dot { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-success) 60%, transparent); animation: ls-ping 1.6s ease-out infinite; }
+.lf-core { position: absolute; z-index: 2; left: 50%; top: 50%; transform: translate(-50%, -50%); display: grid; justify-items: center; gap: 0; padding: 8px 14px;
+	border: 1px solid var(--color-border); border-radius: 10px; background: color-mix(in srgb, var(--color-surface) 88%, transparent); pointer-events: none; }
+.lf-core > span { font: 600 9px var(--font-mono); letter-spacing: .14em; color: var(--color-text-muted); }
+.lf-core > b { font: 700 28px/1.05 var(--font-mono); color: var(--color-text); font-variant-numeric: tabular-nums; }
+.lf-core > b small { font-size: 14px; color: var(--color-text-muted); }
+.lf-core > small { font: 11px var(--font-mono); color: var(--color-text-muted); }
+.lf-foot { position: absolute; z-index: 4; left: 10px; right: 10px; bottom: 8px; display: flex; justify-content: space-between; gap: 10px;
+	font: 600 9.5px var(--font-mono); letter-spacing: .1em; color: var(--color-text-muted); pointer-events: none; }
+/* señales y presión de errores */
+.lf-side { display: grid; align-content: start; gap: 6px; min-width: 0; }
+.lf-side h6 { margin: 2px 0 0; font: 600 10.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--color-text-muted); }
+.lf-sigs { list-style: none; margin: 0; padding: 0; display: grid; gap: 1px; }
+.lf-sig { display: grid; grid-template-columns: auto 8px minmax(0, 1fr) auto; align-items: center; gap: 6px; width: 100%; padding: 4px 6px; border: 0; border-radius: 4px;
+	background: transparent; color: var(--color-text); font: inherit; font-size: 12px; text-align: left; cursor: pointer; }
+.lf-sig:hover { background: var(--color-surface-hover); }
+.lf-sig:focus-visible { outline: 2px solid var(--color-focus); }
+.lf-sig small { font: 10.5px var(--font-mono); color: var(--color-text-muted); }
+.lf-sig i { width: 7px; height: 7px; border-radius: 50%; background: var(--color-success); }
+.lf-sig.fail i, .lf-sig.nosig i, .lf-sig.interrupted i { background: var(--color-danger); } .lf-sig.warning i, .lf-sig.turtle i { background: var(--color-warning); }
+.lf-sig.running i { background: var(--color-info); }
+.lf-sig span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: 11.5px; }
+.lf-sig em { font-style: normal; font-size: 11px; color: var(--color-text-muted); }
+.lf-press { display: grid; gap: 4px; }
+.lf-pr { display: grid; grid-template-columns: 74px minmax(0, 1fr) 28px; align-items: center; gap: 8px; padding: 3px 4px; border: 0; border-radius: 4px; background: transparent;
+	color: var(--color-text); font: inherit; cursor: pointer; text-align: left; }
+.lf-pr:hover { background: var(--color-surface-hover); }
+.lf-pr:focus-visible { outline: 2px solid var(--color-focus); }
+.lf-pr b { font: 600 10.5px var(--font-mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-pr i { height: 5px; border-radius: 3px; background: linear-gradient(90deg, var(--color-danger) var(--bar), color-mix(in srgb, var(--color-danger) 15%, transparent) var(--bar)); }
+.lf-pr em { font: 600 11px var(--font-mono); font-style: normal; text-align: right; color: var(--color-danger); }
+@media (max-width: 1200px) { .lf { grid-template-columns: 150px minmax(0, 1fr); } .lf-side { grid-column: 1 / -1; grid-template-columns: 1fr 1fr; } }
+@media (max-width: 760px) { .lf { grid-template-columns: minmax(0, 1fr); } .lf-lanes { grid-template-columns: repeat(2, 1fr); } .lf-stage { min-height: 380px; } .lf-side { grid-template-columns: minmax(0, 1fr); } .lf-hud { min-width: 0; } .lf-hud.bl, .lf-hud.br { bottom: 48px; } }
+@media (prefers-reduced-motion: reduce) { .lf-flow, .lf-hud.ok .lf-dot { animation: none; } }
+/* la ingesta del último minuto en el HUD: barras en tramos de 5 s */
+.lf-bars { display: flex; align-items: flex-end; gap: 2px; height: 16px; margin-top: 3px; }
+.lf-bars i { flex: 1; height: var(--h); min-height: 2px; border-radius: 1px; background: currentColor; opacity: .85; transition: height var(--mo-med) var(--mo-ease); }
+.lf-hud.ok .lf-bars { color: var(--color-success); } .lf-hud.warn .lf-bars, .lf-hud.done .lf-bars, .lf-hud.bad .lf-bars { color: var(--color-text-muted); }
+.lf-bars i.z { opacity: .25; }
+.lf-hud.ok .lf-bars i:last-child { animation: hm-run 1.4s ease-in-out infinite; }
+
+/* el campo se manipula: girar, inclinar, mover, acercar, pantalla completa; y la pausa con lo que sigue llegando */
+.tp-i { border: 0; background: transparent; font: inherit; cursor: pointer; border-radius: 4px; padding: 1px 6px; margin-right: 12px; }
+.tp-i:hover { background: var(--color-surface-hover); color: var(--color-text); }
+.tp-i:focus-visible { outline: 2px solid var(--color-focus); }
+.tp-i::after { margin-left: 12px; }
+.lf-canvas { cursor: grab; touch-action: none; }
+.lf-dragging .lf-canvas { cursor: grabbing; }
+.lf-ctrl { position: absolute; z-index: 6; left: 50%; bottom: 8px; transform: translateX(-50%); display: flex; gap: 2px; padding: 3px;
+	border: 1px solid var(--color-border); border-radius: 10px; background: color-mix(in srgb, var(--color-surface) 86%, transparent); backdrop-filter: blur(6px);
+	box-shadow: 0 6px 20px -10px rgba(0,0,0,.5); opacity: .55; transition: opacity var(--mo-fast); }
+.lf-wrap:hover .lf-ctrl, .lf-ctrl:focus-within, .lf-full .lf-ctrl, .lf-paused .lf-ctrl { opacity: 1; }
+.lf-cb { display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 8px; border: 0; border-radius: 7px; background: transparent;
+	color: var(--color-text); font: inherit; font-size: 12px; cursor: pointer; transition: background var(--mo-fast), transform 120ms var(--live-spring); }
+.lf-cb svg { width: 14px; height: 14px; }
+.lf-cb span { white-space: nowrap; }
+.lf-cb[data-lf="in"] span, .lf-cb[data-lf="out"] span, .lf-cb[data-lf="reset"] span { display: none; }
+.lf-foot { display: none; } /* la ayuda al pasar el mouse dice lo mismo, y el borde de abajo es de los controles */
+.lf-cb:hover { background: var(--color-surface-hover); }
+.lf-cb:active { transform: scale(.94); }
+.lf-cb:focus-visible { outline: 2px solid var(--color-focus); }
+.lf-cb.on { background: color-mix(in srgb, var(--color-warning) 22%, transparent); color: var(--color-warning); font-weight: 600; }
+.lf-help { position: absolute; z-index: 5; left: 50%; bottom: 46px; transform: translateX(-50%); padding: 3px 9px; border-radius: 6px; white-space: nowrap;
+	font: 11px var(--font-mono); color: var(--color-text-muted); background: color-mix(in srgb, var(--color-surface) 80%, transparent); pointer-events: none;
+	opacity: 0; transition: opacity var(--mo-med); }
+.lf-wrap:hover .lf-help { opacity: 1; }
+.lf-dragging .lf-help { opacity: 0; }
+/* en pausa: el campo quieto, un poco apagado, y el aviso de lo que sigue llegando */
+.lf-paused .lf-canvas { filter: saturate(.7); }
+.lf-pausebar { position: absolute; z-index: 7; top: 10px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 5px 6px 5px 10px;
+	border: 1px solid var(--color-warning); border-radius: 999px; background: color-mix(in srgb, var(--color-surface) 92%, transparent); font-size: 12px;
+	box-shadow: 0 6px 18px -10px var(--color-warning); animation: live-rise 220ms var(--mo-ease) both; white-space: nowrap; }
+.lf-pausebar > svg { width: 14px; height: 14px; color: var(--color-warning); }
+.lf-pausebar > b { font: 700 11px var(--font-mono); letter-spacing: .1em; color: var(--color-warning); }
+.lf-pausebar span b { font-family: var(--font-mono); color: var(--color-text); }
+/* pantalla completa: el mismo canvas, arriba de todo; el detalle del test se abre encima */
+.lf-wrap.lf-full { position: fixed; inset: 0; z-index: 9000; background:
+	radial-gradient(ellipse at 50% 50%, color-mix(in srgb, var(--color-primary) 14%, transparent), transparent 65%),
+	linear-gradient(var(--color-border) 1px, transparent 1px) 0 0 / 100% 40px, linear-gradient(90deg, var(--color-border) 1px, transparent 1px) 0 0 / 40px 100%,
+	var(--color-bg, var(--color-surface)); animation: live-fade 200ms ease-out; }
+.lf-full .lf-ctrl { bottom: 24px; }
+.lf-full .lf-help { bottom: 62px; }
+.lf-full .lf-help { opacity: 1; }
+.lf-fullhead { position: absolute; z-index: 6; top: 16px; left: 20px; right: 20px; font: 600 12px var(--font-mono); letter-spacing: .08em; color: var(--color-text-muted);
+	text-transform: uppercase; pointer-events: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lf-fullhead::before { content: ""; display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: var(--color-primary); vertical-align: 1px; }
+body.lf-full-open { overflow: hidden; }
+body.lf-full-open .live-panel { z-index: 9100; }
+body.lf-full-open #cf-tooltip { z-index: 9200; }
+@media (max-width: 760px) { .lf-cb span { display: none; } .lf-help { display: none; } }
+@media (prefers-reduced-motion: reduce) { .lf-pausebar, .lf-wrap.lf-full { animation: none; } }
+/* la barra de la tabla: Mostrar, Agrupar por y Buscar, pegados a las facetas y la tabla que filtran */
+.live-tablebar { display: grid; gap: 6px; }
+.live-tablebar .live-status { margin: 0 2px; }
+.live-title .live-pause { margin-left: 0; }
+.live-title .live-paused { flex-basis: 100%; margin: 0; }

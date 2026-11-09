@@ -138,6 +138,9 @@
 		}
 	}
 	function writeHash() {
+		// saliendo de En vivo hacia un test (doble clic en el campo): un refresco de la vista que llega justo
+		// en ese momento no debe volver a escribir su propio enlace encima del del test
+		if (S.view === "live" && Date.now() - (S.leavingLive || 0) < 2000) return;
 		const p = new URLSearchParams();
 		if (S.runId) p.set("run", S.runId);
 		p.set("view", S.view);
@@ -1418,6 +1421,7 @@
 	}
 
 	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
+	S.ingest = [];
 	function liveUI() {
 		return { problems: null, states: [], files: [], workers: [], errors: [], more: {}, sort: null, paused: false,
 			group: "file", q: "", zoom: null, allLanes: false, hideIdle: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", tables: {},
@@ -1518,6 +1522,8 @@
 			if (d("[data-live-resize]")) return; // el borde de la columna no ordena
 			if (d("[data-live-wrap]")) { ui().wrap = !ui().wrap; saveLivePrefs(ui()); return redraw(); }
 			if (d("[data-live-hideidle]")) { ui().hideIdle = !ui().hideIdle; return redraw(); }
+			if ((b = d("[data-live-fieldview]"))) { const v = b.dataset.liveFieldview; return instant(b, () => { ui().fieldView = v; }); }
+			if ((b = d("[data-live-scroll]"))) { el.querySelector(b.dataset.liveScroll)?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); return; }
 			if ((b = d("[data-live-state]"))) {
 				const k = b.dataset.liveState, st = ui().states;
 				b.classList.toggle("on"); b.setAttribute("aria-pressed", String(b.classList.contains("on"))); // el tile responde ya
@@ -1542,8 +1548,7 @@
 				return redraw();
 			}
 			if (d("[data-live-pause]")) {
-				ui().paused = !ui().paused;
-				if (!ui().paused) loadLiveView(true); // al reanudar, se pone al día
+				toggleLivePause();
 				return redraw();
 			}
 			if ((b = d("[data-live-ptab]"))) { L.panel = { ...L.panel, tab: b.dataset.livePtab }; return redraw(); }
@@ -1735,7 +1740,7 @@
 		if (el.querySelector("[data-live-minimap] .lg-brush.drawing, [data-live-resize].drag")) return; // arrastrando: al soltar se dibuja
 		const flip = S.liveView.anim && !S.liveView.anim.first ? flipSnapshot(el) : null;
 		const thumbs = thumbSnapshot(el);
-		const replaced = setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints }, {
+		const replaced = setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints, ingest: liveIngest(), pausedNew: livePausedNew() }, {
 			t, esc, icon, canAct,
 			clock: (ms, secs) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", secs ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" }),
 			// la fecha solo si no es de hoy
@@ -1749,6 +1754,7 @@
 		if (list) list.scrollTop = listTop;
 		if (optFocus) [...el.querySelectorAll(".xp-opt")].find((o) => o.dataset.liveExec === optFocus)?.focus();
 		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
+		syncLiveField(el);
 		if (replaced) {
 			const tr0 = el.querySelector("[data-live-tape-track]");
 			if (tr0 && S.tapeX) tr0.style.transform = `translateX(${-S.tapeX}px)`; // la cinta sigue donde iba
@@ -1857,6 +1863,62 @@
 		clearTimeout(fitTimer);
 		fitTimer = setTimeout(() => { const el = $("#view-live"); if (el && S.view === "live") { fitBars(el); for (const s of el.querySelectorAll(".seg")) placeThumb(s, false); } }, 150);
 	});
+
+	/**
+	 * Pausar la vista: lo que se ve queda quieto para analizar (también el campo), pero la ingesta sigue
+	 * en el servidor; se cuenta lo que llega mientras tanto y al reanudar la vista se pone al día.
+	 */
+	function toggleLivePause() {
+		const L = S.liveView;
+		L.ui.paused = !L.ui.paused;
+		L.ui.pausedAt = L.ui.paused ? Date.now() : 0;
+		if (!L.ui.paused) loadLiveView(true);
+		renderLiveView(); if (S.view === "live") writeHash();
+	}
+	/** Cuántos eventos de la ejecución abierta llegaron desde que se pausó la vista. */
+	function livePausedNew() {
+		const L = S.liveView;
+		if (!L.ui?.paused || !L.exec) return 0;
+		const runs = new Set((L.exec.runs || []).map((r) => r.id));
+		return S.ingest.filter((x) => x.at >= L.ui.pausedAt && runs.has(x.run_id)).length;
+	}
+
+	/** La ingesta de la ejecución abierta: solo los eventos de sus corridas, en el último minuto. */
+	function liveIngest() {
+		const L = S.liveView, F = window.TraceReportsLiveField;
+		if (!F || !L.exec) return null;
+		const runs = new Set((L.exec.runs || []).map((r) => r.id));
+		// el texto cambia a lo sumo cada 5 s (el reloj de "hace X" no redibuja la vista a cada evento)
+		const now = Math.floor(Date.now() / 5000) * 5000;
+		return F.ingestStats(S.ingest.filter((x) => runs.has(x.run_id)), now, { running: !!L.exec.running, connected: S.liveState === "live" });
+	}
+
+	/**
+	 * El campo de la ejecución: un solo canvas (web/livefield.js) que se vuelve a poner en su lugar
+	 * después de cada redibujo, con los datos del momento; así su animación nunca se reinicia.
+	 */
+	function syncLiveField(el) {
+		const L = S.liveView, F = window.TraceReportsLiveField, LIVE = window.TraceReportsLive;
+		const slot = el.querySelector("[data-live-field]");
+		if (!F || !slot || !L.exec) { L.field?.attach(null); return; }
+		const t = window.TraceReportsI18n.t;
+		if (!L.field) L.field = F.create({ t, onPick: (id) => loadLivePanel(id), onPause: toggleLivePause,
+			onOpen: (id, run) => { S.leavingLive = Date.now(); L.panel = null; location.hash = `#run=${run}&view=tests&test=${id}`; } });
+		L.field.attach(slot);
+		const tests = LIVE.allTests(L.exec), shown = LIVE.filterTests(tests, L.ui, LIVE.problemsOn(L.exec, L.ui, LIVE.lanesOf(L.exec, L.now).length));
+		const filtered = (L.ui.states.length || L.ui.files.length || L.ui.workers.length || L.ui.errors.length || (L.ui.q || "").trim()) ? new Set(shown.map((x) => x.id)) : null;
+		const clock = (ms) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+		const ing = liveIngest();
+		L.field.update({
+			exec: L.exec, now: L.now || Date.now(), live: LIVE, match: filtered, selected: L.panel?.id, paused: !!L.ui.paused, pausedNew: livePausedNew(),
+			head: `${L.exec.title} · ${t(LIVE.INGEST[ing?.state || "quiet"].label)} · ${t("{n} eventos/min", { n: ing?.perMin || 0 })}`,
+			aria: t("Campo de la ejecución: {n} tests en {l} carriles. Flechas para recorrerlos, Enter para abrir.", { n: tests.length, l: LIVE.lanesOf(L.exec, L.now).length }),
+			tip: (it) => `${t(LIVE.STATES[it.state]?.label || it.state)} · ${LIVE.fmtDur(it.elapsed)}${it.factor ? ` · ×${it.factor.toFixed(1)} ${t("de lo normal")}` : ""} · ${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ""}
+${it.file}${it.worker ? ` · ${it.worker}` : ""}
+${t("Clic: el detalle · doble clic: abrir el test")}`,
+		});
+		L.field.setMotion(!L.ui.paused);
+	}
 
 	/**
 	 * El indicador de un control segmentado bajo la opción elegida. Con `from` (dónde estaba antes de
@@ -2054,6 +2116,21 @@
 		}
 		if (e.run_id) S.activity[e.run_id] = Date.now();
 		if (["run", "test", "log"].includes(type)) scheduleLiveView(); // En vivo se pone al día (con calma: muchos eventos por segundo)
+		// la ingesta real (para el campo de En vivo): qué llegó, de qué corrida y cuándo; y su pulso
+		const F = window.TraceReportsLiveField, ch = F ? F.channelOf(type, e) : "";
+		if (ch && e.run_id) {
+			const now = Date.now();
+			S.ingest.push({ at: now, kind: ch, run_id: e.run_id, test_id: e.test_id || 0 });
+			if (S.ingest.length > 4000 || S.ingest[0].at < now - 120e3) S.ingest = S.ingest.filter((x) => x.at >= now - 120e3).slice(-3000);
+			const L = S.liveView;
+			if (S.view === "live" && L.field && L.exec?.runs?.some((r) => r.id === e.run_id)) {
+				if (L.ui.paused) {
+					const n = livePausedNew();
+					L.field.setPausedCount(n);
+					for (const c of document.querySelectorAll("#view-live [data-live-pausecount]")) c.textContent = String(n);
+				} else L.field.signal(ch, e.test_id);
+			}
+		}
 		// un resultado nuevo puede ser un cuadro más del historial de cualquier test (ensureHistory)
 		if ((type === "test" && e.data?.action === "finished") || (type === "run" && ["finished", "deleted"].includes(e.data?.action))) S.histGen++;
 		if (type === "run" && e.data?.action === "created") {
@@ -2094,6 +2171,10 @@
 		const r = S.runs.find((x) => x.id === id);
 		if (!r || id === S.runId || S.newRuns.includes(id)) return;
 		if (!S.run) { switchRun(id, { stay: true }).catch(() => {}); return; }
+		// una corrida nueva de la MISMA ejecución (un lanzador que abre una por archivo) no es "otra
+		// ejecución": avisarlo con cada archivo tapaba la pantalla, sobre todo en En vivo
+		const exe = r.execution_id;
+		if (exe && (exe === S.run.execution_id || S.liveView?.exec?.key === `x:${exe}` || S.liveView?.exec?.execution_id === exe)) return;
 		S.newRuns.push(id);
 		S.toastClosed = false; // cada ejecución nueva vuelve a avisar
 		renderNewRuns();

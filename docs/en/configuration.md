@@ -662,8 +662,18 @@ from any client:
 - **Show** (All / With problems) and **Group by** (file, worker, status) are segmented controls: they answer
   in the same frame as the click (the control changes and a thin bar says it is recomputing) and a status
   line says what is shown: "Showing 6 of 234 tests · Only with problems · Grouped by file".
-- **Execution map**: one square per test, in the order they started, colored by status (and the planned ones
-  still to come, empty); a click opens its detail. On top, a **ticker** with the latest events that stops
+- **Execution map**, in two views. **Field** (default): the execution as a torus of particles read like a clock; the angle is time (the start
+  on top, clockwise, with pauses compressed) and each ring a worker or process. Each test is a point where it
+  ended (or where it is, on the red "now" hand), bigger the slower it was, with a thin trail of how long it
+  lasted; failures glow. Hovering shows it, a click (or the arrows and Enter) opens its detail. Around it, the
+  channels (tests, failures, network, workers: each filters or groups), the **real ingestion** (events of this
+  execution that arrived through the stream in the last minute and how long ago the last one; finished or
+  without events it never says "active"), progress, the dominant anomaly (a click filters by its signature),
+  the latest signals and the error pressure. Every incoming event fires a pulse from its channel to its test. The field can be handled: drag rotates and tilts, Shift + drag moves,
+  +/− (or Ctrl + wheel; the wheel in full screen) zooms, F goes full screen (Esc returns), 0 resets the view;
+  a double click on a particle opens the test. **Pause view** (or Space) freezes the field to look into
+  something while ingestion goes on in the server: it counts the events arriving and "Resume (+N)" catches up.
+  **Grid**: one square per test, in the order they started; a click opens its detail. On top, a **ticker** with the latest events that stops
   on hover, and a clock.
 - The **timeline** starts at the first test (not at the start of the execution), marks **now** with a line
   and compresses long pauses with no test running (≈, with how long they lasted). Ctrl + wheel zooms in or

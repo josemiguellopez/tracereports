@@ -68,8 +68,8 @@ test("el enlace con &f=fail abre filtrado (solo el fallo, arriba y abierto); los
 	// otro tile: se combina y queda en el enlace
 	await view.locator('.live-tile[data-live-state="WARNING"]').click();
 	await expect(page).toHaveURL(/[#&]f=fail%2Cwarn(&|$)/);
-	await view.locator("[data-live-all]").click();
-	await expect(view.locator("[data-live-all]")).toHaveAttribute("aria-checked", "true");
+	await view.locator(".seg-o[data-live-all]").click();
+	await expect(view.locator(".seg-o[data-live-all]")).toHaveAttribute("aria-checked", "true");
 	await expect(page).not.toHaveURL(/[#&]f=/);
 	// un chip en 0 se ve, pero no se puede elegir
 	mutate = (e) => { e.counts = { ...e.counts, turtle: 0 }; };
@@ -100,7 +100,7 @@ test("buscar: / enfoca desde cualquier parte, Esc limpia y luego sale sin cerrar
 test("una sola tabla: columnas alineadas entre archivos, Worker, último paso en una línea y stack trace a pedido", async ({ page }) => {
 	await page.setViewportSize({ width: 1366, height: 900 });
 	const view = await open(page);
-	await view.locator("[data-live-all]").click();
+	await view.locator(".seg-o[data-live-all]").click();
 	await view.locator('[data-live-openall="1"]').click();
 	await expect(view.locator("table.live-table")).toHaveCount(1);
 	await expect(view.locator("table.live-table thead th")).toHaveText(["Test", "Estado", "Dura.", "vs normal", "Worker", "Último paso"]);

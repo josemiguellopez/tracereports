@@ -82,7 +82,7 @@ test("todo t(\"…\") de live.js tiene traducción", () => {
 	const used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)+)"/g)].map((m) => m[1]);
 	used.push(...Object.values(L.STATES).map((s) => s.label).filter((s) => !["Pass", "Skip", "Warning"].includes(s)));
 	// iguales en inglés
-	const same = new Set(["Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
+	const same = new Set(["{n}/min", "TESTS", "WORKERS", "warning", "Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
 	assert.ok(used.length > 25);
 	assert.deepEqual([...new Set(used)].filter((s) => !same.has(s) && en.t(s) === s), []);
 });
@@ -513,13 +513,13 @@ test("Mostrar y Agrupar por: controles segmentados con su contador, y la línea 
 	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, group: "worker" } }, h);
 	assert.ok(/<div class="seg" role="radiogroup" aria-label="Mostrar" data-seg="show"><span class="seg-thumb"/.test(html));
 	assert.ok(/<div class="seg" role="radiogroup" aria-label="Agrupar por" data-seg="group">/.test(html));
-	assert.equal((html.match(/role="radio" class="seg-o on"/g) || []).length, 2, "una opción elegida en cada control");
+	assert.equal((html.match(/role="radio" class="seg-o on"/g) || []).length, 3, "una opción elegida en cada control (Mostrar, Agrupar por y la vista del mapa)");
 	assert.ok(/class="seg-o on" data-live-groupby="worker" aria-checked="true" data-tip-title="Agrupar por worker"/.test(html));
 	assert.ok(/<svg data-i="i-cpu"><\/svg><span>Worker<\/span>/.test(html), "con ícono");
 	assert.ok(/Agrupado por worker<\/span><\/p>/.test(html));
 	assert.ok(html.includes('<i class="live-busybar" aria-hidden="true"></i>'), "la barra de trabajo que aparece tras un clic");
 	const st = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { states: ["FAIL"] } }, h);
-	assert.equal((st.match(/role="radio" class="seg-o on"/g) || []).length, 1, "con un tile elegido, Mostrar no marca Todos ni Con problemas");
+	assert.equal((st.match(/role="radio" class="seg-o on"/g) || []).length, 2, "con un tile elegido, Mostrar no marca Todos ni Con problemas (quedan Agrupar por y la vista)");
 	assert.ok(/<span>Fallo<\/span>\s*<span class="ls-sep">·<\/span><span>Agrupado por archivo/.test(st));
 });
 
@@ -554,11 +554,11 @@ test("íconos propios: cada estado con el suyo (la tortuga es un ícono, no un e
 test("mapa de la ejecución: un cuadro por test (y los pendientes), atenuado según el filtro; cinta, reloj y sparklines", () => {
 	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
 	const n = L.allTests(e).length;
-	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false } }, h);
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, fieldView: "grid" } }, h);
 	assert.equal((html.match(/class="hm-c [^"]*" data-live-test=/g) || []).length, n);
 	assert.equal((html.match(/class="hm-c pending"/g) || []).length, e.planned - n, "los planificados que faltan, vacíos");
 	assert.ok(!/class="hm-c [a-z]+ dim"/.test(html), "con Todos no se atenúa nada");
-	const pr = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {} }, h);
+	const pr = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { fieldView: "grid" } }, h);
 	assert.equal((pr.match(/class="hm-c [a-z]+" data-live-test/g) || []).length, 6, "con problemas: solo esos a color");
 	assert.ok(html.includes("data-live-tape-track") && /class="tp-tag on"><i class="live-dot on"[^>]*><\/i>EN VIVO/.test(html), "la cinta de eventos");
 	assert.ok(html.includes("data-live-clock"));
