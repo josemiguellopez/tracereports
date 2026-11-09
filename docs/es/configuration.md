@@ -656,7 +656,7 @@ cualquier cliente:
 - `/` lleva al buscador y `Esc` lo limpia. El último paso va en una línea, con los XPaths acortados y el stack
   trace en un badge que se abre debajo; la tabla tiene columna **Worker** y "Expandir todo / Colapsar todo".
 - **Ejecuciones anteriores**: la lista muestra las de las últimas 2 horas, pero cualquier ejecución se abre
-  con la misma vista por su clave o por uno de sus runs (`#view=live&exec=r:888`). **Ver en En vivo**, en la
+  con la misma vista por su clave o por uno de sus runs (`#view=live&exec=r:888`). **Observabilidad**, en la
   barra superior, abre la ejecución del run que se está mirando.
 - **Gráficos**: resultados en el tiempo (por estado), tasa de fallo acumulada (con la anterior como referencia)
   y la distribución de duraciones (con p50 y p95); cada uno con "Ver datos" en tabla.

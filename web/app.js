@@ -1360,7 +1360,7 @@
 			if (!current()) return;
 			L.list = list.executions; L.now = list.now; L.no_signal_ms = list.no_signal_ms;
 			const fallback = (L.list.find((e) => e.running) || L.list[0])?.key || "";
-			// una ejecución pedida que ya no está en la lista (un enlace, "Ver en En vivo" de un run anterior,
+			// una ejecución pedida que ya no está en la lista (un enlace, "Observabilidad" de un run anterior,
 			// r:<run>) se pide igual: el servidor la arma por su clave; si no existe, la más nueva
 			if (!L.key) L.key = fallback;
 			L.exec = null;

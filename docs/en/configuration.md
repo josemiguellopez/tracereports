@@ -652,7 +652,7 @@ from any client:
 - `/` jumps to the search box and `Esc` clears it. The last step fits one line, with XPaths shortened and the
   stack trace in a badge that opens below; the table has a **Worker** column and "Expand all / Collapse all".
 - **Past executions**: the list shows the last 2 hours, but any execution opens with the same view by its
-  key or by one of its runs (`#view=live&exec=r:888`). **View in Live**, in the top bar, opens the
+  key or by one of its runs (`#view=live&exec=r:888`). **Observability**, in the top bar, opens the
   execution of the run being looked at.
 - **Charts**: results over time (by status), cumulative failure rate (with the previous one as a reference)
   and the duration distribution (with p50 and p95); each with "Show data" as a table.

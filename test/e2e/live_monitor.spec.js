@@ -178,7 +178,7 @@ test("si un test cambia de estado y de lugar, la fila se desliza (no salta)", as
 	await expect(view.locator(".la-list li.la-new")).toHaveCount(1);
 });
 
-test("una ejecución anterior (fuera de la lista) se abre igual con la vista nueva; Ver en En vivo desde un run", async ({ page }) => {
+test("una ejecución anterior (fuera de la lista) se abre igual con la vista nueva; Observabilidad desde un run", async ({ page }) => {
 	// la lista de En vivo ya no la trae (terminó hace días); el servidor la arma por su run (r:<id>)
 	const asked = [];
 	await page.route("**/api/v1/live", (r) => r.fulfill({ json: { now: Date.now(), no_signal_ms: 180000, executions: [] } }));
@@ -193,6 +193,7 @@ test("una ejecución anterior (fuera de la lista) se abre igual con la vista nue
 	await page.goto("/");
 	const link = page.locator("#live-of-run");
 	await expect(link).toBeVisible();
+	await expect(link).toHaveText("Observabilidad"); // no "En vivo": no se confunde con el aviso de la ejecución en curso
 	const href = await link.getAttribute("href");
 	expect(href).toMatch(/^#view=live&exec=r%3A\d+$/);
 	await link.click();

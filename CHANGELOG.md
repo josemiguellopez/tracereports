@@ -107,7 +107,7 @@ All notable changes to TraceReports. The format follows
   not match.
 - **Past executions in Live**: an execution that already left the Live list (it ended more than 2 h ago)
   opens with the same view, by its key (`x:<execution_id>`, `g:<first run>`) or by any of its runs
-  (`exec=r:<run id>`), marked as earlier in the picker. **View in Live** in the top bar opens the run being
+  (`exec=r:<run id>`), marked as earlier in the picker. **Observability** in the top bar (not "Live", which the running-run notice already uses) opens the run being
   looked at (and the other runs of its execution). An unknown key falls back to the newest execution.
 
 ### Fixed (client feedback, 06-11: Live)
