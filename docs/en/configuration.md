@@ -210,6 +210,7 @@ run failed. The rule with the highest priority wins (on a tie, the most confiden
 | `network_error` | `INFRA_ERROR` | The error message is about DNS, a refused connection, TLS or a connection exception (`ConnectionError`) |
 | `js_error` | `LOGIC_BUG` | An uncaught JavaScript error and the expected element never showed up |
 | `backend_client_error` | `LOGIC_BUG` | A 4xx the application did not recover from |
+| `blank_page` | `INFRA_ERROR` | The page was blank at the failure (DOM snapshot with nothing visible, or a single-color screenshot) |
 | `locator_not_found` | `LOCATOR_CHANGED` | The selector did not find the element |
 | `assertion` | `LOGIC_BUG` | A check failed (cites the expected value, the actual one and the line) |
 | `environment_down` | `INFRA_ERROR` | 80 % or more of a run of at least 5 tests failed |
@@ -742,7 +743,17 @@ Each failure goes to an incident by evidence, never by the AI category alone:
    the application did not keep working with that host afterwards. **Expected** responses never
    count. The signature includes method, **host**, normalized path and outcome.
 2. Otherwise, the **error signature**: exception type, message without numbers or ids and the
-   innermost frame of the project's code.
+   file of the innermost frame of the project's code. The same error raised from several lines of a
+   file is one incident; its location lists the lines (`tests/x.py:135, 158`). The lines Python adds
+   to a chained exception ("During handling of the above exception…") are skipped.
+3. **In cascade**: in a test file whose tests depend on each other, the first failed test and the
+   later failed tests of that file whose error points to it (it names that test, or says that data
+   is missing or that the test was skipped because a previous step failed) are one incident with the
+   cause of the first one. A test that passes in between breaks the chain. If the first one ran much
+   longer than the rest (5 minutes or more) it is shown as hung, and a page that was blank at the
+   failure (a DOM snapshot with nothing visible, or a single-color screenshot) is added as evidence;
+   the local rules engine then concludes `blank_page`, not a broken selector. The tests of a cascade
+   do not count as independent failures for "the environment was probably down".
 
 Every failure stays in some incident. The AI describes at most the 8 largest (the rest are shown
 with their evidence) and its cause is presented as a **hypothesis**, next to the evidence it relies

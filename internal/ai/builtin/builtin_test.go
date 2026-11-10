@@ -253,3 +253,14 @@ func FuzzDiagnose(f *testing.F) {
 		}
 	})
 }
+
+// Una página en blanco no es un selector roto: la regla blank_page va antes que locator_not_found.
+func TestBlankPageBeatsLocator(t *testing.T) {
+	d := Diagnose(Input{Error: `waiting for locator("#guardar")`, BlankPage: "Página en blanco al fallar: el snapshot del DOM no tiene elementos visibles (6 en total)"})
+	if d.Rule != "blank_page" || d.Category != CategoryInfra || !strings.Contains(d.Summary, "en blanco") {
+		t.Fatalf("%+v", d)
+	}
+	if d := Diagnose(Input{Error: `waiting for locator("#guardar")`}); d.Rule != "locator_not_found" {
+		t.Fatalf("without a blank page it stays a locator: %+v", d)
+	}
+}

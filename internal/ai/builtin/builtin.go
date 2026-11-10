@@ -64,6 +64,9 @@ type Input struct {
 	Flips     int
 	// RunFailed and RunTotal: how much of the run failed (environment down).
 	RunFailed, RunTotal int
+	// BlankPage: the page was blank when the test failed (the DOM snapshot had nothing visible, or
+	// the screenshot was a single color), with the observed fact.
+	BlankPage string
 }
 
 // Diagnosis is the conclusion of the engine for one failed test.
@@ -109,6 +112,7 @@ var Catalog = []Rule{
 	{"auth_rejected", 85, ruleAuthRejected},
 	{"backend_status", 80, ruleStatusInMessage},
 	{"network_error", 78, ruleNetworkInMessage},
+	{"blank_page", 76, ruleBlankPage},
 	{"js_error", 75, ruleJSError},
 	{"backend_client_error", 72, ruleClientError},
 	{"locator_not_found", 70, ruleLocator},
@@ -431,6 +435,15 @@ func ruleAssertion(in *Input) *match {
 		ev = append(ev, in.Location)
 	}
 	return &match{category: CategoryLogic, confidence: Medium, evidence: ev, vars: vars}
+}
+
+// ruleBlankPage: the page never finished loading. A selector that "no longer matches" a blank page
+// is not a UI change: it goes before locator_not_found.
+func ruleBlankPage(in *Input) *match {
+	if in.BlankPage == "" {
+		return nil
+	}
+	return &match{category: CategoryInfra, confidence: Medium, evidence: []string{in.BlankPage}}
 }
 
 func ruleEnvironmentDown(in *Input) *match {

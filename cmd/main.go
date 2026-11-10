@@ -289,6 +289,7 @@ func runServer(parent context.Context) error {
 	}
 	analyzer := ai.New(store)
 	analyzer.Redact = redaction
+	analyzer.Shots = atrest.Dir{Path: shotsDir, Vault: vault}
 	// los análisis de IA terminan en segundo plano: la UI se entera en vivo por SSE
 	analyzer.OnChange = func(kind string, runID, testID int64) {
 		hub.Publish(live.Event{Type: kind, RunID: runID, TestID: testID})

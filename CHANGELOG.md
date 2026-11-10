@@ -6,6 +6,25 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added (AI: failures in cascade are one incident)
+
+- **Failures in cascade are one incident**: when the first test of a file fails and the later tests of
+  that file fail because of it (their error names it, or says that data is missing or that the step was
+  skipped because a previous one failed), the run diagnosis shows one incident *In cascade* with the cause
+  of the first test, instead of one incident per test. A test that passes in between breaks the chain. A
+  first test that ran far longer than the rest is shown as hung, and a page that was blank at the failure
+  (DOM snapshot with nothing visible, or a single-color screenshot) is added as evidence. The tests of a
+  cascade no longer count as independent failures for "the environment was probably down".
+- **Local rules engine: `blank_page`** (`INFRA_ERROR`): a page that never finished loading is not reported
+  as a broken selector.
+
+### Changed (AI: incident grouping)
+
+- **Error signature without the line number**: the same error from several lines of a file is one
+  incident (the location lists the lines). The lines of a chained Python exception ("During handling of
+  the above exception…") no longer become the title nor join unrelated errors. Incident keys change
+  once: runs analyzed before this version are not matched as recurrences of the new ones.
+
 ### Changed (Live, round 4: lighter, no repeats, group by error, readable numbers)
 
 - **Search no longer freezes the page**: the table redraws once you stop typing (140 ms), not on every key,
@@ -404,7 +423,6 @@ Python client 0.5.2 (pending release); the other clients do not change.
   CLI (`repro`, `verify`, MCP) do not change. `TRACEREPORTS_LAB_STRICT=1` refuses those hosts instead of
   asking. API: `/ui/lab/send` and `/ui/lab/verify` answer `409 {code: "internal_host", hosts}` and accept
   `confirm_internal`.
-
 
 ## [0.7.0] - 2026-11-04
 
