@@ -20,6 +20,7 @@ var ErrNotFound = errors.New("not found")
 // Store wraps the SQLite database.
 type Store struct {
 	db    handle        // la base, o una transacción dentro de Atomic
+	ro    *sql.DB       // conexiones de solo lectura (WAL): las consultas pesadas no ocupan la que escribe
 	vault *atrest.Vault // sella las instantáneas del DOM (TRACEREPORTS_ENCRYPT_AT_REST); nil = en claro
 }
 
@@ -187,7 +188,12 @@ func Open(path string) (*Store, error) {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate interrupted tests: %w", err)
 	}
-	return &Store{db: dbHandle{sqldb}}, nil
+	ro, err := openReaders(uri)
+	if err != nil {
+		sqldb.Close()
+		return nil, err
+	}
+	return &Store{db: dbHandle{sqldb}, ro: ro}, nil
 }
 
 // migrations run on every start (idempotent). Tests stored before the stable identity keep
@@ -230,6 +236,9 @@ func ensureColumn(sqldb *sql.DB, table, column, definition string) error {
 // Close closes the database.
 func (s *Store) Close() error {
 	if d, ok := s.db.(dbHandle); ok {
+		if s.ro != nil {
+			s.ro.Close()
+		}
 		return d.DB.Close()
 	}
 	return nil // un Store de Atomic no es dueño de la conexión

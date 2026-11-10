@@ -17,19 +17,19 @@ type StorageCounts struct {
 func (s *Store) StorageCounts() (StorageCounts, error) {
 	var c StorageCounts
 	var pages, size int64
-	if err := s.db.QueryRow(`PRAGMA page_count`).Scan(&pages); err != nil {
+	if err := s.reader().QueryRow(`PRAGMA page_count`).Scan(&pages); err != nil {
 		return c, err
 	}
-	if err := s.db.QueryRow(`PRAGMA page_size`).Scan(&size); err != nil {
+	if err := s.reader().QueryRow(`PRAGMA page_size`).Scan(&size); err != nil {
 		return c, err
 	}
 	c.DBBytes = pages * size
-	err := s.db.QueryRow(`SELECT COUNT(*), COALESCE(MIN(started_at), 0), COALESCE(MAX(started_at), 0) FROM runs`).
+	err := s.reader().QueryRow(`SELECT COUNT(*), COALESCE(MIN(started_at), 0), COALESCE(MAX(started_at), 0) FROM runs`).
 		Scan(&c.Runs, &c.OldestRun, &c.NewestRun)
 	if err != nil {
 		return c, err
 	}
-	err = s.db.QueryRow(`SELECT COUNT(*) FROM tests`).Scan(&c.Tests)
+	err = s.reader().QueryRow(`SELECT COUNT(*) FROM tests`).Scan(&c.Tests)
 	return c, err
 }
 
@@ -44,7 +44,7 @@ type ProjectFiles struct {
 // FilesByProject lists the files (screenshots and attachments) of every project, with its runs and
 // tests, to measure what each one takes.
 func (s *Store) FilesByProject() ([]ProjectFiles, error) {
-	rows, err := s.db.Query(`SELECT r.project, COUNT(DISTINCT r.id), COUNT(t.id) FROM runs r
+	rows, err := s.reader().Query(`SELECT r.project, COUNT(DISTINCT r.id), COUNT(t.id) FROM runs r
 		LEFT JOIN tests t ON t.run_id = r.id GROUP BY r.project`)
 	if err != nil {
 		return nil, err
@@ -64,7 +64,7 @@ func (s *Store) FilesByProject() ([]ProjectFiles, error) {
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	files, err := s.db.Query(`SELECT r.project, l.screenshot FROM logs l JOIN tests t ON t.id = l.test_id
+	files, err := s.reader().Query(`SELECT r.project, l.screenshot FROM logs l JOIN tests t ON t.id = l.test_id
 		JOIN runs r ON r.id = t.run_id WHERE l.screenshot != ''
 		UNION ALL
 		SELECT r.project, a.url FROM artifacts a JOIN tests t ON t.id = a.test_id JOIN runs r ON r.id = t.run_id`)
@@ -100,12 +100,12 @@ type RetentionPreview struct {
 // without deleting anything.
 func (s *Store) PreviewPurgeBefore(cutoff int64) (RetentionPreview, error) {
 	var p RetentionPreview
-	err := s.db.QueryRow(`SELECT COUNT(DISTINCT r.id), COUNT(t.id) FROM runs r LEFT JOIN tests t ON t.run_id = r.id
+	err := s.reader().QueryRow(`SELECT COUNT(DISTINCT r.id), COUNT(t.id) FROM runs r LEFT JOIN tests t ON t.run_id = r.id
 		WHERE r.started_at < ? AND r.status != 'RUNNING'`, cutoff).Scan(&p.Runs, &p.Tests)
 	if err != nil || p.Runs == 0 {
 		return p, err
 	}
-	rows, err := s.db.Query(`SELECT l.screenshot FROM logs l JOIN tests t ON t.id = l.test_id JOIN runs r ON r.id = t.run_id
+	rows, err := s.reader().Query(`SELECT l.screenshot FROM logs l JOIN tests t ON t.id = l.test_id JOIN runs r ON r.id = t.run_id
 		WHERE r.started_at < ? AND r.status != 'RUNNING' AND l.screenshot != ''
 		UNION ALL
 		SELECT a.url FROM artifacts a JOIN tests t ON t.id = a.test_id JOIN runs r ON r.id = t.run_id

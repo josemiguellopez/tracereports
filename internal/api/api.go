@@ -125,7 +125,7 @@ func (s *Server) Router() http.Handler {
 	r.Use(s.authThrottle(s.authFails), sameSiteWrites, s.sessionAuth, s.Auth.middleware, s.hostGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(s.trackActivity, s.idempotent)
+		r.Use(gzipBodies, s.trackActivity, s.idempotent)
 		r.Get("/config", s.getConfig)
 		r.Get("/settings", s.getSettings)
 		r.Get("/auth/check", s.checkToken)

@@ -507,7 +507,7 @@ func (s *Store) RunsEndpoints(runIDs []int64, limit int) ([]EndpointStat, error)
 	for i, id := range runIDs {
 		args[i] = id
 	}
-	rows, err := s.db.Query(`
+	rows, err := s.reader().Query(`
 		SELECT n.method, n.url, n.status, ((n.failed = 1 OR n.status >= 400) AND n.expected = 0), n.duration_ms, n.test_id
 		FROM network n JOIN tests t ON t.id = n.test_id
 		WHERE t.run_id IN (`+marks+`) AND n.resource_type IN ('xhr', 'fetch', 'document', '')`, args...)

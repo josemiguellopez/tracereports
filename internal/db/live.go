@@ -119,7 +119,7 @@ func (s *Store) ExecutionCandidates(key string) ([]LiveRun, error) {
 const executionReach int64 = 12 * 3600 * 1000
 
 func (s *Store) liveRunsWhere(where string, args ...any) ([]LiveRun, error) {
-	rows, err := s.db.Query(`SELECT `+liveRunCols+` FROM runs r WHERE `+where+`
+	rows, err := s.reader().Query(`SELECT `+liveRunCols+` FROM runs r WHERE `+where+`
 		ORDER BY r.started_at, r.id LIMIT 2000`, args...)
 	if err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (s *Store) LiveTests(runs []LiveRun) error {
 		idx[r.ID] = i
 	}
 	marks := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
-	rows, err := s.db.Query(`SELECT t.id, t.run_id, t.name, t.test_key, t.worker, t.status, t.started_at, t.ended_at, t.attempts, t.last_signal,
+	rows, err := s.reader().Query(`SELECT t.id, t.run_id, t.name, t.test_key, t.worker, t.status, t.started_at, t.ended_at, t.attempts, t.last_signal,
 			COALESCE(l.message, ''), COALESCE(l.ts, 0)
 		FROM tests t
 		LEFT JOIN (SELECT test_id, message, MAX(timestamp) AS ts FROM logs WHERE test_id IN (SELECT id FROM tests WHERE run_id IN (`+marks+`)) GROUP BY test_id) l
@@ -229,7 +229,7 @@ func (s *Store) LiveTests(runs []LiveRun) error {
 // DurationStats are the p50 and p90 of the duration of a test (by key) in its last finished
 // executions of the same project and environment before beforeRun, and how many there were.
 func (s *Store) DurationStats(key, project, environment string, beforeRun int64, limit int) (p50, p90 int64, n int, err error) {
-	rows, err := s.db.Query(`SELECT t.ended_at - t.started_at FROM tests t JOIN runs r ON r.id = t.run_id
+	rows, err := s.reader().Query(`SELECT t.ended_at - t.started_at FROM tests t JOIN runs r ON r.id = t.run_id
 		WHERE t.test_key = ? AND t.run_id < ? AND r.project = ? AND r.environment = ?
 		  AND t.status IN ('PASS', 'WARNING', 'FAIL') AND t.ended_at IS NOT NULL
 		ORDER BY t.run_id DESC LIMIT ?`, key, beforeRun, project, environment, limit)

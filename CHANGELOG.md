@@ -6,6 +6,29 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed (heavy suites: tests shown as Interrupted, the server waiting on uploads, Live showing "Loading…")
+
+Seen at a client with 16 workers: the stall dumps showed the database free and the server waiting for the
+bytes of network uploads (batches of up to 8 MB of JSON) that came in slowly, while the client retried them in
+full after 10 s. Each worker sends in order, so the test results waited behind those uploads; when `end_run`
+ran out of time the run closed with them still running and the tests showed as Interrupted (the local report
+had them fine).
+
+- **The client sends test results before heavy evidence** (Python): creating and closing tests, steps,
+  screenshots and closing the run go first; network, DOM, console and attachments after. A slow upload waits
+  for its retry on its own instead of holding the queue.
+- **Compressed uploads**: the server accepts `Content-Encoding: gzip` (with a limit on the inflated size) and
+  says so in every response; the Python client compresses JSON over 8 KB only after seeing it, so a new client
+  still works with an older server. `TRACEREPORTS_GZIP=0` turns it off.
+- **Network batches of up to 2 MB** (were 8 MB) and each queued upload waits according to its size before
+  retrying, so a big batch is not uploaded again while the first copy is still arriving.
+- **Heavy reads no longer block the clients**: Maintenance > Storage (it took the only database connection
+  for up to 20 s) and the Live view now read through read-only connections (SQLite WAL), so opening them during
+  a suite does not make the clients wait to save results.
+- **Live no longer goes blank with "Loading…"**: while the execution was being refreshed the view was emptied,
+  and a click on the map during a slow answer showed only "Loading…". What is on screen stays until the new
+  data arrives.
+
 ### Added (server stall watchdog)
 
 - **Stalls are caught while they happen**: the slow request log only writes when a request ends, so a server

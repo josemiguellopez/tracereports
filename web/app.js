@@ -1463,7 +1463,9 @@
 			// una ejecución pedida que ya no está en la lista (un enlace, "Observabilidad" de un run anterior,
 			// r:<run>) se pide igual: el servidor la arma por su clave; si no existe, la más nueva
 			if (!L.key) L.key = fallback;
-			L.exec = null;
+			// lo que se ve sigue en pantalla hasta que llega lo nuevo: vaciarlo antes de pedirlo dejaba la vista
+			// entera en "Cargando…" mientras el servidor respondía (un clic en el mapa redibuja en ese rato)
+			if (L.exec && L.exec.key !== L.key) L.exec = null;
 			if (L.key) {
 				let one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`).catch((err) => {
 					if (L.list.some((e) => e.key === L.key) || !fallback) throw err;

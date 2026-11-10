@@ -40,14 +40,21 @@ Solo usa la librería estándar. El cliente nunca rompe ni frena tu suite:
   Si al terminar el servidor ya responde, el cliente **la sube solo** (`push`, sin duplicar) y el resumen de
   pytest dice «uploaded at the end»; `TRACEREPORTS_OFFLINE_PUSH=0` lo desactiva;
 - **cola llena** (5000 eventos o 64 MB): se descartan los eventos nuevos, se conservan los ya
-  encolados y se cuenta en `cr.delivery["dropped"]`.
+  encolados y se cuenta en `cr.delivery["dropped"]`;
+- **red lenta o muchos workers a la vez**: la cola envía primero lo que cambia el resultado (crear y
+  cerrar tests, pasos, capturas, cerrar la ejecución) y después la evidencia pesada (red, DOM, consola,
+  adjuntos). Si el tiempo de `end_run()` se acaba, lo que queda pendiente es evidencia, no un test que
+  se vería *Interrumpido*. Si el servidor lo acepta (lo dice en sus respuestas), el JSON de más de 8 KB
+  viaja comprimido con gzip (`TRACEREPORTS_GZIP=0` lo apaga), los lotes de red son de hasta 2 MB y cada
+  intento de una subida encolada espera además según su tamaño, así un lote grande no se vuelve a subir
+  entero mientras el primero sigue llegando.
 
 `cr.delivery` dice qué pasó: `sent`, `retried`, `rejected` (el servidor respondió 4xx), `dropped`,
 `spooled`, `lost`, `pending` y `unregistered_tests`.
 
 Variables que lee: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACEREPORTS_TOKEN`,
 `TRACEREPORTS_DISABLED=1` (apaga el reporte), `TRACEREPORTS_PROJECT`, `TRACEREPORTS_SPOOL_DIR`,
-`TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`, `TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_SYNC=1`
+`TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`, `TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_GZIP=0`, `TRACEREPORTS_SYNC=1`
 (envía todo en línea, para depurar) y, para el contexto,
 `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT` (si no están, las de GitHub Actions, GitLab, Azure DevOps,
 Jenkins, Bitbucket o CircleCI, o `git`). Si una variable no está en el entorno, se lee del `.env` del

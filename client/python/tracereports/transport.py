@@ -18,11 +18,13 @@ from __future__ import annotations
 import base64
 import collections
 import glob
+import gzip
 import http.client
 import itertools
 import json
 import logging
 import os
+import re
 import socket
 import threading
 import time
@@ -36,6 +38,19 @@ log = logging.getLogger("tracereports")
 RETRYABLE_STATUS = {408, 425, 429, 500, 502, 503, 504}
 CIRCUIT_SECONDS = 30.0
 MAX_BACKOFF = 30.0
+# Evidencia pesada que no cambia el resultado de un test (red, DOM, consola, adjuntos): en la cola va
+# después de lo que sí lo cambia (crear y cerrar tests, pasos, capturas, cerrar la ejecución). Un lote
+# de red que tarda en subir ya no deja esperando el cierre de los tests que vienen detrás: si el
+# tiempo de end_run se acaba, lo que queda sin enviar es evidencia, no un test que se ve "Interrumpido".
+_HEAVY_PATH = re.compile(r"/tests/\d+/(network|dom|console|artifact)$")
+# El servidor dice en sus respuestas si acepta cuerpos comprimidos; el JSON desde este tamaño viaja
+# con gzip (la red y el DOM bajan entre 5 y 10 veces). TRACEREPORTS_GZIP=0 lo apaga.
+GZIP_MIN_BYTES = 8 << 10
+ACCEPT_ENCODING_HEADER = "X-TraceReports-Accept-Encoding"
+# Cada intento de una subida encolada espera además según su tamaño (a este ritmo mínimo): un lote
+# grande en una red cargada no se corta a los 10 s para volver a subirse entero mientras el primero
+# sigue llegando (eso multiplicaba el tráfico justo cuando la red estaba saturada).
+UPLOAD_MIN_BYTES_PER_S = 256 << 10
 SPOOL_CHUNK_ITEMS = 200          # eventos por archivo de spool
 SPOOL_CHUNK_BYTES = 8 << 20      # bytes por archivo de spool
 SPOOL_STALE_SECONDS = 600.0      # un archivo reclamado que nadie toca en este tiempo se considera abandonado
@@ -118,7 +133,8 @@ class _SpoolFile:
 
 
 class _Item:
-    __slots__ = ("method", "path", "body", "content_type", "timeout", "key", "attempts", "abandoned", "fate", "src")
+    __slots__ = ("method", "path", "body", "content_type", "timeout", "key", "attempts", "abandoned", "fate", "src",
+                 "heavy", "ready", "wire")
 
     def __init__(self, method, path, body, content_type, timeout, key=None):
         self.method, self.path, self.body = method, path, body
@@ -128,6 +144,9 @@ class _Item:
         self.abandoned = False  # drain_to_spool se lo llevó: el hilo ya no decide su destino
         self.fate = ""          # "spooled" | "lost" cuando se lo llevó el drenado
         self.src: "Optional[_SpoolFile]" = None
+        self.heavy = bool(_HEAVY_PATH.search(path))
+        self.ready = 0.0  # monotonic: antes de esto no se reintenta (backoff propio de la evidencia pesada)
+        self.wire: Optional[bytes] = None  # el cuerpo comprimido, una sola vez
 
     def to_json(self) -> str:
         return json.dumps({"method": self.method, "path": self.path, "content_type": self.content_type,
@@ -164,6 +183,8 @@ class Sender:
         self.last_failure = ""
         self.last_failure_detail = ""  # "connected to 10.0.0.25:8080 in 3 ms, no answer in 10 s"
         self.stats = {"sent": 0, "retried": 0, "rejected": 0, "dropped": 0, "spooled": 0, "lost": 0}
+        self.gzip_ok = False  # el servidor dijo que acepta gzip
+        self.gzip_enabled = os.environ.get("TRACEREPORTS_GZIP", "1").strip().lower() not in ("0", "false", "no", "off")
 
     # ------------------------------------------------------------- estado
     @property
@@ -180,23 +201,40 @@ class Sender:
             self.stats[key] += n
 
     # ---------------------------------------------------------- un request
-    def _post(self, item: _Item, trip_on_timeout: bool = True) -> "tuple[str, Optional[dict]]":
+    def _wire(self, item: _Item) -> "tuple[bytes, dict]":
+        """El cuerpo tal como viaja: comprimido si el servidor lo acepta y vale la pena."""
+        if (self.gzip_ok and self.gzip_enabled and len(item.body) >= GZIP_MIN_BYTES
+                and item.content_type.startswith("application/json")):
+            if item.wire is None:
+                item.wire = gzip.compress(item.body, compresslevel=5)
+            return item.wire, {"Content-Encoding": "gzip"}
+        return item.body, {}
+
+    def _learn(self, headers) -> None:
+        if headers is not None and "gzip" in (headers.get(ACCEPT_ENCODING_HEADER) or ""):
+            self.gzip_ok = True
+
+    def _post(self, item: _Item, trip_on_timeout: bool = True, scale: bool = True) -> "tuple[str, Optional[dict]]":
         """Envía una vez. Devuelve ("ok", json) | ("retry", None) | ("timeout", None) | ("reject", None).
 
         "timeout": el servidor no respondió a tiempo (puede estar procesándolo). Con
         ``trip_on_timeout=False`` no abre el circuito: quien llama reintenta con la misma
         Idempotency-Key y decide abrirlo si se agotan los reintentos."""
+        body, extra = self._wire(item)
         req = urllib.request.Request(
-            self.base_url + item.path, data=item.body, method=item.method,
+            self.base_url + item.path, data=body, method=item.method,
             headers=self._headers({"Content-Type": item.content_type, "Accept": "application/json",
-                                   "Idempotency-Key": item.key}),
+                                   "Idempotency-Key": item.key, **extra}),
         )
+        timeout = item.timeout + (len(body) / UPLOAD_MIN_BYTES_PER_S if scale else 0.0)
         try:
-            with _opener.open(req, timeout=item.timeout) as resp:
+            with _opener.open(req, timeout=timeout) as resp:
+                self._learn(resp.headers)
                 raw = resp.read()
             self._down_until = 0.0
             return "ok", (json.loads(raw) if raw else {})
         except urllib.error.HTTPError as err:
+            self._learn(err.headers)
             detail = err.read().decode(errors="replace")[:300]
             if err.code in RETRYABLE_STATUS:
                 log.debug("tracereports: %s %s -> HTTP %s (se reintenta)", item.method, item.path, err.code)
@@ -251,7 +289,7 @@ class Sender:
                     break
                 item.timeout = min(timeout, remaining)
                 last = last or item.timeout >= remaining
-            kind, res = self._post(item, trip_on_timeout=last)
+            kind, res = self._post(item, trip_on_timeout=last, scale=deadline is None)
             if kind == "ok":
                 self._count("sent")
                 return res
@@ -305,12 +343,34 @@ class Sender:
                 self._thread = threading.Thread(target=self._run, name="tracereports-sender", daemon=True)
                 self._thread.start()
 
+    def _take(self) -> "Optional[_Item]":
+        """El próximo evento listo (con el lock tomado): lo que cambia resultados primero, en su orden;
+        después la evidencia pesada, en el suyo. None si todo lo que espera está en backoff."""
+        now = time.monotonic()
+        heavy_at = -1
+        for i, it in enumerate(self._q):
+            if it.ready > now:
+                continue
+            if not it.heavy:
+                del self._q[i]
+                return it
+            if heavy_at < 0:
+                heavy_at = i
+        if heavy_at < 0:
+            return None
+        it = self._q[heavy_at]
+        del self._q[heavy_at]
+        return it
+
     def _run(self) -> None:
         while True:
             with self._cv:
-                while not self._q:
-                    self._cv.wait()
-                item = self._q.popleft()
+                while True:
+                    item = self._take() if self._q else None
+                    if item is not None:
+                        break
+                    wait = (min(it.ready for it in self._q) - time.monotonic()) if self._q else None
+                    self._cv.wait(timeout=None if wait is None else max(wait, 0.01))
                 self._inflight = item
             try:
                 kind, _ = self._post(item)
@@ -328,6 +388,11 @@ class Sender:
                         self.stats["retried"] += 1
                         self._q.appendleft(item)
                         delay = min(MAX_BACKOFF, 0.5 * (2 ** min(item.attempts, 6)))
+                        if item.heavy and kind == "timeout" and not self.server_down():
+                            # el servidor responde pero esta subida tardó: espera ella sola; los
+                            # cierres de tests y los pasos siguen saliendo mientras tanto
+                            item.ready = time.monotonic() + delay
+                            delay = 0.0
                 else:
                     if not item.abandoned:
                         self._bytes -= len(item.body)

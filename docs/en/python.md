@@ -40,14 +40,21 @@ Standard library only. The client never breaks or slows down your suite:
   server](offline.md)). If the server answers by the end, the client **uploads it by itself** (`push`, no
   duplicates) and the pytest summary says "uploaded at the end"; `TRACEREPORTS_OFFLINE_PUSH=0` turns it off;
 - **full queue** (5000 events or 64 MB): new events are dropped, the queued ones are kept and it is
-  counted in `cr.delivery["dropped"]`.
+  counted in `cr.delivery["dropped"]`;
+- **slow network or many workers at once**: the queue sends first what changes a result (creating and
+  closing tests, steps, screenshots, closing the run) and then the heavy evidence (network, DOM, console,
+  attachments). If `end_run()` runs out of time, what is left is evidence, not a test that would show as
+  *Interrupted*. If the server accepts it (it says so in its responses), JSON over 8 KB travels gzip
+  compressed (`TRACEREPORTS_GZIP=0` turns it off), network batches are up to 2 MB and each attempt of a
+  queued upload also waits according to its size, so a big batch is not uploaded again in full while the
+  first one is still arriving.
 
 `cr.delivery` tells you what happened: `sent`, `retried`, `rejected` (the server answered 4xx),
 `dropped`, `spooled`, `lost`, `pending` and `unregistered_tests`.
 
 Variables it reads: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACEREPORTS_TOKEN`,
 `TRACEREPORTS_DISABLED=1` (turns reporting off), `TRACEREPORTS_PROJECT`, `TRACEREPORTS_SPOOL_DIR`,
-`TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`, `TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_SYNC=1`
+`TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`, `TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_GZIP=0`, `TRACEREPORTS_SYNC=1`
 (sends everything inline, to debug) and, for the context,
 `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT` (otherwise the GitHub Actions, GitLab, Azure DevOps, Jenkins,
 Bitbucket or CircleCI variables, or `git`). A variable missing from the environment is read from the

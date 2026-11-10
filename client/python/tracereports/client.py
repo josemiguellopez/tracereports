@@ -951,7 +951,7 @@ class TraceReports:
 # JSON que realmente se envía, hasta NETWORK_BATCH_BYTES y batch_size conexiones. Una conexión más
 # grande va sola; si sola pasa NETWORK_ALONE_BYTES, se envía sin bodies ni headers (body_truncated,
 # con su body_size original) para que siempre entre.
-NETWORK_BATCH_BYTES = 8 << 20
+NETWORK_BATCH_BYTES = 2 << 20
 NETWORK_ALONE_BYTES = 40 << 20
 
 

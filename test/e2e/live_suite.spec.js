@@ -858,3 +858,26 @@ test("cambiar de test con el panel abierto no lo vacía: lo anterior atenuado ha
 	await expect(panel.locator(".live-pbody")).not.toHaveClass(/is-stale/, { timeout: 500 });
 	expect(asked).toBeLessThanOrEqual(1); // se actualiza por detrás, sin bloquear
 });
+
+test("un refresco lento no deja la vista en 'Cargando…': lo que se ve sigue ahí y un clic abre el detalle", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await view.locator(".live-title [data-live-pause]").click();
+	await expect(view.locator(".live-paused")).toContainText("En pausa");
+	// el servidor tarda en responder la ejecución (como durante una suite pesada)
+	let release;
+	const gate = new Promise((r) => { release = r; });
+	let asking = false;
+	await page.route("**/api/v1/live/execution?**", async (route) => { asking = true; await gate; return route.fallback(); });
+	const n = served;
+	await view.locator(".live-title [data-live-pause]").click(); // reanudar pide la ejecución de nuevo
+	await expect.poll(() => asking).toBe(true);
+	await view.locator("tr.lt-row").nth(0).click(); // un clic mientras llega: redibuja la vista
+	await expect(view.locator(".live-panel h4")).toBeVisible();
+	await expect(view.locator(".live-tiles")).toBeVisible();
+	await expect(view.locator(".live-map .lf-canvas")).toHaveCount(1);
+	await expect(view.locator(":scope > .m-hint", { hasText: "Cargando…" })).toHaveCount(0);
+	expect(served).toBe(n); // seguía esperando la respuesta
+	release();
+	await expect.poll(() => served).toBeGreaterThan(n);
+	await expect(view.locator(".live-tiles")).toBeVisible();
+});
