@@ -177,9 +177,9 @@ def test_run_creation_has_a_total_cap_with_a_silent_server(silent_server, monkey
 
 
 def test_total_cap_defaults():
-    assert client_mod.RUN_TOTAL_SECONDS == 15.0
-    assert TraceReports("http://127.0.0.1:1")._run_total() == 15.0, "10 s per attempt, 15 s in total"
-    assert TraceReports("http://127.0.0.1:1", run_timeout=25)._run_total() == 25.0, "always at least one attempt"
+    assert client_mod.RUN_TOTAL_SECONDS == 30.0
+    assert TraceReports("http://127.0.0.1:1")._run_total() == 30.0, "10 s per attempt, 30 s in total"
+    assert TraceReports("http://127.0.0.1:1", run_timeout=45)._run_total() == 45.0, "always at least one attempt"
 
 
 def test_sender_total_shortens_the_last_attempt(silent_server):

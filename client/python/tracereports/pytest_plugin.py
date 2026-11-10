@@ -246,6 +246,9 @@ class TraceReportsPlugin:
             terminalreporter.write_line(f"TraceReports: {self.cr.report_url}")
             where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir}`"
             terminalreporter.write_line(f"TraceReports local copy: {where}")
+        elif self.cr.recording and self.cr.pushed_report_url is not None:
+            # la ejecución no se pudo crear al inicio, pero al final el servidor respondió y se subió
+            terminalreporter.write_line(f"TraceReports (uploaded at the end): {self.cr.pushed_report_url or self.cr.offline_dir}")
         elif self.cr.recording:
             where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir} -o report`"
             terminalreporter.write_line(f"TraceReports (no server): evidence in {self.cr.offline_dir}; report: {where}; "

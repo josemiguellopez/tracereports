@@ -27,16 +27,18 @@ Solo usa la librería estándar. El cliente nunca rompe ni frena tu suite:
   misma ejecución en vez de crear otra o dejar una *En curso*;
 - timeouts: `TRACEREPORTS_TIMEOUT` (segundos por solicitud JSON, default 2) y `TRACEREPORTS_RUN_TIMEOUT`
   (crear y cerrar la ejecución, por intento, default 10 y nunca menos que `TRACEREPORTS_TIMEOUT`; los
-  reintentos juntos duran como mucho 15 s), o `TraceReports(timeout=..., run_timeout=...)`. Súbelos si muchas suites usan el servidor a la vez;
+  reintentos juntos duran como mucho 30 s), o `TraceReports(timeout=..., run_timeout=...)`. Súbelos si muchas suites usan el servidor a la vez;
 - `end_run()` espera la cola (`TRACEREPORTS_FLUSH_TIMEOUT`, 30 s) antes de cerrar la ejecución. Lo que
   no se pudo enviar se guarda en `TRACEREPORTS_SPOOL_DIR` para reenviarlo con
   `python -m tracereports.resend <carpeta>`; sin esa carpeta se informa como perdido. El reenvío va
   por tandas (un spool más grande que la cola también avanza), en orden y sin duplicar; varios
   procesos pueden compartir la carpeta (cada archivo lo toma uno solo, y el de un proceso que murió
   se retoma a los 10 minutos). Devuelve 0 solo si no queda nada pendiente;
-- **sin servidor**: si la ejecución no se puede crear (servidor caído o token incorrecto), todo se
-  graba en `./tracereports-offline/<sesión>`; `tracereports report <carpeta>` arma el reporte HTML y
-  `tracereports push <carpeta>` la sube después (ver [Sin servidor](offline.md));
+- **sin servidor**: si la ejecución no se puede crear (servidor caído, que no respondió en 30 s o token
+  incorrecto: el aviso dice cuál), todo se graba en `./tracereports-offline/<sesión>`; `tracereports report
+  <carpeta>` arma el reporte HTML y `tracereports push <carpeta>` la sube después (ver [Sin servidor](offline.md)).
+  Si al terminar el servidor ya responde, el cliente **la sube solo** (`push`, sin duplicar) y el resumen de
+  pytest dice «uploaded at the end»; `TRACEREPORTS_OFFLINE_PUSH=0` lo desactiva;
 - **cola llena** (5000 eventos o 64 MB): se descartan los eventos nuevos, se conservan los ya
   encolados y se cuenta en `cr.delivery["dropped"]`.
 

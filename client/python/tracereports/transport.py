@@ -47,13 +47,36 @@ class ConnectTimeout(ConnectionError):
     un puerto cerrado de localhost no rechaza al instante: el connect tarda ~2 s y puede vencer.)"""
 
 
+# La última conexión de este hilo: a qué dirección llegó y cuánto tardó en conectar. Con eso el aviso
+# de un timeout dice en qué tramo se quedó: conectó al instante y nadie respondió (el pedido se trabó
+# en el reenvío de puertos o en el servidor) o tardó en conectar (la red, el nombre).
+_last_connect = threading.local()
+
+
+def connect_info() -> str:
+    """'connected to 10.0.0.25:8080 in 3 ms' de la última conexión de este hilo, o ''."""
+    peer, ms = getattr(_last_connect, "peer", None), getattr(_last_connect, "ms", None)
+    if not peer:
+        return ""
+    host, port = peer[0], peer[1]
+    host = f"[{host}]" if ":" in host else host
+    return f"connected to {host}:{port} in {ms} ms"
+
+
 def _connect_or_fail(conn_class):
     class Connection(conn_class):
         def connect(self):
+            _last_connect.peer = _last_connect.ms = None
+            t0 = time.monotonic()
             try:
                 super().connect()
             except (socket.timeout, TimeoutError) as err:
-                raise ConnectTimeout(f"connect timed out: {err}") from err
+                raise ConnectTimeout(f"connect timed out after {time.monotonic() - t0:.1f} s: {err}") from err
+            _last_connect.ms = int((time.monotonic() - t0) * 1000)
+            try:
+                _last_connect.peer = self.sock.getpeername()
+            except OSError:
+                _last_connect.peer = None
     return Connection
 
 
@@ -136,6 +159,9 @@ class Sender:
         self._thread: Optional[threading.Thread] = None
         self._thread_lock = threading.Lock()  # un solo hilo de envío: varios productores encolan a la vez
         self._down_until = 0.0
+        # por qué falló la última llamada: "timeout" (conectó y no respondió), "unreachable"
+        # (rechazada, DNS, connect vencido) o "HTTP <código>"; lo usa el aviso de crear la ejecución
+        self.last_failure = ""
         self.stats = {"sent": 0, "retried": 0, "rejected": 0, "dropped": 0, "spooled": 0, "lost": 0}
 
     # ------------------------------------------------------------- estado
@@ -174,6 +200,7 @@ class Sender:
             if err.code in RETRYABLE_STATUS:
                 log.debug("tracereports: %s %s -> HTTP %s (se reintenta)", item.method, item.path, err.code)
                 return "retry", None
+            self.last_failure = f"HTTP {err.code}"
             if err.code == 401:
                 detail += (" (set the token: TraceReports(token=...), the TRACEREPORTS_TOKEN variable"
                            " or TRACEREPORTS_TOKEN in the project .env)")
@@ -181,11 +208,14 @@ class Sender:
             return "reject", None
         except (urllib.error.URLError, OSError, ValueError) as err:
             timed_out = _is_timeout(err)
+            self.last_failure = "timeout" if timed_out else "unreachable"
             if timed_out and not trip_on_timeout:
                 log.debug("tracereports: %s %s timed out after %ss (se reintenta)", item.method, item.path, item.timeout)
                 return "timeout", None
             if not self.server_down():
-                log.warning("tracereports: %s %s failed: %s", item.method, item.path, err)
+                where = connect_info() if timed_out else ""
+                detail = f" ({where}, no answer in {round(item.timeout, 1):g} s)" if where else ""
+                log.warning("tracereports: %s %s failed: %s%s", item.method, item.path, err, detail)
             self.trip()
             return ("timeout" if timed_out else "retry"), None
 

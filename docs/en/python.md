@@ -27,16 +27,18 @@ Standard library only. The client never breaks or slows down your suite:
   one or a run left *Running*;
 - timeouts: `TRACEREPORTS_TIMEOUT` (seconds per JSON request, default 2) and `TRACEREPORTS_RUN_TIMEOUT`
   (creating and closing the run, per attempt, default 10 and never shorter than `TRACEREPORTS_TIMEOUT`;
-  the retries together take at most 15 s), or `TraceReports(timeout=..., run_timeout=...)`. Raise them if the server is shared by many suites at once;
+  the retries together take at most 30 s), or `TraceReports(timeout=..., run_timeout=...)`. Raise them if the server is shared by many suites at once;
 - `end_run()` waits for the queue (`TRACEREPORTS_FLUSH_TIMEOUT`, 30 s) before closing the run. Whatever
   could not be sent is saved in `TRACEREPORTS_SPOOL_DIR` to resend with
   `python -m tracereports.resend <folder>`; without that folder it is reported as lost. Resending
   goes in batches (a spool larger than the queue also makes progress), in order and without
   duplicates; several processes can share the folder (each file is taken by one, and a dead
   process's file is resumed after 10 minutes). It exits 0 only when nothing is left;
-- **without a server**: if the run cannot be created (server down or wrong token), everything is
-  recorded in `./tracereports-offline/<session>`; `tracereports report <folder>` builds the HTML report
-  and `tracereports push <folder>` uploads it later (see [Without a server](offline.md));
+- **without a server**: if the run cannot be created (server down, no answer within 30 s or wrong token:
+  the warning says which), everything is recorded in `./tracereports-offline/<session>`; `tracereports
+  report <folder>` builds the HTML report and `tracereports push <folder>` uploads it later (see [Without a
+  server](offline.md)). If the server answers by the end, the client **uploads it by itself** (`push`, no
+  duplicates) and the pytest summary says "uploaded at the end"; `TRACEREPORTS_OFFLINE_PUSH=0` turns it off;
 - **full queue** (5000 events or 64 MB): new events are dropped, the queued ones are kept and it is
   counted in `cr.delivery["dropped"]`.
 

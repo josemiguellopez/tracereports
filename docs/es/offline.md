@@ -53,6 +53,7 @@ nuevo y la ejecución se cierra una sola vez.
 | `TRACEREPORTS_BIN_DOWNLOAD` | `1` | `0`: desactiva descargas; siguen funcionando los binarios instalados o ya guardados en caché |
 | `TRACEREPORTS_BIN_BASE_URL` | GitHub Releases | Solo servidor HTTP local de tests (loopback); rutas `/v0.2.0/checksums.txt` y `/v0.2.0/<asset>` |
 | `TRACEREPORTS_OFFLINE_REPORT` | `1` | `0`: no armar el reporte al terminar (solo grabar) |
+| `TRACEREPORTS_OFFLINE_PUSH` | `1` | Python: si se grabó porque la ejecución no se pudo crear y al terminar el servidor responde, la sube sola (`push`). `0`: no subirla |
 
 La caché está en `%LOCALAPPDATA%\tracereports\0.2.0\<os>_<arch>\` en Windows,
 `${XDG_CACHE_HOME:-~/.cache}/tracereports/0.2.0/<os>_<arch>/` en Linux y

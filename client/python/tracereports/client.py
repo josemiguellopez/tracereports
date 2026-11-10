@@ -80,7 +80,9 @@ BytesOrPath = Union[bytes, bytearray, str, "os.PathLike[str]"]
 
 # Tope para crear o cerrar la ejecución contando los reintentos (run_timeout es por intento): con un
 # servidor que acepta y no responde, cada proceso (p. ej. 16 workers de xdist) espera esto como mucho.
-RUN_TOTAL_SECONDS = 15.0
+# 30 s: un corte de unos segundos (el reenvío de puertos de Docker Desktop, la red) no hace perder la
+# ejecución; un servidor caído (conexión rechazada) sigue pasando a local al instante.
+RUN_TOTAL_SECONDS = 30.0
 
 _SKIP_EXCEPTION_NAMES = {"SkipTest", "Skipped", "SkipException"}  # unittest, pytest, others
 
@@ -193,6 +195,8 @@ class TraceReports:
         self._offline_name = offline_name or env("OFFLINE_NAME", "")
         self.offline_dir: Optional[str] = None  # carpeta donde se está grabando (None: se envía al servidor)
         self.offline_report: Optional[str] = None  # index.html generado al cerrar
+        self._push_at_end = False  # la ejecución no se pudo crear al inicio: end_run intenta subir la grabación
+        self.pushed_report_url: Optional[str] = None  # la ejecución subida al final (push), si se pudo
 
     # ------------------------------------------------------------- offline
 
@@ -311,8 +315,10 @@ class TraceReports:
                 log.info("tracereports: resending %d events saved by a previous run", resent)
         res = self._request("POST", "/api/v1/runs", payload, self.run_timeout, self._run_total())
         if not res and self.enabled and self.offline_mode in ("auto", "both") and not self.recording:
-            # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
-            self._go_offline(f"could not create the run at {self.base_url} (server down or wrong token)")
+            # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo; si al
+            # final el servidor responde, end_run sube la grabación (un corte breve no la pierde)
+            self._go_offline(f"could not create the run at {self.base_url} ({self._create_failure()})")
+            self._push_at_end = self.recording
             if self.recording:
                 res = self._request("POST", "/api/v1/runs", payload, self.run_timeout)
         if res and res.get("run_id", 0) > 0 and self.offline_mode == "both" and not self.recording:
@@ -371,7 +377,51 @@ class TraceReports:
             self._sender.finalize(self.offline_report, env("OFFLINE_KEEP") == "1", before)
         elif self.recording:
             self._offline_finish()
+            if self._push_at_end:
+                self._push_recording()
         return res
+
+    def _create_failure(self) -> str:
+        """Why the run could not be created, in the words of the warning."""
+        why = getattr(self._sender, "last_failure", "")
+        if why == "timeout":
+            return f"the server did not answer within {self._run_total():.0f} s"
+        if why == "HTTP 401":
+            return "wrong token"
+        if why.startswith("HTTP "):
+            return f"the server answered {why}"
+        return "server down or unreachable"
+
+    def _push_recording(self) -> None:
+        """The run could not be created at the start: if the server answers now, upload the recording
+        (``tracereports push``, idempotent) so the run reaches the server. TRACEREPORTS_OFFLINE_PUSH=0
+        turns it off."""
+        self._push_at_end = False
+        if env("OFFLINE_PUSH", "1").lower() in ("0", "false", "no", "off") or not self.offline_dir:
+            return
+        later = f"upload it later with `tracereports push {self.offline_dir}`"
+        try:
+            with urllib.request.urlopen(self.base_url + "/healthz", timeout=3) as resp:  # noqa: S310 (el servidor configurado)
+                up = resp.status == 200
+        except (urllib.error.URLError, OSError, ValueError):
+            up = False
+        if not up:
+            log.warning("tracereports: the server still does not answer; %s", later)
+            return
+        try:
+            environ = dict(os.environ, TRACEREPORTS_URL=self.base_url)
+            if self.token:
+                environ["TRACEREPORTS_TOKEN"] = self.token
+            out = subprocess.run([resolve_binary(), "push", self.offline_dir], env=environ, check=True,
+                                 timeout=600, capture_output=True, text=True)
+        except Exception as err:  # noqa: BLE001 (binario ausente, rechazo, timeout: la grabación queda)
+            detail = (getattr(err, "stderr", "") or str(err)).strip().splitlines()
+            log.warning("tracereports: could not upload the recording (%s); %s", detail[-1] if detail else err, later)
+            return
+        urls = [line.split("Report: ", 1)[1] for line in out.stdout.splitlines() if line.startswith("Report: ")]
+        self.pushed_report_url = urls[0] if urls else ""
+        log.warning("tracereports: the server answered again; the recording was uploaded: %s",
+                    self.pushed_report_url or self.offline_dir)
 
     def download_report(self, dest_dir: str = ".", run_id: Optional[int] = None, timeout: float = 60.0) -> Optional[str]:
         """

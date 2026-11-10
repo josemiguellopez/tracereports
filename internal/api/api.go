@@ -114,7 +114,8 @@ func (s *Server) redactor() *redact.Policy {
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	// el filtro por IP va primero, con la dirección real de la conexión (RealIP la reescribe después)
-	r.Use(peerAddr, s.Net.middleware, middleware.RealIP, middleware.Recoverer,
+	// el primero: mide el pedido completo (filtros y credenciales incluidos)
+	r.Use(slowRequests, peerAddr, s.Net.middleware, middleware.RealIP, middleware.Recoverer,
 		securityHeaders(contentSecurityPolicy(s.Web)),
 		middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
 	// freno a la fuerza bruta, CSRF de otros sitios y después las credenciales

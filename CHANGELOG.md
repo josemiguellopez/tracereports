@@ -6,6 +6,24 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed (client feedback, 10-11: "POST /api/v1/runs failed: timed out" at random)
+
+- **A short stall no longer costs the run** (Python client): when the run could not be created because the
+  server did not answer, the client records locally as before, and at the end, if the server answers, it
+  uploads the recording by itself (`tracereports push`, idempotent): the run reaches its execution with its
+  tests. `TRACEREPORTS_OFFLINE_PUSH=0` turns it off. Creating the run now retries for up to 30 s (was 15 s);
+  a server that is down (connection refused) still switches to local at once.
+- **The warning says what happened**: "the server did not answer within 30 s", "wrong token" or "server down
+  or unreachable", instead of "server down or wrong token" for everything.
+- **Slow requests are logged** (server): any request over 2 s is logged with its method, path, status and
+  duration (`slow request`, never the query). A client timeout without that line means the request never
+  reached the server (Docker Desktop's port forwarding, a proxy, the network).
+- **Where it got stuck**: the client's timeout warning says where it connected and how long it waited
+  ("connected to 10.0.0.25:8080 in 3 ms, no answer in 10 s"), and a connect timeout says how long it tried.
+  `scripts/watch-health.ps1` checks `localhost:8080/healthz` every 10 s on the Windows machine that runs
+  Docker and logs failures and slow answers: with the server log it tells TraceReports, Docker on that
+  machine and the network apart.
+
 ### Added (AI: failures in cascade are one incident)
 
 - **Failures in cascade are one incident**: when the first test of a file fails and the later tests of
