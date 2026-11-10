@@ -51,7 +51,7 @@ test("Mantenimiento: almacenamiento, retención y limpiar ahora con vista previa
 
 test("Limpiar ahora: mientras limpia dice qué pasa, todo queda bloqueado y un segundo clic no lo repite; un error dice la causa", async ({ page }) => {
 	// una vista previa con algo que borrar y un servidor que tarda en limpiar (base grande)
-	await page.route("**/api/v1/maintenance/storage/preview?**", (r) => r.fulfill({ json: { days: 30, runs: 120, tests: 900, files: 0, files_bytes: 0, db_bytes_approx: 3 << 30, freed_bytes_approx: 3 << 30 } }));
+	await page.route("**/api/v1/maintenance/storage/preview?**", (r) => r.fulfill({ json: { days: 30, runs: 120, tests: 900, files: 0, files_bytes: 0, db_bytes_approx: 3 * 2 ** 30, freed_bytes_approx: 3 * 2 ** 30 } }));
 	let calls = 0, release;
 	const gate = new Promise((r) => { release = r; });
 	await page.route("**/api/v1/ui/maintenance/retention/run", async (r) => {
@@ -86,4 +86,50 @@ test("Limpiar ahora: mientras limpia dice qué pasa, todo queda bloqueado y un s
 	expect(calls).toBe(1);
 	// el 500 simulado lo anota el navegador en la consola: es lo que se prueba, no un error de la página
 	test.info().errors_ = test.info().errors_.filter((e) => !/status of 500/.test(e));
+});
+
+test("Compactar ahora: aparte de borrar, con lo que pide el disco; mientras compacta se ve y un segundo clic no lo repite", async ({ page }) => {
+	await page.route("**/api/v1/maintenance/storage", async (r) => {
+		const res = await r.fetch();
+		const json = await res.json();
+		json.compact = { pending: true, running: false, can_run: true, quiet_minutes: 15, reclaimable_bytes: 4 * 2 ** 30, need_bytes: 10 * 2 ** 30, free_bytes: 50 * 2 ** 30, running_runs: 2 };
+		return r.fulfill({ json });
+	});
+	let calls = 0, release;
+	const gate = new Promise((r) => { release = r; });
+	await page.route("**/api/v1/ui/maintenance/compact", async (r) => { calls++; await gate; return r.fulfill({ json: { at: Date.now(), took_ms: 185000, freed_bytes: 4 * 2 ** 30, trigger: "manual" } }); });
+	await page.goto("/#view=maintenance");
+	const card = page.locator(".stor-card");
+	const row = card.locator(".stor-compact");
+	await expect(row).toContainText("Hay ~4.0 GB de lo borrado por devolver al disco");
+	await row.locator("[data-stor-compact]").click();
+	const confirm = card.locator(".maint-confirm", { hasText: "Se reescribe la base" });
+	await expect(confirm).toContainText("Necesita ~10.0 GB libres en el disco de los datos (hay 50.0 GB)");
+	await expect(confirm).toContainText("Hay 2 ejecución(es) en curso");
+	const go = confirm.locator("[data-stor-compact-go]");
+	await go.click();
+	await go.dispatchEvent("click"); // el clic impaciente
+	await expect(go).toBeDisabled();
+	await expect(go).toContainText("Compactando…");
+	await expect(confirm.locator(".maint-progress[role=status]")).toContainText("puede tardar varios minutos");
+	await expect(confirm.locator("[data-stor-compact-cancel]")).toBeDisabled();
+	await expect(row.locator("[data-stor-compact]")).toBeDisabled();
+	expect(calls).toBe(1);
+	release();
+	await expect(page.locator(".set-msg.ok")).toContainText("Listo: la base se compactó y devolvió 4.0 GB al disco (3 min 5 s)");
+	await expect(card.locator(".maint-confirm", { hasText: "Se reescribe la base" })).toHaveCount(0);
+});
+
+test("Compactar ahora: sin espacio en el disco no deja empezar y dice por qué", async ({ page }) => {
+	await page.route("**/api/v1/maintenance/storage", async (r) => {
+		const res = await r.fetch();
+		const json = await res.json();
+		json.compact = { pending: true, running: false, can_run: true, quiet_minutes: 15, reclaimable_bytes: 4 * 2 ** 30, need_bytes: 10 * 2 ** 30, free_bytes: 2 * 2 ** 30, running_runs: 0 };
+		return r.fulfill({ json });
+	});
+	await page.goto("/#view=maintenance");
+	await page.locator(".stor-compact [data-stor-compact]").click();
+	const confirm = page.locator(".maint-confirm", { hasText: "Se reescribe la base" });
+	await expect(confirm.locator(".set-msg.err")).toContainText("No hay espacio suficiente para compactar");
+	await expect(confirm.locator("[data-stor-compact-go]")).toBeDisabled();
 });

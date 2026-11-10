@@ -888,6 +888,13 @@ arrancar).
 pero los clientes siguen enviando mientras tanto. Mientras trabaja, la pantalla lo dice y un segundo clic no la
 repite.
 
+**Compactar la base**: borrar no achica el archivo de la base al momento (lo borrado se sobrescribe con ceros, pero
+el espacio queda dentro del archivo). Compactarla lo devuelve al disco, pero reescribe toda la base: con varios GB
+tarda minutos, los clientes esperan para guardar mientras dura y necesita libre en el disco tanto como ocupa la
+base. Por eso se hace aparte: sola, cuando no hay ejecuciones en curso y los clientes llevan 15 min sin enviar
+(como mucho una vez cada 20 h), o con **Compactar ahora…**, que dice cuánto devolvería, cuánto espacio necesita
+(sin él no empieza) y si hay ejecuciones en curso.
+
 API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
 (`{"days": N}`, 0 = conservar todo) y `POST /ui/maintenance/retention/run` (`{"days": N}`, o `{}` para la
 retención vigente).

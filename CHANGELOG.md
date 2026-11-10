@@ -6,6 +6,18 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed (Maintenance: compacting the database apart from deleting)
+
+- **Deleting no longer compacts the database right away**: compacting (VACUUM) rewrites the whole file; on a
+  database of several GB it took minutes with the only writing connection held (clients waited, "Deleting…"
+  stayed on screen) and needed as much free disk as the database. Now a cleanup or bulk delete answers when the
+  runs are deleted and leaves the compaction pending; it runs by itself when no run is in progress and the
+  clients have sent nothing for 15 min (at most once every 20 h), or by hand with **Compact now…** in
+  Maintenance > Storage, which says how much it would give back, how much free disk it needs (and does not
+  start without it) and whether runs are in progress, and shows "Compacting…" without a second start. What was
+  deleted is still overwritten with zeros right away (secure_delete).
+- A cleanup or bulk delete that fails halfway still removes the files of the runs it already deleted.
+
 ### Fixed (Maintenance: cleaning up a big database)
 
 - **Deleting runs no longer scans the whole idempotency table for each run**: deleting a run deletes its

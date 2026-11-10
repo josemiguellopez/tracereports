@@ -97,6 +97,7 @@ type Server struct {
 	chat chatLimiter
 	// retention is the cleanup in progress and the next automatic one (see storage.go).
 	retention retentionState
+	compact   compactState // compactar la base aparte de borrar (compact.go)
 	// Live: thresholds (read once) and the usual duration of each test (see live_view.go).
 	liveOnce  sync.Once
 	liveCfgV  liveConfig
@@ -153,6 +154,7 @@ func (s *Server) Router() http.Handler {
 		r.Put("/ui/maintenance/stale", s.setStaleHours)
 		r.Put("/ui/maintenance/retention", s.setRetention)
 		r.Post("/ui/maintenance/retention/run", s.runRetention)
+		r.Post("/ui/maintenance/compact", s.compactNowHandler)
 		r.Post("/ui/escalate", s.escalate)
 		r.Post("/ui/escalate/send", s.sendEscalation)
 		r.Post("/ui/tickets", s.createTicket)

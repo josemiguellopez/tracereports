@@ -367,6 +367,7 @@ func runServer(parent context.Context) error {
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	apiServer.StartRetention(ctx)
+	apiServer.StartCompaction(ctx) // devuelve al disco lo borrado cuando no hay ejecuciones en curso
 	apiServer.StartLiveAlerts(ctx)
 	apiServer.StartStallWatch(ctx) // avisa y guarda un volcado cuando el servidor queda trabado
 	startStaleRuns(ctx, apiServer)

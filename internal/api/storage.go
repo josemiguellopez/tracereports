@@ -105,15 +105,9 @@ func (s *Server) PurgeOld(days int, trigger, by string) (RetentionRun, error) {
 	}()
 
 	run := RetentionRun{At: time.Now().UnixMilli(), Days: days, Trigger: trigger, By: by}
-	before, err := s.Store.StorageCounts()
-	if err != nil {
-		return run, err
-	}
 	cutoff := time.Now().AddDate(0, 0, -days).UnixMilli()
-	n, urls, err := s.Store.PurgeRunsBefore(cutoff)
-	if err != nil {
-		return run, err
-	}
+	// si una tanda falla, las anteriores ya se borraron: sus archivos se borran igual y después se informa
+	n, urls, purgeErr := s.Store.PurgeRunsBefore(cutoff)
 	run.Runs = n
 	for _, url := range urls {
 		path := s.screenshotPath(url)
@@ -127,15 +121,16 @@ func (s *Server) PurgeOld(days int, trigger, by string) (RetentionRun, error) {
 		}
 	}
 	if n > 0 {
-		// lo borrado tampoco queda en el archivo de la base ni en la WAL
-		if err := s.Store.Compact(); err != nil {
-			slog.Error("retention: compact the database", "err", err)
-		}
-		if after, err := s.Store.StorageCounts(); err == nil && after.DBBytes < before.DBBytes {
-			run.FreedBytes += before.DBBytes - after.DBBytes
-		}
+		// el espacio de la base se devuelve al compactarla, aparte (compact.go): reescribe toda la base
+		s.markCompactPending()
 		slog.Info("retention: old runs deleted", "runs", n, "files", run.Files, "freed_bytes", run.FreedBytes,
 			"older_than_days", days, "trigger", trigger)
+	}
+	if purgeErr != nil {
+		if n > 0 {
+			s.publish("run", 0, 0, map[string]string{"action": "deleted"})
+		}
+		return run, purgeErr
 	}
 	if raw, err := json.Marshal(run); err == nil {
 		if err := s.Store.SaveSettings(map[string]string{settingRetentionLast: string(raw)}); err != nil {
@@ -306,6 +301,24 @@ func (s *Server) storage(w http.ResponseWriter, r *http.Request) {
 	}
 	s.retention.mu.Unlock()
 	out["retention"] = ret
+	pending, last := s.compactInfo()
+	s.compact.mu.Lock()
+	cmp := map[string]any{"pending": pending, "running": s.compact.running, "last": last, "can_run": canRun,
+		"quiet_minutes": int(compactQuietFor / time.Minute)}
+	s.compact.mu.Unlock()
+	if rb, err := s.Store.ReclaimableBytes(); err == nil {
+		cmp["reclaimable_bytes"] = rb
+	}
+	if need, free, err := s.compactNeed(); err == nil {
+		cmp["need_bytes"] = need
+		if free >= 0 {
+			cmp["free_bytes"] = free
+		}
+	}
+	if n, err := s.Store.RunningRuns(); err == nil {
+		cmp["running_runs"] = n
+	}
+	out["compact"] = cmp
 	writeJSON(w, http.StatusOK, out)
 }
 

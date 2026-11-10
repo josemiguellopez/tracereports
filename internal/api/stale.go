@@ -22,6 +22,7 @@ func (s *Server) trackActivity(next http.Handler) http.Handler {
 		if c.status < 200 || c.status >= 300 {
 			return
 		}
+		s.compact.lastWrite.Store(time.Now().UnixMilli()) // la compactación automática espera que no escriban
 		if runID := s.Store.RunForWrite(r.Method, r.URL.Path, c.body.Bytes()); runID > 0 {
 			if err := s.Store.TouchRun(runID); err != nil {
 				slog.Warn("activity: touch run", "run_id", runID, "err", err)

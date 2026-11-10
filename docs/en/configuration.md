@@ -877,6 +877,13 @@ freed) and the next one are shown below the selector. A run still in progress is
 (and bulk delete) deletes 25 runs at a time: with a database of several GB it may take a few minutes, but the
 clients keep sending meanwhile. While it works the screen says so and a second click does not repeat it.
 
+**Compact the database**: deleting does not shrink the database file right away (the deleted data is overwritten
+with zeros, but the space stays inside the file). Compacting gives it back to the disk, but rewrites the whole
+database: with several GB it takes minutes, the clients wait to save while it runs and it needs as much free disk
+as the database takes. So it runs apart: by itself when no run is in progress and the clients have sent nothing
+for 15 min (at most once every 20 h), or with **Compact now…**, which says how much it would give back, how much
+space it needs (it does not start without it) and whether runs are in progress.
+
 API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
 (`{"days": N}`, 0 = keep everything) and `POST /ui/maintenance/retention/run` (`{"days": N}`, or `{}` for
 the retention in force).

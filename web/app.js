@@ -727,6 +727,12 @@
 		return `<span class="net-mini" data-tip="${t.network_errors} de ${t.network_total} llamadas al backend fallaron o respondieron con error: revisa la pestaña Red">${icon("i-network")}${t.network_errors} error(es) de red</span>`;
 	}
 
+	/** Una duración corta: "< 1 s", "42 s", "3 min 5 s". */
+	function fmtSecs(ms) {
+		const t = Math.round((ms || 0) / 1000);
+		if (t < 1) return "< 1 s";
+		return t < 60 ? `${t} s` : `${Math.floor(t / 60)} min${t % 60 ? ` ${t % 60} s` : ""}`;
+	}
 	function fmtBytes(n) {
 		if (n < 1024) return `${n} B`;
 		if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
@@ -4796,8 +4802,38 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		</div>`;
 		return `<section class="card stor-card" aria-label="${esc(tr("Almacenamiento"))}">
 			<header class="stor-head"><span class="maint-stale-icon">${icon("i-server")}</span><b>${tr("Almacenamiento")}</b></header>
-			${warn}${meter}${stats}${orphan}${projects}${retention}${cleanConfirm()}
+			${warn}${meter}${stats}${orphan}${projects}${retention}${cleanConfirm()}${compactRow(st.compact)}
 		</section>`;
+	}
+
+	/**
+	 * Compactar la base: devuelve al disco el espacio de lo borrado. Reescribe toda la base (minutos en
+	 * una grande, con la escritura tomada), así que no se hace al borrar: queda pendiente y se hace sola
+	 * cuando no hay ejecuciones en curso, o a mano desde aquí, con una confirmación que dice qué pide.
+	 */
+	function compactRow(c) {
+		if (!c) return "";
+		const m = S.maint, k = m.compact, busy = c.running || k?.busy;
+		const last = c.last ? tr("Última: {d} · liberó {b} en {s}", { d: fmtDateTime(c.last.at), b: fmtBytes(c.last.freed_bytes), s: fmtSecs(c.last.took_ms) }) : tr("Todavía no se compactó.");
+		const state = c.pending && c.reclaimable_bytes > 0
+			? tr("Hay ~{b} de lo borrado por devolver al disco. Se compacta sola cuando no hay ejecuciones en curso y los clientes llevan {m} min sin enviar.", { b: fmtBytes(c.reclaimable_bytes), m: c.quiet_minutes })
+			: tr("Nada por devolver al disco.");
+		const btn = c.can_run ? `<button class="cf-btn cf-btn-sm" data-stor-compact ${busy || k || !(c.reclaimable_bytes > 0) ? "disabled" : ""}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Compactando…")}` : `${icon("i-server")}${tr("Compactar ahora…")}`}</button>` : "";
+		let confirm = "";
+		if (k) {
+			const room = c.free_bytes === undefined || c.free_bytes >= c.need_bytes;
+			const off = k.busy ? "disabled" : "";
+			confirm = `<div class="card maint-confirm" role="alertdialog" aria-label="${esc(tr("Compactar ahora"))}" ${k.busy ? 'aria-busy="true"' : ""}>
+				<p><b>${tr("Se reescribe la base ({db}) para devolver ~{b} al disco.", { db: fmtBytes(m.storage.db_bytes), b: fmtBytes(c.reclaimable_bytes || 0) })}</b></p>
+				<p>${tr("Necesita ~{n} libres en el disco de los datos (hay {f}). Mientras dura, los clientes esperan para guardar sus resultados: hazlo sin ejecuciones en curso.", { n: fmtBytes(c.need_bytes), f: c.free_bytes === undefined ? "—" : fmtBytes(c.free_bytes) })}</p>
+				${c.running_runs ? `<p class="stor-warn">${icon("i-warning")}${tr("Hay {n} ejecución(es) en curso: sus clientes esperarán hasta que termine.", { n: c.running_runs })}</p>` : ""}
+				${!room ? `<p class="set-msg err" role="alert">${tr("No hay espacio suficiente para compactar: libera espacio o borra más ejecuciones antes.")}</p>` : ""}
+				${k.error ? `<p class="set-msg err" role="alert">${esc(k.error)}</p>` : ""}
+				${k.busy ? `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(tr("Compactando la base… con una base grande puede tardar varios minutos; no cierres esta pestaña si quieres ver el resultado."))}</p>` : ""}
+				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-primary" data-stor-compact-go ${k.busy || !room ? "disabled" : ""}>${k.busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Compactando…")}` : tr("Compactar")}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-stor-compact-cancel ${off}>${tr("Cancelar")}</button></div></div>`;
+		}
+		return `<div class="stor-retention stor-compact"><p><b>${tr("Compactar la base")}</b> ${esc(state)}<small>${last}</small></p>${btn}</div>${confirm}`;
 	}
 
 	/** Confirmación de "Limpiar ahora": cuántos días conservar y qué se borraría (vista previa). */
@@ -4809,7 +4845,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		const err = c.error ? `<p class="set-msg err" role="alert">${esc(c.error)}</p>` : "";
 		const body = err + (!p && c.error ? "" : !p ? `<p>${tr("Calculando qué se borraría…")}</p>`
 			: !p.runs ? `<p>${tr("No hay ejecuciones terminadas de más de {n} días: no se borraría nada.", { n: c.days })}</p>`
-			: `<p><b>${tr("Se borrarán {r} ejecución(es) terminadas de más de {n} días ({t} tests) y se liberarán ~{b}. No se puede deshacer.", { r: p.runs, n: c.days, t: p.tests, b: fmtBytes(p.freed_bytes_approx) })}</b></p>`);
+			: `<p><b>${tr("Se borrarán {r} ejecución(es) terminadas de más de {n} días ({t} tests) y se liberarán ~{b} (lo de la base, al compactarla). No se puede deshacer.", { r: p.runs, n: c.days, t: p.tests, b: fmtBytes(p.freed_bytes_approx) })}</b></p>`);
 		// mientras limpia: dice qué pasa, nada se puede cambiar y un segundo clic no lo repite
 		const busy = c.busy, off = busy ? "disabled" : "";
 		const progress = busy ? `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(tr("Limpiando {r} ejecución(es) de más de {n} días… se borran de a tandas y los clientes siguen enviando; con una base grande puede tardar unos minutos.", { r: p?.runs || 0, n: c.days }))}</p>` : "";
@@ -4936,6 +4972,19 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 				m.clean = { days: m.storage?.retention?.days || 90, preview: null, busy: false };
 				m.msg = null;
 				previewClean();
+				return;
+			}
+			if (e.target.closest("[data-stor-compact]") && !m.compact) { m.compact = { busy: false }; m.msg = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-stor-compact-cancel]")) { if (!m.compact?.busy) { m.compact = null; renderMaintenance(); } return; }
+			if (e.target.closest("[data-stor-compact-go]") && m.compact && !m.compact.busy) {
+				const k = m.compact;
+				Object.assign(k, { busy: true, error: null });
+				renderMaintenance();
+				apiSend("POST", "/api/v1/ui/maintenance/compact", {}).then(async (r) => {
+					m.compact = null;
+					m.msg = { ok: true, text: tr("Listo: la base se compactó y devolvió {b} al disco ({s}).", { b: fmtBytes(r.freed_bytes), s: fmtSecs(r.took_ms) }) };
+					await loadStorage();
+				}).catch((err) => { k.busy = false; k.error = err.message; renderMaintenance(); });
 				return;
 			}
 			if (e.target.closest("[data-stor-clean-cancel]")) { if (!m.clean?.busy) { m.clean = null; renderMaintenance(); } return; }
