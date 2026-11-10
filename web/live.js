@@ -37,6 +37,8 @@
 	/** Desde cuántas corridas o carriles "Solo con problemas" viene activo. */
 	const AUTO_PROBLEMS = 20;
 	const MINIMAP_BUCKETS = 80;
+	/** Cuántas filas dibuja la tabla de una vez (y cuántas más con "Mostrar más"). */
+	const ROWS_STEP = 100;
 	/** Desde cuántos archivos los que no tienen problemas se juntan en una línea. */
 	const COLLAPSE_FROM = 5;
 
@@ -48,6 +50,18 @@
 		if (m < 60) return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
 		return m % 60 ? `${Math.floor(m / 60)} h ${m % 60} min` : `${Math.floor(m / 60)} h`;
 	}
+
+	/** Los números que se leen, con el formato del idioma de la interfaz (es-CL: 1,7; en: 1.7). */
+	const numFmts = new Map();
+	function numFmt(d) {
+		const lang = window.TraceReportsI18n?.lang === "en" ? "en-US" : "es-CL", k = `${lang}|${d}`;
+		if (!numFmts.has(k)) numFmts.set(k, new Intl.NumberFormat(lang, { minimumFractionDigits: d, maximumFractionDigits: d, useGrouping: false }));
+		return numFmts.get(k);
+	}
+	const num1 = (x) => numFmt(1).format(x || 0);
+
+	/** Una duración corta con su unidad: 180 → "180 ms", 2400 → "2 s" (fmtDur redondea a segundos). */
+	function fmtMs(ms) { return ms < 1000 ? `${Math.round(ms || 0)} ms` : fmtDur(ms); }
 
 	/** Las corridas con algo que pide acción primero; dentro, sus tests ya vienen ordenados. */
 	function sortRuns(runs) {
@@ -367,9 +381,12 @@
 		});
 	}
 
-	/** Grupos de la tabla (archivo, worker o estado), lo más severo primero. */
+	/** La clave del grupo de los tests sin fallo, al agrupar por error. */
+	const NO_ERROR = "__sin-error__";
+	/** Grupos de la tabla (archivo, worker, estado o error), lo más severo primero. */
 	function groupTests(tests, by) {
-		const key = (t) => (by === "worker" ? t.worker || "—" : by === "state" ? t.state : t.file);
+		// por error: la firma de su fallo ("1 causa, 177 afectados"); lo que no falló va junto, al final
+		const key = (t) => (by === "worker" ? t.worker || "—" : by === "state" ? t.state : by === "error" ? (isFailed(t.state) ? errorSignature(t.last_step) : NO_ERROR) : t.file);
 		const groups = new Map();
 		for (const t of tests) {
 			const k = key(t);
@@ -383,7 +400,7 @@
 			for (const t of ts) counts[t.state] = (counts[t.state] || 0) + 1;
 			return { key: k, tests: sorted, worst: stateOf(sorted[0].state).rank, problem: ts.some((t) => isProblem(t.state)), counts,
 				worker: by === "file" ? [...new Set(ts.map((t) => t.worker).filter(Boolean))].join(", ") : "" };
-		}).sort((a, b) => a.worst - b.worst || String(a.key).localeCompare(String(b.key), undefined, { numeric: true }));
+		}).sort((a, b) => (a.key === NO_ERROR) - (b.key === NO_ERROR) || (by === "error" ? b.tests.length - a.tests.length : 0) || a.worst - b.worst || String(a.key).localeCompare(String(b.key), undefined, { numeric: true }));
 	}
 
 	/** El progreso: con tests planificados, % y ETA; sin ellos, cuántos terminaron. */
@@ -484,6 +501,21 @@
 			else out.push({ at: t.started_at, kind: "start", test: t });
 		}
 		return out.sort((a, b) => b.at - a.at).slice(0, n);
+	}
+
+	/**
+	 * Las marcas del minimapa: las anomalías a menos de un 1,5 % de distancia van en una sola marca con
+	 * su número (el peor estado primero); así no se montan unas sobre otras.
+	 */
+	function anomalyMarks(list, gap = 1.5) {
+		const sorted = [...list].sort((a, b) => a.left - b.left), out = [];
+		for (const a of sorted) {
+			const last = out[out.length - 1];
+			if (last && a.left - last.end < gap) { last.items.push(a); last.end = a.left; last.left = (last.start + a.left) / 2; }
+			else out.push({ start: a.left, end: a.left, left: a.left, items: [a] });
+		}
+		for (const m of out) m.items.sort((x, y) => stateOf(x.state).rank - stateOf(y.state).rank);
+		return out;
 	}
 
 	/** Las anomalías sobre el minimapa: cada fallo y cada test que dejó de enviar, en % del tramo. */
@@ -809,20 +841,12 @@
 					<button type="button" class="cf-btn cf-btn-sm lf-resume" data-live-pause aria-pressed="true" data-tip="${esc(t("Vuelve a actualizar la vista con lo que llegó mientras estaba en pausa."))}">${icon("i-play")}${esc(t("Reanudar"))}</button>`
 					: `<b><i class="lf-dot" aria-hidden="true"></i>${esc(t(I.label))}</b><small>${esc(t("{n} eventos/min", { n: ing.perMin }))} · ${esc(ago)}</small>`}
 				<span class="lf-bars" aria-hidden="true">${bars}</span><span class="lf-bars-x" aria-hidden="true"><small>${esc(t("hace 1 min"))}</small><small>${esc(t("ahora"))}</small></span></div>
-			<div class="lf-hud tr" tabindex="0" data-tip="${esc(t("Tests terminados de los planificados (o de los iniciados, si el cliente no dice cuántos hay)."))}">
-				<span>${esc(t("PROGRESO"))}</span><b>${p.pct}%</b><small>${esc(p.known ? t("{d} de {n} tests", { d: e.done, n: e.planned }) : t("{d} terminados de {n} iniciados", { d: e.done, n: e.total }))}</small></div>
 			${top ? `<button type="button" class="lf-hud bl bad" data-live-facet="error" data-v="${esc(top.sig)}" data-tip-title="${esc(t("Anomalía dominante"))}" data-tip="${esc(`${top.sig}\n${t("Clic: ver solo los tests con este error.")}`)}">
-				<span>${esc(t("ANOMALÍA"))}</span><b data-no-i18n>${esc(top.sig.length > 34 ? top.sig.slice(0, 33) + "…" : top.sig)}</b><small>${esc(t("{n} tests · {f} archivos", { n: top.count, f: top.files.length }))}</small></button>`
+				<span>${esc(t("ANOMALÍA"))}</span><b data-no-i18n>${esc(shortXPaths(top.sig))}</b><small>${esc(t("{n} tests · {f} archivos", { n: top.count, f: top.files.length }))}</small></button>`
 				: `<div class="lf-hud bl ok"><span>${esc(t("ANOMALÍA"))}</span><b>${esc(t("Sin fallos"))}</b><small>${esc(t("nada que agrupar"))}</small></div>`}
 			<div class="lf-hud br" tabindex="0" data-tip="${esc(t("Carriles con un test corriendo ahora, del total de carriles de la ejecución."))}">
 				<span>${esc(t("CARRILES"))}</span><b>${active} / ${g.lanes.length}</b><small>${esc(t("activos"))}</small></div>
 			<div class="lf-core" aria-hidden="true"><span>${esc(t("EJECUCIÓN"))}</span><b>${p.pct}<small>%</small></b><small data-no-i18n>${esc(e.commit ? e.commit.slice(0, 7) : String(e.title || "").slice(-12))}</small></div>`;
-		const verb = { start: t("empezó"), no_signal: t("dejó de enviar"), FAIL: t("falló"), INTERRUPTED: t("se interrumpió"), WARNING: t("warning"), PASS: t("pasó"), SKIP: t("se saltó") };
-		const sig = events(tests, 7).map((x) => {
-			const st = x.kind === "start" ? stateOf("running") : stateOf(x.kind);
-			return `<li><button type="button" class="lf-sig ${st.cls}" data-live-test="${x.test.id}" data-live-run="${x.test.run_id}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura)."))}">
-				<small>${esc(h.clock(x.at, true))}</small><i aria-hidden="true"></i><span data-no-i18n>${esc(x.test.name)}</span><em>${esc(verb[x.kind] || x.kind)}</em></button></li>`;
-		}).join("");
 		const max = Math.max(1, ...errs.slice(0, 3).map((x) => x.count));
 		const pressure = errs.length ? errs.slice(0, 3).map((x) => `<button type="button" class="lf-pr" data-live-facet="error" data-v="${esc(x.sig)}" data-tip-title="${esc(x.sig)}" data-tip="${esc(t("Clic: ver solo los tests con este error."))}">
 				<b data-no-i18n>${esc(x.sig.replace(/^(\w+(?:Error|Exception)).*/, "$1").slice(0, 16))}</b><i style="--bar:${((x.count / max) * 100).toFixed(0)}%"></i><em>${x.count}</em></button>`).join("")
@@ -830,7 +854,7 @@
 		return `<div class="lf">
 			<div class="lf-lanes" aria-label="${esc(t("Canales"))}">${lanes}</div>
 			<div class="lf-stage">${hud}<div class="lf-slot" data-live-field></div><div class="lf-foot" aria-hidden="true"><span>${esc(t("INGESTA → CORRELACIÓN → TRIAGE"))}</span><span>${esc(t("↑ comienzo · sentido horario"))}</span></div></div>
-			<div class="lf-side"><h6>${esc(t("Últimas señales"))}</h6><ol class="lf-sigs">${sig}</ol><h6>${esc(t("Presión de errores"))}</h6><div class="lf-press">${pressure}</div></div></div>`;
+			<div class="lf-side"><h6>${esc(t("Presión de errores"))}</h6><div class="lf-press">${pressure}</div></div></div>`;
 	}
 
 	// ---------- dibujo ----------
@@ -840,6 +864,7 @@
 		file: { icon: "i-file", label: "Archivo", tip: "Una fila por archivo (corrida) con sus tests debajo." },
 		worker: { icon: "i-cpu", label: "Worker", tip: "Una fila por proceso o worker en paralelo: muestra si uno solo concentra los problemas." },
 		state: { icon: "i-layers", label: "Estado", tip: "Una fila por estado: todos los fallos juntos, luego los lentos, etc." },
+		error: { icon: "i-bug", label: "Error", tip: "Una fila por causa: los tests que fallaron con el mismo error, juntos (1 causa, 177 afectados). Los que no fallaron van al final." },
 	};
 
 	/**
@@ -872,7 +897,7 @@
 		const tapeItem = (x) => {
 			const st = x.kind === "start" ? stateOf("running") : stateOf(x.kind);
 			// cada evento de la cinta abre su test (como una fila); la copia duplicada del bucle no se enfoca
-			return `<button type="button" class="tp-i ${st.cls}" data-live-test="${x.test.id}" data-live-run="${x.test.run_id}" data-tip-title="${esc(x.test.name)}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura)."))}"><small>${esc(h.clock(x.at, true))}</small>${icon(st.icon)}<b data-no-i18n>${esc(x.test.name)}</b>${esc(evVerb[x.kind] || x.kind)}</button>`;
+			return `<button type="button" tabindex="-1" class="tp-i ${st.cls}" data-live-test="${x.test.id}" data-live-run="${x.test.run_id}" data-tip-title="${esc(x.test.name)}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura)."))}"><small>${esc(h.clock(x.at, true))}</small>${icon(st.icon)}<b data-no-i18n>${esc(x.test.name)}</b>${esc(evVerb[x.kind] || x.kind)}</button>`;
 		};
 		const tapeHTML = tape.length ? `<div class="live-tape" data-live-tape data-tip="${esc(t("Lo último que pasó en la ejecución, en vivo. Pasa el mouse para detenerla; el detalle está en Actividad reciente."))}">
 			<span class="tp-tag ${e.running ? "on" : ""}">${e.running ? `<i class="live-dot on" aria-hidden="true"></i>${esc(t("EN VIVO"))}` : esc(t("ÚLTIMOS"))}</span>
@@ -947,7 +972,7 @@
 		const hmDim = dimOn || problems;
 		const cell = (x) => {
 			const st = stateOf(x.state), off = hmDim && !match.has(x.id);
-			const tip = `${t(st.label)} · ${fmtDur(x.elapsed)}${x.p50 && x.factor ? ` · ×${x.factor.toFixed(1)} ${t("de lo normal")}` : ""}\n${x.file}`;
+			const tip = `${t(st.label)} · ${fmtDur(x.elapsed)}${x.p50 && x.factor ? ` · ×${num1(x.factor)} ${t("de lo normal")}` : ""}\n${x.file}`;
 			return `<button type="button" class="hm-c ${st.cls}${off ? " dim" : ""}${data.panel?.id === x.id ? " sel" : ""}" data-live-test="${x.id}" data-live-run="${x.run_id}" data-tip-title="${esc(x.name)}" data-tip="${esc(tip)}" aria-label="${esc(`${x.name} · ${tip.replace(/\n/g, " · ")}`)}"></button>`;
 		};
 		const legend = `<span class="hm-legend">${["PASS", "WARNING", "FAIL", "turtle", "no_signal", "running"].filter((k) => e.counts[k]).map((k) => `<span class="${stateOf(k).cls}" data-tip="${esc(stTip(stateOf(k)))}"><i></i>${esc(t(stateOf(k).label))}</span>`).join("")}${hm.pending ? `<span class="pending" data-tip="${esc(t("Tests planificados que todavía no empiezan."))}"><i></i>${esc(t("Pendiente"))}</span>` : ""}</span>`;
@@ -984,7 +1009,7 @@
 				const flag = l.nProblems ? `<i class="lg-flag" data-tip="${esc(t("{n} tests con problema en este carril (fallo, sin señal, interrumpido o tortuga).", { n: l.nProblems }))}">${l.nProblems}</i>` : "";
 				return `<div class="lg-lane ${l.problem ? "problem" : ""} ${l.running ? "busy" : "idle"}" data-lane="${esc(l.key)}"><span class="lg-worker" data-live-lane="${esc(l.key)}" data-tip-title="${esc(name)}" data-tip="${esc(tip + "\n" + t("Pasa el mouse para resaltar sus tests en la tabla."))}" tabindex="0"><b>${l.running ? `<i class="lg-live" aria-hidden="true"></i>` : ""}<span data-no-i18n>${esc(name)}</span>${flag}</b>${l.sub ? `<small data-no-i18n>${esc(l.sub)}</small>` : ""}</span><div class="lg-track">${l.bars.map((b) => {
 					const st = stateOf(b.state);
-					const tip = [b.file, `${t(st.label)} · ${fmtDur(b.elapsed)}${b.factor ? ` · ×${b.factor.toFixed(1)} ${t("de lo normal")}` : ""}`,
+					const tip = [b.file, `${t(st.label)} · ${fmtDur(b.elapsed)}${b.factor ? ` · ×${num1(b.factor)} ${t("de lo normal")}` : ""}`,
 						t("{a} → {b}", { a: h.clock(b.started_at, true), b: b.ended_at ? h.clock(b.ended_at, true) : t("ahora") })].join("\n");
 					const off = dimOn && !match.has(b.id), hit = dimOn && !off;
 					return `<button type="button" class="lg-bar ${st.cls}${off ? " dim" : ""}${hit ? " hit" : ""}${data.panel?.id === b.id ? " sel" : ""}" data-live-test="${b.id}" data-live-run="${b.run_id}" style="left:${b.left.toFixed(3)}%;width:${b.width.toFixed(3)}%" data-tip-title="${esc(b.name)}" data-tip="${esc(tip)}" aria-label="${esc(`${b.name} · ${tip.replace(/\n/g, " · ")}`)}">${GLYPH.has(b.state) && b.width >= 1.6 ? icon(st.icon) : ""}${b.width >= 5 ? midName(b.short, esc) : ""}</button>`;
@@ -1000,7 +1025,11 @@
 					${zoomBtn("in", "i-zoom-in", t("Acercar"), t("Muestra la mitad del tiempo, alrededor del centro. También arrastrando sobre el minimapa."), "Ctrl + rueda", false)}
 					${zoomBtn("fit", "i-fit", t("Ajustar a la ventana"), t("Vuelve a mostrar la ejecución entera."), "", !ui.zoom)}</div>
 				<div class="lg-mini" data-live-minimap data-tip="${esc(t("Toda la ejecución: el alto es cuántos tests corrían a la vez. Arrastra para acercar un tramo; clic para centrar."))}">${mm.map((c) => c.n ? `<i style="left:${c.left.toFixed(2)}%;height:${Math.max(8, c.h * 100).toFixed(0)}%">${c.parts.map((x) => `<b class="${x.cls}" style="height:${(x.f * 100).toFixed(1)}%"></b>`).join("")}</i>` : "").join("")}${brush}
-					${anomalies(e, now).map((a) => { const st = stateOf(a.state), tip = `${t(st.label)} · ${a.name} · ${h.clock(a.at, true)}`; return `<button type="button" class="lg-anom ${st.cls}" data-live-test="${a.id}" data-live-run="${a.run_id}" style="left:${a.left.toFixed(2)}%" data-tip="${esc(tip)}" aria-label="${esc(tip)}">${icon(st.icon)}</button>`; }).join("")}</div>
+					${anomalyMarks(anomalies(e, now)).map((m) => {
+						const a = m.items[0], st = stateOf(a.state);
+						const tip = m.items.length === 1 ? `${t(st.label)} · ${a.name} · ${h.clock(a.at, true)}` : `${t("{n} fallos o tests sin señal en este tramo", { n: m.items.length })}\n${m.items.slice(0, 6).map((x) => `${h.clock(x.at, true)} · ${x.name}`).join("\n")}${m.items.length > 6 ? "\n…" : ""}`;
+						return `<button type="button" class="lg-anom ${st.cls}${m.items.length > 1 ? " many" : ""}" data-live-test="${a.id}" data-live-run="${a.run_id}" style="left:${m.left.toFixed(2)}%" data-tip="${esc(tip)}" aria-label="${esc(tip.replace(/\n/g, " · "))}">${m.items.length > 1 ? `<b>${m.items.length}</b>` : icon(st.icon)}</button>`;
+					}).join("")}</div>
 				<div class="lg-axis" aria-hidden="true">${scaleTicks(g).map((k) => `<span style="left:${k.left.toFixed(2)}%">${esc(h.clock(k.at, g.b - g.a < 10 * 60e3))}</span>`).join("")}</div>
 				<div class="lg-lanes" data-live-lanes>${overlay}${shown.map(laneHTML).join("")}
 				${hidden > 0 ? `<button type="button" class="lg-more" data-live-alllanes data-tip="${esc(dimOn ? t("Muestra también los carriles sin ningún test que coincida con el filtro.") : t("Muestra también los carriles donde todo pasó."))}">${icon("i-chevron")}${esc(dimOn ? t("{n} carriles sin coincidencias", { n: hidden }) : t("{n} carriles sin problemas", { n: hidden }))} · ${esc(t("mostrar"))}</button>` : ""}
@@ -1009,7 +1038,7 @@
 				<div class="lg-legend">${["PASS", "WARNING", "FAIL", "turtle", "no_signal", "running"].map((k) => `<span class="${stateOf(k).cls}" data-tip="${esc(stTip(stateOf(k)))}"><i class="sw"></i>${icon(stateOf(k).icon)}${esc(t(stateOf(k).label))}</span>`).join("")}
 					${g.lanes.some((l) => l.proc) ? `<span data-tip="${esc(procTip)}"><b>${esc(t("Proceso N"))}</b> ${esc(t("= carril en paralelo"))}</span>` : ""}
 					${g.gaps.length ? `<span data-tip="${esc(t("Un rato sin ningún test corriendo: se dibuja angosto para no dejar un vacío; dice cuánto duró."))}"><b>≈</b> ${esc(t("= pausa comprimida"))}</span>` : ""}
-					<span data-tip="${esc(t("La duración del test frente a su mediana (p50) en sus ejecuciones anteriores del mismo proyecto."))}"><b>×1.7</b> ${esc(t("= 1,7 veces lo normal"))}</span></div></div>`;
+					<span data-tip="${esc(t("La duración del test frente a su mediana (p50) en sus ejecuciones anteriores del mismo proyecto."))}"><b>×${num1(1.7)}</b> ${esc(t("= 1,7 veces lo normal"))}</span></div></div>`;
 		}
 
 		// tabla: grupos por severidad; los sin problemas colapsados en una línea
@@ -1024,7 +1053,7 @@
 		const colgroup = `<colgroup><col class="c-name"${nameW}><col class="c-state"><col class="c-dur"><col class="c-vs">${wcol ? `<col class="c-wk">` : ""}<col class="c-step"></colgroup>`;
 		const row = (x) => {
 			const st = stateOf(x.state);
-			const vs = x.p50 ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}" data-tip="${esc(t("Tardó {f} veces lo normal para este test (su mediana en ejecuciones anteriores: {m}).", { f: x.factor.toFixed(1), m: fmtDur(x.p50) }))}">×${x.factor.toFixed(1)}</span>` : `<span class="m-hint" data-tip="${esc(t("Sin historial: es la primera vez que corre en este proyecto."))}">—</span>`;
+			const vs = x.p50 ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}" data-tip="${esc(t("Tardó {f} veces lo normal para este test (su mediana en ejecuciones anteriores: {m}).", { f: num1(x.factor), m: fmtDur(x.p50) }))}">×${num1(x.factor)}</span>` : `<span class="m-hint" data-tip="${esc(t("Sin historial: es la primera vez que corre en este proyecto."))}">—</span>`;
 			const ago = x.state === "running" || x.state === "turtle" || x.state === "no_signal" ? `<small class="lt-ago" data-tip="${esc(t("Hace cuánto llegó el último evento del test."))}">${esc(t("hace {t}", { t: fmtDur(x.idle) }))}</small>` : "";
 			// una línea: XPaths acortados, sin URLs; el stack trace, en un badge que lo abre debajo
 			const sp = stepParts(x.last_step);
@@ -1039,14 +1068,22 @@
 				<td class="lt-step"><div class="lt-stepw"><span class="lt-steptext" data-no-i18n${full ? ` data-tip="${esc(full)}"` : ""}>${esc(sp.text || (sp.trace ? "" : "—"))}</span>${stack}${ago}</div></td></tr>
 				${stackOpen ? `<tr class="lt-stackrow"><td colspan="${ncols}"><pre data-no-i18n>${esc(sp.trace)}</pre></td></tr>` : ""}`;
 		};
+		const rowLimit = Math.max(ROWS_STEP, ui.rowLimit || ROWS_STEP);
+		const moreRows = (left) => `<button type="button" class="live-collapsed lt-more" data-live-rowsmore data-tip="${esc(t("Dibuja {n} filas más. Para encontrar algo puntual, busca o filtra: es más rápido.", { n: Math.min(ROWS_STEP, left) }))}">${icon("i-chevron")}${esc(t("Mostrar {n} más ({t} sin mostrar)", { n: Math.min(ROWS_STEP, left), t: left }))}</button>`;
+		let budget = rowLimit, cut = 0;
 		const groupHTML = (gr) => {
 			const open = gr.key in ui.open ? ui.open[gr.key] : typeof ui.openAll === "boolean" ? ui.openAll : gr.problem || listed.length <= 3 || !!ui.q || faceted > 0;
 			const sum = Object.keys(STATES).filter((k) => gr.counts[k]).map((k) => `<span class="lt-state ${stateOf(k).cls}" data-tip="${esc(`${gr.counts[k]} ${t(stateOf(k).label)}`)}">${icon(stateOf(k).icon)}${gr.counts[k]}</span>`).join(" ");
-			const name = ui.group === "state" ? t(stateOf(gr.key).label) : gr.key;
+			const name = ui.group === "state" ? t(stateOf(gr.key).label) : ui.group === "error" ? (gr.key === NO_ERROR ? t("Sin fallo") : shortXPaths(gr.key)) : gr.key;
 			return `<tbody class="live-run ${open ? "open" : ""}" data-group="${esc(gr.key)}"><tr class="lt-group"><td colspan="${ncols}"><button type="button" class="live-run-h" data-live-group="${esc(gr.key)}" aria-expanded="${open}" data-tip="${esc(open ? t("Clic: cerrar este grupo.") : t("Clic: ver sus tests."))}">
 					<span class="live-chev" aria-hidden="true">${icon("i-chevron")}</span><span class="live-sev ${stateOf(gr.tests[0].state).cls}" aria-hidden="true"></span><b data-no-i18n>${esc(name)}</b>
 					<span class="live-run-sum">${sum}${gr.worker ? ` · <span data-no-i18n>${esc(gr.worker)}</span>` : ""}</span></button></td></tr>
-				${open ? gr.tests.map(row).join("") : ""}</tbody>`;
+				${open ? (() => {
+					const take = gr.tests.slice(0, Math.max(0, budget));
+					budget -= take.length;
+					cut += gr.tests.length - take.length;
+					return take.map(row).join("") + (take.length < gr.tests.length && take.length ? `<tr class="lt-cut"><td colspan="${ncols}">${esc(t("y {n} más en este grupo", { n: gr.tests.length - take.length }))}</td></tr>` : "");
+				})() : ""}</tbody>`;
 		};
 		const emptyRuns = (e.runs || []).filter((r) => !(r.tests || []).length);
 		const hiddenTests = tests.length - visible.length;
@@ -1067,18 +1104,17 @@
 			return `<th aria-sort="${dir}"${col === "name" ? ` class="th-name"` : ""}><button type="button" class="lt-sort ${on ? "on" : ""}" data-live-sort="${col}" data-tip-title="${esc(t(label))}" data-tip="${esc(`${tip ? tip + " " : ""}${t("Clic: ordenar por esta columna (otro clic invierte; el tercero vuelve a agrupar).")}`)}">${esc(t(label))}${on ? (ui.sort.dir > 0 ? " ▲" : " ▼") : ""}</button>${extraHTML}</th>`;
 		};
 		const resize = `<span class="lt-resize" data-live-resize role="separator" aria-orientation="vertical" tabindex="0" aria-label="${esc(t("Ancho de la columna Test"))}" data-tip="${esc(t("Arrastra para cambiar el ancho de la columna (con el teclado: ← →). Doble clic: el ancho de antes."))}"></span>`;
-		const thead = `<thead><tr>${th("name", "Test", "", resize)}${th("state", "Estado", t("Ordena por gravedad: sin señal, fallo, interrumpido, tortuga, warning…"))}${th("elapsed", "Dura.", t("Lo que lleva o lo que duró."))}${th("factor", "vs normal", t("La duración frente a la mediana (p50) de sus ejecuciones anteriores: ×1.7 = tardó 1,7 veces lo normal."))}${wcol ? `<th><span data-tip="${esc(t("El proceso o worker en paralelo que lo corrió."))}">${esc(t("Worker"))}</span></th>` : ""}<th><span data-tip="${esc(t("El último paso que informó el test; el completo, en el tooltip y en el detalle."))}">${esc(t("Último paso"))}</span></th></tr></thead>`;
-		const MAX_ROWS = 500;
-		const flat = sorted.length ? `<table class="live-table">${colgroup}${thead}<tbody>${sorted.slice(0, MAX_ROWS).map(row).join("")}</tbody></table>
-			${sorted.length > MAX_ROWS ? `<p class="m-hint">${esc(t("Mostrando {n} de {t}: filtra o busca para acotar.", { n: MAX_ROWS, t: sorted.length }))}</p>` : ""}
+		const thead = `<thead><tr>${th("name", "Test", "", resize)}${th("state", "Estado", t("Ordena por gravedad: sin señal, fallo, interrumpido, tortuga, warning…"))}${th("elapsed", "Dura.", t("Lo que lleva o lo que duró."))}${th("factor", "vs normal", t("La duración frente a la mediana (p50) de sus ejecuciones anteriores: ×1,7 = tardó 1,7 veces lo normal."))}${wcol ? `<th><span data-tip="${esc(t("El proceso o worker en paralelo que lo corrió."))}">${esc(t("Worker"))}</span></th>` : ""}<th><span data-tip="${esc(t("El último paso que informó el test; el completo, en el tooltip y en el detalle."))}">${esc(t("Último paso"))}</span></th></tr></thead>`;
+		const flat = sorted.length ? `<table class="live-table">${colgroup}${thead}<tbody>${sorted.slice(0, rowLimit).map(row).join("")}</tbody></table>
+			${sorted.length > rowLimit ? moreRows(sorted.length - rowLimit) : ""}
 			<button type="button" class="live-collapsed" data-live-sort="" data-tip="${esc(t("Quita el orden por columna y vuelve a los grupos."))}">${esc(t("Volver a agrupar"))}</button>` : "";
 		const canFold = !sorted.length && groups.length > 1;
-		const table = `<div class="card live-runs ${ui.wrap ? "wrap-names" : ""}"><div class="lr-head lp-h"><h6>${esc(ui.group === "worker" ? t("Worker / test") : ui.group === "state" ? t("Estado / test") : t("Archivo / test"))} <span class="m-hint">${esc(t("{n} de {t} tests", { n: visible.length, t: tests.length }))}</span></h6>
+		const table = `<div class="card live-runs ${ui.wrap ? "wrap-names" : ""}"><div class="lr-head lp-h"><h6>${esc(ui.group === "worker" ? t("Worker / test") : ui.group === "state" ? t("Estado / test") : ui.group === "error" ? t("Error / test") : t("Archivo / test"))} <span class="m-hint">${esc(t("{n} de {t} tests", { n: visible.length, t: tests.length }))}</span></h6>
 			<span class="live-spacer"></span>
 			<button type="button" class="cf-btn cf-btn-sm ${ui.wrap ? "on" : ""}" data-live-wrap aria-pressed="${!!ui.wrap}" data-tip="${esc(ui.wrap ? t("Vuelve a mostrar cada nombre en una línea, con la elipsis en el medio.") : t("Muestra los nombres largos completos, en hasta dos líneas."))}">${icon("i-wrap")}${esc(t("Nombres en 2 líneas"))}</button>
 			${canFold ? `<button type="button" class="cf-btn cf-btn-sm" data-live-openall="1" data-tip="${esc(t("Abre todos los grupos, también los que no tienen problemas."))}">${icon("i-unfold")}${esc(t("Expandir todo"))}</button><button type="button" class="cf-btn cf-btn-sm" data-live-openall="0" data-tip="${esc(t("Cierra todos los grupos: queda una línea por grupo con su resumen."))}">${icon("i-fold")}${esc(t("Colapsar todo"))}</button>` : ""}</div>
 			${flat}${listed.length ? `<table class="live-table">${colgroup}${thead}
-				${listed.map(groupHTML).join("")}</table>` : ""}${collapsed}${nothing}
+				${listed.map(groupHTML).join("")}</table>${cut > 0 ? moreRows(cut) : ""}` : ""}${collapsed}${nothing}
 			${emptyRuns.length && ui.group === "file" && !problems ? emptyRuns.map((r) => `<div class="live-run"><div class="live-run-h"><b data-no-i18n>${esc(r.name)}</b> <span class="m-hint">${esc(t("Todavía sin tests."))}</span></div></div>`).join("") : ""}
 			<p class="m-hint lt-foot">${icon("i-st-turtle")}<span>${esc(t("Tortuga: más lento que su p90 (o el doble de su mediana) en sus ejecuciones anteriores. Sin señal: nada del test hace {n} min.", { n: Math.round((data.no_signal_ms || 180000) / 60000 * 10) / 10 }))}</span></p></div>`;
 
@@ -1133,7 +1169,7 @@
 		// el resumen es también el filtro: cada estado (y "nuevos") se elige con un clic
 		const chip = (k, n, cls, ic, label, tip) => `<button type="button" class="la-chip ${cls} ${ast.includes(k) ? "on" : ""}" data-live-attnstate="${k}" aria-pressed="${ast.includes(k)}" data-tip="${esc(tip)}">${ic ? icon(ic) : ""}${n} ${esc(label)}</button>`;
 		const sum = Object.keys(STATES).filter((k) => by[k]).map((k) => chip(k, by[k], stateOf(k).cls, stateOf(k).icon, t(stateOf(k).label), t("Clic: ver solo estos en la lista (otro clic lo quita).")))
-			.join("") + (nNew ? chip("new", nNew, "new", "", t("nuevos"), t("Fallos nuevos: en su ejecución anterior pasaron. Clic: ver solo esos.")) : "");
+			.join("") + (nNew ? chip("new", nNew, "new", "", nNew === 1 ? t("nuevo") : t("nuevos"), t("Fallos nuevos: en su ejecución anterior pasaron. Clic: ver solo esos.")) : "");
 		const rows = shown.map((x, i) => {
 			const st = stateOf(x.state);
 			return `<li style="--i:${i}" data-attn="${x.id}"><button type="button" class="la-row ${st.cls} ${data.panel?.id === x.id ? "sel" : ""}" data-live-test="${x.id}" data-live-run="${x.run_id}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura). Doble clic: abrir el test."))}" aria-label="${esc(`${t(st.label)} · ${x.name} · ${x.file}`)}">
@@ -1142,7 +1178,7 @@
 				<span class="la-file" data-no-i18n data-tip="${esc(x.file)}">${esc(x.file)}</span>
 				<span class="la-wk" data-no-i18n>${esc(x.worker || "")}</span>
 				<span class="la-dur lt-num">${esc(fmtDur(x.elapsed))}${x.state === "no_signal" ? ` <small>${esc(t("sin señal hace {t}", { t: fmtDur(x.idle) }))}</small>` : ""}</span>
-				<span class="la-vs">${x.p50 && x.factor ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${x.factor.toFixed(1)}</span>` : ""}</span></button></li>`;
+				<span class="la-vs">${x.p50 && x.factor ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${num1(x.factor)}</span>` : ""}</span></button></li>`;
 		}).join("");
 		const more = !aq && !ast.length && list.length > MAX ? `<button type="button" class="live-collapsed" data-live-attnmore data-tip="${esc(ui.attnAll ? t("Vuelve a los 8 más graves.") : t("Muestra todo lo que requiere atención."))}">${icon("i-chevron")}${esc(ui.attnAll ? t("ver menos") : t("ver {n} más", { n: list.length - MAX }))}</button>` : "";
 		const none = !list.length ? `<p class="m-hint la-none">${esc(t("Nada coincide con la búsqueda o el filtro."))}</p>` : "";
@@ -1193,7 +1229,7 @@
 
 	/** El estado de un paso: los de test (Pass, Fallo…) o informativo. */
 	const stepState = (s) => STATES[s] || { cls: "info", icon: "i-info" };
-	const pctOf = (x) => `${(x * 100).toFixed(x > 0 && x < 0.1 ? 1 : 0)}%`;
+	const pctOf = (x) => `${numFmt(x > 0 && x < 0.1 ? 1 : 0).format(x * 100)}%`;
 
 	/** La franja de salud bajo los tiles: tasa de fallo (frente a la anterior), p50/p95 y ritmo. */
 	function healthHTML(e, list, now, h) {
@@ -1204,7 +1240,7 @@
 		if (s.prev) {
 			const pts = s.prev.delta * 100;
 			const cls = Math.abs(pts) < 0.05 ? "eq" : pts > 0 ? "worse" : "better";
-			const txt = cls === "eq" ? t("igual que la anterior") : t("{d} pts frente a la anterior", { d: `${pts > 0 ? "▲ +" : "▼ "}${pts.toFixed(1)}` });
+			const txt = cls === "eq" ? t("igual que la anterior") : t("{d} pts frente a la anterior", { d: `${pts > 0 ? "▲ +" : "▼ "}${num1(pts)}` });
 			delta = `<em class="lh-delta ${cls}" data-tip="${esc(t("Ejecución anterior: {e} · {r} de fallo", { e: s.prev.title, r: pctOf(s.prev.failRate) }))}">${esc(txt)}</em>`;
 		}
 		// cada número con su explicación en el tooltip y su sparkline (la tendencia de la ejecución)
@@ -1216,7 +1252,7 @@
 				t("Qué parte de los tests terminados falló o se interrumpió. La flecha la compara con la ejecución anterior del mismo proyecto."), sparkline(rate, "bad"))}
 			${item(t("Duración típica · lenta"), `${esc(fmtDur(s.p50))} · ${esc(fmtDur(s.p95))}`, `<em>${esc(t("mediana (p50) · 95 % terminó antes (p95)"))}</em>`, "",
 				t("Típica: la mitad de los tests duró menos que esto (mediana, p50). Lenta: el 95 % duró menos que esto (p95); lo que pasa de ahí es la cola lenta."))}
-			${item(t("Ritmo"), esc(t("{n} tests/min", { n: s.perMin.toFixed(1) })), `<em>${esc(e.running ? t("últimos 5 min") : t("promedio"))}</em>`, "",
+			${item(t("Ritmo"), esc(t("{n} tests/min", { n: num1(s.perMin) })), `<em>${esc(e.running ? t("últimos 5 min") : t("promedio"))}</em>`, "",
 				t("Cuántos tests terminan por minuto. Si cae mientras la ejecución sigue, algo se está trabando."), sparkline(pace, "pace"))}</div>`;
 	}
 
@@ -1260,10 +1296,10 @@
 					<span class="lc-wn" data-tip="${esc(x.name)}">${midName(x.name, esc)}</span>
 					<small class="lc-wf">${kind ? regBadge(kind, h) : regPending(h)}<span class="lc-time">${esc(h.clock(x.ended_at || x.started_at, true))}</span> · <span data-no-i18n>${esc(x.file)}${x.worker ? ` · ${esc(x.worker)}` : ""}</span></small></button></li>`;
 			}).join("")}</ol>${g.ts.length > WHO ? `<button type="button" class="lf-more lc-whomore" data-live-errall="${esc(g.sig)}" data-tip="${esc(all ? t("Muestra solo los primeros.") : t("Muestra todos los tests con este error."))}">${esc(all ? t("ver menos") : t("ver los {n}", { n: g.ts.length }))}</button>` : ""}` : "";
-			const tally = `${g.nNew ? `<span class="lc-tally new" data-tip="${esc(t("Fallos nuevos con este error: en su ejecución anterior pasaron."))}">${esc(t("{n} nuevos", { n: g.nNew }))}</span>` : ""}${g.nOld ? `<span class="lc-tally old" data-tip="${esc(t("Con este error y ya fallaban en su ejecución anterior."))}">${esc(t("{n} ya fallaban", { n: g.nOld }))}</span>` : ""}${g.nFirst ? `<span class="lc-tally first" data-tip="${esc(t("Con este error y sin una ejecución anterior con qué comparar."))}">${esc(t("{n} primera vez", { n: g.nFirst }))}</span>` : ""}`;
+			const tally = `${g.nNew ? `<span class="lc-tally new" data-tip="${esc(t("Fallos nuevos con este error: en su ejecución anterior pasaron."))}">${esc(g.nNew === 1 ? t("{n} nuevo", { n: 1 }) : t("{n} nuevos", { n: g.nNew }))}</span>` : ""}${g.nOld ? `<span class="lc-tally old" data-tip="${esc(t("Con este error y ya fallaban en su ejecución anterior."))}">${esc(g.nOld === 1 ? t("{n} ya fallaba", { n: 1 }) : t("{n} ya fallaban", { n: g.nOld }))}</span>` : ""}${g.nFirst ? `<span class="lc-tally first" data-tip="${esc(t("Con este error y sin una ejecución anterior con qué comparar."))}">${esc(t("{n} primera vez", { n: g.nFirst }))}</span>` : ""}`;
 			return `<li class="${open ? "open" : ""} ${g.nNew ? "has-new" : ""}"><div class="lc-errrow ${ui.errors.includes(g.sig) ? "on" : ""}">
 				<button type="button" class="lc-row" data-live-errgroup="${esc(g.sig)}" aria-expanded="${open}" data-tip-title="${esc(g.sig)}" data-tip="${esc(open ? t("Clic: ocultar los tests con este error.") : t("Clic: ver a qué tests pertenece este error."))}">
-				<span class="live-chev" aria-hidden="true">${icon("i-chevron")}</span><b class="lc-count fail">${g.count}</b><span class="lc-main"><code data-no-i18n>${esc(g.sig)}</code>
+				<span class="live-chev" aria-hidden="true">${icon("i-chevron")}</span><b class="lc-count fail">${g.count}</b><span class="lc-main"><code data-no-i18n>${esc(shortXPaths(g.sig))}</code>
 				<small>${esc(g.files.length === 1 ? g.files[0] : t("{n} archivos", { n: g.files.length }))} · ${esc(t("último {h}", { h: h.clock(g.last, true) }))}</small>${tally ? `<span class="lc-tallies">${tally}</span>` : ""}</span></button>
 				<button type="button" class="lc-filter ${ui.errors.includes(g.sig) ? "on" : ""}" data-live-facet="error" data-v="${esc(g.sig)}" aria-pressed="${ui.errors.includes(g.sig)}" aria-label="${esc(t("Filtrar la tabla por este error"))}" data-tip="${esc(t("Filtrar la tabla, el mapa y la línea de tiempo por este error (otro clic lo quita)."))}">${icon("i-search")}</button></div>${who}</li>`;
 		}).join("")}</ol>
@@ -1273,7 +1309,7 @@
 		const slow = slowest(tests);
 		const retried = tests.filter((x) => (x.attempts || 0) > 1);
 		const slowBody = (slow.length ? `<ol class="lc-list">${slow.map((x) => `<li><button type="button" class="lc-row" data-live-test="${x.id}" data-live-run="${x.run_id}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura)."))}">
-				<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${x.factor.toFixed(1)}</span><span class="lc-main"><span data-no-i18n>${esc(x.name)}</span>
+				<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${num1(x.factor)}</span><span class="lc-main"><span data-no-i18n>${esc(x.name)}</span>
 				<small>${esc(fmtDur(x.elapsed))} · ${esc(t("mediana {m}", { m: fmtDur(x.p50) }))}${x.ended_at ? "" : ` · ${esc(t("sigue corriendo"))}`}</small></span></button></li>`).join("")}</ol>`
 			: empty(t("Ningún test más lento que su historial."))) + (retried.length
 			? `<p class="lc-retry">${icon("i-warning")}${esc(t("{n} con reintentos: {l}", { n: retried.length, l: retried.slice(0, 3).map((x) => x.name).join(", ") + (retried.length > 3 ? "…" : "") }))}</p>` : "");
@@ -1282,21 +1318,15 @@
 		const testRun = new Map(tests.map((x) => [x.id, x.run_id]));
 		const epBody = !eps ? empty(t("Cargando…")) : eps.length ? `<table class="lc-ep"><colgroup><col class="c-ep"><col class="c-n"><col class="c-err"><col class="c-n"></colgroup><thead><tr><th>${esc(t("Endpoint"))}</th><th class="lt-num">${esc(t("Llamadas"))}</th><th class="lt-num">${esc(t("Errores"))}</th><th class="lt-num">p95</th></tr></thead><tbody>
 				${eps.slice(0, 6).map((x) => `<tr class="${x.errors ? "bad" : ""}"><td><a href="#run=${testRun.get(x.test_id) || ""}&view=tests&test=${x.test_id}&tab=network" data-tip="${esc(`${x.method} ${x.host}${x.path}`)}" data-no-i18n><b>${esc(x.method)}</b> ${esc(x.path)}</a></td>
-				<td class="lt-num">${x.count}</td><td class="lt-num">${x.errors ? `<span class="lc-err">${x.errors} · ${esc(pctOf(x.errors / x.count))}</span>` : "0"}</td><td class="lt-num">${esc(fmtDur(x.p95_ms))}</td></tr>`).join("")}</tbody></table>`
+				<td class="lt-num">${x.count}</td><td class="lt-num">${x.errors ? `<span class="lc-err">${x.errors} · ${esc(pctOf(x.errors / x.count))}</span>` : "0"}</td><td class="lt-num">${esc(fmtMs(x.p95_ms))}</td></tr>`).join("")}</tbody></table>`
 			: empty(t("Sin llamadas al backend registradas (el cliente captura la red con Playwright)."));
 
-		const ev = events(tests);
-		const evLabel = { start: t("empezó"), no_signal: t("dejó de enviar"), FAIL: t("falló"), INTERRUPTED: t("se interrumpió"), WARNING: t("terminó con warning"), PASS: t("pasó"), SKIP: t("se saltó") };
-		const evBody = ev.length ? `<ol class="lc-feed">${ev.map((x) => { const st = x.kind === "start" ? stateOf("running") : stateOf(x.kind);
-			return `<li data-ev="${x.test.id}:${x.kind}"><button type="button" class="lc-row" data-live-test="${x.test.id}" data-live-run="${x.test.run_id}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura)."))}"><small class="lc-time">${esc(h.clock(x.at, true))}</small>
-				<span class="lt-state ${st.cls}">${icon(st.icon)}</span><span class="lc-main"><span data-no-i18n>${esc(x.test.name)}</span> <small>${esc(evLabel[x.kind] || x.kind)}</small></span></button></li>`; }).join("")}</ol>`
-			: empty(t("Todavía sin actividad."));
 
 		return `<div class="live-insights">
 			${card("lc-errors", t("Errores agrupados"), errs.length ? t("{n} firmas", { n: errs.length }) : "", errBody)}
 			${card("lc-slow", t("Más lentos que su historial"), "", slowBody)}
 			${card("lc-backend", t("Backend de la ejecución"), eps?.length ? t("{n} endpoints", { n: eps.length }) : "", epBody)}
-			${card("lc-activity", t("Actividad reciente"), "", evBody)}</div>`;
+</div>`; // la actividad reciente es la cinta EN VIVO de arriba: aquí repetía lo mismo
 	}
 
 	/** Las facetas del explorador: estado, archivo, worker y error, con su cantidad; varias a la vez. */
@@ -1354,7 +1384,7 @@
 			[t("Estado"), `<span class="lt-state ${st.cls}">${icon(st.icon)}${esc(t(st.label))}</span>`],
 			[t("Archivo"), `<span data-no-i18n>${esc(live.file)}</span>`],
 			live.worker ? [t("Worker"), `<span data-no-i18n>${esc(live.worker)}</span>`] : null,
-			[t("Dura."), esc(fmtDur(live.elapsed)) + (live.p50 ? ` · ×${live.factor.toFixed(1)} p50 (${esc(fmtDur(live.p50))})` : "")],
+			[t("Dura."), esc(fmtDur(live.elapsed)) + (live.p50 ? ` · ×${num1(live.factor)} p50 (${esc(fmtDur(live.p50))})` : "")],
 			live.idle && ["running", "turtle", "no_signal"].includes(live.state) ? [t("Última señal"), esc(t("hace {t}", { t: fmtDur(live.idle) }))] : null,
 			(live.attempts || 0) > 1 ? [t("Intentos"), String(live.attempts)] : null,
 		].filter(Boolean) : [];
@@ -1393,7 +1423,7 @@
 			<a class="cf-btn cf-btn-primary" href="#run=${live?.run_id || full?.run_id}&view=tests&test=${panel.id}">${esc(t("Abrir el test"))}</a></aside>`;
 	}
 
-	window.TraceReportsLive = { regressionOf, summaryHTML, laneStripHTML, STATES, PROBLEM, AUTO_PROBLEMS, GROUPS, INGEST, fieldHTML, fmtDur, timeScale, scaleTicks, splitName, sparkline, heatCells, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,
+	window.TraceReportsLive = { num1, anomalyMarks, fmtMs, regressionOf, summaryHTML, laneStripHTML, STATES, PROBLEM, AUTO_PROBLEMS, GROUPS, INGEST, fieldHTML, fmtDur, timeScale, scaleTicks, splitName, sparkline, heatCells, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,
 		zoomStep, problemsOn, filterTests, groupTests, progress, mix, percentile, health, errorSignature, errorGroups, slowest, events, anomalies,
 		facets, sortTests, endpointOf, traceLayout, timeBuckets, resultsOverTime, failRateOverTime, durationHistogram, ago, freshness, render };
 })();

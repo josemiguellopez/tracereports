@@ -96,7 +96,7 @@ test("el campo de la suite grande: un arco por test y los carriles inferidos; el
 	assert.ok(/class="lf-lane pass" data-live-all/.test(active) && active.includes("5/min"), "el canal de tests con su ritmo real");
 	assert.ok(/class="lf-lane fail" data-live-state="FAIL"/.test(active) && /class="lf-lane work" data-live-groupby="worker"/.test(active), "cada canal filtra o agrupa");
 	assert.ok(/class="lf-hud bl bad" data-live-facet="error" data-v="TimeoutException/.test(active), "la anomalía dominante filtra por su firma");
-	assert.ok(/class="lf-sig [a-z]+" data-live-test="\d+"/.test(active), "cada señal abre su test");
+	assert.ok(!active.includes("lf-sigs") && !active.includes("lf-hud tr"), "sin la lista de señales ni el recuadro de progreso: los repetía la cinta y la cabecera");
 	assert.ok(!/class="hm-c /.test(active), "la cuadrícula, solo si se pide");
 	const grid = LIVE.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, fieldView: "grid" } }, h);
 	assert.ok(/class="hm-c [a-z]+" data-live-test/.test(grid) && !grid.includes("data-live-field>"));

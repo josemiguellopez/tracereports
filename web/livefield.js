@@ -321,7 +321,7 @@
 				const it = layout.items.find((x) => x.id === p.id), to = it ? headOf(g, layout, it, spin) : { x: g.cx, y: g.cy };
 				// desde el tramo libre del borde izquierdo, entre el recuadro de arriba (ingesta) y el de abajo (anomalía):
 				// salir de detrás de un recuadro se veía como algo tapado
-				const from = { x: 0, y: h * (0.38 + 0.07 * Math.max(0, ["test", "fail", "net", "step"].indexOf(p.channel))) };
+				const from = { x: -12, y: h * (0.38 + 0.07 * Math.max(0, ["test", "fail", "net", "step"].indexOf(p.channel))) };
 				ctx.fillStyle = colors[CHANNEL_VAR[p.channel]] || primary;
 				for (let j = 0; j < 7; j++) {
 					const kk = Math.max(0, (1 - Math.pow(1 - k, 3)) - j * 0.03);

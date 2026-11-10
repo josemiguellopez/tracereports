@@ -82,7 +82,7 @@ test("todo t(\"…\") de live.js tiene traducción", () => {
 	const used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)+)"/g)].map((m) => m[1]);
 	used.push(...Object.values(L.STATES).map((s) => s.label).filter((s) => !["Pass", "Skip", "Warning"].includes(s)));
 	// iguales en inglés
-	const same = new Set(["{n}/min", "TESTS", "WORKERS", "warning", "{n} tests", "Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
+	const same = new Set(["Error / test", "{n}/min", "TESTS", "WORKERS", "warning", "{n} tests", "Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
 	assert.ok(used.length > 25);
 	assert.deepEqual([...new Set(used)].filter((s) => !same.has(s) && en.t(s) === s), []);
 });
@@ -193,7 +193,7 @@ test("panel lateral: estado, últimos 5 pasos (lo más nuevo arriba), la captura
 	const shotTab = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, tab: "shot", test: { id: 21, run_id: 2, name: "x", logs } } }, h);
 	assert.ok(shotTab.includes('src="/screenshots/a&quot;b.png"'));
 	assert.ok(panel.includes('href="#run=2&view=tests&test=21"') && panel.includes("Abrir el test"));
-	assert.ok(panel.includes("Sin señal") && panel.includes("×6.1 p50"));
+	assert.ok(panel.includes("Sin señal") && panel.includes("×6,1 p50"));
 	assert.ok(L.render({ list: [exec], exec, now: 1, ui: {}, panel: { id: 21 } }, h).includes("Cargando…"), "mientras carga");
 	assert.ok(html.includes('class="lt-row nosig sel"'), "la fila del panel queda marcada");
 });
@@ -225,7 +225,7 @@ test("salud: tasa de fallo, p50/p95, ritmo y la diferencia con la ejecución ant
 	assert.equal(s.perMin, 1, "4 tests en 4 minutos");
 	assert.ok(Math.abs(s.prev.delta - 0.4) < 1e-9, "50% frente al 10% de la anterior del mismo proyecto");
 	const html = L.render({ list, exec: e, now: 300000, ui: {} }, h);
-	assert.ok(html.includes("Tasa de fallo") && html.includes("▲ +40.0 pts frente a la anterior"));
+	assert.ok(html.includes("Tasa de fallo") && html.includes("▲ +40,0 pts frente a la anterior"));
 });
 
 test("errorSignature agrupa el mismo error aunque cambien números y tiempos; conserva el selector", () => {
@@ -486,10 +486,10 @@ test("P1, P2…: los carriles inferidos dicen Proceso N, con su explicación y u
 	const html = L.render({ list: d.list.executions, exec: d.execution.execution, now: d.execution.now, ui: { allLanes: true } }, h);
 	assert.ok(/<span data-no-i18n>Proceso 1<\/span>/.test(html) && !/>P1</.test(html), "nunca la sigla sola");
 	assert.ok(/data-tip-title="Proceso 1" data-tip="Carril inferido: el cliente no informa el worker/.test(html));
-	assert.ok(html.includes("<b>Proceso N</b> = carril en paralelo") && html.includes("<b>×1.7</b> = 1,7 veces lo normal"));
+	assert.ok(html.includes("<b>Proceso N</b> = carril en paralelo") && html.includes("<b>×1,7</b> = 1,7 veces lo normal"));
 	assert.ok(html.includes("Duración típica · lenta") && !html.includes("Duración p50 · p95"), "sin siglas sueltas en la salud");
 	assert.ok(/data-live-sort="factor"[^>]*>vs normal/.test(html), "la columna dice qué compara");
-	assert.ok(/class="lt-vs hi" data-tip="Tardó 8\.3 veces lo normal para este test/.test(html), "×8.3 explicado en su tooltip");
+	assert.ok(/class="lt-vs hi" data-tip="Tardó 8,3 veces lo normal para este test/.test(html), "×8,3 explicado en su tooltip (decimales con coma, como en Chile)");
 });
 
 test("nombres largos: elipsis en el medio (conserva el comienzo y el final), copiar y 2 líneas", () => {
@@ -544,7 +544,7 @@ test("íconos propios: cada estado con el suyo (la tortuga es un ícono, no un e
 	}
 	assert.equal(new Set(Object.values(L.STATES).map((s) => s.icon)).size, Object.keys(L.STATES).length, "un ícono distinto por estado");
 	for (const id of Object.values(L.GROUPS).map((g) => g.icon).concat(["i-zoom-in", "i-zoom-out", "i-fit", "i-wrap", "i-unfold", "i-fold"])) assert.ok(sprite.includes(`<symbol id="${id}"`), id);
-	for (const g of Object.values(L.GROUPS)) assert.ok(en.t(g.tip) !== g.tip && en.t(g.label) !== g.label || g.label === "Worker");
+	for (const g of Object.values(L.GROUPS)) assert.ok(en.t(g.tip) !== g.tip && (en.t(g.label) !== g.label || ["Worker", "Error"].includes(g.label)), g.label);
 	const d = liveSuite(1_794_000_000_000);
 	const html = L.render({ list: d.list.executions, exec: d.execution.execution, now: d.execution.now, ui: { allLanes: true } }, h);
 	assert.ok(!/🐢|✕/.test(html), "sin emojis ni caracteres sueltos como ícono");
@@ -590,7 +590,7 @@ test("Requiere atención: buscador y filtro propios (también 'nuevos'), y la ma
 	const regressions = { [fails[0].id]: "new", [fails[1].id]: "old" };
 	const base = { list: d.list.executions, exec: e, now: d.execution.now, regressions };
 	const html = L.render({ ...base, ui: {} }, h);
-	assert.ok(/data-live-attnstate="new"[^>]*>1 nuevos<\/button>/.test(html), "el chip de nuevos con su cuenta");
+	assert.ok(/data-live-attnstate="new"[^>]*>1 nuevo<\/button>/.test(html), "el chip de nuevos con su cuenta (y el singular bien escrito)");
 	assert.ok(html.includes('class="lt-reg new"') && html.includes('class="lt-reg old"'), "Nuevo y Ya fallaba");
 	assert.ok(html.includes("data-live-aq"), "el buscador");
 	const q = L.render({ ...base, ui: { attnQ: "agenda" } }, h);
@@ -629,7 +629,7 @@ test("errores agrupados: cuántos son nuevos se ve con la firma cerrada; adentro
 	const regressions = { [fails[2].id]: "new", [fails[0].id]: "old", [fails[1].id]: "old" };
 	const sig = L.errorGroups(fails)[0].sig;
 	const closed = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {}, regressions }, h);
-	assert.ok(/class="lc-tally new"[^>]*>1 nuevos<\/span><span class="lc-tally old"[^>]*>2 ya fallaban<\/span>/.test(closed), "la cuenta, cerrada");
+	assert.ok(/class="lc-tally new"[^>]*>1 nuevo<\/span><span class="lc-tally old"[^>]*>2 ya fallaban<\/span>/.test(closed), "la cuenta, cerrada");
 	assert.ok(closed.includes('class=" has-new"') || /class="[^"]*has-new"/.test(closed));
 	const open = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { errOpen: { [sig]: true } }, regressions }, h);
 	const ids = [...open.matchAll(/class="lc-whorow" data-live-test="(\d+)"/g)].map((m) => Number(m[1]));
@@ -662,4 +662,58 @@ test("Requiere atención abierta: su propio scroll y 'ver menos' también arriba
 	assert.ok(open.includes('<div class="la-scroll" tabindex="0"'), "la lista con scroll propio");
 	assert.ok(/class="cf-btn cf-btn-sm la-less" data-live-attnmore/.test(open), "ver menos en el encabezado");
 	assert.equal((open.match(/data-live-attnmore/g) || []).length, 2, "arriba y abajo");
+});
+
+test("agrupar por error: una fila por causa con sus afectados (el selector resumido) y lo que no falló al final", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const g = L.groupTests(L.allTests(e), "error");
+	const sig = L.errorSignature(L.allTests(e).find((x) => x.state === "FAIL").last_step);
+	assert.equal(g[0].key, sig, "la causa primero (los fallos son lo más grave)");
+	assert.equal(g[0].tests.length, 3, "1 causa, 3 afectados");
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, group: "error" } }, h);
+	assert.ok(/data-live-groupby="error" aria-checked="true"/.test(html) && html.includes("Error / test"));
+	assert.ok(html.includes("<b data-no-i18n>TimeoutException en fa-plus-circle</b>"), "la firma con el selector resumido, legible");
+	assert.ok(html.includes("<b data-no-i18n>Sin fallo</b>"), "lo que no falló, junto");
+});
+
+test("la tabla dibuja de a 100 filas: el resto detrás de 'Mostrar 100 más' (la página ya no se arrastra con 1.000 filas)", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution, total = L.allTests(e).length;
+	assert.ok(total > 200, "la suite de prueba es grande");
+	const rows = (ui) => (L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, sort: { col: "name", dir: 1 }, ...ui } }, h).match(/<tr class="lt-row/g) || []).length;
+	assert.equal(rows({}), 100, "de entrada, 100");
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, sort: { col: "name", dir: 1 } } }, h);
+	assert.ok(html.includes(`Mostrar 100 más (${total - 100} sin mostrar)`) && html.includes("data-live-rowsmore"));
+	assert.equal(rows({ rowLimit: 200 }), 200);
+	assert.equal(rows({ rowLimit: 1000 }), total, "con todas a la vista, sin botón");
+	assert.ok(!L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, sort: { col: "name", dir: 1 }, rowLimit: 1000 } }, h).includes("data-live-rowsmore"));
+	// agrupada: el mismo presupuesto repartido entre los grupos abiertos, con el aviso en el grupo cortado
+	const grouped = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false, openAll: true, group: "state" } }, h);
+	assert.equal((grouped.match(/<tr class="lt-row/g) || []).length, 100);
+	assert.ok(/y \d+ más en este grupo/.test(grouped) && grouped.includes("data-live-rowsmore"));
+	for (const s of ["Mostrar {n} más ({t} sin mostrar)", "y {n} más en este grupo", "Dibuja {n} filas más. Para encontrar algo puntual, busca o filtra: es más rápido."]) assert.notEqual(en.t(s), s, `${s} en inglés`);
+});
+
+test("minimapa: las anomalías muy juntas van en una marca con su número (no montadas); la peor primero", () => {
+	const m = L.anomalyMarks([{ left: 10, state: "no_signal" }, { left: 10.8, state: "FAIL" }, { left: 11.6, state: "FAIL" }, { left: 40, state: "FAIL" }]);
+	assert.equal(m.length, 2, "tres a menos de 1,5 % entre sí: una marca");
+	assert.equal(m[0].items.length, 3);
+	assert.ok(m[0].left > 10 && m[0].left < 11.6, "al centro del grupo");
+	assert.equal(m[0].items[0].state, "no_signal", "lo más grave manda el color");
+	assert.equal(m[1].items.length, 1);
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {} }, h);
+	const marks = [...html.matchAll(/class="lg-anom [^"]*" [^>]*style="left:([\d.]+)%/g)].map((x) => Number(x[1])).sort((a, b) => a - b);
+	assert.ok(marks.every((x, i) => i === 0 || x - marks[i - 1] >= 1.5), "ninguna marca encima de otra");
+});
+
+test("números como se escriben en cada idioma (es-CL con coma) y el p95 corto en ms, no '0 s'", () => {
+	assert.equal(L.fmtMs(180), "180 ms");
+	assert.equal(L.fmtMs(0), "0 ms");
+	assert.ok(!L.fmtMs(2400).includes("ms"));
+	assert.equal(L.num1(6.13), "6,1");
+	const E = load(files, { lang: "en" }).TraceReportsLive;
+	assert.equal(E.num1(6.13), "6.1");
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {}, endpoints: [{ method: "GET", path: "/api/x", n: 3, errors: 0, p95_ms: 180 }] }, h);
+	assert.ok(!/\d\.\d tests\/min/.test(html), "el ritmo con coma");
 });

@@ -6,6 +6,23 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed (Live, round 4: lighter, no repeats, group by error, readable numbers)
+
+- **Search no longer freezes the page**: the table redraws once you stop typing (140 ms), not on every key,
+  and it draws 100 rows at a time ("Show 100 more (n hidden)"; a cut group says "and n more in this group").
+  A 1,100-test execution used to draw every row at once.
+- **No repeated information**: "Recent activity" and the field's "Latest signals" repeated the LIVE ticker,
+  and the field's PROGRESS box repeated the header; they are gone.
+- **Group by error**: one row per cause (the signature with its selector shortened, e.g. "TimeoutException
+  in fa-plus-circle") with the tests it hit, the most affected first and "No failure" last.
+- **Trace Buddy shrinks in Live** so it does not cover the table (full size on hover or when its chat is
+  open); the page title shows the execution; the ticker items no longer take Tab stops.
+- **Visual fixes**: multi-line tooltips keep their lines, close minimap marks merge into one mark with a
+  count, test links no longer hide "_" under the underline, "1 new" / "1 already failing" in singular,
+  better contrast for "first time" and the ticker times, backend p95 under one second in ms (it said "0 s"),
+  and error signatures with a long XPath show the shortened selector (the full one in the tooltip).
+- **Times in 24 h and numbers as written in each language**: "×1,7" and "1,3%" in Spanish, "×1.7" in English.
+
 ### Changed (Live, round 3: what filters shows, new failures, error details, closing summary, shortcuts)
 
 - **A chosen status now shows in the timeline**: it used to only fade the other bars, so choosing Pass or Fail

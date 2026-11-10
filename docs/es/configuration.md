@@ -663,7 +663,7 @@ cualquier cliente:
 - **Ejecuciones anteriores**: la lista muestra las de las últimas 2 horas, pero cualquier ejecución se abre
   con la misma vista por su clave o por uno de sus runs (`#view=live&exec=r:888`). **Observabilidad**, en la
   barra superior, abre la ejecución del run que se está mirando.
-- **Mostrar** (Todos / Con problemas) y **Agrupar por** (archivo, worker, estado) son controles segmentados:
+- **Mostrar** (Todos / Con problemas) y **Agrupar por** (archivo, worker, estado, error) son controles segmentados:
   responden en el mismo cuadro del clic (el control cambia y una barra fina avisa que se recalcula) y una
   línea de estado dice qué se ve: «Mostrando 6 de 234 tests · Solo con problemas · Agrupado por archivo».
 - **Mapa de la ejecución**, en dos vistas. **Campo** (por defecto): la ejecución como un toroide de partículas que se lee como un reloj; el ángulo es
@@ -672,8 +672,8 @@ cualquier cliente:
   más lento fue, con una estela fina de lo que duró; los fallos brillan. Pasar el mouse lo muestra, un clic (o
   las flechas y Enter) abre su detalle. Alrededor, los canales (tests, fallos, red, workers: cada uno filtra o
   agrupa), la **ingesta real** (los eventos de esta ejecución que llegaron por el stream en el último minuto y
-  hace cuánto el último; terminada o sin eventos nunca dice "activa"), el progreso, la anomalía dominante (un
-  clic filtra por su firma), las últimas señales y la presión de errores. Cada evento que llega lanza un pulso
+  hace cuánto el último; terminada o sin eventos nunca dice "activa"), la anomalía dominante (un
+  clic filtra por su firma) y la presión de errores. Cada evento que llega lanza un pulso
   desde su canal hasta su test. El campo se maneja: arrastrar gira e inclina, Shift + arrastrar lo mueve,
   +/− (o Ctrl + rueda; en pantalla completa, la rueda) acerca, F lo pone a pantalla completa (Esc vuelve), 0
   restablece la vista; doble clic en una partícula abre el test. **Pausar vista** (o Espacio) congela el campo
@@ -685,7 +685,13 @@ cualquier cliente:
   línea y comprime las pausas largas sin ningún test corriendo (≈, con cuánto duraron). Ctrl + rueda acerca o
   aleja; **Ajustar a la ventana** vuelve a todo; **Ocultar inactivos** deja solo los carriles que corren.
   Sin `worker`, los carriles se llaman **Proceso 1, Proceso 2…** (un carril en paralelo); la leyenda lo explica,
-  igual que **×1.7** (tardó 1,7 veces lo normal: su mediana en ejecuciones anteriores).
+  igual que **×1,7** (tardó 1,7 veces lo normal: su mediana en ejecuciones anteriores).
+- **Agrupar por error** junta los tests por causa (la firma con el selector resumido: «TimeoutException en
+  fa-plus-circle»), la que más afectó primero y «Sin fallo» al final.
+- La tabla dibuja **de a 100 filas** («Mostrar 100 más»); el buscador filtra al dejar de escribir, así la página
+  no se congela con ejecuciones grandes. Las horas van en 24 h y los decimales con coma («×1,7», «1,3%»).
+- En En vivo, **Trace Buddy** se achica para no tapar la tabla (vuelve a su tamaño con el mouse o con su chat
+  abierto) y el título de la página dice la ejecución.
 - Los nombres largos llevan la **elipsis en el medio** (se ve el comienzo y el final, que distingue un test de
   otro), con el nombre completo en el tooltip y un botón para copiarlo; la columna Test se ensancha
   arrastrando su borde (o con ← →) y **Nombres en 2 líneas** los muestra enteros. Ambas preferencias se

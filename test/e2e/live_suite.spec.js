@@ -145,15 +145,15 @@ test("salud y diagnóstico: tasa de fallo frente a la anterior, errores agrupado
 	const view = page.locator("#view-live");
 	const health = view.locator(".live-health");
 	await expect(health).toContainText("Tasa de fallo");
-	await expect(health).toContainText(/1\.3%\s*3 de 223 terminados/);
+	await expect(health).toContainText(/1,3%\s*3 de 223 terminados/);
 	await expect(health.locator(".lh-delta.worse")).toContainText("frente a la anterior");
 	await expect(health).toContainText("Duración típica · lenta");
 	await expect(health).toContainText("mediana (p50)");
-	await expect(health).toContainText(/\d+\.\d tests\/min/);
+	await expect(health).toContainText(/\d+,\d tests\/min/);
 	// errores agrupados: los 3 fallos tienen la misma firma; un clic filtra por ella
 	const err = view.locator(".lc-errors .lc-row").first();
 	await expect(err.locator(".lc-count")).toHaveText("3");
-	await expect(err).toContainText("TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]");
+	await expect(err).toContainText("TimeoutException en fa-plus-circle"); // el selector resumido; el XPath completo, al desplegar
 	const filter = view.locator(".lc-errors .lc-filter").first(); // el clic en la fila la despliega; la lupa filtra
 	await filter.click();
 	await expect(view.locator(".lc-errors .lc-filter").first()).toHaveAttribute("aria-pressed", "true");
@@ -162,12 +162,13 @@ test("salud y diagnóstico: tasa de fallo frente a la anterior, errores agrupado
 	await view.locator(".live-chip.facet").click();
 	await expect(view.locator("tr.lt-row")).toHaveCount(6);
 	// lentos frente a su historial, el backend (errores primero, enlace a la red de un test) y la actividad
-	await expect(view.locator(".lc-slow .lt-vs").first()).toHaveText("×8.3");
+	await expect(view.locator(".lc-slow .lt-vs").first()).toHaveText("×8,3"); // decimales con coma, como se escribe en Chile
 	const ep = view.locator(".lc-backend tbody tr").first();
 	await expect(ep).toHaveClass(/bad/);
 	await expect(ep).toContainText("/api/atenciones/:id");
 	await expect(ep.locator("a")).toHaveAttribute("href", /view=tests&test=1001&tab=network/);
-	await expect(view.locator(".lc-activity li")).toHaveCount(12);
+	await expect(view.locator(".lc-activity"), "la actividad reciente es la cinta EN VIVO: no se repite abajo").toHaveCount(0);
+	await expect(view.locator(".tp-i").first()).toBeVisible();
 	// las anomalías del minimapa: el ícono de fallo o de sin señal (no solo color); abren el test
 	await expect(view.locator(".lg-anom.fail")).toHaveCount(3);
 	await expect(view.locator(".lg-anom.nosig use")).toHaveAttribute("href", "#i-st-nosig");
@@ -202,7 +203,7 @@ test("ordenar por duración da una lista plana; tercer clic vuelve a agrupar", a
 	await expect(view.locator(".lt-group")).toHaveCount(0);
 	await expect(view.locator('th[aria-sort="descending"]')).toContainText("Dura.");
 	const durs = await view.locator("tr.lt-row td.lt-num:nth-child(3)").allTextContents();
-	expect(durs.length).toBeGreaterThan(200);
+	expect(durs.length, "de a 100 filas: el resto con Mostrar más").toBe(100);
 	await expect(view.locator("tr.lt-row").first().locator(".lt-name")).toContainText("periodontograma"); // 34 min, el más largo
 	await view.locator('.lt-sort[data-live-sort="elapsed"]').click();
 	await expect(view.locator('th[aria-sort="ascending"]')).toContainText("Dura.");
@@ -434,7 +435,7 @@ test("mapa de la ejecución y cinta de eventos: un cuadro por test que abre su d
 test("línea de tiempo: Proceso N con su leyenda, la línea de ahora y Ctrl + rueda acerca", async ({ page }) => {
 	const view = page.locator("#view-live");
 	await expect(view.locator(".lg-worker b").first()).toHaveText(/^Proceso \d+$/);
-	await expect(view.locator(".lg-legend")).toContainText("×1.7 = 1,7 veces lo normal");
+	await expect(view.locator(".lg-legend")).toContainText("×1,7 = 1,7 veces lo normal");
 	await expect(view.locator(".lg-now")).toHaveCount(1);
 	// Ctrl + rueda (o el pellizco del trackpad, que llega igual): Playwright no pasa el Ctrl a la rueda, así que el evento va directo
 	const prevented = await view.locator("[data-live-lanes] .lg-track").first().evaluate((n) => {
@@ -526,9 +527,7 @@ test("campo: los canales filtran o agrupan, la anomalía filtra por su firma, la
 	await view.locator(".live-chip.facet").click();
 	await view.locator('.lf-lane[data-live-groupby="worker"]').click();
 	await expect(view.locator(".live-status")).toContainText("Agrupado por worker");
-	await view.locator(".lf-sig").first().click();
-	await expect(view.locator(".live-panel")).toBeVisible();
-	await page.keyboard.press("Escape");
+	await expect(view.locator(".lf-sigs, .lf-hud.tr"), "sin la lista de señales ni PROGRESO: los repetían la cinta y la cabecera").toHaveCount(0);
 	// la cuadrícula: lo mismo, navegable con Tab
 	await view.locator('[data-live-fieldview="grid"]').click();
 	await expect(view.locator(".hm-c[data-live-test]")).toHaveCount(234);
@@ -643,7 +642,7 @@ test("Requiere atención: buscador y fallos nuevos; errores con sus tests; J abr
 	await page.reload();
 	const view = page.locator("#view-live");
 	await expect(view.locator(".lt-reg.new").first()).toBeVisible();
-	await expect(view.locator('[data-live-attnstate="new"]')).toContainText("1 nuevos");
+	await expect(view.locator('[data-live-attnstate="new"]')).toContainText("1 nuevo");
 	await view.locator('[data-live-attnstate="new"]').click();
 	await expect(view.locator(".la-list li")).toHaveCount(1);
 	await view.locator('[data-live-attnstate="new"]').click();
@@ -722,4 +721,55 @@ test("Requiere atención: 'ver más' abre la lista con su propio scroll; 'ver me
 	await expect(card.locator(".la-scroll")).toHaveCount(0);
 	await expect(card.locator(".la-list li")).toHaveCount(8);
 	await expect(card).toBeInViewport();
+});
+
+test("buscar no congela: la vista se redibuja una vez al dejar de escribir, no con cada letra", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await view.locator(".seg-o[data-live-all]").click();
+	const before = await view.locator("tr.lt-row").count();
+	// dos letras seguidas en el mismo instante: todavía no se filtra (antes, cada letra rehacía la tabla entera)
+	const same = await page.evaluate(() => {
+		const q = document.querySelector("#view-live [data-live-q]");
+		for (const v of ["t", "te"]) { q.value = v; q.dispatchEvent(new Event("input", { bubbles: true })); }
+		return document.querySelectorAll("#view-live tr.lt-row").length;
+	});
+	expect(same).toBe(before);
+	await view.locator("[data-live-q]").fill("periodontograma_paso_1");
+	await expect(view.locator("tr.lt-row")).not.toHaveCount(before);
+	await expect(view.locator("tr.lt-row").first()).toContainText("periodontograma_paso_1");
+	await expect(view.locator("[data-live-q]")).toBeFocused();
+});
+
+test("la tabla de a 100 filas con 'Mostrar 100 más'; agrupar por error junta los afectados de cada causa", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await view.locator(".seg-o[data-live-all]").click();
+	await view.locator('.lt-sort[data-live-sort="name"]').click();
+	await expect(view.locator("tr.lt-row")).toHaveCount(100);
+	const more = view.locator("[data-live-rowsmore]");
+	await expect(more).toContainText(/Mostrar 100 más \(\d+ sin mostrar\)/);
+	await more.click();
+	await expect(view.locator("tr.lt-row")).toHaveCount(200);
+	await view.locator('.lt-sort[data-live-sort="name"]').click();
+	await view.locator('.lt-sort[data-live-sort="name"]').click(); // el tercero vuelve a agrupar
+	await view.locator('[data-live-groupby="error"]').click();
+	await expect(view.locator(".live-status")).toContainText("Agrupado por error");
+	const first = view.locator("tbody.live-run").first();
+	await expect(first.locator(".live-run-h b")).toHaveText("TimeoutException en fa-plus-circle");
+	await expect(first.locator("tr.lt-row")).toHaveCount(3);
+	await expect(view.locator("tbody.live-run").last().locator(".live-run-h b")).toHaveText("Sin fallo");
+});
+
+test("En vivo: el título dice la ejecución, Trace Buddy se achica para no tapar, la cinta no roba el Tab y la hora va en 24 h", async ({ page }) => {
+	await expect(page.locator("#report-name")).toHaveText("rayen_salud_box_clinico · c3aec76");
+	await expect(page.locator("body")).toHaveClass(/view-live/);
+	const buddy = page.locator("#buddy");
+	if (await buddy.count()) expect(await buddy.evaluate((n) => getComputedStyle(n).transform)).not.toBe("none");
+	const tape = page.locator("#view-live .tp-i");
+	await expect(tape.first()).toHaveAttribute("tabindex", "-1");
+	const times = await page.locator("#view-live .tp-i small").allTextContents();
+	expect(times.length).toBeGreaterThan(0);
+	for (const x of times) expect(x, "sin a. m./p. m.").not.toMatch(/[ap]\.?\s?m\.?/i);
+	// al salir a otra vista, el título vuelve a ser el del reporte y Buddy vuelve a su tamaño
+	await page.goto("/#view=summary");
+	await expect(page.locator("body")).not.toHaveClass(/view-live/);
 });

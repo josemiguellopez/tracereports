@@ -315,9 +315,9 @@
 	// ---------- header ----------
 	function renderHeader() {
 		const r = S.run;
-		$("#report-name").textContent = r.name;
+		if (S.view !== "live") $("#report-name").textContent = r.name; // en En vivo manda la ejecución (renderLiveView)
 		if ($("#run-select").value !== String(r.id)) $("#run-select").value = String(r.id);
-		$("#report-env").textContent = r.environment || "";
+		if (S.view !== "live") $("#report-env").textContent = r.environment || "";
 		$("#suite-started").textContent = fmtDateTime(r.started_at);
 		renderLive();
 		document.title = `${S.newRuns.length ? "● " : ""}${r.name} · TraceReports`;
@@ -370,6 +370,13 @@
 		document.body.classList.toggle("view-global", global);
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
+		document.body.classList.toggle("view-live", S.view === "live");
+		// el título de arriba: en En vivo, la ejecución que se mira (no la última corrida, que cambia sola)
+		if (S.view !== "live" && S.run) {
+			const rn = $("#report-name"), re = $("#report-env");
+			if (rn && S.run.name) rn.textContent = S.run.name;
+			if (re) re.textContent = S.run.environment || "";
+		}
 		const views = { search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
 			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease,
 			live: renderLiveView };
@@ -1581,6 +1588,7 @@
 		// clic fuera del selector lo cierra
 		document.addEventListener("pointerdown", (e) => { if (S.view === "live" && ui().pickerOpen && !e.target.closest(".live-xpick")) openPicker(false); });
 		const FACET = { state: "states", file: "files", worker: "workers", error: "errors" };
+		let qTimer = 0;
 		/**
 		 * Un clic en Mostrar o Agrupar por responde en el mismo cuadro: el control cambia y su indicador se
 		 * desliza, y la tabla, el mapa y la línea de tiempo se atenúan con una barra de trabajo; recién en el
@@ -1589,6 +1597,7 @@
 		 */
 		const instant = (btn, mutate) => {
 			const t0 = performance.now();
+			S.liveView.ui.rowLimit = 0; // otra vista de la tabla: vuelve a las primeras 100 filas
 			const segEl = btn.closest(".seg");
 			if (segEl) {
 				for (const o of segEl.querySelectorAll(".seg-o")) { const on = o === btn; o.classList.toggle("on", on); o.setAttribute("aria-checked", String(on)); }
@@ -1618,6 +1627,7 @@
 			if (d("[data-live-resize]")) return; // el borde de la columna no ordena
 			if (d("[data-live-wrap]")) { ui().wrap = !ui().wrap; saveLivePrefs(ui()); return redraw(); }
 			if (d("[data-live-hideidle]")) { ui().hideIdle = !ui().hideIdle; return redraw(); }
+			if (d("[data-live-rowsmore]")) { ui().rowLimit = (ui().rowLimit || 100) + 100; return redraw(); }
 			if ((b = d("[data-live-attnstate]"))) { const k = b.dataset.liveAttnstate, st = ui().attnStates || []; ui().attnStates = st.includes(k) ? st.filter((x) => x !== k) : [...st, k]; return redraw(); }
 			if ((b = d("[data-live-errall]"))) { const k = b.dataset.liveErrall; ui().errAll = { ...(ui().errAll || {}), [k]: !(ui().errAll || {})[k] }; return redraw(); }
 			if ((b = d("[data-live-errgroup]"))) { const k = b.dataset.liveErrgroup; ui().errOpen = { ...(ui().errOpen || {}), [k]: !(ui().errOpen || {})[k] }; return redraw(); }
@@ -1743,9 +1753,11 @@
 		});
 		el.addEventListener("change", (e) => { const sel = e.target.closest("[data-live-exec-select]"); if (sel) pick(sel.value); });
 		el.addEventListener("input", (e) => {
-			if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; redraw(); }
+			// buscar: se recalcula al dejar de escribir (140 ms), no con cada tecla; con 2.000 tests cada redibujo
+			// de la vista entera trababa el campo
+			if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; ui().rowLimit = 0; clearTimeout(qTimer); qTimer = setTimeout(redraw, 140); }
 			if (e.target.matches("[data-live-xq]")) { ui().pickerQ = e.target.value; redraw(); }
-			if (e.target.matches("[data-live-aq]")) { ui().attnQ = e.target.value; redraw(); }
+			if (e.target.matches("[data-live-aq]")) { ui().attnQ = e.target.value; clearTimeout(qTimer); qTimer = setTimeout(redraw, 140); }
 		});
 		// el selector con teclado: flechas entre opciones (desde el buscador también), Enter elige, Escape cierra
 		el.addEventListener("keydown", (e) => {
@@ -1901,6 +1913,12 @@
 		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
 		el.classList.toggle("live-compact", !!L.ui.compact);
 		syncLiveField(el);
+		if (L.exec) {
+			const name = $("#report-name");
+			if (name && name.textContent !== L.exec.title) name.textContent = L.exec.title;
+			const env = $("#report-env");
+			if (env) env.textContent = [L.exec.environment, L.exec.running ? tr("en curso") : tr("terminada")].filter(Boolean).join(" · ");
+		}
 		if (replaced) {
 			tape.dirty = true; // la cinta se vuelve a medir una vez, en el próximo cuadro
 			const tr0 = el.querySelector("[data-live-tape-track]");
@@ -2038,7 +2056,7 @@
 	const liveFmts = new Map();
 	function liveFmt(kind) {
 		const lang = I18N.lang === "en" ? "en-US" : "es-CL", k = `${lang}|${kind}`;
-		if (!liveFmts.has(k)) liveFmts.set(k, new Intl.DateTimeFormat(lang, { hms: { hour: "2-digit", minute: "2-digit", second: "2-digit" }, hm: { hour: "2-digit", minute: "2-digit" }, day: { day: "2-digit", month: "short" } }[kind]));
+		if (!liveFmts.has(k)) liveFmts.set(k, new Intl.DateTimeFormat(lang, { hms: { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }, hm: { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }, day: { day: "2-digit", month: "short" } }[kind]));
 		return liveFmts.get(k);
 	}
 

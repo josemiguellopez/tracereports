@@ -2568,3 +2568,21 @@ tr.lt-row.lane-hl > td:first-child { box-shadow: inset 3px 0 0 var(--color-prima
 		radial-gradient(farthest-side at 50% 0, rgba(0,0,0,.28), transparent) top / 100% 8px no-repeat scroll, radial-gradient(farthest-side at 50% 100%, rgba(0,0,0,.28), transparent) bottom / 100% 8px no-repeat scroll; }
 .la-scroll:focus-visible { outline: 2px solid var(--color-focus); }
 .la-less svg { width: 13px; height: 13px; }
+
+/* En vivo: Trace Buddy más chico (crece al pasar el mouse) y espacio abajo para que no tape el final de la vista */
+body.view-live #buddy { transform: scale(.6); transform-origin: 100% 100%; opacity: .9; transition: transform var(--mo-fast, 160ms), opacity var(--mo-fast, 160ms); }
+body.view-live #buddy:hover, body.view-live #buddy:focus-within, body.view-live #buddy:has(#buddy-fab.active) { transform: none; opacity: 1; }
+body.view-live .live-view { padding-bottom: 96px; }
+@media (max-width: 640px) { body.view-live #buddy { transform: scale(.5); } }
+
+/* arreglos visuales de la auditoría */
+.cf-tooltip span { white-space: pre-line; } /* los tooltips de varias líneas (barras, marcas) ya no salen en una sola */
+.live-table .lt-namew a { text-decoration: none; } /* el subrayado tapaba los "_" de los nombres */
+.live-table .lt-namew a:hover, .live-table .lt-namew a:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.lt-reg { font-size: 11px; }
+.lt-reg.first, .lc-tally.first { color: color-mix(in srgb, var(--color-info) 62%, var(--color-text)); } /* contraste en el tema claro */
+.tp-i small { opacity: 1; font-size: 11px; color: var(--color-text-muted); }
+.tp-win { -webkit-mask-image: linear-gradient(90deg, transparent, #000 48px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(90deg, transparent, #000 48px, #000 calc(100% - 40px), transparent); }
+.lg-anom.many { width: auto; min-width: 18px; padding: 0 4px; border-radius: 9px; }
+.lg-anom.many b { font: 700 10px/1 var(--font-mono); color: #fff; }
+.hm-c.dim { opacity: .3; }

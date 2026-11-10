@@ -659,7 +659,7 @@ from any client:
 - **Past executions**: the list shows the last 2 hours, but any execution opens with the same view by its
   key or by one of its runs (`#view=live&exec=r:888`). **Observability**, in the top bar, opens the
   execution of the run being looked at.
-- **Show** (All / With problems) and **Group by** (file, worker, status) are segmented controls: they answer
+- **Show** (All / With problems) and **Group by** (file, worker, status, error) are segmented controls: they answer
   in the same frame as the click (the control changes and a thin bar says it is recomputing) and a status
   line says what is shown: "Showing 6 of 234 tests · Only with problems · Grouped by file".
 - **Execution map**, in two views. **Field** (default): the execution as a torus of particles read like a clock; the angle is time (the start
@@ -668,8 +668,8 @@ from any client:
   lasted; failures glow. Hovering shows it, a click (or the arrows and Enter) opens its detail. Around it, the
   channels (tests, failures, network, workers: each filters or groups), the **real ingestion** (events of this
   execution that arrived through the stream in the last minute and how long ago the last one; finished or
-  without events it never says "active"), progress, the dominant anomaly (a click filters by its signature),
-  the latest signals and the error pressure. Every incoming event fires a pulse from its channel to its test. The field can be handled: drag rotates and tilts, Shift + drag moves,
+  without events it never says "active"), the dominant anomaly (a click filters by its signature) and
+  the error pressure. Every incoming event fires a pulse from its channel to its test. The field can be handled: drag rotates and tilts, Shift + drag moves,
   +/− (or Ctrl + wheel; the wheel in full screen) zooms, F goes full screen (Esc returns), 0 resets the view;
   a double click on a particle opens the test. **Pause view** (or Space) freezes the field to look into
   something while ingestion goes on in the server: it counts the events arriving and "Resume (+N)" catches up.
@@ -680,6 +680,12 @@ from any client:
   out; **Fit to window** goes back to everything; **Hide idle** keeps only the lanes that are running.
   Without `worker`, lanes are called **Process 1, Process 2…** (a parallel lane); the legend explains it, and
   **×1.7** too (took 1.7 times normal: its median in earlier executions).
+- **Group by error** puts tests together by cause (the signature with its selector shortened: "TimeoutException
+  in fa-plus-circle"), the most affected first and "No failure" last.
+- The table draws **100 rows at a time** ("Show 100 more"); search filters once you stop typing, so the page
+  does not freeze on big executions. Times are in 24 h and numbers follow the language ("×1,7" in Spanish).
+- In Live, **Trace Buddy** shrinks so it does not cover the table (full size on hover or with its chat open)
+  and the page title shows the execution.
 - Long names carry the **ellipsis in the middle** (the start and the end, which tells one test from another,
   stay visible), with the full name in the tooltip and a button to copy it; the Test column widens by
   dragging its edge (or with ← →) and **Names on 2 lines** shows them whole. Both preferences are remembered
