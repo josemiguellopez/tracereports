@@ -669,7 +669,7 @@ cualquier cliente:
   línea de estado dice qué se ve: «Mostrando 6 de 234 tests · Solo con problemas · Agrupado por archivo».
 - **Mapa de la ejecución**, en dos vistas. **Campo** (por defecto): la ejecución como un toroide de partículas que se lee como un reloj; el ángulo es
   el tiempo (arriba el comienzo, en sentido horario, con las pausas comprimidas) y cada anillo un worker o
-  proceso. Cada test es un punto donde terminó (o donde va, sobre la aguja roja de "ahora"), más grande cuanto
+  proceso. Cada test es un punto donde terminó (o donde va, sobre la aguja punteada de "ahora", en el color del texto: el rojo es solo de los fallos), más grande cuanto
   más lento fue, con una estela fina de lo que duró; los fallos brillan. Pasar el mouse lo muestra, un clic (o
   las flechas y Enter) abre su detalle. Alrededor, los canales (tests, fallos, red, workers: cada uno filtra o
   agrupa), la **ingesta real** (los eventos de esta ejecución que llegaron por el stream en el último minuto y
@@ -832,6 +832,22 @@ para cerrarlas o eliminarlas en lote (una ejecución en curso no se elimina: pri
 **El umbral desde la interfaz.** En Mantenimiento, *Cerrar tras* cambia el umbral (30 min a 48 h, o
 *Nunca*) sin reiniciar el servidor; necesita el mismo permiso que Ajustes. Si el servidor tiene
 `TRACEREPORTS_STALE_RUN_HOURS`, manda la variable y el selector queda bloqueado.
+
+### Conexiones de los clientes
+
+**Mantenimiento → Conexiones de los clientes** dice si la evidencia llega bien al servidor, sin entrar a la
+máquina que lo corre:
+
+- **Runs con problemas de entrega** (7 días): los que el cliente no pudo crear a tiempo (grabó en local y los
+  subió al terminar), con la causa (`the server did not answer within 30 s`), a qué dirección conectó y cuánto
+  esperó, el equipo y la versión del cliente; también los que tuvieron reintentos o evidencia perdida. El
+  reporte de esos runs lo avisa arriba ("Este run llegó al final"). Lo informa el cliente al cerrar el run
+  (Python; ver `delivery` en la [API](api.md)).
+- **Pedidos lentos del servidor**: los últimos 50 de más de 2 s desde que arrancó (también en el log como
+  `slow request`). Si un test dijo «timed out» y aquí no hay nada a esa hora, el pedido no llegó al servidor:
+  el problema está en la red o en Docker (ver `scripts/watch-health.ps1` en [Docker](docker.md#problemas-frecuentes)).
+- **Credenciales rechazadas** (solo con el permiso de Ajustes): las direcciones que fallaron el token o el
+  login en los últimos 15 min y si quedaron bloqueadas; suele ser un token mal puesto en el `.env` de los tests.
 
 ### Almacenamiento y retención
 

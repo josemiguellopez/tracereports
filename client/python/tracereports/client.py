@@ -53,6 +53,7 @@ import logging
 import mimetypes
 import os
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -196,6 +197,8 @@ class TraceReports:
         self.offline_dir: Optional[str] = None  # carpeta donde se está grabando (None: se envía al servidor)
         self.offline_report: Optional[str] = None  # index.html generado al cerrar
         self._push_at_end = False  # la ejecución no se pudo crear al inicio: end_run intenta subir la grabación
+        self._late: Optional[dict] = None  # por qué no se pudo crear al inicio (va en el informe de entrega)
+        self._sender_before_offline = None  # el envío de antes de grabar en local: guarda el detalle del timeout
         self.pushed_report_url: Optional[str] = None  # la ejecución subida al final (push), si se pudo
 
     # ------------------------------------------------------------- offline
@@ -207,6 +210,7 @@ class TraceReports:
 
     def _go_offline(self, reason: str) -> None:
         directory = self._offline_base if self._offline_explicit else new_session_dir(self._offline_base, self._offline_name)
+        self._sender_before_offline = self._sender
         try:
             self._sender = Recorder(directory)
         except OSError as err:
@@ -317,8 +321,14 @@ class TraceReports:
         if not res and self.enabled and self.offline_mode in ("auto", "both") and not self.recording:
             # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo; si al
             # final el servidor responde, end_run sube la grabación (un corte breve no la pierde)
-            self._go_offline(f"could not create the run at {self.base_url} ({self._create_failure()})")
+            why = self._create_failure()
+            self._go_offline(f"could not create the run at {self.base_url} ({why})")
             self._push_at_end = self.recording
+            if self.recording:
+                # va con el cierre del run (y con la grabación cuando se sube): el servidor lo muestra
+                # en el reporte y en Mantenimiento > Conexiones
+                self._late = {"late": True, "late_at": int(time.time() * 1000), "reason": why,
+                              "detail": getattr(self._sender_before_offline, "last_failure_detail", "")}
             if self.recording:
                 res = self._request("POST", "/api/v1/runs", payload, self.run_timeout)
         if res and res.get("run_id", 0) > 0 and self.offline_mode == "both" and not self.recording:
@@ -364,6 +374,9 @@ class TraceReports:
         if not rid:
             return None
         payload = {"interrupted": bool(interrupted)}
+        report = self._delivery_report()
+        if report:
+            payload["delivery"] = report
         res = self._request("PATCH", f"/api/v1/runs/{rid}/finish", payload, self.run_timeout, self._run_total())
         if res is None and self.enabled:
             # el servidor no respondió: el cierre también va al spool (se reenvía con lo demás)
@@ -380,6 +393,21 @@ class TraceReports:
             if self._push_at_end:
                 self._push_recording()
         return res
+
+    def _delivery_report(self) -> Optional[dict]:
+        """How this run's evidence arrived, for the server (only when something went wrong): created
+        late (recorded locally), retried, rejected, dropped, lost or spooled. The server shows it in
+        the run and in Maintenance > Connections."""
+        d = self.delivery
+        counts = {k: int(d.get(k) or 0) for k in ("retried", "rejected", "dropped", "lost", "spooled")}
+        if not self._late and not any(counts.values()):
+            return None
+        report = {**(self._late or {}), **{k: v for k, v in counts.items() if v}, "client": f"python {__version__}"}
+        try:
+            report["host"] = socket.gethostname()[:120]
+        except OSError:
+            pass
+        return report
 
     def _create_failure(self) -> str:
         """Why the run could not be created, in the words of the warning."""

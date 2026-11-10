@@ -174,6 +174,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/facets", s.runFacets)
 		r.Get("/maintenance", s.maintenance)
 		r.Get("/maintenance/storage", s.storage)
+		r.Get("/maintenance/connections", s.connections)
 		r.Get("/maintenance/storage/preview", s.storagePreview)
 		r.Post("/runs", s.createRun)
 		r.Get("/runs/{run_id}", s.getRun)
@@ -435,7 +436,10 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.inheritCancel(id, meta.ExecutionID) // su ejecución ya se canceló desde En vivo: nace cancelada
-	s.publish("run", id, 0, map[string]string{"action": "created"})
+	// lo que la UI necesita para avisarlo sin pedir la lista (que, con muchas corridas en paralelo,
+	// puede no traerla todavía): su nombre y su ejecución
+	s.publish("run", id, 0, map[string]string{"action": "created", "name": name, "execution_id": meta.ExecutionID,
+		"environment": environment, "branch": meta.Branch})
 }
 
 // runCommit validates the commit of a run: it must be a Git commit id (4 to 64 hex characters,
@@ -474,6 +478,8 @@ func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Interrupted bool `json:"interrupted"` // el cliente no llegó a terminar todos sus tests
+		// cómo llegó su evidencia, según el cliente (opcional): creado tarde, reintentos, perdidos
+		Delivery *db.RunDelivery `json:"delivery"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -481,6 +487,12 @@ func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
 	run, first, err := s.Store.CloseRun(id, in.Interrupted)
 	if respondErr(w, err, "run") {
 		return
+	}
+	if d := cleanDelivery(in.Delivery); d != nil {
+		if err := s.Store.SetRunDelivery(id, *d); err != nil {
+			serverError(w, err)
+			return
+		}
 	}
 	if ts := eventTime(r); ts > 0 && first { // un cierre repetido conserva la hora del primero
 		if err := s.Store.SetRunEnded(id, ts); err != nil {

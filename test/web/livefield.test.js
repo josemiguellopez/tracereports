@@ -117,3 +117,31 @@ test("el gráfico de ingesta se lee como gráfico: barras sobre una base, un tra
 	assert.ok(html.includes('<span class="lf-bars-x" aria-hidden="true"><small>hace 1 min</small><small>ahora</small></span>'));
 	assert.notEqual(en.t("hace 1 min"), "hace 1 min");
 });
+
+test("con un filtro, lo apagado no se puede tocar: el clic va al test que coincide aunque haya otro encima", () => {
+	const L = F.fieldLayout(exec, 20 * MIN, LIVE);
+	const g = F.geometry(800, 420);
+	const fail = L.items.find((x) => x.id === 21), pass = L.items.find((x) => x.id === 11);
+	const p = F.headOf(g, L, pass, 0);
+	assert.equal(F.hitTest(L, g, p.x, p.y, 0)?.id, 11, "sin filtro: el de abajo del puntero");
+	assert.equal(F.hitTest(L, g, p.x, p.y, 0, new Set([21])), null, "filtrado por fallo: el que pasó no responde");
+	const q = F.headOf(g, L, fail, 0);
+	assert.equal(F.hitTest(L, g, q.x + 3, q.y, 0, new Set([21]))?.id, 21, "el que coincide, sí");
+	assert.equal(F.HIT_PX, 18, "un poco más de margen para acertar");
+	assert.equal(F.hitTest(L, g, q.x + 16, q.y, 0, new Set([21]))?.id, 21, "a 16 px todavía se acierta");
+});
+
+test("'ahora' va en el color del texto, nunca en el rojo de los fallos", () => {
+	assert.equal(F.NOW_VAR, "--color-text");
+	const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "web", "livefield.js"), "utf8");
+	const nowBlock = src.slice(src.indexOf("if (layout.nowAngle !== null) {"), src.indexOf("// el elegido, el del mouse"));
+	assert.ok(nowBlock.includes("colors[NOW_VAR]") && !nowBlock.includes("--color-danger"));
+	const css = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "web", "features.css"), "utf8");
+	assert.ok(/\.lg-now \{ border-left: 2px dashed var\(--color-text\); \}/.test(css), "y en la línea de tiempo");
+});
+
+test("el subtítulo del mapa ya no habla de una aguja roja (el rojo es solo de los fallos)", () => {
+	const src = require("node:fs").readFileSync(require("node:path").join(__dirname, "..", "..", "web", "live.js"), "utf8");
+	assert.ok(!src.includes("aguja roja") && src.includes("la aguja punteada es ahora"));
+	assert.equal(en.t("el tiempo en círculo: arriba el comienzo, la aguja punteada es ahora"), "time in a circle: the start on top, the dashed hand is now");
+});

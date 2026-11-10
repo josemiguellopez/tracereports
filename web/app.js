@@ -20,7 +20,7 @@
 		detailTab: "steps", net: { key: null, list: null }, netFilter: "", netSearch: "", netApiOnly: false,
 		hist: {}, histGen: 0, liveView: { list: [], exec: null, key: "", now: 0, no_signal_ms: 0, loaded: false, ui: liveUI(), panel: null }, insights: { key: null }, tlAll: false, epAll: false,
 		loc: {}, locLang: "", locTool: "", replay: { testId: null, index: 0, speed: 1 }, player: null,
-		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
+		liveState: "off", autoScroll: true, activity: {}, newRuns: [], newRunInfo: {}, notify: window.TraceReportsRunNotify?.load() || { until: 0, muted: {} },
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
 		recents: { q: "", tab: "" },
@@ -1504,19 +1504,54 @@
 	}
 
 	/** El panel lateral: el test con sus pasos y su última captura, sin salir de la vista. */
+	/**
+	 * El detalle de los tests ya vistos (o pre-cargados al pasar el mouse por el mapa): elegir uno
+	 * muestra lo que se tiene al instante y lo actualiza por detrás, en vez de vaciar el panel y
+	 * volver a dibujarlo (era el "pestañeo" al cambiar de test). Como mucho 40, el último usado manda.
+	 */
+	const LIVE_PANEL_CACHE = 40;
+	function livePanelCache() {
+		const L = S.liveView;
+		return (L.panelCache ||= new Map());
+	}
+	function rememberLivePanel(id, data) {
+		const c = livePanelCache();
+		c.delete(id);
+		c.set(id, { ...(c.get(id) || {}), ...data });
+		while (c.size > LIVE_PANEL_CACHE) c.delete(c.keys().next().value);
+	}
+	/** Pasar el mouse por un test del mapa pide su detalle (una vez): al hacer clic ya está. */
+	function prefetchLivePanel(id) {
+		const L = S.liveView;
+		if (!id || livePanelCache().has(id) || L.prefetching?.has(id)) return;
+		(L.prefetching ||= new Set()).add(id);
+		Promise.all([api(`/api/v1/tests/${id}`), api(`/api/v1/tests/${id}/network`).catch(() => [])])
+			.then(([test, net]) => rememberLivePanel(id, { test, net: Array.isArray(net) ? net : net?.connections || [], netAt: Date.now() }))
+			.catch(() => {}).finally(() => L.prefetching?.delete(id));
+	}
+
 	async function loadLivePanel(id, refresh = false) {
 		const L = S.liveView;
-		if (!refresh) { L.panel = { id, tab: L.panel?.tab || "trace" }; renderLiveView(); }
+		if (!refresh) {
+			const known = livePanelCache().get(id), prev = L.panel;
+			// lo que ya se tiene de ese test; si no, con el panel abierto, lo anterior atenuado hasta que
+			// llegue lo nuevo (el encabezado ya es del test elegido): nunca un panel vacío entre medio
+			L.panel = { id, tab: prev?.tab || "trace",
+				...(known ? { test: known.test, net: known.net, netAt: known.netAt } : prev?.test ? { test: prev.test, net: prev.net, stale: true } : {}) };
+			renderLiveView();
+		}
 		const prev = L.panel;
 		const running = !prev?.test || prev.test.status === "RUNNING";
 		const netDue = !refresh || (running && Date.now() - (prev.netAt || 0) > 8000);
 		try {
 			const [test, net] = await Promise.all([api(`/api/v1/tests/${id}`), netDue ? api(`/api/v1/tests/${id}/network`).catch(() => []) : null]);
+			const fresh = netDue ? { net: Array.isArray(net) ? net : net?.connections || [], netAt: Date.now() } : {};
+			rememberLivePanel(id, { test, ...fresh });
 			if (L.panel?.id !== id) return;
-			L.panel = { ...L.panel, test, error: undefined, ...(netDue ? { net: Array.isArray(net) ? net : net?.connections || [], netAt: Date.now() } : {}) };
+			L.panel = { ...L.panel, test, error: undefined, stale: false, ...fresh };
 		} catch (err) {
 			if (L.panel?.id !== id) return;
-			L.panel = { ...L.panel, error: refresh ? undefined : err.message };
+			L.panel = { ...L.panel, stale: false, error: refresh ? undefined : err.message };
 		}
 		if (S.view === "live") renderLiveView();
 	}
@@ -1988,12 +2023,14 @@
 		if (A.anoms) for (const n of el.querySelectorAll(".lg-anom")) if (!A.anoms.has(n.dataset.liveTest)) flag(n, "lg-anom-new");
 		A.anoms = anoms;
 		const panel = el.querySelector(".live-panel");
-		if (panel && A.panelKey !== String(L.panel?.id)) flag(panel, "live-panel-in");
+		const opened = panel && !A.panelKey; // el panel recién se abre (no: se cambió de test con el panel abierto)
+		if (opened) flag(panel, "live-panel-in");
 		A.panelKey = panel ? String(L.panel?.id) : "";
+		// la traza entra fila por fila solo la primera vez que el panel se abre; al cambiar de test se
+		// reemplaza de una vez (repetir el fundido con cada clic se veía como un parpadeo)
 		const trace = el.querySelector(".lt-trace");
-		const tk = trace ? `${L.panel?.id}:${L.panel?.all ? 1 : 0}` : "";
-		if (trace && A.traceKey !== tk) flag(trace, "lt-trace-in");
-		A.traceKey = tk;
+		if (trace && opened) flag(trace, "lt-trace-in");
+		A.traceKey = trace ? String(L.panel?.id) : "";
 	}
 	// Reordenar sin saltos (la técnica FLIP, como el `layout` de Framer Motion): se anotan dónde estaban
 	// las filas antes de redibujar y, si un test cambió de lugar, se lo desliza desde ahí con un resorte.
@@ -2089,7 +2126,7 @@
 		const slot = el.querySelector("[data-live-field]");
 		if (!F || !slot || !L.exec) { L.field?.attach(null); return; }
 		const t = window.TraceReportsI18n.t;
-		if (!L.field) L.field = F.create({ t, onPick: (id) => loadLivePanel(id), onPause: toggleLivePause,
+		if (!L.field) L.field = F.create({ t, onPick: (id) => loadLivePanel(id), onPause: toggleLivePause, onHover: prefetchLivePanel,
 			onOpen: (id, run) => { S.leavingLive = Date.now(); L.panel = null; location.hash = `#run=${run}&view=tests&test=${id}`; } });
 		L.field.attach(slot);
 		const tests = LIVE.allTests(L.exec), shown = LIVE.filterTests(tests, L.ui, LIVE.problemsOn(L.exec, L.ui, LIVE.lanesOf(L.exec, L.now).length));
@@ -2100,7 +2137,15 @@
 			exec: L.exec, now: L.now || Date.now(), live: LIVE, match: filtered, selected: L.panel?.id, paused: !!L.ui.paused, pausedNew: livePausedNew(),
 			head: `${L.exec.title} · ${t(LIVE.INGEST[ing?.state || "quiet"].label)} · ${t("{n} eventos/min", { n: ing?.perMin || 0 })}`,
 			aria: t("Campo de la ejecución: {n} tests en {l} carriles. Flechas para recorrerlos, Enter para abrir.", { n: tests.length, l: LIVE.lanesOf(L.exec, L.now).length }),
-			tip: (it) => `${t(LIVE.STATES[it.state]?.label || it.state)} · ${LIVE.fmtDur(it.elapsed)}${it.factor ? ` · ×${it.factor.toFixed(1)} ${t("de lo normal")}` : ""} · ${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ""}
+			// la tarjeta del mouse: con el color y el ícono de su estado (livefield.js arma el DOM)
+			card: (it) => {
+				const st = LIVE.STATES[it.state] || { cls: "running", icon: "i-st-running", label: it.state };
+				return { cls: st.cls, icon: st.icon, label: t(st.label), dur: LIVE.fmtDur(it.elapsed),
+					factor: it.factor ? `×${LIVE.num1(it.factor)} ${t("de lo normal")}` : "", slow: it.factor >= 2,
+					times: `${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ` · ${t("en curso")}`}`,
+					where: `${it.file}${it.worker ? ` · ${it.worker}` : ""}`, hint: t("Clic: el detalle · doble clic: abrir el test") };
+			},
+			tip: (it) => `${t(LIVE.STATES[it.state]?.label || it.state)} · ${LIVE.fmtDur(it.elapsed)}${it.factor ? ` · ×${LIVE.num1(it.factor)} ${t("de lo normal")}` : ""} · ${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ""}
 ${it.file}${it.worker ? ` · ${it.worker}` : ""}
 ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		});
@@ -2322,7 +2367,10 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		// un resultado nuevo puede ser un cuadro más del historial de cualquier test (ensureHistory)
 		if ((type === "test" && e.data?.action === "finished") || (type === "run" && ["finished", "deleted"].includes(e.data?.action))) S.histGen++;
 		if (type === "run" && e.data?.action === "created") {
-			loadRuns().then(() => notifyNewRun(e.run_id)).catch(() => {});
+			// el evento trae nombre y ejecución: se avisa aunque la lista (los últimos 10, y la recarga
+			// más nueva gana) todavía no lo traiga, como pasa con muchas corridas creadas a la vez
+			S.newRunInfo[e.run_id] = { id: e.run_id, status: "RUNNING", ...e.data };
+			loadRuns().catch(() => {}).then(() => notifyNewRun(e.run_id));
 			if (S.view === "search") { S.runSearch.newCount++; renderRunSearch(); }
 		}
 		if (type === "log") {
@@ -2343,7 +2391,9 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		if (!stay && GLOBAL_VIEWS.has(S.view)) S.view = "tests";
 		$("#run-select").value = String(id);
 		S.testId = null; S.test = null; S.rendered = {};
-		S.newRuns = S.newRuns.filter((x) => x !== id); // ya la está viendo
+		const RN = window.TraceReportsRunNotify, seen = runInfo(id);
+		// ya la está viendo: sale de los avisos con todas las corridas de su ejecución
+		S.newRuns = S.newRuns.filter((x) => x !== id && !(seen && RN && RN.execKey(runInfo(x)) === RN.execKey(seen)));
 		renderNewRuns();
 		writeHash();
 		await loadRun(); await loadTest();
@@ -2351,58 +2401,177 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 
 	/**
 	 * Empezó otra ejecución: no se cambia sola (quien mira un reporte no pierde lo que estaba
-	 * viendo). Un aviso arriba ofrece verla en vivo; con "Ahora no" queda la insignia junto al
-	 * selector y un punto en la pestaña del navegador. Si no se estaba viendo ninguna, se abre.
+	 * viendo). Un aviso arriba ofrece verla en vivo; la insignia junto al selector y un punto en la
+	 * pestaña quedan mientras no se vea. Se avisa por ejecución (runnotify.js): las corridas nuevas de
+	 * una ejecución ya avisada solo suman a su cuenta. Si no se estaba viendo ninguna, se abre.
 	 */
+	/** Un run por su id: de la lista o, si todavía no está en ella, del evento que lo anunció. */
+	function runInfo(id) {
+		return S.runs.find((x) => x.id === id) || S.newRunInfo[id];
+	}
+
 	function notifyNewRun(id) {
 		S.seenRuns?.add(id);
-		const r = S.runs.find((x) => x.id === id);
+		const r = runInfo(id);
 		if (!r || id === S.runId || S.newRuns.includes(id)) return;
 		if (!S.run) { switchRun(id, { stay: true }).catch(() => {}); return; }
-		// una corrida nueva de la MISMA ejecución (un lanzador que abre una por archivo) no es "otra
-		// ejecución": avisarlo con cada archivo tapaba la pantalla, sobre todo en En vivo
+		// una corrida nueva de la ejecución que se está mirando (en el reporte o en En vivo) no es "otra"
 		const exe = r.execution_id;
 		if (exe && (exe === S.run.execution_id || S.liveView?.exec?.key === `x:${exe}` || S.liveView?.exec?.execution_id === exe)) return;
 		S.newRuns.push(id);
-		S.toastClosed = false; // cada ejecución nueva vuelve a avisar
 		renderNewRuns();
 	}
 
+	/** Lo silenciado cambió: se guarda y se vuelve a dibujar el aviso, la insignia y la campana. */
+	function setNotify(next) {
+		const RN = window.TraceReportsRunNotify;
+		S.notify = RN ? RN.prune(next, Date.now()) : next;
+		RN?.save(S.notify);
+		renderNewRuns();
+	}
+
+	/** Abre una ejecución nueva: En vivo de su ejecución (o su run, si no tiene execution_id). */
+	function openNewExec(g) {
+		const RN = window.TraceReportsRunNotify;
+		S.newRuns = S.newRuns.filter((x) => RN.execKey(runInfo(x)) !== g.key);
+		renderNewRuns();
+		if (g.key.startsWith("x:")) location.hash = `#view=live&exec=${encodeURIComponent(g.key)}`;
+		else switchRun(g.latest.id).catch(() => {});
+	}
+
+	function newRunGroups() {
+		const RN = window.TraceReportsRunNotify;
+		const runs = S.newRuns.map(runInfo).filter(Boolean);
+		return RN ? RN.group(runs, S.notify, Date.now()) : { list: [], loud: [] };
+	}
+
 	function renderNewRuns() {
-		const runs = S.newRuns.map((id) => S.runs.find((x) => x.id === id)).filter(Boolean);
-		const latest = runs[runs.length - 1];
+		const { list, loud } = newRunGroups();
+		const latest = list[list.length - 1];
 		const badge = $("#new-run-badge");
 		badge.hidden = !latest;
 		document.title = document.title.replace(/^● /, "");
+		renderNotifyBell();
 		let el = $("#run-toast");
-		if (!latest) { if (el) el.hidden = true; return; }
-		document.title = `● ${document.title}`;
-		badge.dataset.run = String(latest.id);
-		$(".nrb-text", badge).textContent = tr(runs.length === 1 ? "1 nueva" : "{n} nuevas", { n: runs.length });
-		badge.dataset.tip = tr("Ejecuciones que empezaron mientras mirabas esta. Clic para ver la última en vivo.");
+		if (latest) {
+			document.title = `● ${document.title}`;
+			badge.dataset.key = latest.key;
+			$(".nrb-text", badge).textContent = tr(list.length === 1 ? "1 nueva" : "{n} nuevas", { n: list.length });
+			badge.dataset.tip = tr("Ejecuciones que empezaron mientras mirabas esta. Clic para ver la última en vivo.");
+		}
+		if (el?.dataset.undo) return; // mostrando "silenciado · Deshacer": se respeta hasta que venza
+		const show = loud[loud.length - 1];
+		if (!show) { if (el) el.hidden = true; return; }
 		if (!el) {
 			el = document.createElement("div");
 			el.id = "run-toast";
 			el.className = "run-toast";
 			el.setAttribute("role", "status");
 			el.setAttribute("aria-live", "polite");
+			el.hidden = true;
 			el.addEventListener("click", (ev) => {
-				if (ev.target.closest("[data-toast-open]")) { el.hidden = true; switchRun(Number(el.dataset.run)).catch(() => {}); }
-				else if (ev.target.closest("[data-toast-close]")) { S.toastClosed = true; el.hidden = true; }
+				const RN = window.TraceReportsRunNotify, now = Date.now();
+				const { loud: shown } = newRunGroups();
+				if (ev.target.closest("[data-toast-open]")) {
+					const g = shown.find((x) => x.key === el.dataset.key);
+					el.hidden = true;
+					if (g) openNewExec(g);
+				} else if (ev.target.closest("[data-toast-close]")) {
+					// "Ahora no": esa ejecución (y las otras del aviso) no vuelve a avisar con cada corrida
+					let next = S.notify;
+					for (const g of shown) next = RN.mute(next, g.key, g.title, now);
+					el.hidden = true;
+					setNotify(next);
+				} else if (ev.target.closest("[data-toast-snooze]")) {
+					showSnoozeUndo(el); // antes de redibujar: el aviso queda mostrando "Deshacer"
+					setNotify(RN.snooze(S.notify, now));
+				} else if (ev.target.closest("[data-toast-undo]")) {
+					delete el.dataset.undo;
+					clearTimeout(el._undoTimer);
+					setNotify(RN.resume(S.notify));
+				}
 			});
 			document.body.appendChild(el);
 		}
-		el.dataset.run = String(latest.id);
-		const where = [latest.environment, latest.branch].filter(Boolean).map(esc).join(" · ");
+		const wasHidden = el.hidden;
+		el.dataset.key = show.key;
+		const r = show.latest, n = show.runs.length;
+		const where = [r.environment, r.branch].filter(Boolean).map(esc).join(" · ");
+		const title = loud.length > 1 ? tr("{n} ejecuciones nuevas en curso", { n: loud.length })
+			: n > 1 ? tr("Empezó una ejecución · {n} corridas", { n }) : tr("Empezó otra ejecución");
 		el.innerHTML = `<span class="run-toast-tag"><span class="dot" aria-hidden="true"></span>${tr("En vivo")}</span>
 			<div class="run-toast-body">
-				<b class="run-toast-title">${runs.length === 1 ? tr("Empezó otra ejecución") : tr("{n} ejecuciones nuevas en curso", { n: runs.length })}</b>
-				<span class="run-toast-sub" data-no-i18n>#${latest.id} · ${esc(latest.name)}${where ? ` · ${where}` : ""}</span>
+				<b class="run-toast-title">${esc(title)}</b>
+				<span class="run-toast-sub" data-no-i18n>${esc(show.key.startsWith("x:") ? show.title : `#${r.id} · ${r.name}`)}${where ? ` · ${where}` : ""}</span>
 			</div>
 			<button class="run-toast-open" data-toast-open>${tr("Ver en vivo")} →</button>
-			<button class="run-toast-later" data-toast-close>${tr("Ahora no")}</button>`;
-		el.hidden = S.toastClosed;
-		if (!el.hidden) { el.classList.remove("run-toast-in"); void el.offsetWidth; el.classList.add("run-toast-in"); }
+			<button class="run-toast-later" data-toast-snooze data-tip="${esc(tr("No avisar ninguna ejecución nueva por 15 minutos. Se reactiva en la campana de arriba."))}">${tr("Silenciar 15 min")}</button>
+			<button class="run-toast-later" data-toast-close data-tip="${esc(tr("No volver a avisar esta ejecución (sus corridas siguen sumando en la insignia)."))}">${tr("Ahora no")}</button>`;
+		el.hidden = false;
+		if (wasHidden) { el.classList.remove("run-toast-in"); void el.offsetWidth; el.classList.add("run-toast-in"); }
+	}
+
+	/** Tras "Silenciar 15 min": el aviso dice que quedó silenciado y ofrece deshacer unos segundos. */
+	function showSnoozeUndo(el) {
+		el.dataset.undo = "1";
+		el.hidden = false;
+		el.innerHTML = `<span class="run-toast-tag muted">${icon("i-bell-off")}</span>
+			<div class="run-toast-body"><b class="run-toast-title">${esc(tr("Avisos silenciados por 15 min"))}</b>
+				<span class="run-toast-sub">${esc(tr("Se reactivan solos, o antes desde la campana de arriba."))}</span></div>
+			<button class="run-toast-later" data-toast-undo>${tr("Deshacer")}</button>`;
+		clearTimeout(el._undoTimer);
+		el._undoTimer = setTimeout(() => { delete el.dataset.undo; el.hidden = true; renderNewRuns(); }, 6000);
+	}
+
+	/**
+	 * La campana de la barra: siempre dice si los avisos están activos o silenciados (con los minutos
+	 * que quedan) y abre el panel para reactivarlos o silenciar. Sin servidor (reporte exportado), no.
+	 */
+	function renderNotifyBell() {
+		const bell = $("#notify-bell");
+		if (!bell) return;
+		const RN = window.TraceReportsRunNotify;
+		bell.hidden = !!STATIC || !RN;
+		if (bell.hidden) return;
+		const left = RN.snoozeLeft(S.notify, Date.now()), muted = Object.keys(S.notify.muted).length;
+		bell.classList.toggle("off", !!left);
+		bell.innerHTML = `${icon(left ? "i-bell-off" : "i-bell")}${left ? `<span class="nb-left">${esc(tr("{n} min", { n: left }))}</span>` : muted ? `<span class="nb-count" aria-hidden="true">${muted}</span>` : ""}`;
+		const label = left ? tr("Avisos de ejecuciones nuevas silenciados: quedan {n} min", { n: left })
+			: muted ? tr("Avisos de ejecuciones nuevas activos ({n} silenciadas)", { n: muted }) : tr("Avisos de ejecuciones nuevas activos");
+		bell.setAttribute("aria-label", label);
+		bell.dataset.tip = label;
+		const panel = $("#notify-panel");
+		if (panel && !panel.hidden) renderNotifyPanel();
+	}
+
+	function renderNotifyPanel() {
+		const RN = window.TraceReportsRunNotify, panel = $("#notify-panel");
+		const now = Date.now(), left = RN.snoozeLeft(S.notify, now);
+		const muted = Object.entries(S.notify.muted);
+		const until = left ? new Date(S.notify.until).toLocaleTimeString(document.documentElement.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "";
+		panel.innerHTML = `<h4>${esc(tr("Avisos de ejecuciones nuevas"))}</h4>
+			<p class="np-state ${left ? "off" : "on"}">${icon(left ? "i-bell-off" : "i-bell")}<span>${left ? esc(tr("Silenciados hasta las {h} (quedan {n} min)", { h: until, n: left })) : esc(tr("Activos: se avisa cada ejecución nueva una vez, no cada corrida."))}</span></p>
+			<div class="np-actions">${left ? `<button type="button" class="cf-btn cf-btn-primary cf-btn-sm" data-notify-resume>${esc(tr("Reactivar ahora"))}</button>` : ""}
+				<button type="button" class="cf-btn cf-btn-sm" data-notify-snooze="15">${esc(tr("Silenciar 15 min"))}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-notify-snooze="60">${esc(tr("Silenciar 1 h"))}</button></div>
+			${muted.length ? `<h5>${esc(tr("Ejecuciones silenciadas"))}</h5><ul class="np-muted">${muted.map(([k, m]) => `<li><span data-no-i18n>${esc(m.title)}</span><button type="button" class="cf-btn cf-btn-sm" data-notify-unmute="${esc(k)}">${esc(tr("Reactivar"))}</button></li>`).join("")}</ul>
+				<p class="m-hint">${esc(tr("Una ejecución silenciada con «Ahora no» vuelve a avisar sola a las 12 h."))}</p>` : ""}`;
+	}
+
+	function toggleNotifyPanel(open) {
+		const panel = $("#notify-panel"), bell = $("#notify-bell");
+		if (!panel || !bell) return;
+		const want = open === undefined ? panel.hidden : open;
+		if (want === !panel.hidden) return;
+		panel.hidden = !want;
+		bell.setAttribute("aria-expanded", String(want));
+		if (want) {
+			// el aviso flotante queda por encima de la barra: se cierra (el panel dice lo mismo y más)
+			const toast = $("#run-toast");
+			if (toast) { clearTimeout(toast._undoTimer); delete toast.dataset.undo; toast.hidden = true; }
+			renderNotifyPanel();
+			panel.querySelector("button")?.focus();
+		}
 	}
 
 	/** Agrega un paso recibido en vivo sin re-renderizar el detalle (animación de entrada). */
@@ -2749,6 +2918,20 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 				<span class="banner-text"><b>${esc(who)}</b>${r.close_reason ? ` · <span data-no-i18n>${esc(r.close_reason)}</span>` : ""}
 					<small>${tr("{n} test(s) quedaron como Interrumpido: no cuentan como fallo.", { n: r.interrupted })}</small></span>
 				<a href="#" data-banner-interrupted>${tr("Ver interrumpidos →")}</a>`);
+			return;
+		}
+		const dv = r?.delivery, lost = dv ? (dv.lost || 0) + (dv.dropped || 0) + (dv.rejected || 0) : 0;
+		if (dv && (dv.late || lost)) {
+			el.hidden = false;
+			el.classList.add("cut");
+			const at = dv.late_at ? fmtTime(dv.late_at) : "";
+			const parts = [dv.lost && tr("{n} eventos perdidos", { n: dv.lost }), dv.dropped && tr("{n} descartados (cola llena)", { n: dv.dropped }),
+				dv.rejected && tr("{n} rechazados por el servidor", { n: dv.rejected }), dv.spooled && tr("{n} guardados para reenviar", { n: dv.spooled })].filter(Boolean);
+			setHTML(el, `<span class="banner-icon">${icon("i-plug")}</span>
+				<span class="banner-text"><b>${dv.late ? tr("Este run llegó al final: no hubo conexión al crearlo") : tr("Parte de la evidencia no llegó al servidor")}</b>
+					<small>${dv.late ? esc(tr("A las {h} el cliente no pudo crearlo ({why}); lo grabó en local y lo subió al terminar. No se ve en vivo, pero está completo.", { h: at, why: dv.reason || "—" })) : ""}
+					${parts.length ? esc(parts.join(" · ")) : ""}${dv.detail ? ` <span class="dv-detail" data-no-i18n>${esc(dv.detail)}</span>` : ""}</small></span>
+				<a href="#view=maintenance" data-banner-connections>${tr("Ver conexiones →")}</a>`);
 			return;
 		}
 		const show = S.view === "tests" && sum?.state === "DONE" && r.failed > 0;
@@ -3228,6 +3411,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 			if (e.target.closest("[data-close-run-open]")) { S.closeRun = {}; renderRunBanner(); $("[data-close-run-form] select")?.focus(); return; }
 			if (e.target.closest("[data-close-run-cancel]")) { S.closeRun = null; renderRunBanner(); return; }
 			if (e.target.closest("[data-banner-interrupted]")) { e.preventDefault(); S.status = "INTERRUPTED"; setView("tests"); }
+			if (e.target.closest("[data-banner-connections]")) { e.preventDefault(); S.maint.focusConn = true; setView("maintenance"); }
 		});
 		$("#run-banner").addEventListener("submit", (e) => {
 			const f = e.target.closest("[data-close-run-form]");
@@ -3252,7 +3436,25 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		$("#search-more").addEventListener("click", () => loadRunSearch(false));
 		$("#search-new-runs").addEventListener("click", () => { S.runSearch.newCount = 0; loadRunSearch(); });
 		$("#run-search-results").addEventListener("click", (e) => { if (e.target.closest("[data-search-retry]")) loadRunSearch(); });
-		$("#new-run-badge").addEventListener("click", (e) => switchRun(Number(e.currentTarget.dataset.run)));
+		$("#new-run-badge").addEventListener("click", () => { const { list } = newRunGroups(); const g = list[list.length - 1]; if (g) openNewExec(g); });
+		$("#notify-bell")?.addEventListener("click", (e) => { e.stopPropagation(); toggleNotifyPanel(); });
+		$("#notify-panel")?.addEventListener("click", (e) => {
+			e.stopPropagation();
+			const RN = window.TraceReportsRunNotify, now = Date.now();
+			const sn = e.target.closest("[data-notify-snooze]"), un = e.target.closest("[data-notify-unmute]");
+			if (e.target.closest("[data-notify-resume]")) setNotify(RN.resume(S.notify));
+			else if (sn) setNotify(RN.snooze(S.notify, now, Number(sn.dataset.notifySnooze) * 60000));
+			else if (un) setNotify(RN.unmute(S.notify, un.dataset.notifyUnmute));
+		});
+		document.addEventListener("click", (e) => { if (!e.target.closest?.("#notify-panel, #notify-bell")) toggleNotifyPanel(false); });
+		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#notify-panel") && !$("#notify-panel").hidden) { toggleNotifyPanel(false); $("#notify-bell")?.focus(); } });
+		// la cuenta de la campana y el fin de lo silenciado, aunque no lleguen eventos
+		setInterval(() => {
+			const RN = window.TraceReportsRunNotify, before = S.notify.until;
+			if (RN) S.notify = RN.prune(S.notify, Date.now());
+			if (before && !S.notify.until) renderNewRuns(); else renderNotifyBell();
+		}, 30000);
+		renderNotifyBell();
 		$("#compare-card").addEventListener("click", (e) => {
 			if (e.target.closest("[data-cmp-pick]")) { S.insights.picking = !S.insights.picking; renderInsights(); $("[data-cmp-q]")?.focus(); return; }
 			if (e.target.closest("[data-cmp-ai]")) {
@@ -4362,10 +4564,52 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		if (S.view === "maintenance") renderMaintenance();
 	}
 
+	/** Mantenimiento > Conexiones de los clientes: runs con problemas de entrega, pedidos lentos, credenciales. */
+	async function loadConnections() {
+		const m = S.maint;
+		try {
+			m.conn = { data: await api("/api/v1/maintenance/connections") };
+		} catch (err) {
+			m.conn = { error: err.message };
+		}
+		if (S.view === "maintenance") renderMaintenance();
+	}
+
+	function connectionsCard() {
+		const c = S.maint.conn;
+		const head = `<header class="stor-head"><span class="maint-stale-icon">${icon("i-plug")}</span><b>${tr("Conexiones de los clientes")}</b>
+			<button type="button" class="cf-btn cf-btn-sm" data-conn-reload>${tr("Actualizar")}</button></header>`;
+		if (!c) return `<section class="card conn-card" id="maint-connections">${head}<p class="m-hint">${tr("Cargando…")}</p></section>`;
+		if (c.error) return `<section class="card conn-card" id="maint-connections">${head}<p class="m-hint">${esc(tr("No se pudo cargar: {e}", { e: c.error }))}</p></section>`;
+		const d = c.data, runs = d.runs || [], slow = d.slow || [], auth = d.auth || [];
+		const when = (ms) => ms ? `${fmtDateTime(ms)}` : "—";
+		const what = (v) => [v.late && `<span class="conn-tag late">${tr("Creado tarde")}</span>${v.reason ? ` <span data-no-i18n>${esc(v.reason)}</span>` : ""}`,
+			v.lost && tr("{n} perdidos", { n: v.lost }), v.dropped && tr("{n} descartados", { n: v.dropped }), v.rejected && tr("{n} rechazados", { n: v.rejected }),
+			v.spooled && tr("{n} para reenviar", { n: v.spooled }), v.retried && tr("{n} reintentos", { n: v.retried })].filter(Boolean).join(" · ");
+		const runsHTML = runs.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Run")}</th><th>${tr("Qué pasó")}</th><th>${tr("Detalle de la conexión")}</th><th>${tr("Equipo")}</th><th>${tr("Cuándo")}</th></tr></thead><tbody>
+				${runs.map((r) => `<tr><td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a>${r.execution_id ? `<small data-no-i18n>${esc(r.execution_id)}</small>` : ""}</td>
+					<td>${what(r.delivery)}</td><td class="conn-mono" data-no-i18n>${esc(r.delivery.detail || "—")}</td>
+					<td data-no-i18n>${esc([r.delivery.host, r.delivery.client].filter(Boolean).join(" · ") || "—")}</td><td>${when(r.delivery.late_at || r.started_at)}</td></tr>`).join("")}</tbody></table></div>`
+			: `<p class="conn-ok">${icon("i-pass")}${esc(tr("Ningún run con problemas de entrega en los últimos {n} días.", { n: d.days }))}</p>`;
+		const slowHTML = slow.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th>${tr("Pedido")}</th><th>${tr("Respuesta")}</th><th class="lt-num">${tr("Tardó")}</th></tr></thead><tbody>
+				${slow.map((x) => `<tr><td>${when(x.at)}</td><td class="conn-mono" data-no-i18n>${esc(x.method)} ${esc(x.path)}</td><td>${x.status || "—"}</td><td class="lt-num">${esc(`${window.TraceReportsLive?.num1(x.ms / 1000) ?? (x.ms / 1000).toFixed(1)} s`)}</td></tr>`).join("")}</tbody></table></div>`
+			: `<p class="conn-ok">${icon("i-pass")}${esc(tr("Ningún pedido tardó más de {s} s desde que el servidor arrancó ({t}).", { s: Math.round((d.slow_after_ms || 2000) / 1000), t: fmtDateTime(d.started_at) }))}</p>`;
+		const authHTML = !d.auth ? "" : `<h5>${tr("Credenciales rechazadas (últimos 15 min)")}</h5>${auth.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Dirección")}</th><th class="lt-num">${tr("Intentos")}</th><th>${tr("Estado")}</th></tr></thead><tbody>
+				${auth.map((a) => `<tr><td class="conn-mono" data-no-i18n>${esc(a.ip)}</td><td class="lt-num">${a.failures}</td><td>${a.blocked_ms ? `<span class="conn-tag late">${esc(tr("bloqueada {n} min", { n: Math.ceil(a.blocked_ms / 60000) }))}</span>` : tr("en observación")}</td></tr>`).join("")}</tbody></table></div>
+				<p class="m-hint">${tr("Suele ser un token mal puesto en el .env de los tests, o una pestaña con la sesión vencida.")}</p>`
+			: `<p class="conn-ok">${icon("i-pass")}${tr("Ninguna.")}</p>`}`;
+		return `<section class="card conn-card" id="maint-connections" aria-label="${esc(tr("Conexiones de los clientes"))}">${head}
+			<p class="m-hint">${tr("Si un test dijo «timed out» y aquí no aparece ningún pedido lento a esa hora, el pedido no llegó al servidor: el problema está en la red o en Docker, no en TraceReports.")}</p>
+			<h5>${esc(tr("Runs con problemas de entrega (últimos {n} días)", { n: d.days }))}</h5>${runsHTML}
+			<h5>${tr("Pedidos lentos del servidor")}</h5>${slowHTML}
+			${authHTML}</section>`;
+	}
+
 	async function loadMaintenance() {
 		const m = S.maint;
 		m.loading = true;
 		loadStorage();
+		loadConnections();
 		const p = new URLSearchParams();
 		if (m.state) p.set("state", m.state);
 		["project", "environment", "branch"].forEach((k) => { if (m[k]) p.set(k, m[k]); });
@@ -4532,6 +4776,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Mantenimiento")}</h4>
 				<p class="page-sub">${tr("Cuánto ocupa la evidencia y cuánto se conserva, y las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos.")}</p></div></div>
 			${storageCard()}
+			${connectionsCard()}
 			${stale}
 			<div class="m-filters" role="toolbar" aria-label="${tr("Filtros de mantenimiento")}">
 				<div class="seg" role="group" aria-label="${tr("Estado")}">${MAINT_STATES.map(([id, label, tip]) =>
@@ -4542,6 +4787,8 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 			</div>
 			${m.msg ? `<p class="set-msg ${m.msg.ok ? "ok" : "err"}" role="status">${esc(m.msg.text)}</p>` : ""}
 			${table}`);
+		// "Ver conexiones →" del aviso de un run: se llega a esa tarjeta
+		if (m.focusConn && m.conn?.data) { m.focusConn = false; $("#maint-connections")?.scrollIntoView({ block: "start", behavior: "smooth" }); }
 	}
 
 	async function maintRun(path, body, done) {
@@ -4567,6 +4814,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 	function bindMaintenance() {
 		const el = $("#view-maintenance"), m = S.maint;
 		el.addEventListener("click", (e) => {
+			if (e.target.closest("[data-conn-reload]")) { m.conn = null; renderMaintenance(); loadConnections(); return; }
 			const st = e.target.closest("[data-maint-state]");
 			if (st) { Object.assign(m, { state: st.dataset.maintState, msg: null, action: null }); loadMaintenance(); renderMaintenance(); return; }
 			const a = e.target.closest("[data-maint-act]");

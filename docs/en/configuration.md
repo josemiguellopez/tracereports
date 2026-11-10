@@ -665,7 +665,7 @@ from any client:
   line says what is shown: "Showing 6 of 234 tests · Only with problems · Grouped by file".
 - **Execution map**, in two views. **Field** (default): the execution as a torus of particles read like a clock; the angle is time (the start
   on top, clockwise, with pauses compressed) and each ring a worker or process. Each test is a point where it
-  ended (or where it is, on the red "now" hand), bigger the slower it was, with a thin trail of how long it
+  ended (or where it is, on the dashed "now" hand, in the text color: red is only for failures), bigger the slower it was, with a thin trail of how long it
   lasted; failures glow. Hovering shows it, a click (or the arrows and Enter) opens its detail. Around it, the
   channels (tests, failures, network, workers: each filters or groups), the **real ingestion** (events of this
   execution that arrived through the stream in the last minute and how long ago the last one; finished or
@@ -822,6 +822,22 @@ branch and age, to close or delete them in bulk (a running run is not deleted: c
 **The threshold from the interface.** In Maintenance, *Close after* changes the threshold (30 min to
 48 h, or *Never*) without restarting the server; it needs the same permission as Settings. If the server
 has `TRACEREPORTS_STALE_RUN_HOURS`, the variable wins and the selector is locked.
+
+### Client connections
+
+**Maintenance → Client connections** tells whether the evidence reaches the server well, without logging into
+the machine that runs it:
+
+- **Runs with delivery problems** (7 days): those the client could not create in time (it recorded locally and
+  uploaded them at the end), with the cause (`the server did not answer within 30 s`), the address it connected
+  to and how long it waited, the machine and the client version; also those with retries or lost evidence. The
+  report of those runs says so on top ("This run arrived at the end"). The client reports it when it closes the
+  run (Python; see `delivery` in the [API](api.md)).
+- **Slow server requests**: the last 50 over 2 s since it started (also in the log as `slow request`). If a test
+  said "timed out" and nothing shows here at that time, the request never reached the server: the problem is in
+  the network or in Docker (see `scripts/watch-health.ps1` in [Docker](docker.md#troubleshooting)).
+- **Rejected credentials** (Settings permission only): the addresses that failed the token or the login in the
+  last 15 min and whether they got blocked; usually a wrong token in the tests `.env`.
 
 ### Storage and retention
 

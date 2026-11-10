@@ -2587,3 +2587,100 @@ body.view-live .live-view { padding-bottom: 96px; }
 .lg-anom.many { width: auto; min-width: 18px; padding: 0 4px; border-radius: 9px; }
 .lg-anom.many b { font: 700 10px/1 var(--font-mono); color: #fff; }
 .hm-c.dim { opacity: .3; }
+
+/* avisos de ejecuciones nuevas: la campana dice siempre si están activos o silenciados (y cuánto
+   queda); su panel los reactiva o silencia y lista las ejecuciones silenciadas con "Ahora no" */
+.notify-control { position: relative; display: inline-flex; }
+.notify-bell { position: relative; display: inline-flex; align-items: center; gap: 5px; height: 32px; min-width: 32px; padding: 0 8px; justify-content: center;
+	border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); color: var(--text-muted); cursor: pointer; font: 600 12px/1 var(--font-sans, inherit); }
+.notify-bell svg { width: 17px; height: 17px; }
+.notify-bell:hover, .notify-bell:focus-visible, .notify-bell[aria-expanded="true"] { color: var(--text); border-color: var(--primary); outline: none; box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent); }
+.notify-bell[hidden] { display: none; }
+.notify-bell.off { color: var(--color-warning, #b26a00); border-color: color-mix(in srgb, var(--color-warning, #b26a00) 55%, var(--border));
+	background: color-mix(in srgb, var(--color-warning, #b26a00) 10%, var(--surface)); }
+.notify-bell .nb-left { font-variant-numeric: tabular-nums; }
+.notify-bell .nb-count { position: absolute; top: -6px; right: -6px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px;
+	background: var(--text-muted); color: var(--surface); font: 700 10px/16px var(--font-mono, monospace); text-align: center; }
+.notify-panel { position: absolute; z-index: 70; right: 0; top: calc(100% + 6px); width: min(340px, calc(100vw - 24px)); display: grid; gap: 10px; padding: 14px;
+	border: 1px solid var(--border); border-radius: 12px; background: var(--surface); color: var(--text); box-shadow: 0 14px 34px rgba(0, 0, 0, .24); animation: live-fade 140ms ease-out; }
+.notify-panel[hidden] { display: none; }
+.notify-panel h4 { margin: 0; font-size: 14px; }
+.notify-panel h5 { margin: 4px 0 0; font-size: 12px; color: var(--text-muted); text-transform: uppercase; letter-spacing: .06em; }
+.notify-panel .np-state { display: flex; gap: 8px; align-items: flex-start; margin: 0; padding: 9px 10px; border-radius: 9px; font-size: 13px; line-height: 1.4; }
+.notify-panel .np-state svg { width: 17px; height: 17px; flex: none; margin-top: 1px; }
+.notify-panel .np-state.on { background: color-mix(in srgb, var(--color-success, #2e7d32) 11%, transparent); }
+.notify-panel .np-state.on svg { color: var(--color-success, #2e7d32); }
+.notify-panel .np-state.off { background: color-mix(in srgb, var(--color-warning, #b26a00) 13%, transparent); }
+.notify-panel .np-state.off svg { color: var(--color-warning, #b26a00); }
+.notify-panel .np-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.notify-panel .np-muted { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; max-height: 180px; overflow: auto; }
+.notify-panel .np-muted li { display: flex; align-items: center; gap: 8px; justify-content: space-between; font-size: 12.5px; }
+.notify-panel .np-muted span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.notify-panel .m-hint { margin: 0; }
+.run-toast-tag.muted { background: rgba(255, 196, 0, .16); color: #ffcf5c; padding: 5px 7px; }
+.run-toast-tag.muted svg { width: 16px; height: 16px; }
+@media (max-width: 600px) { .notify-panel { position: fixed; top: calc(var(--topbar-h, 56px) + 6px); right: 12px; left: 12px; width: auto; } }
+@media (prefers-reduced-motion: reduce) { .notify-panel { animation: none; } }
+
+/* "ahora" no es un estado: en el color del texto (punteada), el rojo queda solo para los fallos */
+.lg-now { border-left: 2px dashed var(--color-text); }
+.lg-now::before { background: var(--color-text); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-text) 45%, transparent); }
+.lg-now small { color: var(--color-text); }
+
+/* la tarjeta de un test del mapa: el color de su estado en el borde, el encabezado y su chip */
+.lf-tip.lf-card { --st: var(--color-text-muted); display: grid; gap: 3px; min-width: 230px; max-width: 320px; padding: 0 0 8px; overflow: hidden;
+	white-space: normal; border-radius: 10px; background: var(--color-surface); color: var(--color-text);
+	border: 1px solid color-mix(in srgb, var(--st) 45%, var(--color-border)); border-left: 4px solid var(--st);
+	box-shadow: 0 12px 30px rgba(0, 0, 0, .28), 0 0 0 1px color-mix(in srgb, var(--st) 12%, transparent); animation: live-fade 120ms ease-out; }
+.lf-card.st-pass { --st: var(--color-success); }
+.lf-card.st-fail, .lf-card.st-nosig, .lf-card.st-interrupted { --st: var(--color-danger); }
+.lf-card.st-warning, .lf-card.st-turtle { --st: var(--color-warning); }
+.lf-card.st-running { --st: var(--color-info); }
+.lfc-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 7px 10px 6px;
+	background: color-mix(in srgb, var(--st) 14%, var(--color-surface)); border-bottom: 1px solid color-mix(in srgb, var(--st) 22%, transparent); }
+.lfc-state { display: inline-flex; align-items: center; gap: 5px; font: 700 11px/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase;
+	color: color-mix(in srgb, var(--st) 82%, var(--color-text)); }
+.lfc-state svg { width: 14px; height: 14px; }
+.lfc-dur { font: 600 12px var(--font-mono); font-variant-numeric: tabular-nums; color: var(--color-text); }
+.lf-card .lfc-name { padding: 4px 10px 0; font-size: 13px; line-height: 1.3; overflow-wrap: anywhere; margin: 0; }
+.lfc-factor { justify-self: start; margin: 1px 10px 0; padding: 1px 6px; border-radius: 5px; font: 600 11px var(--font-mono); color: var(--color-text-muted);
+	background: color-mix(in srgb, var(--color-text-muted) 12%, transparent); }
+.lfc-factor.slow { color: color-mix(in srgb, var(--color-warning) 80%, var(--color-text)); background: color-mix(in srgb, var(--color-warning) 16%, transparent); }
+.lfc-meta { padding: 0 10px; font: 11.5px var(--font-mono); color: var(--color-text-muted); overflow-wrap: anywhere; }
+.lfc-hint { margin: 4px 10px 0; padding-top: 6px; border-top: 1px dashed var(--color-border); font-size: 11px; color: var(--color-text-muted); }
+@media (prefers-reduced-motion: reduce) { .lf-tip.lf-card { animation: none; } }
+
+/* el panel de un test mientras llega su detalle: un esqueleto del mismo alto (antes "Cargando…" lo
+   achicaba y la traza volvía a entrar fila por fila: se veía como un parpadeo al cambiar de test) */
+.live-pbody { min-height: 220px; }
+.lp-skel { display: grid; gap: 10px; padding: 6px 0; }
+.lp-skel i { display: block; height: 12px; border-radius: 6px;
+	background: linear-gradient(90deg, color-mix(in srgb, var(--color-text-muted) 12%, transparent) 25%, color-mix(in srgb, var(--color-text-muted) 22%, transparent) 50%, color-mix(in srgb, var(--color-text-muted) 12%, transparent) 75%);
+	background-size: 200% 100%; animation: lp-shimmer 1.2s linear infinite; }
+.lp-skel i:nth-child(odd) { width: 86%; } .lp-skel i:nth-child(3n) { width: 64%; }
+@keyframes lp-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .lp-skel i { animation: none; } }
+/* cambiando de test con el panel abierto: lo anterior queda atenuado, con una barra fina, hasta que
+   llega lo nuevo (sin vaciar el panel) */
+.live-pbody { position: relative; transition: opacity 120ms ease-out; }
+.live-pbody.is-stale { opacity: .45; }
+.live-pbody.is-stale::before { content: ""; position: absolute; top: -6px; left: 0; height: 2px; width: 40%; border-radius: 2px; background: var(--color-primary);
+	animation: lp-load 0.9s ease-in-out infinite; }
+@keyframes lp-load { from { left: 0; width: 10%; } 50% { width: 40%; } to { left: 100%; width: 10%; } }
+@media (prefers-reduced-motion: reduce) { .live-pbody.is-stale::before { animation: none; width: 100%; } }
+
+/* Mantenimiento > Conexiones de los clientes: runs que llegaron tarde o con pérdidas, pedidos lentos
+   del servidor y credenciales rechazadas */
+.conn-card { display: grid; gap: 10px; }
+.conn-card .stor-head { display: flex; align-items: center; gap: 8px; }
+.conn-card .stor-head b { flex: 1; }
+.conn-card h5 { margin: 6px 0 0; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--color-text-muted); }
+.conn-table td small { display: block; color: var(--color-text-muted); font-size: 11px; }
+.conn-mono { font: 12px var(--font-mono); overflow-wrap: anywhere; }
+.conn-tag { display: inline-block; padding: 1px 6px; border-radius: 5px; font-size: 11px; font-weight: 700; }
+.conn-tag.late { color: color-mix(in srgb, var(--color-warning) 80%, var(--color-text)); background: color-mix(in srgb, var(--color-warning) 16%, transparent); }
+.conn-ok { display: flex; align-items: center; gap: 6px; margin: 0; font-size: 13px; color: var(--color-text-muted); }
+.conn-ok svg { width: 16px; height: 16px; color: var(--color-success); }
+.run-banner .dv-detail { font-family: var(--font-mono); opacity: .85; }
+.conn-table a { color: var(--color-primary); font-weight: 600; text-decoration: none; }
+.conn-table a:hover, .conn-table a:focus-visible { text-decoration: underline; }

@@ -6,6 +6,33 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed (client feedback, 10-11: notifications, the execution map, the side panel)
+
+- **New execution notifications, one per execution**: a launcher that opens one run per file (or many
+  parallel workers) used to raise the notification with every run, and "Not now" came back with the next one.
+  Now it is one notification per execution ("An execution started · 12 runs"); "Not now" mutes that execution,
+  **Mute 15 min** mutes all of them (with Undo), and a **bell** in the top bar always shows whether they are on
+  or muted (minutes left) and turns them back on, also per execution. Muted items expire by themselves (15 min /
+  12 h). The "run created" event now carries the run's name and execution, so a burst of runs is never missed.
+- **Execution map**: "now" is drawn in the text color (dashed), not in the red of failures; with a filter, the
+  dimmed particles can no longer be hovered, clicked or reached with the arrow keys, and the click area is a bit
+  larger; the hover card takes the color and icon of the test's status, with its duration, how it compares
+  with normal (highlighted when slow), times and where it ran.
+- **No flicker when switching tests in the side panel**: it used to empty the panel and replay the trace row by
+  row on every pick. Now the header shows the chosen test at once, the previous body stays dimmed with a thin
+  progress bar until the new one arrives, the row-by-row entry only plays when the panel opens, tests already
+  seen show instantly (cached) and hovering a test in the map prefetches it. Measured switching tests with the
+  panel open: 12-18 restarted animations and empty frames → 4 and none.
+
+### Added (Maintenance > Client connections)
+
+- **How the evidence arrived, visible in TraceReports**: the Python client reports it when it closes a run
+  (created late because the server did not answer, the cause, the address it connected to, retries, lost
+  events, machine and version). A run that arrived late says so on top of its report, and **Maintenance >
+  Client connections** lists those runs, the slow requests the server saw (from the `slow request` log) and,
+  for admins, the addresses with rejected credentials. API: `delivery` in `PATCH /runs/{id}/finish` and
+  `GET /maintenance/connections`.
+
 ### Fixed (client feedback, 10-11: "POST /api/v1/runs failed: timed out" at random)
 
 - **A short stall no longer costs the run** (Python client): when the run could not be created because the

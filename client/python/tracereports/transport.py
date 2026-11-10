@@ -162,6 +162,7 @@ class Sender:
         # por qué falló la última llamada: "timeout" (conectó y no respondió), "unreachable"
         # (rechazada, DNS, connect vencido) o "HTTP <código>"; lo usa el aviso de crear la ejecución
         self.last_failure = ""
+        self.last_failure_detail = ""  # "connected to 10.0.0.25:8080 in 3 ms, no answer in 10 s"
         self.stats = {"sent": 0, "retried": 0, "rejected": 0, "dropped": 0, "spooled": 0, "lost": 0}
 
     # ------------------------------------------------------------- estado
@@ -214,7 +215,8 @@ class Sender:
                 return "timeout", None
             if not self.server_down():
                 where = connect_info() if timed_out else ""
-                detail = f" ({where}, no answer in {round(item.timeout, 1):g} s)" if where else ""
+                self.last_failure_detail = f"{where}, no answer in {round(item.timeout, 1):g} s" if where else str(err)[:200]
+                detail = f" ({self.last_failure_detail})" if where else ""
                 log.warning("tracereports: %s %s failed: %s%s", item.method, item.path, err, detail)
             self.trip()
             return ("timeout" if timed_out else "retry"), None

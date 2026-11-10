@@ -773,3 +773,88 @@ test("En vivo: el título dice la ejecución, Trace Buddy se achica para no tapa
 	await page.goto("/#view=summary");
 	await expect(page.locator("body")).not.toHaveClass(/view-live/);
 });
+
+test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no responde al mouse, al clic ni al teclado", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await expect(view.locator(".live-map.is-field .lf-canvas")).toBeVisible();
+	await page.evaluate(() => document.querySelector("#view-live .live-map").scrollIntoView({ block: "center" }));
+	const box = await view.locator(".lf-canvas").boundingBox();
+	await page.mouse.move(box.x + 6, box.y + 6); // con el mouse encima deja de girar
+	// onlySame: con el filtro puesto, solo cuentan como vecinos los que coinciden (lo apagado no se toca)
+	const where = (state, onlySame = false) => page.evaluate(async ([state, onlySame]) => {
+		const F = window.TraceReportsLiveField, LIVE = window.TraceReportsLive;
+		const { execution, now } = await (await fetch("/api/v1/live/execution?key=x%3Asuite-demo")).json();
+		const c = document.querySelector(".lf-canvas"), r = c.getBoundingClientRect();
+		const L = F.fieldLayout(execution, now, LIVE), g = F.geometry(r.width, r.height);
+		// uno sin vecinos a menos de 20 px: el mouse cae solo sobre él
+		const heads = L.items.map((it) => ({ it, p: F.headOf(g, L, it, Number(c.dataset.spin || 0)) }));
+		const near = onlySame ? heads.filter((o) => o.it.state === state) : heads;
+		const inView = (p) => r.left + p.x > 10 && r.left + p.x < innerWidth - 10 && r.top + p.y > 10 && r.top + p.y < innerHeight - 10;
+		const lone = heads.find(({ it, p }) => it.state === state && inView(p) && near.every((o) => o.it === it || Math.hypot(o.p.x - p.x, o.p.y - p.y) > 20));
+		return lone && { x: r.left + lone.p.x, y: r.top + lone.p.y, name: lone.it.name };
+	}, [state, onlySame]);
+	let fail = await where("FAIL"), pass = await where("PASS");
+	expect(fail && pass).toBeTruthy();
+	const tip = view.locator(".lf-tip");
+	await page.mouse.move(fail.x, fail.y);
+	await expect(tip).toHaveClass(/lf-card st-fail/);
+	await expect(tip.locator(".lfc-state")).toHaveText("Fallo");
+	await expect(tip.locator(".lfc-name")).toHaveText(fail.name);
+	await expect(tip.locator(".lfc-hint")).toContainText("doble clic");
+	const accent = await tip.evaluate((n) => [getComputedStyle(n).borderLeftColor, getComputedStyle(document.body).getPropertyValue("--color-danger")]);
+	expect(accent[0]).not.toBe("rgba(0, 0, 0, 0)");
+	await page.mouse.move(pass.x, pass.y);
+	await expect(tip).toHaveClass(/st-pass/);
+	// filtrado por Fallo: el que pasó se ve tenue pero no se puede tocar
+	await view.locator('.live-tile[data-live-state="FAIL"]').click();
+	await page.evaluate(() => document.querySelector("#view-live .live-map").scrollIntoView({ block: "center" }));
+	const box2 = await view.locator(".lf-canvas").boundingBox();
+	await page.mouse.move(box2.x + 6, box2.y + 6); // de vuelta en el mapa: deja de girar y se recalcula dónde quedó cada uno
+	await page.waitForTimeout(300);
+	fail = await where("FAIL", true); pass = await where("PASS");
+	await page.mouse.move(pass.x, pass.y);
+	await expect(tip).toBeHidden();
+	await page.mouse.click(pass.x, pass.y);
+	await expect(view.locator(".live-panel")).toHaveCount(0);
+	await page.mouse.move(fail.x, fail.y);
+	await expect(tip).toHaveClass(/st-fail/);
+	// el teclado recorre solo lo que coincide
+	await view.locator(".lf-canvas").focus();
+	for (let i = 0; i < 3; i++) {
+		await page.keyboard.press("ArrowRight");
+		await expect(tip.locator(".lfc-state")).toHaveText("Fallo");
+	}
+});
+
+test("cambiar de test con el panel abierto no lo vacía: lo anterior atenuado hasta que llega, sin repetir la entrada; volver a uno ya visto es instantáneo", async ({ page }) => {
+	const view = page.locator("#view-live");
+	const rows = view.locator("tr.lt-row");
+	await rows.nth(0).click();
+	const panel = view.locator(".live-panel");
+	await expect(panel.locator(".lt-trace, .live-steps, .live-shot, .m-hint").first()).toBeVisible();
+	const firstName = (await panel.locator("h4").innerText()).trim();
+	// el siguiente tarda en llegar: se ve el estado intermedio
+	let release;
+	const gate = new Promise((r) => { release = r; });
+	await page.route(/\/api\/v1\/tests\/\d+$/, async (route) => {
+		await gate;
+		return route.fallback();
+	});
+	await rows.nth(1).dispatchEvent("click"); // el panel tapa el lado derecho de la fila
+	const secondName = (await rows.nth(1).locator(".lt-name").innerText()).trim();
+	await expect(panel.locator("h4")).toHaveText(secondName); // el encabezado ya es del elegido
+	await expect(panel.locator(".live-pbody")).toHaveClass(/is-stale/);
+	await expect(panel.locator(".live-pbody")).toHaveAttribute("aria-busy", "true");
+	await expect(panel.locator(".lp-skel")).toHaveCount(0); // nunca vacío ni esqueleto al cambiar
+	await expect(panel.locator(".lt-trace.lt-trace-in")).toHaveCount(0); // la traza no vuelve a entrar fila por fila
+	release();
+	await expect(panel.locator(".live-pbody")).not.toHaveClass(/is-stale/);
+	await page.unroute(/\/api\/v1\/tests\/\d+$/);
+	// volver al primero: ya estaba, se muestra al instante (sin esperar ni atenuar)
+	let asked = 0;
+	await page.route(/\/api\/v1\/tests\/\d+$/, async (route) => { asked++; await new Promise((r) => setTimeout(r, 1500)); return route.fallback(); });
+	await rows.nth(0).dispatchEvent("click");
+	await expect(panel.locator("h4")).toHaveText(firstName);
+	await expect(panel.locator(".live-pbody")).not.toHaveClass(/is-stale/, { timeout: 500 });
+	expect(asked).toBeLessThanOrEqual(1); // se actualiza por detrás, sin bloquear
+});

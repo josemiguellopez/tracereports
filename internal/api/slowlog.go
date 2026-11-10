@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -26,6 +27,45 @@ func slowRequests(next http.Handler) http.Handler {
 		next.ServeHTTP(rec, r)
 		if d := time.Since(start); d >= slowRequestAfter {
 			slog.Warn("slow request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "ms", d.Milliseconds())
+			rememberSlow(slowEntry{At: start.UnixMilli(), Method: r.Method, Path: r.URL.Path, Status: rec.status, Ms: d.Milliseconds()})
 		}
 	})
+}
+
+// Los últimos pedidos lentos, para verlos en Mantenimiento > Conexiones sin leer el log del
+// contenedor. En memoria (se vacían al reiniciar el servidor): slowSince dice desde cuándo.
+const slowKeep = 50
+
+type slowEntry struct {
+	At     int64  `json:"at"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Status int    `json:"status"`
+	Ms     int64  `json:"ms"`
+}
+
+var (
+	slowMu    sync.Mutex
+	slowRing  []slowEntry
+	slowSince = time.Now()
+)
+
+func rememberSlow(e slowEntry) {
+	slowMu.Lock()
+	defer slowMu.Unlock()
+	slowRing = append(slowRing, e)
+	if len(slowRing) > slowKeep {
+		slowRing = slowRing[len(slowRing)-slowKeep:]
+	}
+}
+
+// recentSlow: los pedidos lentos guardados, el más reciente primero.
+func recentSlow() []slowEntry {
+	slowMu.Lock()
+	defer slowMu.Unlock()
+	out := make([]slowEntry, len(slowRing))
+	for i, e := range slowRing {
+		out[len(slowRing)-1-i] = e
+	}
+	return out
 }

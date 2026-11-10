@@ -134,20 +134,31 @@
 	const sizeOf = (g, it, depth) => Math.max(2.2, Math.min(8, g.R * 0.022 * (1 + Math.min(1.6, Math.max(0, (it.factor || 1) - 1)) * 0.6) * (0.8 + 0.3 * depth)));
 
 	/** El test bajo el puntero: la partícula más cercana (a menos de ~14 px); a igual distancia, la de adelante. */
-	function hitTest(layout, g, x, y, spin = 0) {
-		let best = null, bd = 14;
+	/**
+	 * La partícula bajo el puntero (la más cercana a menos de HIT_PX). Con un filtro (``match``), las
+	 * que no coinciden se siguen viendo tenues pero no se pueden tocar: así el clic va al test que se
+	 * buscaba aunque haya otro apagado encima.
+	 */
+	function hitTest(layout, g, x, y, spin = 0, match = null) {
+		let best = null, bd = HIT_PX;
 		for (const it of layout.items) {
+			if (match && !match.has(it.id)) continue;
 			const p = headOf(g, layout, it, spin), d = Math.hypot(p.x - x, p.y - y) - p.depth * 0.5;
 			if (d < bd) { best = it; bd = d; }
 		}
 		return best;
 	}
 
+	const HIT_PX = 18; // radio para acertar una partícula con el mouse (antes 14)
+
 	// ---------- en pantalla ----------
 
 	const STATE_VAR = { pass: "--color-success", fail: "--color-danger", nosig: "--color-danger", interrupted: "--color-danger", warning: "--color-warning",
 		turtle: "--color-warning", running: "--color-info", skip: "--color-text-muted" };
 	const CLS = { PASS: "pass", FAIL: "fail", no_signal: "nosig", INTERRUPTED: "interrupted", WARNING: "warning", turtle: "turtle", running: "running", SKIP: "skip" };
+	// "ahora" no es un estado: va en el color del texto (blanco en oscuro, negro en claro), el único que
+	// no significa nada en el campo; antes iba en rojo y se confundía con los fallos
+	const NOW_VAR = "--color-text";
 	const CHANNEL_VAR = { test: "--color-success", step: "--color-info", net: "--color-primary", fail: "--color-danger" };
 
 	// el polvo del toroide: siempre el mismo (semilla fija), para que no "salte" entre redibujos
@@ -156,6 +167,28 @@
 		const rnd = () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 4294967296; };
 		return Array.from({ length: DUST }, () => ({ u: rnd() * TAU, v: rnd() * TAU, size: 0.4 + rnd() * 1.1, phase: rnd() * TAU, hue: rnd() }));
 	})();
+
+	/**
+	 * La tarjeta de un test bajo el mouse: su estado (color e ícono) arriba con la duración, el nombre,
+	 * cuánto tardó frente a lo normal (destacado si es lento), las horas, dónde corrió y qué hace el clic.
+	 * card: {cls, icon, label, dur, slow, factor, times, where, hint}.
+	 */
+	function cardInto(el, c, name) {
+		const mk = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text !== undefined) n.textContent = text; return n; };
+		el.className = `lf-tip lf-card st-${c.cls || "skip"}`;
+		const head = mk("div", "lfc-head"), chip = mk("span", "lfc-state");
+		if (c.icon) {
+			const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"), use = document.createElementNS("http://www.w3.org/2000/svg", "use");
+			svg.setAttribute("aria-hidden", "true"); use.setAttribute("href", `#${c.icon}`); svg.append(use); chip.append(svg);
+		}
+		chip.append(mk("span", "", c.label));
+		head.append(chip, mk("span", "lfc-dur", c.dur || ""));
+		el.append(head, mk("b", "lfc-name", name));
+		if (c.factor) el.append(mk("span", `lfc-factor${c.slow ? " slow" : ""}`, c.factor));
+		if (c.times) el.append(mk("span", "lfc-meta", c.times));
+		if (c.where) el.append(mk("span", "lfc-meta lfc-where", c.where));
+		if (c.hint) el.append(mk("span", "lfc-hint", c.hint));
+	}
 
 	/**
 	 * create({onPick}) → {attach(el), update(data), signal(channel, testId), setMotion(on)}. El canvas
@@ -194,6 +227,7 @@
 		let layout = { rings: [], items: [], gaps: [], nowAngle: null, density: [] }, g = geometry(1, 1);
 		let lastTheme = null;
 		let view = { ...VIEW0 }, expanded = false, drag = null, dragged = false, slotEl = null, paused = false, tween = 0;
+		let hoverTimer = 0;
 		let w = 0, h = 0, dpr = 1, hover = null, focusIdx = -1, sel = null, match = null, motion = true, visible = true, inside = false;
 		let t = 0, spin = 0, lastFrame = 0, lastSpin = 0, raf = 0;
 		const pulses = [], prevStates = new Map(), labels = { aria: "", tip: (it) => it.name };
@@ -298,9 +332,11 @@
 			// "ahora": la aguja desde dentro del tubo hasta los rayos, con su punto que respira
 			if (layout.nowAngle !== null) {
 				const p0 = project(g, layout.nowAngle, Math.PI, -4), p1 = project(g, layout.nowAngle, 0, g.R * 0.2);
-				ctx.strokeStyle = colors["--color-danger"]; ctx.lineWidth = 1.5;
+				ctx.strokeStyle = colors[NOW_VAR]; ctx.lineWidth = 1.5;
+				ctx.setLineDash([5, 4]);
 				ctx.beginPath(); ctx.moveTo(p0.x, p0.y); ctx.lineTo(p1.x, p1.y); ctx.stroke();
-				ctx.fillStyle = colors["--color-danger"];
+				ctx.setLineDash([]);
+				ctx.fillStyle = colors[NOW_VAR];
 				ctx.globalAlpha = on ? 0.3 + 0.35 * (0.5 + 0.5 * Math.sin(t * 4)) : 0.5;
 				ctx.beginPath(); ctx.arc(p1.x, p1.y, 7, 0, TAU); ctx.fill();
 				ctx.globalAlpha = 1; ctx.beginPath(); ctx.arc(p1.x, p1.y, 3, 0, TAU); ctx.fill();
@@ -351,9 +387,14 @@
 		function showTip(it, x, y) {
 			if (!it) { tip.hidden = true; return; }
 			tip.innerHTML = "";
-			const b = document.createElement("b"); b.textContent = it.name;
-			const s = document.createElement("span"); s.textContent = labels.tip(it);
-			tip.append(b, s);
+			const c = labels.card?.(it);
+			if (c) cardInto(tip, c, it.name);
+			else {
+				tip.className = "lf-tip";
+				const b = document.createElement("b"); b.textContent = it.name;
+				const s = document.createElement("span"); s.textContent = labels.tip(it);
+				tip.append(b, s);
+			}
 			tip.hidden = false;
 			const tw = tip.offsetWidth, th = tip.offsetHeight;
 			tip.style.left = Math.max(4, Math.min(w - tw - 4, x + 14)) + "px";
@@ -439,8 +480,13 @@
 				else setView({ yaw: drag.v.yaw + dx * 0.008, pitch: drag.v.pitch - dy * 0.004 });
 				return;
 			}
-			const it = hitTest(layout, g, x, y, spin);
-			if (it !== hover) { hover = it; canvas.style.cursor = it ? "pointer" : "grab"; draw(); }
+			const it = hitTest(layout, g, x, y, spin, match);
+			if (it !== hover) {
+				hover = it; canvas.style.cursor = it ? "pointer" : "grab"; draw();
+				// quedarse un momento sobre un test pide su detalle: al hacer clic ya está
+				clearTimeout(hoverTimer);
+				if (it) hoverTimer = setTimeout(() => opts.onHover?.(it.id), 150);
+			}
 			showTip(it, x, y);
 		});
 		const endDrag = () => { drag = null; wrap.classList.remove("lf-dragging"); };
@@ -449,11 +495,11 @@
 		canvas.addEventListener("pointerleave", () => { inside = false; hover = null; tip.hidden = true; draw(); kick(); });
 		canvas.addEventListener("click", (e) => {
 			if (dragged) { dragged = false; return; } // fue un arrastre, no un clic
-			const r = canvas.getBoundingClientRect(), it = hitTest(layout, g, e.clientX - r.left, e.clientY - r.top, spin);
+			const r = canvas.getBoundingClientRect(), it = hitTest(layout, g, e.clientX - r.left, e.clientY - r.top, spin, match);
 			if (it) opts.onPick?.(it.id, it.run_id);
 		});
 		canvas.addEventListener("dblclick", (e) => {
-			const r = canvas.getBoundingClientRect(), it = hitTest(layout, g, e.clientX - r.left, e.clientY - r.top, spin);
+			const r = canvas.getBoundingClientRect(), it = hitTest(layout, g, e.clientX - r.left, e.clientY - r.top, spin, match);
 			if (it) { if (expanded) setExpanded(false); opts.onOpen?.(it.id, it.run_id); }
 			else reset();
 		});
@@ -477,12 +523,15 @@
 				setView({ yaw: view.yaw + d[0], pitch: view.pitch + d[1] });
 				return;
 			}
-			if (!layout.items.length) return;
-			if (e.key === "ArrowRight" || e.key === "ArrowDown") focusIdx = Math.min(layout.items.length - 1, focusIdx + 1);
-			else if (e.key === "ArrowLeft" || e.key === "ArrowUp") focusIdx = Math.max(0, focusIdx < 0 ? 0 : focusIdx - 1);
-			else if (e.key === "Home") focusIdx = 0;
-			else if (e.key === "End") focusIdx = layout.items.length - 1;
-			else if (e.key === "Enter" && focusIdx >= 0) {
+			// las flechas recorren solo lo que coincide con el filtro (lo apagado no se elige)
+			const ok = layout.items.map((x, i) => (!match || match.has(x.id) ? i : -1)).filter((i) => i >= 0);
+			if (!ok.length) return;
+			const at = ok.indexOf(focusIdx);
+			if (e.key === "ArrowRight" || e.key === "ArrowDown") focusIdx = ok[at < 0 ? 0 : Math.min(ok.length - 1, at + 1)];
+			else if (e.key === "ArrowLeft" || e.key === "ArrowUp") focusIdx = ok[at < 0 ? 0 : Math.max(0, at - 1)];
+			else if (e.key === "Home") focusIdx = ok[0];
+			else if (e.key === "End") focusIdx = ok[ok.length - 1];
+			else if (e.key === "Enter" && focusIdx >= 0 && ok.includes(focusIdx)) {
 				const it = layout.items[focusIdx];
 				if (e.ctrlKey || e.metaKey) { if (expanded) setExpanded(false); opts.onOpen?.(it.id, it.run_id); } else opts.onPick?.(it.id, it.run_id);
 				return;
@@ -522,6 +571,7 @@
 				match = data.match || null;
 				sel = layout.items.find((x) => x.id === data.selected) || null;
 				if (data.tip) labels.tip = data.tip;
+				if (data.card) labels.card = data.card;
 				labels.aria = data.aria || "";
 				canvas.setAttribute("aria-label", labels.aria);
 				if (data.head !== undefined) head.textContent = data.head;
@@ -553,5 +603,5 @@
 		};
 	}
 
-	window.TraceReportsLiveField = { fieldLayout, ingestStats, channelOf, geometry, clampView, project, vOf, headOf, hitTest, create, SEAM, TILT, SPIKES, VIEW0 };
+	window.TraceReportsLiveField = { HIT_PX, NOW_VAR, cardInto, fieldLayout, ingestStats, channelOf, geometry, clampView, project, vOf, headOf, hitTest, create, SEAM, TILT, SPIKES, VIEW0 };
 })();

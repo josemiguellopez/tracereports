@@ -110,3 +110,47 @@ func TestLocatorEndpointBackendCause(t *testing.T) {
 		t.Errorf("non-locator failure: want 204, got %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// El evento de un run creado trae su nombre y su ejecución: la UI lo avisa (agrupado por ejecución)
+// aunque la lista de runs todavía no lo traiga, como pasa con muchas corridas creadas a la vez.
+func TestRunCreatedEventCarriesItsExecution(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.Live = live.NewHub()
+	ts := httptest.NewServer(srv.Router())
+	defer ts.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, ts.URL+"/api/v1/stream", nil)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	for srv.Live.Subscribers() == 0 {
+		time.Sleep(10 * time.Millisecond)
+	}
+	http.Post(ts.URL+"/api/v1/runs", "application/json", strings.NewReader(`{"name":"clinico/test_a.py","environment":"qa","branch":"dev","execution_id":"suite-1"}`))
+	sc := bufio.NewScanner(resp.Body)
+	for sc.Scan() {
+		line := sc.Text()
+		if !strings.HasPrefix(line, "data: ") {
+			continue
+		}
+		var e struct {
+			Type string            `json:"type"`
+			Data map[string]string `json:"data"`
+		}
+		json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &e)
+		if e.Type != "run" {
+			continue
+		}
+		want := map[string]string{"action": "created", "name": "clinico/test_a.py", "execution_id": "suite-1", "environment": "qa", "branch": "dev"}
+		for k, v := range want {
+			if e.Data[k] != v {
+				t.Fatalf("%s = %q, want %q (%s)", k, e.Data[k], v, line)
+			}
+		}
+		return
+	}
+	t.Fatal("no run event received")
+}

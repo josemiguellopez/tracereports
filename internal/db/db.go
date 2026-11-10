@@ -157,6 +157,8 @@ func Open(path string) (*Store, error) {
 		{"runs", "cancel_at", "INTEGER NOT NULL DEFAULT 0"},
 		{"runs", "cancel_by", "TEXT NOT NULL DEFAULT ''"},
 		{"runs", "cancel_reason", "TEXT NOT NULL DEFAULT ''"},
+		// cómo llegó la evidencia de un run, según su cliente (delivery.go): creado tarde, reintentos, perdidos
+		{"runs", "delivery", "TEXT NOT NULL DEFAULT ''"},
 		// la página de un paso o de un WARNING (TRACEREPORTS_DOM_ON=warning)
 		{"test_dom_steps", "kind", "TEXT NOT NULL DEFAULT 'step'"},
 	} {
@@ -376,6 +378,8 @@ type RunDetail struct {
 	StepStats map[string]int `json:"step_stats"`
 	// Summary is the diagnosis of the whole run (nil until the run is finished).
 	Summary *RunTriage `json:"summary"`
+	// Delivery is how its evidence arrived, when its client reported a problem (nil: it arrived fine).
+	Delivery *RunDelivery `json:"delivery,omitempty"`
 }
 
 // ---------- Runs ----------
@@ -610,6 +614,9 @@ func (s *Store) GetRunDetail(runID int64) (*RunDetail, error) {
 		return nil, err
 	}
 	d := &RunDetail{Run: *run, Tests: []Test{}, StepStats: map[string]int{}}
+	if d.Delivery, err = s.RunDeliveryOf(runID); err != nil {
+		return nil, err
+	}
 
 	rows, err := s.db.Query(testSelect+` WHERE t.run_id = ? ORDER BY t.id`, runID)
 	if err != nil {

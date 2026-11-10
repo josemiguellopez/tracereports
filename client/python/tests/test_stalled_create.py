@@ -304,6 +304,15 @@ def test_real_server_behind_a_stalled_forward_gets_the_run(tmp_path, monkeypatch
         assert len(mine) == 1, f"one run on the server: {mine}"
         assert mine[0]["execution_id"] == "suite-corte", "in its execution (Live groups it with the rest of the suite)"
         assert mine[0]["total"] == 2 and mine[0]["status"] != "RUNNING", mine[0]
+        # y cuenta cómo llegó: creado tarde, por qué y a qué dirección conectó (Mantenimiento > Conexiones)
+        req = urllib.request.Request(f"{url}/api/v1/runs/{mine[0]['id']}", headers={"Authorization": "Bearer tok-e2e"})
+        d = json.loads(urllib.request.urlopen(req, timeout=5).read())["delivery"]
+        assert d["late"] is True and d["reason"] == "the server did not answer within 2 s", d
+        assert d["detail"].startswith("connected to 127.0.0.1:") and "no answer in" in d["detail"], d
+        assert d["client"].startswith("python ") and d["host"], d
+        req = urllib.request.Request(f"{url}/api/v1/maintenance/connections", headers={"Authorization": "Bearer tok-e2e"})
+        c = json.loads(urllib.request.urlopen(req, timeout=5).read())
+        assert [r["id"] for r in c["runs"]] == [mine[0]["id"]], c
     finally:
         if proxy:
             proxy.close()
@@ -335,3 +344,17 @@ def test_plugin_says_the_run_was_uploaded_at_the_end(pytester, monkeypatch):
         result.stdout.fnmatch_lines(["*TraceReports (uploaded at the end): http://srv/#run=42&view=tests*"])
     finally:
         proxy.close()
+
+
+def test_delivery_report_only_when_something_went_wrong(monkeypatch):
+    sent = []
+    cr = TraceReports("http://127.0.0.1:1", timeout=1, run_timeout=1)
+    monkeypatch.setattr(cr, "_request", lambda method, path, payload, *a, **k: sent.append((path, payload)) or {"ok": True})
+    cr.run_id = 5
+    cr.end_run()
+    assert sent[-1] == ("/api/v1/runs/5/finish", {"interrupted": False}), "nada que reportar: el cierre de siempre"
+    cr._sender.stats["retried"] = 3
+    cr.end_run(run_id=5)
+    report = sent[-1][1]["delivery"]
+    assert report["retried"] == 3 and "rejected" not in report and report["client"] == f"python {client_mod.__version__}"
+    assert "late" not in report

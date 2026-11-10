@@ -982,7 +982,7 @@
 			<button type="button" role="radio" class="seg-o ${view === "field" ? "on" : ""}" data-live-fieldview="field" aria-checked="${view === "field"}" data-tip-title="${esc(t("Campo"))}" data-tip="${esc(t("La ejecución como un reloj: el ángulo es el tiempo y cada anillo un worker o proceso. Cada arco es un test; clic para abrirlo."))}">${icon("i-orbit")}<span>${esc(t("Campo"))}</span></button>
 			<button type="button" role="radio" class="seg-o ${view === "grid" ? "on" : ""}" data-live-fieldview="grid" aria-checked="${view === "grid"}" data-tip-title="${esc(t("Cuadrícula"))}" data-tip="${esc(t("Un cuadro por test, en el orden en que empezaron. La misma información, más compacta y navegable con Tab."))}">${icon("i-grid")}<span>${esc(t("Cuadrícula"))}</span></button></div>`;
 		const map = tests.length ? `<section class="card live-map ${view === "field" ? "is-field" : ""}" aria-label="${esc(t("Mapa de la ejecución"))}">
-			<header class="lp-h"><h6>${esc(t("Mapa de la ejecución"))}</h6><span class="m-hint">${esc(view === "field" ? t("el tiempo en círculo: arriba el comienzo, la aguja roja es ahora") : t("un cuadro por test, en el orden en que empezaron"))}</span><span class="live-spacer"></span>
+			<header class="lp-h"><h6>${esc(t("Mapa de la ejecución"))}</h6><span class="m-hint">${esc(view === "field" ? t("el tiempo en círculo: arriba el comienzo, la aguja punteada es ahora") : t("un cuadro por test, en el orden en que empezaron"))}</span><span class="live-spacer"></span>
 				${legend}${tabs}</header>
 			${view === "field" ? fieldHTML(e, tests, data, ui, now, h, g) : grid}</section>` : "";
 
@@ -1390,7 +1390,8 @@
 		].filter(Boolean) : [];
 		let body;
 		if (panel.error) body = `<p class="m-hint">${esc(panel.error)}</p>`;
-		else if (!full) body = `<p class="m-hint">${esc(t("Cargando…"))}</p>`;
+		// sin el detalle todavía: un esqueleto del mismo alto que la traza (no un texto que achica el panel)
+		else if (!full) body = `<div class="lp-skel" role="status" aria-label="${esc(t("Cargando…"))}">${"<i></i>".repeat(6)}</div>`;
 		else if (tab === "steps") {
 			body = logs.length ? `<ol class="live-steps">${logs.map((l) => `<li class="${stepState(l.status).cls}"><span class="lt-state ${stepState(l.status).cls}">${icon(stepState(l.status).icon)}</span><span data-no-i18n>${esc(l.message)}</span><small>${esc(h.clock(l.timestamp, true))}</small></li>`).join("")}</ol>`
 				: `<p class="m-hint">${esc(t("Todavía sin pasos."))}</p>`;
@@ -1419,7 +1420,7 @@
 			<dl class="live-facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join("")}</dl>
 			${laneStripHTML(g, panel.id, h)}
 			<div class="live-ptabs" role="tablist">${tabBtn("trace", "Traza")}${tabBtn("steps", "Últimos pasos")}${tabBtn("shot", "Captura")}</div>
-			<div class="live-pbody" role="tabpanel">${body}</div>
+			<div class="live-pbody${panel.stale ? " is-stale" : ""}" role="tabpanel"${panel.stale ? ' aria-busy="true"' : ""}>${body}</div>
 			<a class="cf-btn cf-btn-primary" href="#run=${live?.run_id || full?.run_id}&view=tests&test=${panel.id}">${esc(t("Abrir el test"))}</a></aside>`;
 	}
 

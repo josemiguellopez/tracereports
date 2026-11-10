@@ -194,7 +194,8 @@ test("panel lateral: estado, últimos 5 pasos (lo más nuevo arriba), la captura
 	assert.ok(shotTab.includes('src="/screenshots/a&quot;b.png"'));
 	assert.ok(panel.includes('href="#run=2&view=tests&test=21"') && panel.includes("Abrir el test"));
 	assert.ok(panel.includes("Sin señal") && panel.includes("×6,1 p50"));
-	assert.ok(L.render({ list: [exec], exec, now: 1, ui: {}, panel: { id: 21 } }, h).includes("Cargando…"), "mientras carga");
+	const loading = L.render({ list: [exec], exec, now: 1, ui: {}, panel: { id: 21 } }, h);
+	assert.ok(/<div class="lp-skel" role="status" aria-label="Cargando…">(<i><\/i>){6}<\/div>/.test(loading), "mientras carga: un esqueleto del alto de la traza, no un texto que achica el panel");
 	assert.ok(html.includes('class="lt-row nosig sel"'), "la fila del panel queda marcada");
 });
 
@@ -716,4 +717,16 @@ test("números como se escriben en cada idioma (es-CL con coma) y el p95 corto e
 	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
 	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {}, endpoints: [{ method: "GET", path: "/api/x", n: 3, errors: 0, p95_ms: 180 }] }, h);
 	assert.ok(!/\d\.\d tests\/min/.test(html), "el ritmo con coma");
+});
+
+test("cambiar de test con el panel abierto: el encabezado ya es del nuevo y lo anterior queda atenuado hasta que llega (nunca vacío)", () => {
+	const old = { id: 11, run_id: 1, name: "t_ok", logs: [{ status: "INFO", message: "paso del anterior", timestamp: 1 }] };
+	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, tab: "steps", test: old, stale: true } }, h);
+	const panel = html.slice(html.indexOf("data-live-panel"));
+	assert.ok(/<h4 data-no-i18n>test_periodontograma<\/h4>/.test(panel), "el nombre del test elegido, al instante (de los datos en vivo)");
+	assert.ok(panel.includes('<div class="live-pbody is-stale" role="tabpanel" aria-busy="true">'), "el cuerpo anterior, atenuado y marcado como cargando");
+	assert.ok(panel.includes("paso del anterior") && !panel.includes("lp-skel"), "no se vacía ni pasa por el esqueleto");
+	assert.ok(panel.includes('href="#run=2&view=tests&test=21"'), "Abrir el test ya lleva al nuevo");
+	const fresh = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, tab: "steps", test: { id: 21, run_id: 2, name: "t_fail", logs: [] }, stale: false } }, h);
+	assert.ok(fresh.includes('<div class="live-pbody" role="tabpanel">'), "llegó: sin atenuar");
 });

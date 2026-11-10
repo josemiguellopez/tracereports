@@ -35,7 +35,7 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 | POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (hasta 5000 por lote, 48 MiB por solicitud) | `201 {stored, errors}`. `body_size` es el tamaño original en bytes UTF-8; envía `body_truncated: true` si el body llega ya recortado, para que el reporte no lo muestre como completo |
 | POST | `/tests/{test_id}/dom` | Snapshot de la página al fallar, o de un paso con `kind: "step"` (ver abajo), hasta 4 MB / 2000 elementos / 6000 nodos | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
-| PATCH | `/runs/{run_id}/finish` | `{interrupted}` (opcional) | `200` ejecución |
+| PATCH | `/runs/{run_id}/finish` | `{interrupted, delivery}` (opcionales) | `200` ejecución. `delivery`: cómo llegó la evidencia según el cliente, `{late, late_at, reason, detail, retried, rejected, dropped, lost, spooled, client, host}`; se guarda solo si hubo algún problema y se ve en el reporte y en Mantenimiento > Conexiones |
 | POST | `/runs/{run_id}/plan` | `{planned}`: cuántos tests recolectó el cliente (progreso y ETA en En vivo) | `200` |
 
 - `status` de un paso: `INFO`, `PASS`, `FAIL`, `WARNING`, `SKIP`. `timestamp`: epoch en ms o
@@ -191,6 +191,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/settings` | Ajustes: idioma, proveedor de IA (sin la key: solo sus 4 últimos caracteres), si se pueden editar y por qué no |
 | GET | `/auth/check` | Con `X-TraceReports-Token`: `{token_required, token_sent, token_valid}`. Verifica un token sin escribir nada |
 | GET | `/runs?limit=50` | Ejecuciones con contadores (`total`, `passed`, `failed`, `skipped`, `warning`, `running`, `interrupted`, `quarantined`). Una que sigue `RUNNING` trae `idle_ms` (tiempo desde lo último que recibió); una cerrada puede traer `closed_by` (un usuario de la interfaz, `manual` sin login, o `auto` por inactividad) y `close_reason` |
+| GET | `/maintenance/connections` | Las conexiones de los clientes: `{days, runs, slow, slow_after_ms, started_at, auth}`. `runs`: las ejecuciones de los últimos 7 días con un informe de entrega (creadas tarde, reintentos, perdidos); `slow`: los últimos 50 pedidos de más de 2 s desde que arrancó el servidor; `auth` (solo con el permiso de Ajustes): las direcciones con credenciales rechazadas en los últimos 15 min |
 | GET | `/maintenance?state=&project=&environment=&branch=&older_than_hours=` | Ejecuciones con problemas de todos los proyectos, las más nuevas primero (hasta 200): `state` vacío (en curso o incompletas), `idle` (en curso, sin actividad hace 5 min), `running`, `incomplete`, `manual` (cerradas a mano) o `auto` (cerradas por inactividad). Responde `{runs, idle_warn_ms, stale: {hours, source, editable}}`; `source` es `env`, `ui` o `default` |
 | GET | `/runs/search?...` | Historial paginado para Buscar: `{items, next_cursor, total_estimate}` |
 | GET | `/runs/facets?...` | Valores frecuentes para los filtros de Buscar: proyecto, ambiente, rama y tag |
