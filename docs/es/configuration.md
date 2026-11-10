@@ -690,6 +690,17 @@ cualquier cliente:
   otro), con el nombre completo en el tooltip y un botón para copiarlo; la columna Test se ensancha
   arrastrando su borde (o con ← →) y **Nombres en 2 líneas** los muestra enteros. Ambas preferencias se
   recuerdan en ese navegador.
+- Elegir un estado (o una faceta, o buscar) se nota en la **línea de tiempo**: lo que coincide resalta, los
+  carriles sin coincidencias se juntan en una línea, el minimapa cuenta solo eso y el título dice "3 de 234
+  tests coinciden". Pasar el mouse por un carril resalta sus tests en la tabla.
+- **Fallos nuevos**: cada test que falló dice si en su ejecución anterior pasó ("Nuevo") o ya fallaba. Están en
+  Requiere atención (que tiene su propio buscador y filtro por estado, también "nuevos"), en la tabla y en
+  **Errores agrupados**, donde cada error se despliega con los tests a los que pertenece.
+- El panel lateral muestra el **carril del test** con lo que corrió antes y después. Al terminar la ejecución,
+  un **resumen de cierre** con duración, resultados, fallos nuevos y lentos, y "Escalar los fallos".
+- **Teclado**: J/K siguiente o anterior que requiere atención, O abre el test, P pausa, C modo compacto (sin
+  tarjetas de diagnóstico ni gráficos, para una pantalla chica o una tele), ? muestra los atajos; doble clic
+  en una fila abre el test.
 - Cada control, ícono, columna y estado tiene **tooltip** (con el mouse o el foco del teclado) que dice qué es
   o qué hace. Los estados tienen un set de íconos propio (la tortuga es un ícono, no la palabra).
 - **Gráficos**: resultados en el tiempo (por estado), tasa de fallo acumulada (con la anterior como referencia)

@@ -22,7 +22,7 @@
 	/** Rayos alrededor del anillo: uno por tramo de tiempo. */
 	const SPIKES = 144;
 	/** Giro del tubo (rad/s) y cuántas partículas de polvo. */
-	const SPIN = 0.12, DUST = 1100;
+	const SPIN = 0.12, DUST = 750;
 
 	/**
 	 * Lo que se dibuja, sin pantalla (se prueba en node): los carriles, un ítem por test con su ángulo de
@@ -192,6 +192,7 @@
 		const ctx = canvas.getContext("2d");
 		const reduce = matchMedia("(prefers-reduced-motion: reduce)");
 		let layout = { rings: [], items: [], gaps: [], nowAngle: null, density: [] }, g = geometry(1, 1);
+		let lastTheme = null;
 		let view = { ...VIEW0 }, expanded = false, drag = null, dragged = false, slotEl = null, paused = false, tween = 0;
 		let w = 0, h = 0, dpr = 1, hover = null, focusIdx = -1, sel = null, match = null, motion = true, visible = true, inside = false;
 		let t = 0, spin = 0, lastFrame = 0, lastSpin = 0, raf = 0;
@@ -318,7 +319,9 @@
 				const p = pulses[i], k = Math.min(1, (performance.now() - p.t0) / 900);
 				if (k >= 1) { pulses.splice(i, 1); continue; }
 				const it = layout.items.find((x) => x.id === p.id), to = it ? headOf(g, layout, it, spin) : { x: g.cx, y: g.cy };
-				const from = { x: 0, y: h * (0.2 + 0.2 * Math.max(0, ["test", "fail", "net", "step"].indexOf(p.channel))) };
+				// desde el tramo libre del borde izquierdo, entre el recuadro de arriba (ingesta) y el de abajo (anomalía):
+				// salir de detrás de un recuadro se veía como algo tapado
+				const from = { x: 0, y: h * (0.38 + 0.07 * Math.max(0, ["test", "fail", "net", "step"].indexOf(p.channel))) };
 				ctx.fillStyle = colors[CHANNEL_VAR[p.channel]] || primary;
 				for (let j = 0; j < 7; j++) {
 					const kk = Math.max(0, (1 - Math.pow(1 - k, 3)) - j * 0.03);
@@ -500,11 +503,15 @@
 			/** Pone el campo en el lugar que dejó el HTML de la vista (o lo saca si ya no está). Expandido, se queda arriba de todo. */
 			attach(slot) {
 				slotEl = slot || null;
+				let moved = false;
 				if (!expanded) {
 					if (!slot) { if (wrap.isConnected) wrap.remove(); return; }
-					if (wrap.parentElement !== slot) slot.appendChild(wrap);
+					if (wrap.parentElement !== slot) { slot.appendChild(wrap); moved = true; }
 				}
-				readColors(); resize(); kick();
+				// solo si se movió (o el tema cambió): redimensionar el canvas lo borra y lo vuelve a crear
+				const theme = document.body.dataset.theme || "";
+				if (moved || theme !== lastTheme || !w) { lastTheme = theme; readColors(); resize(); }
+				kick();
 			},
 			/**
 			 * data: {exec, now, live (TraceReportsLive), match (Set de ids o null), selected, aria, tip(it),
@@ -526,7 +533,7 @@
 					prevStates.set(it.id, it.state);
 				}
 				if (hover) hover = layout.items.find((x) => x.id === hover.id) || null;
-				readColors(); kick(); draw();
+				kick(); draw();
 			},
 			/** Los eventos que llegaron en pausa: el botón lo dice sin redibujar la vista. */
 			setPausedCount(n) { if (paused) setPaused(true, n); },

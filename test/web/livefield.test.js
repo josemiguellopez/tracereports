@@ -104,3 +104,16 @@ test("el campo de la suite grande: un arco por test y los carriles inferidos; el
 	assert.ok(done.includes("EJECUCIÓN TERMINADA"));
 	for (const s of ["INGESTA ACTIVA", "SIN EVENTOS", "SIN CONEXIÓN", "EJECUCIÓN TERMINADA"]) assert.notEqual(en.t(s), s, `${s} en inglés`);
 });
+
+test("el gráfico de ingesta se lee como gráfico: barras sobre una base, un tramo vacío no dibuja nada, y su escala de tiempo", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const esc = (s) => String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+	const h = { t: (s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s), esc, icon: (n) => `<svg data-i="${n}"></svg>`, canAct: () => true, clock: () => "10:00" };
+	const series = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 3, 6];
+	const html = LIVE.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {}, ingest: { state: "active", perMin: 9, lastAgo: 0, byKind: {}, series } }, h);
+	const bars = [...html.matchAll(/<span class="lf-bars" aria-hidden="true">(.*?)<\/span>/g)][0][1];
+	assert.equal((bars.match(/--h:0%/g) || []).length, 10, "los tramos sin eventos no dibujan una raya (se leían como letra o ícono)");
+	assert.ok(bars.includes("--h:100%") && bars.includes("--h:50%"));
+	assert.ok(html.includes('<span class="lf-bars-x" aria-hidden="true"><small>hace 1 min</small><small>ahora</small></span>'));
+	assert.notEqual(en.t("hace 1 min"), "hace 1 min");
+});

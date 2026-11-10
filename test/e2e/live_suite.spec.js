@@ -14,6 +14,8 @@ test.beforeEach(async ({ page }, info) => {
 	await page.route("**/api/v1/live", (r) => r.fulfill({ json: liveSuite(Date.now()).list }));
 	await page.route("**/api/v1/live/execution?**", (r) => { served++; return r.fulfill({ json: liveSuite(Date.now()).execution }); });
 	await page.route("**/api/v1/live/endpoints?**", (r) => r.fulfill({ json: liveSuiteEndpoints() }));
+	// los tests de esta ejecución son simulados: su historial (para "fallo nuevo") viene vacío salvo que el test lo pida
+	await page.route(/\/api\/v1\/tests\/\d+\/history/, (r) => r.fulfill({ json: [] }));
 	await page.route(/\/api\/v1\/tests\/\d+\/network$/, (r) => r.fulfill({ json: liveSuiteTest(1).network }));
 	await page.route(/\/api\/v1\/tests\/\d+$/, (r) => r.fulfill({ json: liveSuiteTest(Number(r.request().url().split("/").pop())).test }));
 	await page.goto("/#view=live&exec=x%3Asuite-demo");
@@ -152,8 +154,9 @@ test("salud y diagnóstico: tasa de fallo frente a la anterior, errores agrupado
 	const err = view.locator(".lc-errors .lc-row").first();
 	await expect(err.locator(".lc-count")).toHaveText("3");
 	await expect(err).toContainText("TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]");
-	await err.click();
-	await expect(err).toHaveAttribute("aria-pressed", "true");
+	const filter = view.locator(".lc-errors .lc-filter").first(); // el clic en la fila la despliega; la lupa filtra
+	await filter.click();
+	await expect(view.locator(".lc-errors .lc-filter").first()).toHaveAttribute("aria-pressed", "true");
 	await expect(view.locator("tr.lt-row")).toHaveCount(3);
 	await expect(view.locator(".live-chip.facet")).toHaveCount(1);
 	await view.locator(".live-chip.facet").click();
@@ -508,10 +511,12 @@ test("campo: cada punto es un test; el mouse lo muestra y el clic (o Enter) abre
 	await expect(view.locator(".live-panel h4")).toHaveText(first);
 });
 
-test("campo: los canales filtran o agrupan, la anomalía filtra por su firma, sin stream no dice activa; y la cuadrícula", async ({ page }) => {
+test("campo: los canales filtran o agrupan, la anomalía filtra por su firma, la ingesta sale de datos reales; y la cuadrícula", async ({ page }) => {
 	const view = page.locator("#view-live");
-	// la vista simulada no recibe eventos del stream: nunca "activa"
-	await expect(view.locator(".lf-hud.tl")).toContainText("SIN EVENTOS");
+	// recién abierta, la ingesta se completa con los tests que terminaron o empezaron en el último minuto
+	// (en esta ejecución, hace segundos): activa y con barras, no un gráfico vacío
+	await expect(view.locator(".lf-hud.tl")).toContainText("INGESTA ACTIVA");
+	await expect.poll(() => view.locator('.lf-bars i:not([style*="--h:0%"])').count()).toBeGreaterThan(0);
 	await view.locator('.lf-lane[data-live-state="FAIL"]').click();
 	await expect(view.locator("tr.lt-row")).toHaveCount(3);
 	await view.locator("[data-live-clear], .live-chip.facet").first().click();
@@ -581,12 +586,14 @@ test("campo manipulable: arrastrar gira e inclina, zoom con botones, pantalla co
 test("pausar desde el campo: la vista queda quieta, cuenta lo que sigue llegando y la cinta abre su test", async ({ page }) => {
 	const view = page.locator("#view-live");
 	await view.locator('[data-lf="pause"]').click();
-	await expect(view.locator(".lf-pausebar")).toContainText("EN PAUSA");
-	await expect(view.locator(".lf-pausebar")).toContainText("la ingesta sigue: 0 eventos nuevos");
+	// la pausa la dice el mismo cuadro de ingesta (nada flota encima del campo ni queda tapado)
+	await expect(view.locator(".lf-hud.tl.paused")).toContainText("VISTA EN PAUSA");
+	await expect(view.locator(".lf-hud.tl")).toContainText("la ingesta sigue: 0 eventos nuevos");
+	await expect(view.locator(".lf-pausebar")).toHaveCount(0);
 	await expect(view.locator('[data-lf="pause"]')).toHaveAttribute("aria-pressed", "true");
 	await expect(view.locator(".live-title [data-live-pause]")).toHaveAttribute("aria-pressed", "true"); // la misma pausa que la barra
-	await view.locator(".lf-pausebar [data-live-pause]").click();
-	await expect(view.locator(".lf-pausebar")).toHaveCount(0);
+	await view.locator(".lf-hud.tl .lf-resume").click();
+	await expect(view.locator(".lf-hud.tl.paused")).toHaveCount(0);
 	// la cinta: con el mouse encima se detiene y un clic abre el detalle de su test
 	await page.evaluate(() => document.querySelector("#view-live .live-tape").scrollIntoView({ block: "center" }));
 	const tape = await view.locator(".live-tape").boundingBox();
@@ -608,4 +615,111 @@ test("Mostrar, Agrupar por y Buscar van pegados a las facetas y la tabla que fil
 	await expect(view.locator(".live-tablebar .live-status")).toContainText("Mostrando");
 	await expect(view.locator(".live-head .live-title [data-live-pause]")).toBeVisible();
 	await expect(view.locator(".live-filters [data-live-pause]")).toHaveCount(0);
+});
+
+// ---------- ronda 3 ----------
+
+test("un estado elegido se nota en la línea de tiempo: la cuenta, solo sus carriles y lo demás apagado", async ({ page }) => {
+	const view = page.locator("#view-live");
+	await view.locator('.live-tile[data-live-state="FAIL"]').click();
+	await expect(view.locator(".lg-count")).toHaveText("3 de 234 tests coinciden");
+	await expect(view.locator(".lg-lane")).toHaveCount(3);
+	await expect(view.locator(".lg-bar.hit")).toHaveCount(3);
+	await expect(view.locator(".lg-more").first()).toContainText("carriles sin coincidencias");
+	await view.locator('.live-tile[data-live-state="FAIL"]').click();
+	await view.locator('.live-tile[data-live-state="PASS"]').click();
+	await expect(view.locator(".lg-count")).toHaveText(/^195 de 234/);
+	// pasar por un carril resalta sus tests en la tabla
+	await view.locator('.live-tile[data-live-state="PASS"]').click();
+	await view.locator(".seg-o[data-live-all]").click();
+	await view.locator(".lg-worker").first().hover();
+	await expect.poll(() => view.locator("tr.lt-row.lane-hl").count()).toBeGreaterThan(0);
+});
+
+test("Requiere atención: buscador y fallos nuevos; errores con sus tests; J abre el siguiente; ? muestra los atajos", async ({ page }) => {
+	// historial: el fallo de la agenda pasó la vez anterior (nuevo); los otros dos ya fallaban
+	const agenda = await page.evaluate(async () => (await (await fetch("/api/v1/live/execution?key=x%3Asuite-demo")).json()).execution.runs.flatMap((r) => r.tests).find((x) => x.state === "FAIL" && x.name.includes("agenda")).id);
+	await page.route(/\/api\/v1\/tests\/\d+\/history/, (r) => { const id = Number(r.request().url().match(/tests\/(\d+)/)[1]); return r.fulfill({ json: [{ test_id: id + 9000, run_id: 0, status: id === agenda ? "PASS" : "FAIL", started_at: 1 }] }); });
+	await page.reload();
+	const view = page.locator("#view-live");
+	await expect(view.locator(".lt-reg.new").first()).toBeVisible();
+	await expect(view.locator('[data-live-attnstate="new"]')).toContainText("1 nuevos");
+	await view.locator('[data-live-attnstate="new"]').click();
+	await expect(view.locator(".la-list li")).toHaveCount(1);
+	await view.locator('[data-live-attnstate="new"]').click();
+	await view.locator(".la-q").fill("agenda");
+	await expect(view.locator(".la-list li")).toHaveCount(1);
+	await expect(view.locator(".la-q")).toBeFocused(); // escribir no pierde el foco con los refrescos
+	await view.locator(".la-q").fill("");
+	// errores agrupados: se despliega con los tres tests y cada uno abre su detalle
+	await view.locator("[data-live-errgroup]").first().click();
+	await expect(view.locator(".lc-who li")).toHaveCount(3);
+	await view.locator(".lc-whorow").first().click();
+	await expect(view.locator(".live-panel .lp-strip")).toContainText("Su carril: Proceso");
+	await page.keyboard.press("Escape");
+	await page.evaluate(() => document.activeElement?.blur());
+	await page.keyboard.press("j");
+	await expect(view.locator(".live-panel h4")).toHaveText("test_001_periodontograma_paso_1"); // lo más grave primero
+	await page.keyboard.press("j");
+	await expect(view.locator(".live-panel h4")).not.toHaveText("test_001_periodontograma_paso_1");
+	await page.keyboard.press("Escape");
+	await page.keyboard.press("?");
+	await expect(view.locator(".live-help")).toContainText("Atajos de teclado");
+	await page.keyboard.press("Escape");
+	await expect(view.locator(".live-help")).toHaveCount(0);
+	// compacto: sin diagnóstico ni gráficos, y se recuerda
+	await page.keyboard.press("c");
+	await expect(view).toHaveClass(/live-compact/);
+	await expect(view.locator(".live-insights")).toBeHidden();
+	await page.reload();
+	await expect(page.locator("#view-live")).toHaveClass(/live-compact/);
+	await page.evaluate(() => localStorage.removeItem("tr-live-prefs"));
+});
+
+test("al terminar la ejecución: el resumen de cierre con los fallos nuevos y escalar en un clic", async ({ page }) => {
+	const done = (now) => { const d = liveSuite(now); d.execution.execution.running = false; d.execution.execution.ended_at = now; return d; };
+	await page.unroute("**/api/v1/live/execution?**");
+	await page.route("**/api/v1/live/execution?**", (r) => r.fulfill({ json: done(Date.now()).execution }));
+	await page.route(/\/api\/v1\/tests\/\d+\/history/, (r) => { const id = Number(r.request().url().match(/tests\/(\d+)/)[1]); return r.fulfill({ json: [{ test_id: id + 9000, run_id: 0, status: "PASS", started_at: 1 }] }); });
+	await page.reload();
+	const s = page.locator("#view-live .live-summary");
+	await expect(s).toContainText("Ejecución terminada");
+	await expect(s).toContainText("3 fallos nuevos frente a la ejecución anterior.");
+	await expect(s.locator('a[href*="view=escalate"]')).toContainText("Escalar los fallos");
+});
+
+test("sin parpadeo: al refrescarse, la vista no se rehace (los elementos que no cambian siguen siendo los mismos)", async ({ page }) => {
+	const view = page.locator("#view-live");
+	// marcas en elementos que no cambian entre un refresco y otro: si la vista se rehiciera, se perderían
+	await view.evaluate((v) => { for (const el of v.querySelectorAll(".live-tile, .seg, .lf-lane, tr.lt-row")) el.__keep = 1; });
+	const n0 = served;
+	await expect.poll(() => served, { timeout: 15_000 }).toBeGreaterThan(n0); // la vista se refrescó con datos nuevos
+	await page.waitForTimeout(400);
+	const kept = await view.evaluate((v) => [...v.querySelectorAll(".live-tile, .seg, .lf-lane, tr.lt-row")].map((el) => !!el.__keep));
+	expect(kept.length).toBeGreaterThan(10);
+	expect(kept.every(Boolean), "ningún elemento se reemplazó").toBeTruthy();
+	// el canvas del campo tampoco (su animación no se reinicia)
+	await expect(view.locator(".lf-canvas")).toHaveCount(1);
+});
+
+test("Requiere atención: 'ver más' abre la lista con su propio scroll; 'ver menos' está arriba y al cerrar la tarjeta queda a la vista", async ({ page }) => {
+	// 20 fallos más que la suite de siempre: la lista pasa de 8
+	const many = (now) => { const d = liveSuite(now); let k = 0; for (const r of d.execution.execution.runs) for (const x of r.tests) if (x.state === "PASS" && k++ < 20) x.state = "FAIL"; return d; };
+	await page.unroute("**/api/v1/live/execution?**");
+	await page.route("**/api/v1/live/execution?**", (r) => r.fulfill({ json: many(Date.now()).execution }));
+	await page.reload();
+	const view = page.locator("#view-live"), card = view.locator(".live-attn");
+	await card.locator(".live-collapsed[data-live-attnmore]").click();
+	const scroll = card.locator(".la-scroll");
+	await expect(scroll).toBeVisible();
+	const box = await scroll.boundingBox();
+	expect(box.height, "media pantalla como mucho").toBeLessThanOrEqual(900 * 0.55);
+	expect(await scroll.evaluate((n) => n.scrollHeight > n.clientHeight), "la lista se recorre adentro").toBeTruthy();
+	// "ver menos" a mano, arriba, sin bajar
+	const less = card.locator(".la-less");
+	await expect(less).toBeInViewport();
+	await less.click();
+	await expect(card.locator(".la-scroll")).toHaveCount(0);
+	await expect(card.locator(".la-list li")).toHaveCount(8);
+	await expect(card).toBeInViewport();
 });

@@ -82,7 +82,7 @@ test("todo t(\"…\") de live.js tiene traducción", () => {
 	const used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)+)"/g)].map((m) => m[1]);
 	used.push(...Object.values(L.STATES).map((s) => s.label).filter((s) => !["Pass", "Skip", "Warning"].includes(s)));
 	// iguales en inglés
-	const same = new Set(["{n}/min", "TESTS", "WORKERS", "warning", "Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
+	const same = new Set(["{n}/min", "TESTS", "WORKERS", "warning", "{n} tests", "Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
 	assert.ok(used.length > 25);
 	assert.deepEqual([...new Set(used)].filter((s) => !same.has(s) && en.t(s) === s), []);
 });
@@ -564,4 +564,102 @@ test("mapa de la ejecución: un cuadro por test (y los pendientes), atenuado seg
 	assert.ok(html.includes("data-live-clock"));
 	assert.ok(/<svg class="spark bad"/.test(html) && /<svg class="spark pace"/.test(html), "sparklines de tasa de fallo y ritmo");
 	assert.equal(L.sparkline([1]), "", "un punto no es una tendencia");
+});
+
+// ---------- ronda 3: filtros que se ven, fallos nuevos, detalle de errores, cierre y atajos ----------
+
+test("línea de tiempo con un filtro: lo que coincide resalta, los carriles sin coincidencias se juntan, el minimapa cuenta solo eso", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const all = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false } }, h);
+	const f = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { states: ["FAIL"] } }, h);
+	assert.ok(f.includes('<span class="lg-count" role="status">3 de 234 tests coinciden</span>'), "la cuenta al lado del título");
+	assert.equal((f.match(/class="lg-lane /g) || []).length, 3, "solo los carriles con un fallo");
+	assert.ok(f.includes("9 carriles sin coincidencias"));
+	assert.equal((f.match(/class="lg-bar fail[^"]* hit"/g) || []).length, 3, "los que coinciden, resaltados");
+	assert.ok(!all.includes("lg-count") && !/ hit"/.test(all), "sin filtro, nada resaltado");
+	const mmAll = L.minimap(e, d.execution.now), only = new Set(L.allTests(e).filter((x) => x.state === "FAIL").map((x) => x.id));
+	const mmF = L.minimap(e, d.execution.now, 80, only);
+	assert.ok(mmF.reduce((s, c) => s + c.n, 0) < mmAll.reduce((s, c) => s + c.n, 0) / 10, "el minimapa filtrado cuenta solo los fallos");
+	// el nombre del carril no se tiñe: lo que pide acción va en su marca con la cuenta
+	assert.ok(/<span data-no-i18n>Proceso \d+<\/span><i class="lg-flag" data-tip="1 tests con problema en este carril/.test(all));
+});
+
+test("Requiere atención: buscador y filtro propios (también 'nuevos'), y la marca de fallo nuevo o que ya fallaba", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const fails = L.allTests(e).filter((x) => x.state === "FAIL");
+	const regressions = { [fails[0].id]: "new", [fails[1].id]: "old" };
+	const base = { list: d.list.executions, exec: e, now: d.execution.now, regressions };
+	const html = L.render({ ...base, ui: {} }, h);
+	assert.ok(/data-live-attnstate="new"[^>]*>1 nuevos<\/button>/.test(html), "el chip de nuevos con su cuenta");
+	assert.ok(html.includes('class="lt-reg new"') && html.includes('class="lt-reg old"'), "Nuevo y Ya fallaba");
+	assert.ok(html.includes("data-live-aq"), "el buscador");
+	const q = L.render({ ...base, ui: { attnQ: "agenda" } }, h);
+	assert.equal((q.match(/<li style="--i:\d+" data-attn=/g) || []).length, 1);
+	assert.ok(q.includes('<p class="la-status" role="status">1 de 6</p>'));
+	const onlyNew = L.render({ ...base, ui: { attnStates: ["new"] } }, h);
+	assert.ok(onlyNew.includes(`data-attn="${fails[0].id}"`) && !onlyNew.includes(`data-attn="${fails[1].id}"`));
+	assert.ok(L.render({ ...base, ui: { attnQ: "zzz" } }, h).includes("Nada coincide con la búsqueda o el filtro."));
+});
+
+test("errores agrupados: cada firma se despliega con sus tests; la lupa filtra aparte", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const sig = L.errorGroups(L.allTests(e))[0].sig;
+	const closed = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {} }, h);
+	assert.ok(closed.includes(`data-live-errgroup="${sig.replace(/"/g, "&quot;")}" aria-expanded="false"`) && !closed.includes('class="lc-who"'));
+	assert.ok(/class="lc-filter " data-live-facet="error"/.test(closed), "filtrar es un botón aparte");
+	const open = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { errOpen: { [sig]: true } } }, h);
+	assert.equal((open.match(/class="lc-whorow" data-live-test=/g) || []).length, 3, "los tres tests con ese error, cada uno abre su detalle");
+});
+
+test("cierre, carril en el panel y atajos: lo que se ve al terminar, dónde cayó el test, y la ayuda", () => {
+	const d = liveSuite(1_794_000_000_000), e = { ...d.execution.execution, running: false, ended_at: d.execution.now };
+	const fails = L.allTests(e).filter((x) => x.state === "FAIL");
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { help: true }, regressions: { [fails[0].id]: "new" }, panel: { id: fails[0].id } }, h);
+	assert.ok(html.includes('class="card live-summary bad"') && html.includes("1 fallos nuevos frente a la ejecución anterior."));
+	assert.ok(/href="#run=\d+&view=escalate"/.test(html), "escalar en un clic");
+	assert.ok(!L.render({ list: d.list.executions, exec: d.execution.execution, now: d.execution.now, ui: {} }, h).includes("live-summary"), "en curso: sin resumen de cierre");
+	assert.ok(/<div class="lp-strip"><small>Su carril: Proceso \d+/.test(html) && html.includes('lp-bar fail me"'), "el panel con el carril del test, marcado");
+	assert.ok(html.includes("data-live-help") && html.includes("<kbd>J / K</kbd>"), "la ayuda de atajos");
+	assert.ok(html.includes("data-live-compact"), "el modo compacto");
+});
+
+test("errores agrupados: cuántos son nuevos se ve con la firma cerrada; adentro, los nuevos primero y los demás a pedido", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const fails = L.allTests(e).filter((x) => x.state === "FAIL");
+	const regressions = { [fails[2].id]: "new", [fails[0].id]: "old", [fails[1].id]: "old" };
+	const sig = L.errorGroups(fails)[0].sig;
+	const closed = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {}, regressions }, h);
+	assert.ok(/class="lc-tally new"[^>]*>1 nuevos<\/span><span class="lc-tally old"[^>]*>2 ya fallaban<\/span>/.test(closed), "la cuenta, cerrada");
+	assert.ok(closed.includes('class=" has-new"') || /class="[^"]*has-new"/.test(closed));
+	const open = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { errOpen: { [sig]: true } }, regressions }, h);
+	const ids = [...open.matchAll(/class="lc-whorow" data-live-test="(\d+)"/g)].map((m) => Number(m[1]));
+	assert.equal(ids[0], fails[2].id, "el fallo nuevo, primero");
+});
+
+test("las marcas de los fallos se entienden: leyenda, 'Primera vez' sin historial, 'revisando…' mientras tanto (nunca un hueco)", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	const fails = L.allTests(e).filter((x) => x.state === "FAIL");
+	const sig = L.errorGroups(fails)[0].sig;
+	const html = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { errOpen: { [sig]: true } }, regressions: { [fails[0].id]: "first", [fails[1].id]: "new" } }, h);
+	assert.ok(html.includes('<p class="lc-legend">'), "qué quiere decir cada marca");
+	assert.ok(/class="lc-tally first"[^>]*>1 primera vez</.test(html));
+	const who = html.slice(html.indexOf('<ol class="lc-who">'), html.indexOf("</ol>", html.indexOf('<ol class="lc-who">')));
+	assert.equal((who.match(/class="lt-reg (new|old|first|wait)"/g) || []).length, 3, "cada test con una marca");
+	assert.ok(who.includes('class="lt-reg wait"') && who.includes('class="lt-reg first"'));
+	// en pausa, el cuadro de ingesta lo dice y trae Reanudar (no hay aviso flotante encima del campo)
+	const p = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { paused: true }, pausedNew: 7 }, h);
+	assert.ok(/class="lf-hud tl paused"[\s\S]*?VISTA EN PAUSA[\s\S]*?<b data-live-pausecount>7<\/b>[\s\S]*?class="cf-btn cf-btn-sm lf-resume" data-live-pause/.test(p));
+	assert.ok(!p.includes("lf-pausebar"));
+});
+
+test("Requiere atención abierta: su propio scroll y 'ver menos' también arriba (no hay que bajar al final para cerrarla)", () => {
+	const d = liveSuite(1_794_000_000_000), e = d.execution.execution;
+	let k = 0;
+	for (const r of e.runs) for (const x of r.tests) if (x.state === "PASS" && k++ < 20) x.state = "FAIL";
+	const closed = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: {} }, h);
+	assert.ok(!closed.includes("la-scroll") && !closed.includes("la-less") && /data-live-attnmore[^>]*>.*ver \d+ más/.test(closed));
+	const open = L.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { attnAll: true } }, h);
+	assert.ok(open.includes('<div class="la-scroll" tabindex="0"'), "la lista con scroll propio");
+	assert.ok(/class="cf-btn cf-btn-sm la-less" data-live-attnmore/.test(open), "ver menos en el encabezado");
+	assert.equal((open.match(/data-live-attnmore/g) || []).length, 2, "arriba y abajo");
 });

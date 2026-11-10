@@ -684,6 +684,17 @@ from any client:
   stay visible), with the full name in the tooltip and a button to copy it; the Test column widens by
   dragging its edge (or with ← →) and **Names on 2 lines** shows them whole. Both preferences are remembered
   in that browser.
+- Choosing a status (or a facet, or searching) shows in the **timeline**: matches stand out, lanes without a
+  match fold into one line, the minimap counts only those and the title says "3 of 234 tests match". Hovering a
+  lane highlights its tests in the table.
+- **New failures**: every failed test says whether it passed in its previous execution ("New") or was already
+  failing. Shown in Needs attention (which has its own search box and status filter, "new" included), the table
+  and **Grouped errors**, where each error opens with the tests it belongs to.
+- The side panel shows the **test's lane** with what ran before and after it. When the execution ends, a
+  **closing summary** with duration, results, new failures and slow tests, and "Escalate the failures".
+- **Keyboard**: J/K next or previous needing attention, O opens the test, P pauses, C compact mode (no
+  diagnosis cards nor charts, for a small screen or a TV), ? shows the shortcuts; a double click on a row opens
+  the test.
 - Every control, icon, column and status has a **tooltip** (mouse or keyboard focus) saying what it is or
   does. Statuses have their own icon set (the turtle is an icon, not the word).
 - **Charts**: results over time (by status), cumulative failure rate (with the previous one as a reference)

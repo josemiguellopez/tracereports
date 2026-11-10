@@ -19,6 +19,8 @@ test.beforeEach(async ({ page }, info) => {
 		return r.fulfill({ json: d });
 	});
 	await page.route("**/api/v1/live/endpoints?**", (r) => r.fulfill({ json: liveSuiteEndpoints() }));
+	// los tests de esta ejecución son simulados: su historial (para "fallo nuevo") viene vacío salvo que el test lo pida
+	await page.route(/\/api\/v1\/tests\/\d+\/history/, (r) => r.fulfill({ json: [] }));
 	await page.route(/\/api\/v1\/tests\/\d+\/network$/, (r) => r.fulfill({ json: liveSuiteTest(1).network }));
 	await page.route(/\/api\/v1\/tests\/\d+$/, (r) => r.fulfill({ json: liveSuiteTest(Number(r.request().url().split("/").pop())).test }));
 });

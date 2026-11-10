@@ -6,6 +6,35 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed (Live, round 3: what filters shows, new failures, error details, closing summary, shortcuts)
+
+- **A chosen status now shows in the timeline**: it used to only fade the other bars, so choosing Pass or Fail
+  looked like nothing happened. Now the matching bars stand out, the lanes without a match fold into one line
+  ("9 lanes without matches · show"), the minimap counts only the matches and the title says "3 of 234 tests
+  match". Lane names keep one color; a lane with problems carries a counter with its explanation, and hovering
+  a lane highlights its tests in the table.
+- **New failures**: for each failed test, its history says how it ended in its previous execution: "New" if
+  it passed (a regression of today), "Already failing" if not. Shown in Needs attention, the table and the
+  error groups; "new" is a filter of its own.
+- **Needs attention** has its own search box and status filter (the summary chips), without touching the table.
+- **Grouped errors** open in place with the tests they belong to (name, file, worker, time, new or not); the
+  magnifier filters the table, the map and the timeline by that error.
+- **The side panel** shows the test's lane, with what ran before and after it.
+- **Closing summary**: when the execution ends, a card with its duration, results, new failures and slow
+  tests, and "Escalate the failures" / "See the report".
+- **No more flicker, and a lighter page**: Live rebuilt the whole view (11,000 elements in a 1,200-test
+  execution) with every event, restarting its animations and freezing the page a third of the time. It now
+  patches only what changed (unchanged elements stay the same nodes), formats times with a cached formatter
+  (creating one per call was the most expensive part), measures the ticker only when it changes, draws narrow
+  timeline bars without text, and the field redraws its canvas only when it moves. Measured with a running
+  1,200-test execution over 20 s: frozen time 7.8 s → 1.5 s, longest freeze 449 → 125 ms, restarted
+  animations 687 → 100, 27 → 55 frames per second.
+- **Grouped errors show their new failures while closed** ("1 new · 2 already failing"), signatures with new
+  failures go first, and inside, the new ones are listed first with their mark; long lists show 10 and "see all".
+- **Keyboard**: J/K go to the next/previous test that needs attention (opening its details), O opens the
+  test, P pauses, C toggles a compact mode (no diagnosis cards nor charts, for a small screen or a TV, and
+  remembered), ? shows the shortcuts; a double click on a row opens the test.
+
 ### Added (Live: the execution field, an observability console)
 
 - **Execution field**: the execution as a torus of particles that reads like a clock, and every bright

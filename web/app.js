@@ -471,6 +471,65 @@
 		$("#compare-card")?.scrollIntoView({ block: "start", behavior: "smooth" });
 	}
 
+	/**
+	 * Como setHTML, pero sin reemplazar: compara el HTML nuevo con lo que hay y toca solo lo que cambió
+	 * (los nodos iguales siguen siendo los mismos). En vivo se redibuja con cada evento; reemplazarla entera
+	 * reiniciaba sus animaciones (parpadeo), perdía el mouse y obligaba al navegador a rehacer miles de
+	 * elementos. Las listas se emparejan por su clave (data-live-test, data-attn, data-group, data-lane…).
+	 */
+	function morphHTML(el, html) {
+		if (S.rendered[el.id] === html) return false;
+		S.rendered[el.id] = html;
+		if (!el.firstChild) { el.innerHTML = html; return true; }
+		const tpl = document.createElement("template");
+		tpl.innerHTML = html;
+		morphChildren(el, tpl.content);
+		return true;
+	}
+	// clases que pone el código después de dibujar (animaciones, medidas): un parche no las borra
+	const MORPH_KEEP_CLASSES = ["has-on", "notext", "live-changed", "lt-new", "bump", "lane-hl", "lt-flash", "la-new", "lc-new", "lg-anom-new", "live-panel-in", "lt-trace-in", "live-enter"];
+	const morphKey = (n) => n.nodeType === 1 ? (n.getAttribute("data-live-test") ?? n.getAttribute("data-attn") ?? n.getAttribute("data-group") ?? n.getAttribute("data-lane") ?? n.getAttribute("data-ev") ?? n.getAttribute("data-seg") ?? n.getAttribute("data-live-errgroup") ?? n.id ?? null) || null : null;
+	const morphSame = (a, b) => a.nodeType === b.nodeType && a.nodeName === b.nodeName && morphKey(a) === morphKey(b);
+	function morphChildren(a, b) {
+		// el campo (canvas) vive dentro de su lugar y no está en el HTML: no se toca
+		if (a.nodeType === 1 && a.hasAttribute("data-live-field")) return;
+		const want = [...b.childNodes];
+		let cur = a.firstChild;
+		for (const nb of want) {
+			if (cur && morphSame(cur, nb)) { morphNode(cur, nb); cur = cur.nextSibling; continue; }
+			// una clave que está más adelante (la lista cambió de orden): se trae ese nodo, no se rehace
+			const key = morphKey(nb);
+			let found = null;
+			if (key !== null) for (let x = cur; x; x = x.nextSibling) if (morphSame(x, nb)) { found = x; break; }
+			if (found) { a.insertBefore(found, cur); morphNode(found, nb); continue; }
+			a.insertBefore(nb, cur);
+		}
+		while (cur) { const nx = cur.nextSibling; a.removeChild(cur); cur = nx; }
+	}
+	function morphNode(a, b) {
+		if (a.nodeType === 3 || a.nodeType === 8) { if (a.data !== b.data) a.data = b.data; return; }
+		if (a.nodeType !== 1) return;
+		for (const { name, value } of b.attributes) {
+			if (name === "class") {
+				const keep = MORPH_KEEP_CLASSES.filter((c) => a.classList.contains(c) && !b.classList.contains(c));
+				const v = keep.length ? `${value} ${keep.join(" ")}` : value;
+				if (a.getAttribute("class") !== v) a.setAttribute("class", v);
+			} else if (name === "value" && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) {
+				if (a !== document.activeElement && a.value !== value) a.value = value;
+			} else if (a.getAttribute(name) !== value) a.setAttribute(name, value);
+		}
+		for (const { name } of [...a.attributes]) {
+			if (b.hasAttribute(name)) continue;
+			// lo que pone el código y el HTML no trae: la posición del indicador, de la cinta, un <details> abierto,
+			// la descripción del tooltip
+			if ((name === "style" && a.tagName !== "COL") || (name === "open" && a.tagName === "DETAILS") || name === "aria-describedby") continue;
+			if (name === "class") { const keep = MORPH_KEEP_CLASSES.filter((c) => a.classList.contains(c)); keep.length ? a.setAttribute("class", keep.join(" ")) : a.removeAttribute("class"); continue; }
+			a.removeAttribute(name);
+		}
+		if ((a.tagName === "INPUT" || a.tagName === "TEXTAREA") && !b.hasAttribute("value") && a !== document.activeElement && a.value) a.value = "";
+		morphChildren(a, b);
+	}
+
 	// only touch the DOM when content actually changed (keeps scroll position & avoids flicker while polling)
 	function setHTML(el, html) {
 		if (S.rendered[el.id] === html) return false;
@@ -1413,6 +1472,7 @@
 			L.loaded = true;
 			if (L.panel) loadLivePanel(L.panel.id, true); // el test abierto en el panel sigue al día
 			if (L.key && (L.epKey !== L.key || Date.now() - (L.epAt || 0) > 5000)) loadLiveEndpoints(L.key);
+			loadLiveRegressions();
 		} catch (err) {
 			if (!current()) return;
 			L.error = err.message;
@@ -1422,6 +1482,7 @@
 
 	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
 	S.ingest = [];
+	S.ingestSince = Date.now(); // desde cuándo esta pestaña cuenta los eventos del stream
 	function liveUI() {
 		return { problems: null, states: [], files: [], workers: [], errors: [], more: {}, sort: null, paused: false,
 			group: "file", q: "", zoom: null, allLanes: false, hideIdle: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", tables: {},
@@ -1429,10 +1490,10 @@
 			...livePrefs() };
 	}
 	function livePrefs() {
-		try { const p = JSON.parse(localStorage.getItem("tr-live-prefs") || "{}"); return { nameW: Number(p.nameW) || 0, wrap: !!p.wrap }; } catch { return { nameW: 0, wrap: false }; }
+		try { const p = JSON.parse(localStorage.getItem("tr-live-prefs") || "{}"); return { nameW: Number(p.nameW) || 0, wrap: !!p.wrap, compact: !!p.compact }; } catch { return { nameW: 0, wrap: false, compact: false }; }
 	}
 	function saveLivePrefs(ui) {
-		try { localStorage.setItem("tr-live-prefs", JSON.stringify({ nameW: ui.nameW || 0, wrap: !!ui.wrap })); } catch { /* sin almacenamiento: queda para esta sesión */ }
+		try { localStorage.setItem("tr-live-prefs", JSON.stringify({ nameW: ui.nameW || 0, wrap: !!ui.wrap, compact: !!ui.compact })); } catch { /* sin almacenamiento: queda para esta sesión */ }
 	}
 
 	/** El panel lateral: el test con sus pasos y su última captura, sin salir de la vista. */
@@ -1451,6 +1512,41 @@
 			L.panel = { ...L.panel, error: refresh ? undefined : err.message };
 		}
 		if (S.view === "live") renderLiveView();
+	}
+
+	/**
+	 * Los fallos nuevos: para cada test que falló, su historial dice cómo terminó en su ejecución anterior
+	 * del mismo proyecto. "new" si pasó (una regresión de hoy), "old" si ya fallaba. Una sola vez por
+	 * test y como mucho 12 pedidos por refresco.
+	 */
+	async function loadLiveRegressions() {
+		const L = S.liveView;
+		if (!L.exec || L.regsBusy) return;
+		L.regs = L.regs || {};
+		L.regsAsked = L.regsAsked || new Set();
+		// de a 40, de a 8 pedidos a la vez, y seguido hasta terminar: con 128 fallos, de a 12 por refresco la
+		// mayoría se quedaba sin marca
+		const failed = window.TraceReportsLive.allTests(L.exec).filter((x) => (x.state === "FAIL" || x.state === "INTERRUPTED") && !L.regsAsked.has(x.id)).slice(0, 40);
+		if (!failed.length) return;
+		L.regsBusy = true;
+		for (const x of failed) L.regsAsked.add(x.id);
+		let changed = false;
+		try {
+			for (let i = 0; i < failed.length; i += 8) {
+				const got = await Promise.all(failed.slice(i, i + 8).map((x) => api(`/api/v1/tests/${x.id}/history?limit=6`).then((hist) => [x, hist]).catch(() => [x, null])));
+				for (const [x, hist] of got) {
+					if (!Array.isArray(hist) || L.regs[x.id]) continue;
+					const prev = hist.filter((e) => e.test_id !== x.id && e.run_id < x.run_id).sort((a, b) => b.started_at - a.started_at)[0];
+					// sin una ejecución anterior de este test no hay con qué comparar: "primera vez", no un hueco
+					const kind = !prev ? "first" : prev.status === "PASS" || prev.status === "WARNING" ? "new" : prev.status === "FAIL" || prev.status === "INTERRUPTED" ? "old" : "first";
+					L.regs[x.id] = kind;
+					changed = true;
+				}
+			}
+		} finally { L.regsBusy = false; }
+		if (changed && S.view === "live") renderLiveView();
+		// quedan fallos sin revisar: sigue enseguida, sin esperar al próximo evento
+		if (window.TraceReportsLive.allTests(L.exec).some((x) => (x.state === "FAIL" || x.state === "INTERRUPTED") && !L.regsAsked.has(x.id))) setTimeout(loadLiveRegressions, 150);
 	}
 
 	/** El backend de la ejecución (endpoints de todas sus corridas), para la tarjeta de En vivo. */
@@ -1472,7 +1568,7 @@
 		// cada cambio de filtro queda en la URL (&f=, &lq=) para compartir el enlace tal cual se ve
 		const redraw = () => { renderLiveView(); if (S.view === "live") writeHash(); };
 		const pick = (key) => {
-			L.key = key; L.exec = null; L.endpoints = undefined; L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; L.anim = null;
+			L.key = key; L.exec = null; L.endpoints = undefined; // los fallos nuevos (L.regs) son por id de test, que es único: se conservan L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; L.anim = null;
 			renderLiveView(); loadLiveView(true);
 			el.querySelector("[data-live-xpick]")?.focus();
 		};
@@ -1522,6 +1618,12 @@
 			if (d("[data-live-resize]")) return; // el borde de la columna no ordena
 			if (d("[data-live-wrap]")) { ui().wrap = !ui().wrap; saveLivePrefs(ui()); return redraw(); }
 			if (d("[data-live-hideidle]")) { ui().hideIdle = !ui().hideIdle; return redraw(); }
+			if ((b = d("[data-live-attnstate]"))) { const k = b.dataset.liveAttnstate, st = ui().attnStates || []; ui().attnStates = st.includes(k) ? st.filter((x) => x !== k) : [...st, k]; return redraw(); }
+			if ((b = d("[data-live-errall]"))) { const k = b.dataset.liveErrall; ui().errAll = { ...(ui().errAll || {}), [k]: !(ui().errAll || {})[k] }; return redraw(); }
+			if ((b = d("[data-live-errgroup]"))) { const k = b.dataset.liveErrgroup; ui().errOpen = { ...(ui().errOpen || {}), [k]: !(ui().errOpen || {})[k] }; return redraw(); }
+			if (d("[data-live-compact]")) { ui().compact = !ui().compact; saveLivePrefs(ui()); return redraw(); }
+			if (d("[data-live-help]")) { ui().help = !ui().help; return redraw(); }
+			if (d("[data-live-helpclose]")) { ui().help = false; return redraw(); }
 			if ((b = d("[data-live-fieldview]"))) { const v = b.dataset.liveFieldview; return instant(b, () => { ui().fieldView = v; }); }
 			if ((b = d("[data-live-scroll]"))) { el.querySelector(b.dataset.liveScroll)?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); return; }
 			if ((b = d("[data-live-state]"))) {
@@ -1572,7 +1674,13 @@
 			if ((b = d("[data-live-all]"))) return instant(b, () => { ui().states = []; ui().problems = false; ui().open = {}; });
 			if ((b = d("[data-live-stack]"))) { const id = b.dataset.liveStack; ui().stacks = { ...ui().stacks, [id]: !ui().stacks?.[id] }; return redraw(); }
 			if ((b = d("[data-live-openall]"))) { const on = b.dataset.liveOpenall === "1"; ui().openAll = on; ui().open = {}; ui().showOk = on; return redraw(); }
-			if (d("[data-live-attnmore]")) { ui().attnAll = !ui().attnAll; return redraw(); }
+			if (d("[data-live-attnmore]")) {
+				ui().attnAll = !ui().attnAll;
+				redraw();
+				// al cerrarla, la tarjeta queda a la vista (la página no se queda abajo, donde estaba el final de la lista)
+				if (!ui().attnAll) el.querySelector(".live-attn")?.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+				return;
+			}
 			// una barra del Gantt: abre el detalle y lleva a su fila en la tabla (abriendo su grupo), resaltada
 			const bar = d(".lg-bar[data-live-test]");
 			if (bar) {
@@ -1591,6 +1699,42 @@
 			const row = d("[data-live-test]");
 			if (row && !d("a")) loadLivePanel(Number(row.dataset.liveTest));
 		});
+		// doble clic en una fila, un ítem de "Requiere atención" o un test de un error: abre el test
+		el.addEventListener("dblclick", (e) => {
+			const r = e.target.closest("[data-live-test][data-live-run]");
+			if (!r || e.target.closest(".lf-canvas, a")) return;
+			S.leavingLive = Date.now(); L.panel = null;
+			location.hash = `#run=${r.dataset.liveRun}&view=tests&test=${r.dataset.liveTest}`;
+		});
+		// pasar el mouse (o el foco) por un carril de la línea de tiempo resalta sus tests en la tabla
+		const laneHL = (key) => { for (const n of el.querySelectorAll(".lane-hl")) n.classList.remove("lane-hl"); if (key) for (const n of el.querySelectorAll(`tr[data-lane="${CSS.escape(key)}"], .lg-lane[data-lane="${CSS.escape(key)}"]`)) n.classList.add("lane-hl"); };
+		el.addEventListener("pointerover", (e) => { const l = e.target.closest?.("[data-live-lane]"); if (l) laneHL(l.dataset.liveLane); });
+		el.addEventListener("pointerout", (e) => { if (e.target.closest?.("[data-live-lane]") && !e.relatedTarget?.closest?.("[data-live-lane]")) laneHL(""); });
+		el.addEventListener("focusin", (e) => { const l = e.target.closest?.("[data-live-lane]"); laneHL(l ? l.dataset.liveLane : ""); });
+		// J/K: siguiente o anterior que requiere atención (abre su detalle); O abre el test; P pausa; C compacto; ? ayuda
+		document.addEventListener("keydown", (e) => {
+			if (S.view !== "live" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable], .lf-canvas")) return;
+			const k = e.key;
+			if (k === "?") { e.preventDefault(); ui().help = !ui().help; return redraw(); }
+			if (k === "Escape" && ui().help) { ui().help = false; return redraw(); }
+			if (k === "p" || k === "P") { e.preventDefault(); return toggleLivePause(); }
+			if (k === "c" || k === "C") { e.preventDefault(); ui().compact = !ui().compact; saveLivePrefs(ui()); return redraw(); }
+			if ((k === "o" || k === "O") && L.panel) {
+				e.preventDefault();
+				const x = window.TraceReportsLive.allTests(L.exec).find((y) => y.id === L.panel.id);
+				if (x) { S.leavingLive = Date.now(); L.panel = null; location.hash = `#run=${x.run_id}&view=tests&test=${x.id}`; }
+				return;
+			}
+			if (k === "j" || k === "J" || k === "k" || k === "K") {
+				const list = window.TraceReportsLive.attention(window.TraceReportsLive.allTests(L.exec || { runs: [] }));
+				if (!list.length) return;
+				e.preventDefault();
+				const i = list.findIndex((x) => x.id === L.panel?.id);
+				const next = k.toLowerCase() === "j" ? (i + 1) % list.length : (i <= 0 ? list.length - 1 : i - 1);
+				loadLivePanel(list[next].id);
+				requestAnimationFrame(() => el.querySelector(`.la-list [data-attn="${list[next].id}"]`)?.scrollIntoView({ block: "nearest" }));
+			}
+		});
 		// "/" lleva al buscador desde cualquier parte de la vista (salvo que se esté escribiendo en otro campo)
 		document.addEventListener("keydown", (e) => {
 			if (e.key !== "/" || S.view !== "live" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable]")) return;
@@ -1601,6 +1745,7 @@
 		el.addEventListener("input", (e) => {
 			if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; redraw(); }
 			if (e.target.matches("[data-live-xq]")) { ui().pickerQ = e.target.value; redraw(); }
+			if (e.target.matches("[data-live-aq]")) { ui().attnQ = e.target.value; redraw(); }
 		});
 		// el selector con teclado: flechas entre opciones (desde el buscador también), Enter elige, Escape cierra
 		el.addEventListener("keydown", (e) => {
@@ -1732,7 +1877,7 @@
 		// formulario de cancelar abierto lo que se estaba escribiendo
 		// el buscador en uso no se recrea: se conserva el mismo <input> (valor, foco y cursor), así una
 		// tecla que llega justo con un refresco no se pierde
-		const act = document.activeElement, field = act?.matches?.("[data-live-q], [data-live-xq]") ? (act.matches("[data-live-q]") ? "[data-live-q]" : "[data-live-xq]") : "";
+		const act = document.activeElement, field = ["[data-live-q]", "[data-live-xq]", "[data-live-aq]"].find((f) => act?.matches?.(f)) || "";
 		const typing = field ? act : null;
 		const optFocus = act?.closest?.(".xp-opt")?.dataset.liveExec, listTop = el.querySelector(".xp-list")?.scrollTop || 0;
 		const reason = el.querySelector(".live-cancel[open] input[name=reason]");
@@ -1740,11 +1885,11 @@
 		if (el.querySelector("[data-live-minimap] .lg-brush.drawing, [data-live-resize].drag")) return; // arrastrando: al soltar se dibuja
 		const flip = S.liveView.anim && !S.liveView.anim.first ? flipSnapshot(el) : null;
 		const thumbs = thumbSnapshot(el);
-		const replaced = setHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints, ingest: liveIngest(), pausedNew: livePausedNew() }, {
+		const replaced = morphHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints, ingest: liveIngest(), pausedNew: livePausedNew(), regressions: L.regs || null }, {
 			t, esc, icon, canAct,
-			clock: (ms, secs) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", secs ? { hour: "2-digit", minute: "2-digit", second: "2-digit" } : { hour: "2-digit", minute: "2-digit" }),
+			clock: (ms, secs) => liveFmt(secs ? "hms" : "hm").format(ms),
 			// la fecha solo si no es de hoy
-			day: (ms) => (new Date(ms).toDateString() === new Date(L.now || Date.now()).toDateString() ? "" : new Date(ms).toLocaleDateString(I18N.lang === "en" ? "en-US" : "es-CL", { day: "2-digit", month: "short" })),
+			day: (ms) => (new Date(ms).toDateString() === new Date(L.now || Date.now()).toDateString() ? "" : liveFmt("day").format(ms)),
 		}));
 		if (typing) {
 			const fresh = el.querySelector(field);
@@ -1754,8 +1899,10 @@
 		if (list) list.scrollTop = listTop;
 		if (optFocus) [...el.querySelectorAll(".xp-opt")].find((o) => o.dataset.liveExec === optFocus)?.focus();
 		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
+		el.classList.toggle("live-compact", !!L.ui.compact);
 		syncLiveField(el);
 		if (replaced) {
+			tape.dirty = true; // la cinta se vuelve a medir una vez, en el próximo cuadro
 			const tr0 = el.querySelector("[data-live-tape-track]");
 			if (tr0 && S.tapeX) tr0.style.transform = `translateX(${-S.tapeX}px)`; // la cinta sigue donde iba
 			fitBars(el);
@@ -1853,7 +2000,8 @@
 	}
 	/** El nombre dentro de una barra del Gantt solo si cabe; si no, la barra queda limpia (el tooltip lo dice). */
 	function fitBars(el) {
-		const bars = [...el.querySelectorAll(".lg-bar")];
+		// solo las barras con nombre (las angostas se dibujan sin texto): medir las 1.200 de una ejecución larga costaba
+		const bars = [...el.querySelectorAll(".lg-track .lg-bar")].filter((b) => b.querySelector(".mid"));
 		for (const b of bars) b.classList.remove("notext"); // medir con el texto puesto (el ancho pudo cambiar)
 		const over = bars.map((b) => b.scrollWidth > b.clientWidth + 1); // todas las lecturas juntas: un solo cálculo de layout
 		bars.forEach((b, i) => { if (over[i]) b.classList.add("notext"); });
@@ -1883,6 +2031,17 @@
 		return S.ingest.filter((x) => x.at >= L.ui.pausedAt && runs.has(x.run_id)).length;
 	}
 
+	/**
+	 * Los formateadores de hora de En vivo, uno por idioma y formato. Crear uno en cada llamada (como hace
+	 * toLocaleTimeString con opciones) costaba más que todo el resto de la vista: cada barra lleva su hora.
+	 */
+	const liveFmts = new Map();
+	function liveFmt(kind) {
+		const lang = I18N.lang === "en" ? "en-US" : "es-CL", k = `${lang}|${kind}`;
+		if (!liveFmts.has(k)) liveFmts.set(k, new Intl.DateTimeFormat(lang, { hms: { hour: "2-digit", minute: "2-digit", second: "2-digit" }, hm: { hour: "2-digit", minute: "2-digit" }, day: { day: "2-digit", month: "short" } }[kind]));
+		return liveFmts.get(k);
+	}
+
 	/** La ingesta de la ejecución abierta: solo los eventos de sus corridas, en el último minuto. */
 	function liveIngest() {
 		const L = S.liveView, F = window.TraceReportsLiveField;
@@ -1890,7 +2049,17 @@
 		const runs = new Set((L.exec.runs || []).map((r) => r.id));
 		// el texto cambia a lo sumo cada 5 s (el reloj de "hace X" no redibuja la vista a cada evento)
 		const now = Math.floor(Date.now() / 5000) * 5000;
-		return F.ingestStats(S.ingest.filter((x) => runs.has(x.run_id)), now, { running: !!L.exec.running, connected: S.liveState === "live" });
+		// lo que llegó por el stream desde que la pestaña escucha; el rato de antes (la vista recién abierta) se
+		// completa con cuándo empezó y terminó cada test: así el gráfico muestra el minuto entero desde el primer momento
+		const since = S.ingestSince || now;
+		const before = [];
+		if (since > now - 60e3) {
+			for (const t of window.TraceReportsLive.allTests(L.exec)) {
+				if (t.started_at >= now - 60e3 && t.started_at < since) before.push({ at: t.started_at, kind: "test" });
+				if (t.ended_at && t.ended_at >= now - 60e3 && t.ended_at < since) before.push({ at: t.ended_at, kind: t.state === "FAIL" ? "fail" : "test" });
+			}
+		}
+		return F.ingestStats([...before, ...S.ingest.filter((x) => runs.has(x.run_id))], now, { running: !!L.exec.running, connected: S.liveState === "live" });
 	}
 
 	/**
@@ -1907,7 +2076,7 @@
 		L.field.attach(slot);
 		const tests = LIVE.allTests(L.exec), shown = LIVE.filterTests(tests, L.ui, LIVE.problemsOn(L.exec, L.ui, LIVE.lanesOf(L.exec, L.now).length));
 		const filtered = (L.ui.states.length || L.ui.files.length || L.ui.workers.length || L.ui.errors.length || (L.ui.q || "").trim()) ? new Set(shown.map((x) => x.id)) : null;
-		const clock = (ms) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+		const clock = (ms) => liveFmt("hms").format(ms);
 		const ing = liveIngest();
 		L.field.update({
 			exec: L.exec, now: L.now || Date.now(), live: LIVE, match: filtered, selected: L.panel?.id, paused: !!L.ui.paused, pausedNew: livePausedNew(),
@@ -1951,8 +2120,9 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		const dt = tape.last ? Math.min(64, ts - tape.last) : 0;
 		tape.last = ts;
 		if (el && !tape.hover && !document.hidden && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
-			const half = el.scrollWidth / 2;
-			if (half > el.parentElement.clientWidth * 0.5) {
+			if (tape.el !== el || tape.dirty) { tape.el = el; tape.half = el.scrollWidth / 2; tape.win = el.parentElement.clientWidth; tape.dirty = false; }
+			const half = tape.half;
+			if (half > tape.win * 0.5) {
 				tape.x = (tape.x + dt * 0.04) % half; S.tapeX = tape.x;
 				el.style.transform = `translateX(${-tape.x}px)`;
 			} else el.style.transform = "none";
@@ -1963,7 +2133,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 	document.addEventListener("pointerover", (e) => { tape.hover = !!e.target.closest?.("[data-live-tape]"); });
 	setInterval(() => {
 		const c = S.view === "live" ? document.querySelector("#view-live [data-live-clock]") : null;
-		if (c) c.textContent = new Date().toLocaleTimeString(I18N.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+		if (c) c.textContent = liveFmt("hms").format(Date.now());
 	}, 1000);
 
 	/** Un número que cuenta desde el valor anterior hasta el nuevo (600 ms, desacelerando). */
