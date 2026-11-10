@@ -220,7 +220,7 @@
 		head.className = "lf-fullhead"; head.hidden = true;
 		const help = document.createElement("div");
 		help.className = "lf-help";
-		help.textContent = t_("Arrastra para girar · Shift + arrastrar para mover · rueda para acercar · doble clic en un punto: abrir el test");
+		help.textContent = t_("Arrastra para girar · Shift + arrastrar para mover · rueda para acercar · Ctrl + clic en un punto: abrir el test");
 		wrap.append(canvas, tip, bar, head, help);
 		const ctx = canvas.getContext("2d");
 		const reduce = matchMedia("(prefers-reduced-motion: reduce)");
@@ -228,6 +228,10 @@
 		let lastTheme = null;
 		let view = { ...VIEW0 }, expanded = false, drag = null, dragged = false, slotEl = null, paused = false, tween = 0;
 		let hoverTimer = 0;
+		// el clic se nota al instante (un aro que se abre en el punto), antes de que llegue su detalle: sin
+		// eso, con el servidor lento, se volvía a hacer clic y el segundo clic contaba como doble clic
+		const ACK_MS = 450;
+		let ack = null, openable = false;
 		let w = 0, h = 0, dpr = 1, hover = null, focusIdx = -1, sel = null, match = null, motion = true, visible = true, inside = false;
 		let t = 0, spin = 0, lastFrame = 0, lastSpin = 0, raf = 0;
 		const pulses = [], prevStates = new Map(), labels = { aria: "", tip: (it) => it.name };
@@ -350,6 +354,17 @@
 				ctx.globalAlpha = 1; ctx.strokeStyle = colors["--color-text"]; ctx.lineWidth = wdt;
 				ctx.beginPath(); ctx.arc(head.x, head.y, sizeOf(g, it, head.depth) + 5, 0, TAU); ctx.stroke();
 			}
+			// el clic recién hecho: un aro que se abre y se desvanece en el punto elegido
+			if (ack) {
+				const k = (performance.now() - ack.t0) / ACK_MS, it = layout.items.find((x) => x.id === ack.id);
+				if (k >= 1 || !it) ack = null;
+				else {
+					const head = headOf(g, layout, it, spin), r0 = sizeOf(g, it, head.depth) + 5;
+					ctx.strokeStyle = colorOf(it.state); ctx.lineWidth = 2.5; ctx.globalAlpha = 1 - k;
+					ctx.beginPath(); ctx.arc(head.x, head.y, r0 + (reduce.matches ? 4 : 14 * k), 0, TAU); ctx.stroke();
+					ctx.globalAlpha = 1;
+				}
+			}
 			// pulsos: una señal real que llegó, desde su canal (a la izquierda) hasta su test
 			for (let i = pulses.length - 1; i >= 0; i--) {
 				const p = pulses[i], k = Math.min(1, (performance.now() - p.t0) / 900);
@@ -380,7 +395,7 @@
 				t = ts / 1000; lastFrame = ts;
 				draw();
 			}
-			if (moving || pulses.length) raf = requestAnimationFrame(loop);
+			if (moving || pulses.length || ack) raf = requestAnimationFrame(loop);
 		}
 		function kick() { if (!raf) raf = requestAnimationFrame(loop); }
 
@@ -496,12 +511,21 @@
 		canvas.addEventListener("click", (e) => {
 			if (dragged) { dragged = false; return; } // fue un arrastre, no un clic
 			const r = canvas.getBoundingClientRect(), it = hitTest(layout, g, e.clientX - r.left, e.clientY - r.top, spin, match);
-			if (it) opts.onPick?.(it.id, it.run_id);
+			if (!it) return;
+			// Ctrl/⌘ + clic abre el test, como un enlace
+			if (e.ctrlKey || e.metaKey) { if (expanded) setExpanded(false); opts.onOpen?.(it.id, it.run_id); return; }
+			// el doble clic abre solo el test que ya estaba elegido antes de empezar: dos clics seguidos en un
+			// punto nuevo (por ejemplo, porque el detalle tardaba) lo eligen, no sacan de En vivo
+			if (e.detail <= 1) openable = !!sel && sel.id === it.id;
+			sel = it; ack = { id: it.id, t0: performance.now() };
+			canvas.dataset.selected = String(it.id);
+			draw(); kick();
+			if (e.detail <= 1) opts.onPick?.(it.id, it.run_id);
 		});
 		canvas.addEventListener("dblclick", (e) => {
 			const r = canvas.getBoundingClientRect(), it = hitTest(layout, g, e.clientX - r.left, e.clientY - r.top, spin, match);
-			if (it) { if (expanded) setExpanded(false); opts.onOpen?.(it.id, it.run_id); }
-			else reset();
+			if (!it) { reset(); return; }
+			if (openable && sel && sel.id === it.id) { if (expanded) setExpanded(false); opts.onOpen?.(it.id, it.run_id); }
 		});
 		// la rueda acerca en pantalla completa (o con Ctrl/⌘); en la vista normal sigue desplazando la página
 		canvas.addEventListener("wheel", (e) => {
@@ -570,6 +594,7 @@
 				layout = fieldLayout(data.exec, data.now, data.live);
 				match = data.match || null;
 				sel = layout.items.find((x) => x.id === data.selected) || null;
+				canvas.dataset.selected = sel ? String(sel.id) : "";
 				if (data.tip) labels.tip = data.tip;
 				if (data.card) labels.card = data.card;
 				labels.aria = data.aria || "";

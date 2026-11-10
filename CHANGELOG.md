@@ -6,6 +6,15 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed (Live: clicking the execution map)
+
+- **A click shows at once**: the chosen particle gets a ring that opens and fades right away, before its detail
+  arrives. With a slow server, people clicked again and the second click counted as a double click that took
+  them out of Live.
+- **Two quick clicks on a new particle only choose it**; a double click opens the test only on the particle
+  already chosen. **Ctrl/⌘ + click** opens any test directly, like a link, and the side panel says so next to
+  **Open the test**. The map's hint and help line now say "Ctrl + click: open the test".
+
 ### Fixed (heavy suites: tests shown as Interrupted, the server waiting on uploads, Live showing "Loading…")
 
 Seen at a client with 16 workers: the stall dumps showed the database free and the server waiting for the

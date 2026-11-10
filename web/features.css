@@ -1671,6 +1671,8 @@ button.live-tile:focus-visible { outline: 2px solid var(--color-focus); outline-
 .live-steps small { color: var(--color-text-muted); font-family: var(--font-mono); }
 .live-shot { width: 100%; border: 1px solid var(--color-border); border-radius: 6px; }
 .live-panel > .cf-btn { justify-self: start; }
+.lp-open { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; }
+.lp-open .m-hint { margin: 0; font-size: 12px; }
 
 @keyframes live-pulse { 50% { opacity: .55; } }
 @keyframes lg-move { to { background-position: 17px 0; } }

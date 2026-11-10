@@ -536,7 +536,7 @@ test("campo: los canales filtran o agrupan, la anomalía filtra por su firma, la
 	await expect(view.locator(".lf-canvas")).toHaveCount(1);
 });
 
-test("campo manipulable: arrastrar gira e inclina, zoom con botones, pantalla completa con Esc, doble clic abre el test", async ({ page }) => {
+test("campo manipulable: arrastrar gira e inclina, zoom con botones, pantalla completa con Esc, doble clic en el elegido abre el test", async ({ page }) => {
 	const view = page.locator("#view-live");
 	const canvas = view.locator(".lf-canvas");
 	const v = async () => (await canvas.getAttribute("data-view")).split(",").map(Number);
@@ -563,7 +563,7 @@ test("campo manipulable: arrastrar gira e inclina, zoom con botones, pantalla co
 	await expect(page.locator(".lf-wrap.lf-full")).toHaveCount(0);
 	await expect(view.locator(".live-map .lf-canvas")).toBeVisible();
 	await page.evaluate(() => document.querySelector("#view-live .live-map").scrollIntoView({ block: "center" }));
-	// doble clic en la partícula de un fallo: abre el test
+	// doble clic en la partícula de un fallo ya elegido: abre el test (antes, un clic lo elige)
 	const box2 = await canvas.boundingBox();
 	await page.mouse.move(box2.x + 4, box2.y + 4);
 	const at = await page.evaluate(async () => {
@@ -574,6 +574,8 @@ test("campo manipulable: arrastrar gira e inclina, zoom con botones, pantalla co
 		const it = L.items.find((x) => x.state === "FAIL"), p = F.headOf(g, L, it, Number(c.dataset.spin || 0));
 		return { x: r.left + p.x, y: r.top + p.y, id: it.id };
 	});
+	await page.mouse.click(at.x, at.y);
+	await expect(view.locator(".live-panel")).toBeVisible();
 	await page.mouse.dblclick(at.x, at.y);
 	await expect(page).toHaveURL(new RegExp(`view=tests&test=${at.id}`));
 	// la ejecución de este archivo es simulada (page.route): sus corridas no existen en el servidor de
@@ -800,7 +802,7 @@ test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no
 	await expect(tip).toHaveClass(/lf-card st-fail/);
 	await expect(tip.locator(".lfc-state")).toHaveText("Fallo");
 	await expect(tip.locator(".lfc-name")).toHaveText(fail.name);
-	await expect(tip.locator(".lfc-hint")).toContainText("doble clic");
+	await expect(tip.locator(".lfc-hint")).toContainText("Ctrl + clic");
 	const accent = await tip.evaluate((n) => [getComputedStyle(n).borderLeftColor, getComputedStyle(document.body).getPropertyValue("--color-danger")]);
 	expect(accent[0]).not.toBe("rgba(0, 0, 0, 0)");
 	await page.mouse.move(pass.x, pass.y);
@@ -880,4 +882,43 @@ test("un refresco lento no deja la vista en 'Cargando…': lo que se ve sigue ah
 	release();
 	await expect.poll(() => served).toBeGreaterThan(n);
 	await expect(view.locator(".live-tiles")).toBeVisible();
+});
+
+test("mapa: el clic se nota al instante; dos clics rápidos en un punto nuevo lo eligen sin salir; Ctrl + clic abre", async ({ page }) => {
+	const view = page.locator("#view-live");
+	const canvas = view.locator(".lf-canvas");
+	await page.evaluate(() => document.querySelector("#view-live .live-map").scrollIntoView({ block: "center" }));
+	const box = await canvas.boundingBox();
+	await page.mouse.move(box.x + 4, box.y + 4); // con el mouse encima el campo deja de girar
+	const where = (state) => page.evaluate(async (state) => {
+		const F = window.TraceReportsLiveField, LIVE = window.TraceReportsLive;
+		const { execution, now } = await (await fetch("/api/v1/live/execution?key=x%3Asuite-demo")).json();
+		const c = document.querySelector(".lf-canvas"), r = c.getBoundingClientRect();
+		const L = F.fieldLayout(execution, now, LIVE), g = F.geometry(r.width, r.height);
+		const it = L.items.filter((x) => x.state === state).map((x) => ({ x, p: F.headOf(g, L, x, Number(c.dataset.spin || 0)) }))
+			.find(({ p }) => p.x > 30 && p.x < r.width - 30 && p.y > 30 && p.y < r.height - 30);
+		return { x: r.left + it.p.x, y: r.top + it.p.y, id: it.x.id };
+	}, state);
+	// el detalle tarda (servidor lento): el punto queda marcado igual, al instante
+	let release;
+	const gate = new Promise((r) => { release = r; });
+	await page.route(/\/api\/v1\/tests\/\d+$/, async (route) => { await gate; return route.fallback(); });
+	const fail = await where("FAIL");
+	const url = page.url();
+	await page.mouse.dblclick(fail.x, fail.y); // el "doble clic" de quien vuelve a hacer clic porque no pasaba nada
+	await expect(canvas).toHaveAttribute("data-selected", String(fail.id));
+	await page.waitForTimeout(400);
+	expect(page.url()).toBe(url); // no salió de En vivo
+	await expect(view.locator(".live-panel")).toBeVisible();
+	release();
+	await page.unroute(/\/api\/v1\/tests\/\d+$/);
+	await expect(view.locator(".live-panel .lp-open .m-hint")).toContainText("Ctrl + clic");
+	// Ctrl + clic en otro punto: abre ese test
+	const pass = await where("PASS");
+	await page.keyboard.down("Control");
+	await page.mouse.click(pass.x, pass.y);
+	await page.keyboard.up("Control");
+	await expect(page).toHaveURL(new RegExp(`view=tests&test=${pass.id}`));
+	await page.waitForTimeout(300);
+	test.info().errors_ = test.info().errors_.filter((e) => !/404|\/api\/v1\/runs\/\d+/.test(e));
 });

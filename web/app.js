@@ -2145,11 +2145,11 @@
 				return { cls: st.cls, icon: st.icon, label: t(st.label), dur: LIVE.fmtDur(it.elapsed),
 					factor: it.factor ? `×${LIVE.num1(it.factor)} ${t("de lo normal")}` : "", slow: it.factor >= 2,
 					times: `${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ` · ${t("en curso")}`}`,
-					where: `${it.file}${it.worker ? ` · ${it.worker}` : ""}`, hint: t("Clic: el detalle · doble clic: abrir el test") };
+					where: `${it.file}${it.worker ? ` · ${it.worker}` : ""}`, hint: t("Clic: el detalle · Ctrl + clic: abrir el test") };
 			},
 			tip: (it) => `${t(LIVE.STATES[it.state]?.label || it.state)} · ${LIVE.fmtDur(it.elapsed)}${it.factor ? ` · ×${LIVE.num1(it.factor)} ${t("de lo normal")}` : ""} · ${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ""}
 ${it.file}${it.worker ? ` · ${it.worker}` : ""}
-${t("Clic: el detalle · doble clic: abrir el test")}`,
+${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		});
 		L.field.setMotion(!L.ui.paused);
 	}

@@ -1421,7 +1421,8 @@
 			${laneStripHTML(g, panel.id, h)}
 			<div class="live-ptabs" role="tablist">${tabBtn("trace", "Traza")}${tabBtn("steps", "Últimos pasos")}${tabBtn("shot", "Captura")}</div>
 			<div class="live-pbody${panel.stale ? " is-stale" : ""}" role="tabpanel"${panel.stale ? ' aria-busy="true"' : ""}>${body}</div>
-			<a class="cf-btn cf-btn-primary" href="#run=${live?.run_id || full?.run_id}&view=tests&test=${panel.id}">${esc(t("Abrir el test"))}</a></aside>`;
+			<div class="lp-open"><a class="cf-btn cf-btn-primary" href="#run=${live?.run_id || full?.run_id}&view=tests&test=${panel.id}">${esc(t("Abrir el test"))}</a>
+				<span class="m-hint">${esc(t("Atajos: doble clic en su punto del mapa · Ctrl + clic en cualquier punto"))}</span></div></aside>`;
 	}
 
 	window.TraceReportsLive = { num1, anomalyMarks, fmtMs, regressionOf, summaryHTML, laneStripHTML, STATES, PROBLEM, AUTO_PROBLEMS, GROUPS, INGEST, fieldHTML, fmtDur, timeScale, scaleTicks, splitName, sparkline, heatCells, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,

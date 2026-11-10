@@ -677,7 +677,9 @@ cualquier cliente:
   clic filtra por su firma) y la presión de errores. Cada evento que llega lanza un pulso
   desde su canal hasta su test. El campo se maneja: arrastrar gira e inclina, Shift + arrastrar lo mueve,
   +/− (o Ctrl + rueda; en pantalla completa, la rueda) acerca, F lo pone a pantalla completa (Esc vuelve), 0
-  restablece la vista; doble clic en una partícula abre el test. **Pausar vista** (o Espacio) congela el campo
+  restablece la vista; un clic marca la partícula al instante y abre su detalle; Ctrl/⌘ + clic (o **Abrir el
+  test** del panel) abre el test, y también un doble clic en la partícula ya elegida (dos clics rápidos en una
+  nueva solo la eligen: nunca sacan de En vivo). **Pausar vista** (o Espacio) congela el campo
   para analizar mientras la ingesta sigue en el servidor: cuenta los eventos que llegan y "Reanudar (+N)" se
   pone al día. **Cuadrícula**: un cuadro por test, en el orden en que empezaron; un clic abre
   su detalle. Arriba, una **cinta** con los últimos eventos que

@@ -672,7 +672,9 @@ from any client:
   without events it never says "active"), the dominant anomaly (a click filters by its signature) and
   the error pressure. Every incoming event fires a pulse from its channel to its test. The field can be handled: drag rotates and tilts, Shift + drag moves,
   +/− (or Ctrl + wheel; the wheel in full screen) zooms, F goes full screen (Esc returns), 0 resets the view;
-  a double click on a particle opens the test. **Pause view** (or Space) freezes the field to look into
+  a click marks the particle at once and opens its detail; Ctrl/⌘ + click (or the panel's **Open the test**)
+  opens the test, and so does a double click on the particle already chosen (two quick clicks on a new one only
+  choose it, they never take you out of Live). **Pause view** (or Space) freezes the field to look into
   something while ingestion goes on in the server: it counts the events arriving and "Resume (+N)" catches up.
   **Grid**: one square per test, in the order they started; a click opens its detail. On top, a **ticker** with the latest events that stops
   on hover, and a clock.
