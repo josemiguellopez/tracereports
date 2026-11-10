@@ -368,6 +368,7 @@ func runServer(parent context.Context) error {
 	defer stop()
 	apiServer.StartRetention(ctx)
 	apiServer.StartLiveAlerts(ctx)
+	apiServer.StartStallWatch(ctx) // avisa y guarda un volcado cuando el servidor queda trabado
 	startStaleRuns(ctx, apiServer)
 	if err := startWeekly(ctx, env.Get("WEEKLY_SUMMARY"), apiServer, notifier); err != nil {
 		return err

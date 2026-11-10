@@ -4594,6 +4594,15 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		const slowHTML = slow.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th>${tr("Pedido")}</th><th>${tr("Respuesta")}</th><th class="lt-num">${tr("Tardó")}</th></tr></thead><tbody>
 				${slow.map((x) => `<tr><td>${when(x.at)}</td><td class="conn-mono" data-no-i18n>${esc(x.method)} ${esc(x.path)}</td><td>${x.status || "—"}</td><td class="lt-num">${esc(`${window.TraceReportsLive?.num1(x.ms / 1000) ?? (x.ms / 1000).toFixed(1)} s`)}</td></tr>`).join("")}</tbody></table></div>`
 			: `<p class="conn-ok">${icon("i-pass")}${esc(tr("Ningún pedido tardó más de {s} s desde que el servidor arrancó ({t}).", { s: Math.round((d.slow_after_ms || 2000) / 1000), t: fmtDateTime(d.started_at) }))}</p>`;
+		// los bloqueos: varios pedidos sin respuesta a la vez (el vigilante del servidor, stall.go)
+		const stalls = d.stalls || [], secs = (ms) => `${window.TraceReportsLive?.num1(ms / 1000) ?? (ms / 1000).toFixed(1)} s`;
+		const stallsHTML = stalls.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th class="lt-num">${tr("Duró")}</th><th class="lt-num">${tr("Pedidos trabados")}</th><th>${tr("Qué esperaba")}</th><th class="lt-num">${tr("Espera por la base")}</th><th>${tr("Volcado")}</th></tr></thead><tbody>
+				${stalls.map((x) => `<tr><td>${when(x.start)}${x.end ? "" : ` <span class="conn-tag late">${tr("en curso")}</span>`}</td>
+					<td class="lt-num">${x.end ? esc(secs(x.end - x.start)) : "—"}</td><td class="lt-num">${x.max_stuck}</td>
+					<td class="conn-mono" data-no-i18n>${(x.paths || []).map(esc).join("<br>")}</td><td class="lt-num">${x.end ? esc(secs(x.db_wait_ms || 0)) : "—"}</td>
+					<td>${x.dump ? `<a href="/api/v1/maintenance/stalls/${encodeURIComponent(x.dump)}" download data-no-i18n>${esc(x.dump)}</a>` : "—"}</td></tr>`).join("")}</tbody></table></div>
+				<p class="m-hint">${tr("El volcado dice qué estaba haciendo cada tarea del servidor en ese momento (qué tenía tomada la base de datos). Adjúntalo si reportas el problema.")}</p>`
+			: `<p class="conn-ok">${icon("i-pass")}${esc(tr("Ningún bloqueo desde que el servidor arrancó ({t}).", { t: fmtDateTime(d.started_at) }))}</p>`;
 		const authHTML = !d.auth ? "" : `<h5>${tr("Credenciales rechazadas (últimos 15 min)")}</h5>${auth.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Dirección")}</th><th class="lt-num">${tr("Intentos")}</th><th>${tr("Estado")}</th></tr></thead><tbody>
 				${auth.map((a) => `<tr><td class="conn-mono" data-no-i18n>${esc(a.ip)}</td><td class="lt-num">${a.failures}</td><td>${a.blocked_ms ? `<span class="conn-tag late">${esc(tr("bloqueada {n} min", { n: Math.ceil(a.blocked_ms / 60000) }))}</span>` : tr("en observación")}</td></tr>`).join("")}</tbody></table></div>
 				<p class="m-hint">${tr("Suele ser un token mal puesto en el .env de los tests, o una pestaña con la sesión vencida.")}</p>`
@@ -4602,6 +4611,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 			<p class="m-hint">${tr("Si un test dijo «timed out» y aquí no aparece ningún pedido lento a esa hora, el pedido no llegó al servidor: el problema está en la red o en Docker, no en TraceReports.")}</p>
 			<h5>${esc(tr("Runs con problemas de entrega (últimos {n} días)", { n: d.days }))}</h5>${runsHTML}
 			<h5>${tr("Pedidos lentos del servidor")}</h5>${slowHTML}
+			<h5>${esc(tr("Bloqueos del servidor (varios pedidos sin respuesta más de {s} s a la vez)", { s: Math.round((d.stall_after_ms || 10000) / 1000) }))}</h5>${stallsHTML}
 			${authHTML}</section>`;
 	}
 
@@ -4633,7 +4643,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 		const tests = [`${r.total} tests`, r.running && tr("{n} en curso", { n: r.running }), r.interrupted && tr("{n} interrumpidos", { n: r.interrupted }), r.failed && tr("{n} fallidos", { n: r.failed })].filter(Boolean).join(" · ");
 		const ctx = [r.project, r.environment, r.branch].filter(Boolean).map(esc).join(" · ") || "—";
 		return `<tr class="${m.selected.has(r.id) ? "on" : ""}">
-			${act ? `<td><input type="checkbox" data-maint-pick="${r.id}" ${m.selected.has(r.id) ? "checked" : ""} aria-label="${tr("Elegir")} #${r.id}"></td>` : ""}
+			${act ? `<td><input type="checkbox" data-maint-pick="${r.id}" ${m.selected.has(r.id) ? "checked" : ""} ${m.busy ? "disabled" : ""} aria-label="${tr("Elegir")} #${r.id}"></td>` : ""}
 			<td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a></td>
 			<td data-no-i18n>${ctx}</td>
 			<td>${statusLabel(r.status)} ${live}</td>
@@ -4645,23 +4655,27 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 
 	function maintAction(sel) {
 		const m = S.maint;
+		const busy = m.busy, off = busy ? "disabled" : "";
+		const progress = (text) => `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(text)}</p>`;
 		if (m.action === "close") {
-			const n = sel.filter((r) => r.status === "RUNNING").length;
-			return `<form class="card maint-confirm" data-maint-close-form>
+			const n = sel.filter((r) => r.status === "RUNNING").length, f = m.closeForm || {};
+			return `<form class="card maint-confirm" data-maint-close-form ${busy ? 'aria-busy="true"' : ""}>
 				<label class="field"><span class="field-label">${tr("Motivo")}</span>
-					<select name="reason">${CLOSE_REASONS.map((r) => `<option value="${r}">${tr(r)}</option>`).join("")}</select></label>
-				<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span><input name="detail" maxlength="400"></label>
+					<select name="reason" ${off}>${CLOSE_REASONS.map((r) => `<option value="${r}" ${f.reason === r ? "selected" : ""}>${tr(r)}</option>`).join("")}</select></label>
+				<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span><input name="detail" maxlength="400" value="${esc(f.detail || "")}" ${off}></label>
 				<p>${tr("Se cerrarán {n} ejecución(es) en curso: sus tests sin terminar quedarán como Interrumpido. Las ya cerradas no cambian.", { n })}</p>
-				<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary" ${m.busy ? "disabled" : ""}>${icon("i-interrupted")}${tr("Cerrar {n} ejecución(es)", { n })}</button>
-					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></form>`;
+				${busy ? progress(tr("Cerrando {n} ejecución(es)… cada una deja sus tests sin terminar como Interrumpido; puede tardar unos segundos.", { n: busy.n })) : ""}
+				<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary" ${off}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Cerrando…")}` : `${icon("i-interrupted")}${tr("Cerrar {n} ejecución(es)", { n })}`}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel ${off}>${tr("Cancelar")}</button></div></form>`;
 		}
 		if (m.action === "delete") {
 			const n = sel.filter((r) => r.status !== "RUNNING").length;
 			return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${tr("Eliminar ejecuciones")}">
 				<p><b>${tr("Se eliminarán {n} ejecución(es) con toda su evidencia: pasos, capturas, red y diagnósticos. No se puede deshacer.", { n })}</b></p>
 				<p>${tr("Las que siguen en curso no se eliminan: ciérralas primero.")}</p>
-				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-maint-delete ${m.busy ? "disabled" : ""}>${tr("Eliminar {n} ejecución(es)", { n })}</button>
-					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></div>`;
+				${busy ? progress(tr("Eliminando {n} ejecución(es) y su evidencia… puede tardar unos segundos.", { n: busy.n })) : ""}
+				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-maint-delete ${off} ${busy ? 'aria-busy="true"' : ""}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Eliminando…")}` : tr("Eliminar {n} ejecución(es)", { n })}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel ${off}>${tr("Cancelar")}</button></div></div>`;
 		}
 		return "";
 	}
@@ -4765,11 +4779,11 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 			: `<div class="card maint-list">
 				${act ? `<div class="maint-bulk" role="toolbar" aria-label="${tr("Acciones en lote")}">
 					<span>${tr("{n} de {t} elegidas", { n: sel.length, t: runs.length })}</span>
-					<button class="cf-btn cf-btn-sm" data-maint-act="close" ${sel.some((r) => r.status === "RUNNING") ? "" : "disabled"}>${icon("i-interrupted")}${tr("Cerrar como interrumpidas…")}</button>
-					<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-maint-act="delete" ${sel.some((r) => r.status !== "RUNNING") ? "" : "disabled"}>${icon("i-close")}${tr("Eliminar…")}</button>
+					<button class="cf-btn cf-btn-sm" data-maint-act="close" ${!m.busy && sel.some((r) => r.status === "RUNNING") ? "" : "disabled"}>${icon("i-interrupted")}${tr("Cerrar como interrumpidas…")}</button>
+					<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-maint-act="delete" ${!m.busy && sel.some((r) => r.status !== "RUNNING") ? "" : "disabled"}>${icon("i-close")}${tr("Eliminar…")}</button>
 				</div>${maintAction(sel)}` : ""}
 				<div class="maint-scroll"><table class="maint-table"><thead><tr>
-					${act ? `<th><input type="checkbox" data-maint-all ${sel.length && sel.length === runs.length ? "checked" : ""} aria-label="${tr("Elegir todas")}"></th>` : ""}
+					${act ? `<th><input type="checkbox" data-maint-all ${sel.length && sel.length === runs.length ? "checked" : ""} ${m.busy ? "disabled" : ""} aria-label="${tr("Elegir todas")}"></th>` : ""}
 					<th>${tr("Ejecución")}</th><th>${tr("Proyecto · ambiente · rama")}</th><th>${tr("Estado")}</th><th>Tests</th><th>${tr("Inicio")}</th><th>${tr("Cierre")}</th>
 				</tr></thead><tbody>${runs.map((r) => maintRow(r, act)).join("")}</tbody></table></div>
 			</div>`;
@@ -4793,7 +4807,8 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 
 	async function maintRun(path, body, done) {
 		const m = S.maint;
-		m.busy = true;
+		if (m.busy) return; // ya hay una en curso: un segundo clic (o Enter) no la repite
+		m.busy = { kind: path.endsWith("/delete") ? "delete" : "close", n: body.run_ids.length };
 		renderMaintenance();
 		try {
 			const r = await apiSend("POST", path, body);
@@ -4807,6 +4822,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 			m.msg = { ok: false, text: err.message };
 		}
 		m.busy = false;
+		m.closeForm = null;
 		await loadMaintenance();
 		renderView();
 	}
@@ -4817,6 +4833,7 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 			if (e.target.closest("[data-conn-reload]")) { m.conn = null; renderMaintenance(); loadConnections(); return; }
 			const st = e.target.closest("[data-maint-state]");
 			if (st) { Object.assign(m, { state: st.dataset.maintState, msg: null, action: null }); loadMaintenance(); renderMaintenance(); return; }
+			if (m.busy && e.target.closest("[data-maint-act], [data-maint-cancel], [data-maint-delete]")) return;
 			const a = e.target.closest("[data-maint-act]");
 			if (a) { m.action = a.dataset.maintAct; m.msg = null; renderMaintenance(); return; }
 			if (e.target.closest("[data-maint-cancel]")) { m.action = null; renderMaintenance(); return; }
@@ -4879,7 +4896,9 @@ ${t("Clic: el detalle · doble clic: abrir el test")}`,
 			const f = e.target.closest("[data-maint-close-form]");
 			if (!f) return;
 			e.preventDefault();
+			if (m.busy) return;
 			const d = new FormData(f), detail = String(d.get("detail") || "").trim();
+			m.closeForm = { reason: String(d.get("reason")), detail };
 			const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status === "RUNNING").map((r) => r.id);
 			maintRun("/api/v1/ui/runs/close", { run_ids: ids, reason: tr(String(d.get("reason"))) + (detail ? `: ${detail}` : "") },
 				(r) => tr("Se cerraron {n} ejecución(es) como interrumpidas.", { n: r.closed }));

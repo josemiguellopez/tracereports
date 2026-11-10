@@ -97,3 +97,12 @@ func (s *Store) DeliveryProblems(since int64, limit int) ([]DeliveryRun, error) 
 	}
 	return out, rows.Err()
 }
+
+// PoolStats is the state of the connection to the database: with a single connection, a long
+// operation makes every other request wait (WaitCount / WaitDuration grow, InUse stays at 1).
+func (s *Store) PoolStats() sql.DBStats {
+	if d, ok := s.db.(dbHandle); ok {
+		return d.DB.Stats()
+	}
+	return sql.DBStats{}
+}

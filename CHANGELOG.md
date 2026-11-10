@@ -6,6 +6,22 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Added (server stall watchdog)
+
+- **Stalls are caught while they happen**: the slow request log only writes when a request ends, so a server
+  held by one task (the single database connection taken) left no trace until it let go. A watchdog checks the
+  requests in progress every 5 s; when several have been waiting for more than 10 s it logs `server stalled`,
+  saves once a dump of what every server task is doing with the state of the database connection
+  (`DATA_DIR/diagnostics/`, the last 10) and, when it ends, how long it lasted and how long requests waited for
+  the database. **Maintenance > Client connections** lists the stalls; admins download the dump. Seen at a
+  client: 16 workers starting at once waited 40 s for the database while a background task held it.
+
+### Fixed (Maintenance: closing or deleting runs in bulk)
+
+- It could take a while with nothing on screen, so people clicked again: now the button says "Closing…" with a
+  spinner, a status line says what is happening, the form, the checkboxes and the bulk buttons are locked, and a
+  second click (or Enter) does not send it again.
+
 ### Changed (client feedback, 10-11: notifications, the execution map, the side panel)
 
 - **New execution notifications, one per execution**: a launcher that opens one run per file (or many

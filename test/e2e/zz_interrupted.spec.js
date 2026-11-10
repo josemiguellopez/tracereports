@@ -123,3 +123,43 @@ test("Mantenimiento: filtra, cierra y elimina en lote, y ajusta el cierre autom�
 	await stale.selectOption("24");
 	await expect(view.locator(".set-msg.ok")).toContainText("tras 24 h");
 });
+
+test("Mantenimiento: mientras cierra en lote se ve 'Cerrando…', todo queda bloqueado y un segundo clic no lo repite", async ({ page, request }) => {
+	const a = (await runningRun(request, "Mant lento A", "mant-lento")).run;
+	const b = (await runningRun(request, "Mant lento B", "mant-lento")).run;
+	await page.goto("/#view=maintenance");
+	const view = page.locator("#view-maintenance");
+	await view.locator('[data-maint-filter="project"]').selectOption("mant-lento");
+	await view.locator('[data-maint-state="running"]').click();
+	await expect(view.locator(".maint-table tbody tr")).toHaveCount(2);
+	await view.locator("[data-maint-all]").check();
+	await view.locator('[data-maint-act="close"]').click();
+	const form = view.locator("[data-maint-close-form]");
+	await form.locator('input[name="detail"]').fill("cortado con Ctrl+C");
+	// el servidor tarda: se ve el estado intermedio
+	let release, sent = 0;
+	const gate = new Promise((r) => { release = r; });
+	await page.route("**/api/v1/ui/runs/close", async (route) => { sent++; await gate; return route.fallback(); });
+	await form.locator('button[type="submit"]').click();
+	const submit = form.locator('button[type="submit"]');
+	await expect(submit).toBeDisabled();
+	await expect(submit).toContainText("Cerrando…");
+	await expect(form).toHaveAttribute("aria-busy", "true");
+	await expect(form.locator(".maint-progress[role=status]")).toContainText("Cerrando 2 ejecución(es)…");
+	await expect(form.locator('input[name="detail"]')).toHaveValue("cortado con Ctrl+C"); // lo escrito sigue a la vista
+	await expect(form.locator("[data-maint-cancel]")).toBeDisabled();
+	await expect(view.locator("[data-maint-all]")).toBeDisabled();
+	await expect(view.locator('[data-maint-act="close"]')).toBeDisabled();
+	// insistir no manda otro pedido: ni el clic (forzado) ni Enter
+	await submit.click({ force: true });
+	await form.evaluate((f) => f.requestSubmit());
+	await page.waitForTimeout(300);
+	expect(sent).toBe(1);
+	release();
+	await expect(view.locator(".set-msg.ok")).toContainText("Se cerraron 2 ejecución(es) como interrumpidas");
+	for (const id of [a, b]) {
+		const r = await (await request.get(`/api/v1/runs/${id}`)).json();
+		expect(r.close_reason).toBe("Cancelado manualmente: cortado con Ctrl+C");
+	}
+	await page.unroute("**/api/v1/ui/runs/close");
+});

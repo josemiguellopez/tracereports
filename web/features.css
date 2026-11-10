@@ -2684,3 +2684,14 @@ body.view-live .live-view { padding-bottom: 96px; }
 .run-banner .dv-detail { font-family: var(--font-mono); opacity: .85; }
 .conn-table a { color: var(--color-primary); font-weight: 600; text-decoration: none; }
 .conn-table a:hover, .conn-table a:focus-visible { text-decoration: underline; }
+
+/* Mantenimiento: cerrar o eliminar en lote puede tardar; mientras tanto se ve que está en proceso y
+   no se puede repetir (antes no pasaba nada visible y se hacía clic varias veces) */
+.maint-progress { display: flex; align-items: center; gap: 8px; margin: 0; padding: 8px 10px; border-radius: 8px; font-size: 13px;
+	background: color-mix(in srgb, var(--color-info) 10%, transparent); color: var(--color-text); }
+.maint-spin { display: inline-block; width: 14px; height: 14px; flex: none; border-radius: 50%; vertical-align: -2px; margin-right: 6px;
+	border: 2px solid color-mix(in srgb, currentColor 30%, transparent); border-top-color: currentColor; animation: maint-spin .8s linear infinite; }
+.maint-progress .maint-spin { margin-right: 0; color: var(--color-info); }
+.maint-confirm[aria-busy="true"] { cursor: progress; }
+@keyframes maint-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .maint-spin { animation-duration: 2.4s; } }

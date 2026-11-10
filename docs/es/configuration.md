@@ -846,6 +846,10 @@ máquina que lo corre:
 - **Pedidos lentos del servidor**: los últimos 50 de más de 2 s desde que arrancó (también en el log como
   `slow request`). Si un test dijo «timed out» y aquí no hay nada a esa hora, el pedido no llegó al servidor:
   el problema está en la red o en Docker (ver `scripts/watch-health.ps1` en [Docker](docker.md#problemas-frecuentes)).
+- **Bloqueos del servidor**: momentos en que varios pedidos estuvieron más de 10 s sin respuesta a la vez (una
+  tarea tenía tomada la base de datos y todo esperaba). El servidor lo avisa en el log (`server stalled`) y guarda
+  un volcado de lo que hacía cada tarea en ese momento en `DATA_DIR/diagnostics/` (los 10 últimos); con el permiso
+  de Ajustes se descarga desde aquí para reportar el problema.
 - **Credenciales rechazadas** (solo con el permiso de Ajustes): las direcciones que fallaron el token o el
   login en los últimos 15 min y si quedaron bloqueadas; suele ser un token mal puesto en el `.env` de los tests.
 

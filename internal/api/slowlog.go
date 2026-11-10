@@ -23,6 +23,8 @@ func slowRequests(next http.Handler) http.Handler {
 			return
 		}
 		start := time.Now()
+		done := stalls.track(r.Method, r.URL.Path, start) // el vigilante (stall.go) ve los que no terminan
+		defer done()
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		if d := time.Since(start); d >= slowRequestAfter {

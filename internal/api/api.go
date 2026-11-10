@@ -175,6 +175,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/maintenance", s.maintenance)
 		r.Get("/maintenance/storage", s.storage)
 		r.Get("/maintenance/connections", s.connections)
+		r.Get("/maintenance/stalls/{name}", s.stallDump)
 		r.Get("/maintenance/storage/preview", s.storagePreview)
 		r.Post("/runs", s.createRun)
 		r.Get("/runs/{run_id}", s.getRun)

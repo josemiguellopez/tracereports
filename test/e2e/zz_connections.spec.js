@@ -45,3 +45,31 @@ test("un run que llegó bien no muestra el aviso de entrega", async ({ page, req
 	await expect(page.locator("#report-name")).toHaveText("E2E llegó bien");
 	await expect(page.locator("#run-banner")).not.toContainText("llegó al final");
 });
+
+test("Mantenimiento > Conexiones: los bloqueos del servidor con su duración, qué esperaba y el volcado para descargar", async ({ page }) => {
+	const t0 = Date.UTC(2026, 10, 10, 18, 47, 35);
+	await page.route("**/api/v1/maintenance/connections", (r) => r.fulfill({ json: {
+		days: 7, runs: [], slow: [], slow_after_ms: 2000, started_at: t0 - 600000, auth: [], stall_after_ms: 10000,
+		stalls: [
+			{ start: t0 + 120000, max_stuck: 4, paths: ["POST /api/v1/tests/9/logs"], db_wait_ms: 0, dump: "stall-20261110-184940.txt" },
+			{ start: t0, end: t0 + 41000, max_stuck: 16, paths: ["POST /api/v1/runs", "GET /api/v1/auth/session"], db_wait_ms: 612000, dump: "stall-20261110-184745.txt" },
+		] } }));
+	await page.goto("/#view=maintenance");
+	const card = page.locator("#maint-connections");
+	await expect(card).toContainText("Bloqueos del servidor (varios pedidos sin respuesta más de 10 s a la vez)");
+	const rows = card.locator("tr", { hasText: "stall-2026" });
+	await expect(rows).toHaveCount(2);
+	await expect(rows.first()).toContainText("en curso");
+	const done = rows.nth(1);
+	await expect(done).toContainText("41,0 s");
+	await expect(done).toContainText("16");
+	await expect(done).toContainText("POST /api/v1/runs");
+	await expect(done).toContainText("612,0 s");
+	await expect(done.locator("a[download]")).toHaveAttribute("href", "/api/v1/maintenance/stalls/stall-20261110-184745.txt");
+	await expect(card).toContainText("El volcado dice qué estaba haciendo cada tarea del servidor");
+});
+
+test("Mantenimiento > Conexiones: sin bloqueos lo dice", async ({ page }) => {
+	await page.goto("/#view=maintenance");
+	await expect(page.locator("#maint-connections")).toContainText("Ningún bloqueo desde que el servidor arrancó");
+});

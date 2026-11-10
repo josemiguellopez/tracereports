@@ -836,6 +836,10 @@ the machine that runs it:
 - **Slow server requests**: the last 50 over 2 s since it started (also in the log as `slow request`). If a test
   said "timed out" and nothing shows here at that time, the request never reached the server: the problem is in
   the network or in Docker (see `scripts/watch-health.ps1` in [Docker](docker.md#troubleshooting)).
+- **Server stalls**: moments when several requests went without an answer for more than 10 s at once (a task
+  was holding the database and everything waited). The server says so in the log (`server stalled`) and saves a
+  dump of what each task was doing at that moment in `DATA_DIR/diagnostics/` (the last 10); with the Settings
+  permission it can be downloaded from here to report the problem.
 - **Rejected credentials** (Settings permission only): the addresses that failed the token or the login in the
   last 15 min and whether they got blocked; usually a wrong token in the tests `.env`.
 

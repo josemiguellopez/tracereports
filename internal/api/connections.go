@@ -2,8 +2,12 @@ package api
 
 import (
 	"net/http"
+	"os"
+	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
 )
@@ -26,10 +30,13 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 	}
 	out := map[string]any{"days": connectionsDays, "runs": runs, "slow": recentSlow(), "slow_after_ms": slowRequestAfter.Milliseconds(),
 		"started_at": slowSince.UnixMilli()}
-	// las direcciones que fallaron credenciales: solo para quien puede cambiar la configuración
-	if editable, _ := s.settingsAccess(r); editable && s.authFails != nil {
+	// las direcciones que fallaron credenciales y los volcados de los bloqueos: solo para quien administra
+	editable, _ := s.settingsAccess(r)
+	if editable && s.authFails != nil {
 		out["auth"] = s.authFails.snapshot()
 	}
+	out["stalls"] = recentStalls(editable)
+	out["stall_after_ms"] = stallAfter.Milliseconds()
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -78,4 +85,27 @@ func (a *authFailures) snapshot() []authAddress {
 		return out[i].Failures > out[j].Failures || (out[i].Failures == out[j].Failures && out[i].IP < out[j].IP)
 	})
 	return out
+}
+
+// stallDump sirve un volcado de bloqueo (solo para quien administra; el nombre se valida contra el
+// formato que escribe el vigilante, nunca se arma una ruta con lo que llega).
+func (s *Server) stallDump(w http.ResponseWriter, r *http.Request) {
+	if ok, reason := s.settingsAccess(r); !ok {
+		writeError(w, http.StatusForbidden, "only an administrator can download diagnostics ("+reason+")")
+		return
+	}
+	name := chi.URLParam(r, "name")
+	dir := s.diagnosticsDir()
+	if !stallDumpName.MatchString(name) || dir == "" {
+		writeError(w, http.StatusNotFound, "dump not found")
+		return
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, name))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "dump not found")
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="`+name+`"`)
+	w.Write(raw)
 }
