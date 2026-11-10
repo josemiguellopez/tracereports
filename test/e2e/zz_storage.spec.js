@@ -48,3 +48,42 @@ test("Mantenimiento: almacenamiento, retención y limpiar ahora con vista previa
 	await confirm.locator("[data-stor-clean-cancel]").click();
 	await expect(card.locator(".maint-confirm")).toHaveCount(0);
 });
+
+test("Limpiar ahora: mientras limpia dice qué pasa, todo queda bloqueado y un segundo clic no lo repite; un error dice la causa", async ({ page }) => {
+	// una vista previa con algo que borrar y un servidor que tarda en limpiar (base grande)
+	await page.route("**/api/v1/maintenance/storage/preview?**", (r) => r.fulfill({ json: { days: 30, runs: 120, tests: 900, files: 0, files_bytes: 0, db_bytes_approx: 3 << 30, freed_bytes_approx: 3 << 30 } }));
+	let calls = 0, release;
+	const gate = new Promise((r) => { release = r; });
+	await page.route("**/api/v1/ui/maintenance/retention/run", async (r) => {
+		calls++;
+		await gate;
+		return r.fulfill({ status: 500, json: { error: "the server's data disk is full: free space or lower the retention (ref 9f8e7d6c)", ref: "9f8e7d6c", kind: "disk_full" } });
+	});
+	await page.goto("/#view=maintenance");
+	const card = page.locator(".stor-card");
+	await card.locator("[data-stor-clean]").click();
+	const confirm = card.locator(".maint-confirm");
+	await expect(confirm).toContainText("Se borrarán 120 ejecución(es)");
+	const go = confirm.locator("[data-stor-clean-go]");
+	await go.click();
+	await go.click({ force: true }); // el clic impaciente
+	await go.dispatchEvent("click");
+	await expect(go).toBeDisabled();
+	await expect(go).toContainText("Limpiando…");
+	await expect(go.locator(".maint-spin")).toHaveCount(1);
+	await expect(confirm.locator(".maint-progress[role=status]")).toContainText("se borran de a tandas");
+	await expect(confirm).toHaveAttribute("aria-busy", "true");
+	await expect(confirm.locator("[data-stor-clean-days]")).toBeDisabled();
+	await expect(confirm.locator("[data-stor-clean-cancel]")).toBeDisabled();
+	await expect(card.locator("[data-stor-clean]")).toBeDisabled();
+	expect(calls).toBe(1);
+	release();
+	// el error dice la causa y la referencia; la vista previa sigue a la vista y se puede reintentar
+	await expect(confirm.locator(".set-msg.err")).toContainText("El disco de datos del servidor está lleno");
+	await expect(confirm.locator(".set-msg.err")).toContainText("9f8e7d6c");
+	await expect(confirm).toContainText("Se borrarán 120 ejecución(es)");
+	await expect(go).toBeEnabled();
+	expect(calls).toBe(1);
+	// el 500 simulado lo anota el navegador en la consola: es lo que se prueba, no un error de la página
+	test.info().errors_ = test.info().errors_.filter((e) => !/status of 500/.test(e));
+});

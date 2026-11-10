@@ -838,9 +838,12 @@ para cerrarlas o eliminarlas en lote (una ejecución en curso no se elimina: pri
 ### Conexiones de los clientes
 
 **Mantenimiento → Conexiones de los clientes** dice si la evidencia llega bien al servidor, sin entrar a la
-máquina que lo corre:
+máquina que lo corre. Arriba, un resumen dice cuánto hay de cada cosa (un clic lleva a esa lista); cada lista
+va plegada y muestra 10 filas, con "Mostrar más". Lo que se deja abierto sigue abierto al actualizar.
 
-- **Runs con problemas de entrega** (7 días): los que el cliente no pudo crear a tiempo (grabó en local y los
+- **Runs con problemas de entrega** (7 días), **una fila por ejecución** (con muchos workers, una ejecución deja
+  decenas de runs con el mismo problema): cuántos runs, qué les pasó y en qué equipos; la ejecución se abre para
+  ver sus runs uno por uno. Los runs: los que el cliente no pudo crear a tiempo (grabó en local y los
   subió al terminar), con la causa (`the server did not answer within 30 s`), a qué dirección conectó y cuánto
   esperó, el equipo y la versión del cliente; también los que tuvieron reintentos o evidencia perdida. El
   reporte de esos runs lo avisa arriba ("Este run llegó al final"). Lo informa el cliente al cerrar el run
@@ -854,6 +857,10 @@ máquina que lo corre:
   de Ajustes se descarga desde aquí para reportar el problema.
 - **Credenciales rechazadas** (solo con el permiso de Ajustes): las direcciones que fallaron el token o el
   login en los últimos 15 min y si quedaron bloqueadas; suele ser un token mal puesto en el `.env` de los tests.
+
+Si una acción de Mantenimiento falla, el mensaje dice la causa cuando se puede actuar (disco de datos lleno, base
+ocupada, carpeta sin permiso de escritura) y siempre una **referencia**: el mismo código queda en el log del
+servidor junto al error completo (`docker compose logs tracereports | Select-String <referencia>`).
 
 ### Almacenamiento y retención
 
@@ -876,7 +883,10 @@ arrancar).
 
 **Limpiar ahora…** (administración) pregunta cuántos días conservar, muestra primero qué se borraría
 (ejecuciones, tests y el espacio que se liberaría) y borra solo al confirmar. Bajo el selector se ven la
-última limpieza (cuándo, qué y cuánto liberó) y la próxima. Una ejecución en curso nunca se borra.
+última limpieza (cuándo, qué y cuánto liberó) y la próxima. Una ejecución en curso nunca se borra. La limpieza
+(y eliminar en lote) borra de a 25 ejecuciones por vez: con una base de varios GB puede tardar unos minutos,
+pero los clientes siguen enviando mientras tanto. Mientras trabaja, la pantalla lo dice y un segundo clic no la
+repite.
 
 API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
 (`{"days": N}`, 0 = conservar todo) y `POST /ui/maintenance/retention/run` (`{"days": N}`, o `{}` para la

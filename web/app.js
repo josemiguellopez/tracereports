@@ -114,7 +114,11 @@
 	async function api(path) {
 		if (STATIC) return staticApi(path);
 		const res = await fetch(path, { headers: { Accept: "application/json" } });
-		if (!res.ok) throw new Error(`${res.status} ${path}`);
+		if (!res.ok) {
+			// un error del servidor con su causa o su referencia se explica; si no, el código y la ruta
+			const data = res.status >= 500 ? await res.json().catch(() => ({})) : {};
+			throw new Error(data.ref || data.kind ? apiErrorText(data, res.status) : `${res.status} ${path}`);
+		}
 		return res.json();
 	}
 
@@ -3413,7 +3417,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			if (e.target.closest("[data-close-run-open]")) { S.closeRun = {}; renderRunBanner(); $("[data-close-run-form] select")?.focus(); return; }
 			if (e.target.closest("[data-close-run-cancel]")) { S.closeRun = null; renderRunBanner(); return; }
 			if (e.target.closest("[data-banner-interrupted]")) { e.preventDefault(); S.status = "INTERRUPTED"; setView("tests"); }
-			if (e.target.closest("[data-banner-connections]")) { e.preventDefault(); S.maint.focusConn = true; setView("maintenance"); }
+			if (e.target.closest("[data-banner-connections]")) { e.preventDefault(); S.maint.focusConn = true; connUI().open.runs = true; setView("maintenance"); }
 		});
 		$("#run-banner").addEventListener("submit", (e) => {
 			const f = e.target.closest("[data-close-run-form]");
@@ -4512,8 +4516,24 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	async function apiSend(method, path, body) {
 		const res = await fetch(path, { method, headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body ?? {}) });
 		const data = await res.json().catch(() => ({}));
-		if (!res.ok) throw new Error(data.error || `${res.status}`);
+		if (!res.ok) throw new Error(apiErrorText(data, res.status));
 		return data;
+	}
+	/**
+	 * El texto de un error de la API: si el servidor dice la causa (disco lleno, base ocupada...) se
+	 * explica qué hacer; un error interno lleva su referencia, la misma que queda en el log del servidor.
+	 */
+	function apiErrorText(data, status) {
+		const ref = data?.ref ? tr(" (referencia {ref}: búscala en el log del servidor)", { ref: data.ref }) : "";
+		const known = {
+			disk_full: tr("El disco de datos del servidor está lleno: libera espacio o baja la retención."),
+			busy: tr("La base de datos está ocupada: reintenta en un momento."),
+			read_only: tr("El servidor no puede escribir su carpeta de datos (permisos o disco de solo lectura)."),
+			corrupt: tr("El archivo de la base de datos está dañado: restaura un respaldo."),
+		};
+		if (known[data?.kind]) return known[data.kind] + ref;
+		if (data?.ref) return tr("Error interno del servidor.") + ref;
+		return data?.error || `${status}`;
 	}
 
 	async function loadMetrics() {
@@ -4577,44 +4597,97 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		if (S.view === "maintenance") renderMaintenance();
 	}
 
+	/**
+	 * Conexiones de los clientes: un resumen arriba (qué hay y cuánto) y cada lista plegada, de a 10
+	 * filas. Con muchos workers, cada ejecución dejaba decenas de runs con el mismo problema y la tarjeta
+	 * era una lista sin fin: ahora los runs van agrupados por ejecución, y la ejecución se abre para verlos.
+	 */
+	const CONN_PAGE = 10;
+	function connUI() {
+		return (S.maint.connUI ||= { open: {}, more: {}, exec: {} });
+	}
+	/** Los runs con problemas de entrega, juntos por ejecución (un run sin ejecución va solo). */
+	function connGroups(runs) {
+		const by = new Map();
+		for (const r of runs) {
+			const key = r.execution_id ? `x:${r.execution_id}` : `r:${r.id}`;
+			if (!by.has(key)) by.set(key, { key, execution: r.execution_id || "", runs: [] });
+			by.get(key).runs.push(r);
+		}
+		const sum = (g, k) => g.runs.reduce((n, r) => n + (r.delivery[k] || 0), 0);
+		return [...by.values()].map((g) => ({
+			...g,
+			late: g.runs.filter((r) => r.delivery.late).length,
+			lost: sum(g, "lost"), dropped: sum(g, "dropped"), rejected: sum(g, "rejected"), spooled: sum(g, "spooled"), retried: sum(g, "retried"),
+			hosts: [...new Set(g.runs.map((r) => r.delivery.host).filter(Boolean))],
+			at: Math.max(...g.runs.map((r) => r.delivery.late_at || r.started_at || 0)),
+		})).sort((a, b) => b.at - a.at);
+	}
 	function connectionsCard() {
-		const c = S.maint.conn;
+		const c = S.maint.conn, ui = connUI();
 		const head = `<header class="stor-head"><span class="maint-stale-icon">${icon("i-plug")}</span><b>${tr("Conexiones de los clientes")}</b>
 			<button type="button" class="cf-btn cf-btn-sm" data-conn-reload>${tr("Actualizar")}</button></header>`;
 		if (!c) return `<section class="card conn-card" id="maint-connections">${head}<p class="m-hint">${tr("Cargando…")}</p></section>`;
 		if (c.error) return `<section class="card conn-card" id="maint-connections">${head}<p class="m-hint">${esc(tr("No se pudo cargar: {e}", { e: c.error }))}</p></section>`;
-		const d = c.data, runs = d.runs || [], slow = d.slow || [], auth = d.auth || [];
+		const d = c.data, runs = d.runs || [], slow = d.slow || [], auth = d.auth || [], stalls = d.stalls || [];
 		const when = (ms) => ms ? `${fmtDateTime(ms)}` : "—";
-		const what = (v) => [v.late && `<span class="conn-tag late">${tr("Creado tarde")}</span>${v.reason ? ` <span data-no-i18n>${esc(v.reason)}</span>` : ""}`,
+		const secs = (ms) => `${window.TraceReportsLive?.num1(ms / 1000) ?? (ms / 1000).toFixed(1)} s`;
+		const what = (v) => [v.late && `<span class="conn-tag late">${v.late === true ? tr("Creado tarde") : tr("{n} creados tarde", { n: v.late })}</span>${v.reason ? ` <span data-no-i18n>${esc(v.reason)}</span>` : ""}`,
 			v.lost && tr("{n} perdidos", { n: v.lost }), v.dropped && tr("{n} descartados", { n: v.dropped }), v.rejected && tr("{n} rechazados", { n: v.rejected }),
-			v.spooled && tr("{n} para reenviar", { n: v.spooled }), v.retried && tr("{n} reintentos", { n: v.retried })].filter(Boolean).join(" · ");
-		const runsHTML = runs.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Run")}</th><th>${tr("Qué pasó")}</th><th>${tr("Detalle de la conexión")}</th><th>${tr("Equipo")}</th><th>${tr("Cuándo")}</th></tr></thead><tbody>
-				${runs.map((r) => `<tr><td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a>${r.execution_id ? `<small data-no-i18n>${esc(r.execution_id)}</small>` : ""}</td>
-					<td>${what(r.delivery)}</td><td class="conn-mono" data-no-i18n>${esc(r.delivery.detail || "—")}</td>
-					<td data-no-i18n>${esc([r.delivery.host, r.delivery.client].filter(Boolean).join(" · ") || "—")}</td><td>${when(r.delivery.late_at || r.started_at)}</td></tr>`).join("")}</tbody></table></div>`
-			: `<p class="conn-ok">${icon("i-pass")}${esc(tr("Ningún run con problemas de entrega en los últimos {n} días.", { n: d.days }))}</p>`;
-		const slowHTML = slow.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th>${tr("Pedido")}</th><th>${tr("Respuesta")}</th><th class="lt-num">${tr("Tardó")}</th></tr></thead><tbody>
-				${slow.map((x) => `<tr><td>${when(x.at)}</td><td class="conn-mono" data-no-i18n>${esc(x.method)} ${esc(x.path)}</td><td>${x.status || "—"}</td><td class="lt-num">${esc(`${window.TraceReportsLive?.num1(x.ms / 1000) ?? (x.ms / 1000).toFixed(1)} s`)}</td></tr>`).join("")}</tbody></table></div>`
-			: `<p class="conn-ok">${icon("i-pass")}${esc(tr("Ningún pedido tardó más de {s} s desde que el servidor arrancó ({t}).", { s: Math.round((d.slow_after_ms || 2000) / 1000), t: fmtDateTime(d.started_at) }))}</p>`;
-		// los bloqueos: varios pedidos sin respuesta a la vez (el vigilante del servidor, stall.go)
-		const stalls = d.stalls || [], secs = (ms) => `${window.TraceReportsLive?.num1(ms / 1000) ?? (ms / 1000).toFixed(1)} s`;
-		const stallsHTML = stalls.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th class="lt-num">${tr("Duró")}</th><th class="lt-num">${tr("Pedidos trabados")}</th><th>${tr("Qué esperaba")}</th><th class="lt-num">${tr("Espera por la base")}</th><th>${tr("Volcado")}</th></tr></thead><tbody>
-				${stalls.map((x) => `<tr><td>${when(x.start)}${x.end ? "" : ` <span class="conn-tag late">${tr("en curso")}</span>`}</td>
-					<td class="lt-num">${x.end ? esc(secs(x.end - x.start)) : "—"}</td><td class="lt-num">${x.max_stuck}</td>
-					<td class="conn-mono" data-no-i18n>${(x.paths || []).map(esc).join("<br>")}</td><td class="lt-num">${x.end ? esc(secs(x.db_wait_ms || 0)) : "—"}</td>
-					<td>${x.dump ? `<a href="/api/v1/maintenance/stalls/${encodeURIComponent(x.dump)}" download data-no-i18n>${esc(x.dump)}</a>` : "—"}</td></tr>`).join("")}</tbody></table></div>
-				<p class="m-hint">${tr("El volcado dice qué estaba haciendo cada tarea del servidor en ese momento (qué tenía tomada la base de datos). Adjúntalo si reportas el problema.")}</p>`
-			: `<p class="conn-ok">${icon("i-pass")}${esc(tr("Ningún bloqueo desde que el servidor arrancó ({t}).", { t: fmtDateTime(d.started_at) }))}</p>`;
-		const authHTML = !d.auth ? "" : `<h5>${tr("Credenciales rechazadas (últimos 15 min)")}</h5>${auth.length ? `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Dirección")}</th><th class="lt-num">${tr("Intentos")}</th><th>${tr("Estado")}</th></tr></thead><tbody>
-				${auth.map((a) => `<tr><td class="conn-mono" data-no-i18n>${esc(a.ip)}</td><td class="lt-num">${a.failures}</td><td>${a.blocked_ms ? `<span class="conn-tag late">${esc(tr("bloqueada {n} min", { n: Math.ceil(a.blocked_ms / 60000) }))}</span>` : tr("en observación")}</td></tr>`).join("")}</tbody></table></div>
-				<p class="m-hint">${tr("Suele ser un token mal puesto en el .env de los tests, o una pestaña con la sesión vencida.")}</p>`
-			: `<p class="conn-ok">${icon("i-pass")}${tr("Ninguna.")}</p>`}`;
-		return `<section class="card conn-card" id="maint-connections" aria-label="${esc(tr("Conexiones de los clientes"))}">${head}
-			<p class="m-hint">${tr("Si un test dijo «timed out» y aquí no aparece ningún pedido lento a esa hora, el pedido no llegó al servidor: el problema está en la red o en Docker, no en TraceReports.")}</p>
-			<h5>${esc(tr("Runs con problemas de entrega (últimos {n} días)", { n: d.days }))}</h5>${runsHTML}
-			<h5>${tr("Pedidos lentos del servidor")}</h5>${slowHTML}
-			<h5>${esc(tr("Bloqueos del servidor (varios pedidos sin respuesta más de {s} s a la vez)", { s: Math.round((d.stall_after_ms || 10000) / 1000) }))}</h5>${stallsHTML}
-			${authHTML}</section>`;
+			v.spooled && tr("{n} para reenviar", { n: v.spooled }), v.retried && tr("{n} reintentos", { n: v.retried })].filter(Boolean).join(" · ") || "—";
+		// de a CONN_PAGE filas; "Mostrar más" suma de a 20
+		const page = (sec, rows) => {
+			const n = CONN_PAGE + (ui.more[sec] || 0), rest = rows.length - n;
+			return { rows: rows.slice(0, n), more: rest > 0 ? `<button type="button" class="cf-btn cf-btn-sm conn-more" data-conn-more="${sec}">${tr("Mostrar {n} más", { n: Math.min(20, rest) })} <span class="m-hint">${tr("({n} en total)", { n: rows.length })}</span></button>` : "" };
+		};
+		// una sección plegable: el título dice cuántos hay; con problemas, el número se destaca
+		const section = (sec, title, n, body, okText, foot = "") => `<details class="conn-sec" data-conn-sec="${sec}" ${ui.open[sec] ? "open" : ""}>
+			<summary><span class="conn-sec-title">${esc(title)}</span><span class="conn-count ${n ? "warn" : "ok"}">${n ? n : icon("i-pass")}</span></summary>
+			<div class="conn-sec-body">${n ? body : `<p class="conn-ok">${icon("i-pass")}${esc(okText)}</p>`}${foot}</div></details>`;
+
+		const groups = connGroups(runs), gp = page("runs", groups);
+		const runsBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Ejecución")}</th><th class="lt-num">${tr("Runs")}</th><th>${tr("Qué pasó")}</th><th>${tr("Equipo")}</th><th>${tr("Última vez")}</th></tr></thead><tbody>
+			${gp.rows.map((g) => {
+				const one = g.runs.length === 1, r0 = g.runs[0], open = !one && ui.exec[g.key];
+				const name = one ? `<a href="#run=${r0.id}&view=tests" data-no-i18n>#${r0.id} · ${esc(r0.name)}</a>${g.execution ? `<small data-no-i18n>${esc(g.execution)}</small>` : ""}`
+					: `<button type="button" class="conn-exec" data-conn-exec="${esc(g.key)}" aria-expanded="${open ? "true" : "false"}">${icon("i-chevron")}<span data-no-i18n>${esc(g.execution)}</span></button>`;
+				const sub = open ? g.runs.map((r) => `<tr class="conn-subrow"><td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a></td><td></td>
+					<td>${what(r.delivery)}${r.delivery.detail ? `<small class="conn-mono" data-no-i18n>${esc(r.delivery.detail)}</small>` : ""}</td>
+					<td data-no-i18n>${esc([r.delivery.host, r.delivery.client].filter(Boolean).join(" · ") || "—")}</td><td>${when(r.delivery.late_at || r.started_at)}</td></tr>`).join("") : "";
+				const v = one ? r0.delivery : { ...g, late: g.late };
+				return `<tr class="conn-group"><td>${name}</td><td class="lt-num">${g.runs.length}</td><td>${what(v)}${one && r0.delivery.detail ? `<small class="conn-mono" data-no-i18n>${esc(r0.delivery.detail)}</small>` : ""}</td>
+					<td data-no-i18n>${esc((one ? [r0.delivery.host, r0.delivery.client].filter(Boolean) : g.hosts).join(" · ") || "—")}</td><td>${when(g.at)}</td></tr>${sub}`;
+			}).join("")}</tbody></table></div>${gp.more}`;
+
+		const sp = page("slow", slow);
+		const slowBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th>${tr("Pedido")}</th><th>${tr("Respuesta")}</th><th class="lt-num">${tr("Tardó")}</th></tr></thead><tbody>
+			${sp.rows.map((x) => `<tr><td>${when(x.at)}</td><td class="conn-mono" data-no-i18n>${esc(x.method)} ${esc(x.path)}</td><td>${x.status || "—"}</td><td class="lt-num">${esc(secs(x.ms))}</td></tr>`).join("")}</tbody></table></div>${sp.more}`;
+		const slowFoot = `<p class="m-hint">${tr("Si un test dijo «timed out» y aquí no aparece ningún pedido lento a esa hora, el pedido no llegó al servidor: el problema está en la red o en Docker, no en TraceReports.")}</p>`;
+
+		const tp = page("stalls", stalls);
+		const stallsBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th class="lt-num">${tr("Duró")}</th><th class="lt-num">${tr("Pedidos trabados")}</th><th>${tr("Qué esperaba")}</th><th class="lt-num">${tr("Espera por la base")}</th><th>${tr("Volcado")}</th></tr></thead><tbody>
+			${tp.rows.map((x) => `<tr><td>${when(x.start)}${x.end ? "" : ` <span class="conn-tag late">${tr("en curso")}</span>`}</td>
+				<td class="lt-num">${x.end ? esc(secs(x.end - x.start)) : "—"}</td><td class="lt-num">${x.max_stuck}</td>
+				<td class="conn-mono" data-no-i18n>${(x.paths || []).map(esc).join("<br>")}</td><td class="lt-num">${x.end ? esc(secs(x.db_wait_ms || 0)) : "—"}</td>
+				<td>${x.dump ? `<a href="/api/v1/maintenance/stalls/${encodeURIComponent(x.dump)}" download data-no-i18n>${esc(x.dump)}</a>` : "—"}</td></tr>`).join("")}</tbody></table></div>${tp.more}
+			<p class="m-hint">${tr("El volcado dice qué estaba haciendo cada tarea del servidor en ese momento (qué tenía tomada la base de datos). Adjúntalo si reportas el problema.")}</p>`;
+
+		const authBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Dirección")}</th><th class="lt-num">${tr("Intentos")}</th><th>${tr("Estado")}</th></tr></thead><tbody>
+			${auth.map((a) => `<tr><td class="conn-mono" data-no-i18n>${esc(a.ip)}</td><td class="lt-num">${a.failures}</td><td>${a.blocked_ms ? `<span class="conn-tag late">${esc(tr("bloqueada {n} min", { n: Math.ceil(a.blocked_ms / 60000) }))}</span>` : tr("en observación")}</td></tr>`).join("")}</tbody></table></div>
+			<p class="m-hint">${tr("Suele ser un token mal puesto en el .env de los tests, o una pestaña con la sesión vencida.")}</p>`;
+
+		// el resumen: cada número lleva a su sección (y la abre)
+		const chips = [["runs", tr("{n} ejecuciones con problemas de entrega", { n: groups.length }), groups.length],
+			["slow", tr("{n} pedidos lentos", { n: slow.length }), slow.length],
+			["stalls", tr("{n} bloqueos", { n: stalls.length }), stalls.length],
+			d.auth ? ["auth", tr("{n} credenciales rechazadas", { n: auth.length }), auth.length] : null].filter(Boolean);
+		const summary = chips.every(([, , n]) => !n) ? `<p class="conn-ok">${icon("i-pass")}${esc(tr("Todo en orden: sin problemas de entrega, pedidos lentos ni bloqueos."))}</p>`
+			: `<div class="conn-status">${chips.map(([sec, text, n]) => `<button type="button" class="conn-chip ${n ? "warn" : "ok"}" data-conn-jump="${sec}"><span class="dot"></span>${esc(text)}</button>`).join("")}</div>`;
+		return `<section class="card conn-card" id="maint-connections" aria-label="${esc(tr("Conexiones de los clientes"))}">${head}${summary}
+			${section("runs", tr("Runs con problemas de entrega (últimos {n} días)", { n: d.days }), groups.length, runsBody, tr("Ningún run con problemas de entrega en los últimos {n} días.", { n: d.days }))}
+			${section("slow", tr("Pedidos lentos del servidor"), slow.length, slowBody, tr("Ningún pedido tardó más de {s} s desde que el servidor arrancó ({t}).", { s: Math.round((d.slow_after_ms || 2000) / 1000), t: fmtDateTime(d.started_at) }), slowFoot)}
+			${section("stalls", tr("Bloqueos del servidor (varios pedidos sin respuesta más de {s} s a la vez)", { s: Math.round((d.stall_after_ms || 10000) / 1000) }), stalls.length, stallsBody, tr("Ningún bloqueo desde que el servidor arrancó ({t}).", { t: fmtDateTime(d.started_at) }))}
+			${d.auth ? section("auth", tr("Credenciales rechazadas (últimos 15 min)"), auth.length, authBody, tr("Ninguna.")) : ""}</section>`;
 	}
 
 	async function loadMaintenance() {
@@ -4732,16 +4805,20 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		const c = S.maint.clean;
 		if (!c) return "";
 		const p = c.preview;
-		const body = c.error ? `<p class="set-msg err">${esc(c.error)}</p>`
-			: !p ? `<p>${tr("Calculando qué se borraría…")}</p>`
+		// un error no borra la vista previa: se ve qué se intentó y por qué no se pudo
+		const err = c.error ? `<p class="set-msg err" role="alert">${esc(c.error)}</p>` : "";
+		const body = err + (!p && c.error ? "" : !p ? `<p>${tr("Calculando qué se borraría…")}</p>`
 			: !p.runs ? `<p>${tr("No hay ejecuciones terminadas de más de {n} días: no se borraría nada.", { n: c.days })}</p>`
-			: `<p><b>${tr("Se borrarán {r} ejecución(es) terminadas de más de {n} días ({t} tests) y se liberarán ~{b}. No se puede deshacer.", { r: p.runs, n: c.days, t: p.tests, b: fmtBytes(p.freed_bytes_approx) })}</b></p>`;
-		return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${esc(tr("Limpiar ahora"))}">
-			<label class="m-suite"><span>${tr("Borrar lo de más de")}</span><select data-stor-clean-days>
+			: `<p><b>${tr("Se borrarán {r} ejecución(es) terminadas de más de {n} días ({t} tests) y se liberarán ~{b}. No se puede deshacer.", { r: p.runs, n: c.days, t: p.tests, b: fmtBytes(p.freed_bytes_approx) })}</b></p>`);
+		// mientras limpia: dice qué pasa, nada se puede cambiar y un segundo clic no lo repite
+		const busy = c.busy, off = busy ? "disabled" : "";
+		const progress = busy ? `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(tr("Limpiando {r} ejecución(es) de más de {n} días… se borran de a tandas y los clientes siguen enviando; con una base grande puede tardar unos minutos.", { r: p?.runs || 0, n: c.days }))}</p>` : "";
+		return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${esc(tr("Limpiar ahora"))}" ${busy ? 'aria-busy="true"' : ""}>
+			<label class="m-suite"><span>${tr("Borrar lo de más de")}</span><select data-stor-clean-days ${off}>
 				${RETENTION_CHOICES.filter(Boolean).map((d) => `<option value="${d}" ${d === c.days ? "selected" : ""}>${retentionText(d)}</option>`).join("")}</select></label>
-			${body}
-			<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-stor-clean-go ${c.busy || !p?.runs ? "disabled" : ""}>${c.busy ? tr("Limpiando…") : tr("Limpiar")}</button>
-				<button type="button" class="cf-btn cf-btn-sm" data-stor-clean-cancel>${tr("Cancelar")}</button></div></div>`;
+			${body}${progress}
+			<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-stor-clean-go ${busy || !p?.runs ? "disabled" : ""}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Limpiando…")}` : tr("Limpiar")}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-stor-clean-cancel ${off}>${tr("Cancelar")}</button></div></div>`;
 	}
 
 	async function previewClean() {
@@ -4831,8 +4908,24 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 
 	function bindMaintenance() {
 		const el = $("#view-maintenance"), m = S.maint;
+		el.addEventListener("toggle", (e) => {
+			const d = e.target.closest?.("[data-conn-sec]");
+			if (d) connUI().open[d.dataset.connSec] = d.open;
+		}, true);
 		el.addEventListener("click", (e) => {
 			if (e.target.closest("[data-conn-reload]")) { m.conn = null; renderMaintenance(); loadConnections(); return; }
+			const cm = e.target.closest("[data-conn-more]");
+			if (cm) { const u = connUI(); u.more[cm.dataset.connMore] = (u.more[cm.dataset.connMore] || 0) + 20; renderMaintenance(); return; }
+			const cx = e.target.closest("[data-conn-exec]");
+			if (cx) { const u = connUI(), k = cx.dataset.connExec; u.exec[k] = !u.exec[k]; renderMaintenance(); el.querySelector(`[data-conn-exec="${CSS.escape(k)}"]`)?.focus(); return; }
+			const cj = e.target.closest("[data-conn-jump]");
+			if (cj) {
+				connUI().open[cj.dataset.connJump] = true; renderMaintenance();
+				const sec = el.querySelector(`[data-conn-sec="${cj.dataset.connJump}"]`);
+				sec?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+				sec?.querySelector("summary")?.focus({ preventScroll: true });
+				return;
+			}
 			const st = e.target.closest("[data-maint-state]");
 			if (st) { Object.assign(m, { state: st.dataset.maintState, msg: null, action: null }); loadMaintenance(); renderMaintenance(); return; }
 			if (m.busy && e.target.closest("[data-maint-act], [data-maint-cancel], [data-maint-delete]")) return;
@@ -4845,10 +4938,11 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 				previewClean();
 				return;
 			}
-			if (e.target.closest("[data-stor-clean-cancel]")) { m.clean = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-stor-clean-cancel]")) { if (!m.clean?.busy) { m.clean = null; renderMaintenance(); } return; }
 			if (e.target.closest("[data-stor-clean-go]") && m.clean && !m.clean.busy) {
 				const c = m.clean;
 				c.busy = true;
+				c.error = null;
 				renderMaintenance();
 				apiSend("POST", "/api/v1/ui/maintenance/retention/run", { days: c.days }).then(async (r) => {
 					m.clean = null;
@@ -4874,7 +4968,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			const f = e.target.closest("[data-maint-filter]");
 			if (f) { m[f.dataset.maintFilter] = f.value; m.msg = null; loadMaintenance(); return; }
 			const cd = e.target.closest("[data-stor-clean-days]");
-			if (cd && m.clean) { m.clean.days = Number(cd.value); previewClean(); return; }
+			if (cd && m.clean && !m.clean.busy) { m.clean.days = Number(cd.value); previewClean(); return; }
 			const ret = e.target.closest("[data-stor-retention]");
 			if (ret) {
 				try {

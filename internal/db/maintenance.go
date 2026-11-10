@@ -80,34 +80,6 @@ func (s *Store) DeleteRuns(ids []int64) (int, []string, error) {
 	if len(ids) > MaxMaintenanceRuns {
 		ids = ids[:MaxMaintenanceRuns]
 	}
-	tx, err := s.db.Begin()
-	if err != nil {
-		return 0, nil, err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM runs WHERE 0`); err != nil { // toma el lock de escritura ya
-		return 0, nil, err
-	}
-	in, args := inList(ids)
-	closed, err := int64s(tx, `SELECT id FROM runs WHERE id IN `+in+` AND status != 'RUNNING' ORDER BY id`, args...)
-	if err != nil || len(closed) == 0 {
-		return 0, nil, err
-	}
-	in, args = inList(closed)
-	files, err := strs(tx, `SELECT l.screenshot FROM logs l JOIN tests t ON t.id = l.test_id
-		WHERE t.run_id IN `+in+` AND l.screenshot != ''
-		UNION ALL
-		SELECT a.url FROM artifacts a JOIN tests t ON t.id = a.test_id WHERE t.run_id IN `+in, append(args, args...)...)
-	if err != nil {
-		return 0, nil, err
-	}
-	res, err := tx.Exec(`DELETE FROM runs WHERE id IN `+in, args...)
-	if err != nil {
-		return 0, nil, err
-	}
-	n, _ := res.RowsAffected()
-	if err := tx.Commit(); err != nil {
-		return 0, nil, err
-	}
-	return int(n), files, nil
+	// de a tandas, como la retención: una selección grande no deja a los clientes esperando
+	return s.deleteInBatches(ids, `status != 'RUNNING'`)
 }

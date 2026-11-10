@@ -3,7 +3,7 @@
 🌐 **English** · [Español](../es/api.md)
 
 Base: `http://<server>:8080/api/v1`. Everything is JSON, except screenshot uploads (multipart) and
-the export (ZIP). Errors answer `{"error": "message"}`.
+the export (ZIP). Errors answer `{"error": "message"}`; a server error (5xx) also carries `ref` (the same code is in the server log next to the full error) and, when the cause is one to act on, `kind`: `disk_full`, `busy` (503 with `Retry-After`), `read_only` or `corrupt`.
 
 **Authentication**: if the server has `TRACEREPORTS_TOKEN`, writes require
 `Authorization: Bearer <token>` or `X-TraceReports-Token: <token>`. If it has `TRACEREPORTS_UI_USER` /

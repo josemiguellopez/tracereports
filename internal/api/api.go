@@ -3,6 +3,7 @@ package api
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -912,9 +913,36 @@ func respondErr(w http.ResponseWriter, err error, what string) bool {
 	return true
 }
 
+// serverError answers a failed request without leaking its cause to the browser, but with a
+// reference that is also in the server log (find it with: docker compose logs | grep <ref>) and,
+// when the cause is one a person can act on (a full disk, a busy database), its kind and status.
 func serverError(w http.ResponseWriter, err error) {
-	slog.Error("request failed", "err", err)
-	writeError(w, http.StatusInternalServerError, "internal error")
+	ref := errorRef()
+	kind := db.ErrKind(err)
+	slog.Error("request failed", "ref", ref, "kind", kind, "err", err)
+	code, msg := http.StatusInternalServerError, "internal error"
+	switch kind {
+	case db.ErrKindDiskFull:
+		// sigue siendo 500: los clientes reintentan un 5xx (y lo guardan para reenviar), un 507 lo darían por perdido
+		msg = "the server's data disk is full: free space or lower the retention"
+	case db.ErrKindBusy:
+		code, msg = http.StatusServiceUnavailable, "the database is busy: try again in a moment"
+	case db.ErrKindReadOnly:
+		msg = "the server cannot write its data folder (permissions or a read-only disk)"
+	case db.ErrKindCorrupt:
+		msg = "the database file is damaged: restore a backup (see the docs: backup)"
+	}
+	if code == http.StatusServiceUnavailable {
+		w.Header().Set("Retry-After", "5")
+	}
+	writeJSON(w, code, map[string]string{"error": msg + " (ref " + ref + ")", "ref": ref, "kind": kind})
+}
+
+// errorRef is a short id to find a failed request in the log.
+func errorRef() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

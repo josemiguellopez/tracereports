@@ -828,9 +828,12 @@ has `TRACEREPORTS_STALE_RUN_HOURS`, the variable wins and the selector is locked
 ### Client connections
 
 **Maintenance → Client connections** tells whether the evidence reaches the server well, without logging into
-the machine that runs it:
+the machine that runs it. On top, a summary says how much there is of each thing (a click takes you to that
+list); each list is folded and shows 10 rows, with "Show more". What you leave open stays open when refreshing.
 
-- **Runs with delivery problems** (7 days): those the client could not create in time (it recorded locally and
+- **Runs with delivery problems** (7 days), **one row per execution** (with many workers an execution leaves
+  dozens of runs with the same problem): how many runs, what happened and on which machines; the execution opens
+  to show its runs one by one. The runs: those the client could not create in time (it recorded locally and
   uploaded them at the end), with the cause (`the server did not answer within 30 s`), the address it connected
   to and how long it waited, the machine and the client version; also those with retries or lost evidence. The
   report of those runs says so on top ("This run arrived at the end"). The client reports it when it closes the
@@ -844,6 +847,10 @@ the machine that runs it:
   permission it can be downloaded from here to report the problem.
 - **Rejected credentials** (Settings permission only): the addresses that failed the token or the login in the
   last 15 min and whether they got blocked; usually a wrong token in the tests `.env`.
+
+If a Maintenance action fails, the message names the cause when there is something to do (data disk full, busy
+database, data folder not writable) and always a **reference**: the same code is in the server log next to the
+full error (`docker compose logs tracereports | grep <reference>`).
 
 ### Storage and retention
 
@@ -866,7 +873,9 @@ so when it starts).
 
 **Clean up now…** (admin) asks how many days to keep, shows first what would be deleted (runs, tests and
 the space it would free) and deletes only after confirming. The last cleanup (when, what and how much it
-freed) and the next one are shown below the selector. A run still in progress is never deleted.
+freed) and the next one are shown below the selector. A run still in progress is never deleted. The cleanup
+(and bulk delete) deletes 25 runs at a time: with a database of several GB it may take a few minutes, but the
+clients keep sending meanwhile. While it works the screen says so and a second click does not repeat it.
 
 API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
 (`{"days": N}`, 0 = keep everything) and `POST /ui/maintenance/retention/run` (`{"days": N}`, or `{}` for

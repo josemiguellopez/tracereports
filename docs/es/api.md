@@ -3,7 +3,7 @@
 🌐 [English](../en/api.md) · **Español**
 
 Base: `http://<servidor>:8080/api/v1`. Todo es JSON, salvo la subida de capturas (multipart) y la
-exportación (ZIP). Los errores responden `{"error": "mensaje"}`.
+exportación (ZIP). Los errores responden `{"error": "mensaje"}`; un error del servidor (5xx) trae además `ref` (el mismo código queda en el log del servidor junto al error completo) y, si la causa es algo que se puede arreglar, `kind`: `disk_full`, `busy` (503 con `Retry-After`), `read_only` o `corrupt`.
 
 **Autenticación**: si el servidor tiene `TRACEREPORTS_TOKEN`, las escrituras requieren
 `Authorization: Bearer <token>` o `X-TraceReports-Token: <token>`. Si tiene `TRACEREPORTS_UI_USER` /

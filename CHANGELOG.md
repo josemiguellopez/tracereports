@@ -6,6 +6,31 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed (Maintenance: cleaning up a big database)
+
+- **Deleting runs no longer scans the whole idempotency table for each run**: deleting a run deletes its
+  idempotency keys (one row per client request, with its response), and that column had no index. On a database
+  of several GB every cleanup or bulk delete held the only writing connection for minutes. New index
+  `idx_idempotency_run` (built once at the first start, which can take a moment on a big database).
+- **Cleanups and bulk deletes go in batches of 25 runs**, each in its own transaction with a passive checkpoint
+  in between: the clients keep writing during a long cleanup and the WAL is reused instead of growing with
+  everything deleted at once (it could fill a tight disk).
+- **"Clean up now" shows it is working**: a spinner, a status line ("deleted in batches… it may take a few
+  minutes"), the days, Cancel and the top button locked, and a second click does not send it again. An error
+  keeps the preview on screen and says the cause and its reference.
+
+### Changed (Maintenance: client connections and errors)
+
+- **Client connections no longer is an endless list**: a summary on top says how many executions had delivery
+  problems, how many slow requests, stalls and rejected credentials (a click opens that list); each list is folded
+  and shows 10 rows with "Show more", and what is open stays open on refresh. Runs with delivery problems are
+  **grouped by execution** (with 16 workers one execution left dozens of identical rows): how many runs, what
+  happened and on which machines, and the execution opens to show its runs.
+- **"internal error" now says what to do and how to find it**: every failed request answers with a reference that
+  is also in the server log next to the full error; a full data disk, a busy database (503 with Retry-After), a
+  data folder that cannot be written or a damaged database file are named, in the UI's language. Nothing of the
+  database goes out to the browser.
+
 ### Changed (Live: clicking the execution map)
 
 - **A click shows at once**: the chosen particle gets a ring that opens and fades right away, before its detail

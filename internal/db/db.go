@@ -203,6 +203,10 @@ UPDATE tests SET test_key = 'name:' || name WHERE test_key = '';
 CREATE INDEX IF NOT EXISTS idx_tests_key ON tests(test_key, run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_context ON runs(project, environment, branch, id);
 CREATE INDEX IF NOT EXISTS idx_runs_search_started ON runs(started_at DESC, id DESC);
+-- borrar una ejecución borra sus claves de idempotencia (ON DELETE CASCADE): sin este índice, cada run
+-- borrado recorría la tabla entera (una fila por envío de los clientes), y la limpieza de una base grande
+-- tenía tomada la escritura por minutos
+CREATE INDEX IF NOT EXISTS idx_idempotency_run ON idempotency(run_id);
 `
 
 // NameKey is the identity of a test reported without its own key: only its name, so two

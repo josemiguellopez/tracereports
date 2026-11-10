@@ -10,5 +10,5 @@ test("los textos de Conexiones y del aviso de entrega del run están en inglés"
 		app.slice(app.indexOf("const dv = r?.delivery"), app.indexOf('const show = S.view === "tests" && sum'))];
 	const texts = new Set(blocks.flatMap((b) => [...b.matchAll(/\btr\("([^"]+)"/g)].map((m) => m[1])));
 	assert.ok(texts.size > 25);
-	for (const s of texts) if (s !== "Run") assert.notEqual(en.t(s), s, `"${s}" sin inglés`);
+	for (const s of texts) if (s !== "Run" && s !== "Runs") assert.notEqual(en.t(s), s, `"${s}" sin inglés`);
 });
