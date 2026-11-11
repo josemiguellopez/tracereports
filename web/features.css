@@ -2384,13 +2384,33 @@ tr.lt-new > td { animation: lt-in 220ms var(--mo-ease) both; }
 .lf-stage::before { content: ""; position: absolute; inset: 0; background: radial-gradient(ellipse at center, transparent 40%, var(--color-surface-raised) 85%); pointer-events: none; }
 .lf-slot { position: absolute; inset: 0; z-index: 3; } /* encima del núcleo: el tooltip del campo nunca queda tapado */
 .lf-wrap { position: absolute; inset: 0; }
-/* Agentes: la ejecución por dentro de un chip (web/liveagents.js). Oscuro siempre, como una ventana al circuito */
-.la-wrap { position: absolute; inset: 0; border-radius: inherit; overflow: hidden; background: #04070e; }
+/* Agentes (web/liveagents.js): la ejecución como un plano técnico, sobre el mismo fondo del Campo. El plano va en
+   el canvas; las anotaciones, en el DOM (texto nítido, se escriben solas) con su línea guía y esquinas de plano */
+.la-wrap { position: absolute; inset: 0; }
+.live-map.is-agents .lf, .live-map.is-agents .lf-stage { min-height: 640px; } /* el plano, libre de las tarjetas de las esquinas */
 .la-canvas { display: block; width: 100%; height: 100%; outline: none; }
 .la-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--color-focus); }
-.live-map.is-agents .lf-stage { background: #04070e; min-height: 600px; }
-.live-map.is-agents .lf { min-height: 600px; }
+.la-notes { position: absolute; inset: 0; pointer-events: none; }
+.la-note { position: absolute; left: 0; top: 0; width: 0; height: 0; padding: 0; border: 0; background: none; font: inherit; color: inherit; --c: var(--color-primary);
+	pointer-events: none; }
+.la-note.nosig, .la-note.fail { --c: var(--color-danger); }
+.la-note.turtle { --c: var(--color-warning); }
+.la-box { position: absolute; left: 0; top: 0; transform: translateY(-50%); pointer-events: auto; cursor: pointer;
+	padding: 4px 10px; font: 700 11px/1.3 var(--font-mono); letter-spacing: .04em; white-space: nowrap; color: var(--c);
+	background: color-mix(in srgb, var(--color-surface) 88%, transparent); border: 1px solid color-mix(in srgb, var(--c) 35%, transparent);
+	box-shadow: 0 6px 18px rgba(0, 0, 0, .08); backdrop-filter: blur(2px);
+	/* esquinas de plano */
+	background-image: linear-gradient(var(--c), var(--c)), linear-gradient(var(--c), var(--c)), linear-gradient(var(--c), var(--c)), linear-gradient(var(--c), var(--c));
+	background-size: 8px 2px, 2px 8px, 8px 2px, 2px 8px; background-repeat: no-repeat;
+	background-position: 0 0, 0 0, 100% 100%, 100% 100%; }
+.la-note.left .la-box { transform: translate(-100%, -50%); }
+.la-box:hover { box-shadow: 0 0 0 2px color-mix(in srgb, var(--c) 30%, transparent), 0 6px 18px rgba(0, 0, 0, .1); }
+.la-box b { font-weight: 700; }
+.la-box b::after { content: "▍"; margin-left: 1px; opacity: .6; animation: la-caret .9s steps(1) infinite; }
+@keyframes la-caret { 50% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .la-box b::after { animation: none; } }
 .live-map.is-agents .lf-stage::before { display: none; }
+.live-map.is-agents .lf-core { background: color-mix(in srgb, var(--color-surface) 78%, transparent); border-color: transparent; box-shadow: 0 0 24px color-mix(in srgb, var(--color-info) 25%, transparent); } /* el texto se lee; la luz, alrededor */
 .lf-canvas { display: block; width: 100%; height: 100%; outline: none; }
 .lf-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--color-focus); }
 .lf-tip { position: absolute; z-index: 5; max-width: 300px; padding: 7px 10px; border-radius: 8px; pointer-events: none; white-space: pre-line;

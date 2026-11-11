@@ -2255,7 +2255,7 @@
 		if (agentsMode) {
 			L.field?.attach(null);
 			// clic en un agente: la tabla con los tests de ese worker (otro clic en el mismo, todos de nuevo)
-			if (!L.agents) L.agents = A.create({ t, onPick: (id) => loadLivePanel(id), onOpen, onHover: prefetchLivePanel,
+			if (!L.agents) L.agents = A.create({ t, onPick: (id) => loadLivePanel(id), onOpen, onHover: prefetchLivePanel, onPause: toggleLivePause,
 				onWorker: (key) => { L.ui.workers = L.ui.workers.length === 1 && L.ui.workers[0] === key ? [] : [key]; renderLiveView(); } });
 			L.agents.attach(slot);
 		} else {

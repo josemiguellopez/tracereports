@@ -26,11 +26,21 @@ with a team that runs TraceReports in Docker on Windows with suites of 16 worker
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
   fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
   point, or above/left when it does not fit in the window.
-- **Live: a third map view, Agents**: the execution from inside a chip — each worker is an agent orbiting the core
-  (the queue and a pass/fail ring); packets go out when a test starts and come back in its color when it ends, over a
-  circuit background with travelling bits. The agent with no signal pulses red, the slow one amber, the idle one is
-  dimmed, and its trail shows its latest tests: who is stuck, whether the work is shared and how much is left, at a
-  glance. Click an agent to filter the table by it; a dot of its trail opens the test. Respects "reduce motion".
+- **Live: a third map view, Agents**: the execution as a reactor, a tilted disk seen in perspective that can be
+  turned by dragging. The core glows with the execution and its ring shows what passed and failed; around it, one
+  segment per worker, with a coil on its inner edge in the worker's state color (running, slow, no signal, idle) and
+  its tests inside as cells (spheres) in order, from the inner edge outwards. It scales: cells are big with few
+  tests and shrink as a worker fills its segment; from then on it shows the latest ones and counts the earlier ones
+  next to its name, and failures always show. Each test that ends drops a particle into the core and a failure sends
+  out a wave. Notes point at what matters with a leader line and type themselves (the worker with no signal, the
+  slowest one, the latest failure), placed where they hide no cell or name. Same controls as the Field: pause, zoom
+  (buttons, + / −, Ctrl + wheel towards the mouse) to point at the exact test, drag to turn (to move when zoomed
+  in), 0 to reset, full screen (F, Esc); with a filter, what does not match is dimmed and does not respond. Click a
+  worker's name to filter the table by it; a cell opens the test. Respects "reduce motion".
+  On opening, the model is sketched first: agent cursors, each with a worker's name and its own way of working (a
+  fast one with a shaky hand, one that stops to think with an hourglass, a CAD one with a crosshair, coordinates,
+  endpoint snaps and angle dimensions, one that erases and redoes), draw the outline of their segments out of step;
+  then the reactor switches on over the sketch. Sketch (B) replays it; a click or a key skips it.
 - **Live lists the earlier executions, for any volume**: Live shows what runs now and what ended in the last 2
   hours; when nothing does, instead of an empty screen it shows the earlier executions master-detail (like the
   Inspector): on the left a compact list, one line per execution grouped by day, with its own scroll that loads

@@ -676,12 +676,20 @@ from any client:
   opens the test, and so does a double click on the particle already chosen (two quick clicks on a new one only
   choose it, they never take you out of Live). **Pause view** (or Space) freezes the field to look into
   something while ingestion goes on in the server: it counts the events arriving and "Resume (+N)" catches up.
-  **Grid**: one square per test, in the order they started; a click opens its detail. **Agents**: the execution from
-  inside a chip. Each worker (or process, when the client does not report it) is an agent orbiting the core, which
-  shows the queue (what has yet to start) and a ring with what passed and failed; when a test starts a packet goes to
-  its agent and when it ends a bit of its color comes back. The agent with no signal pulses red, the slow one amber and
-  the idle one is dimmed; its trail is its latest tests. Clicking an agent leaves only its tests in the table (click
-  again: all); a dot of the trail opens the test's detail. With "reduce motion" it is drawn still. On top, a **ticker** with the latest events that stops
+  **Grid**: one square per test, in the order they started; a click opens its detail. **Agents**: the execution as a reactor, a tilted disk seen in
+  perspective that turns by dragging. The core glows with the execution and its ring shows what passed and failed;
+  around it, one segment per worker (or process, when the client does not report it), with a coil in its state color
+  (running, slow, no signal, idle) and its tests inside as cells, in order from the inner edge. With few tests the
+  cells are big; when a worker fills its segment the latest ones show, the earlier ones are counted next to its name
+  and failures always show. Notes point with a leader line and type themselves (the worker with no signal, the
+  slowest one, the latest failure), hiding no cell or name. Same controls as the Field: pause, zoom (buttons, + / −,
+  Ctrl + wheel) to point at the exact test, drag to turn (to move when zoomed in), 0 to reset and full screen (F,
+  Esc); with a filter, what does not match is dimmed and does not respond. Clicking a worker's name leaves only its
+  tests in the table; a cell opens the test's detail. With "reduce motion" it is drawn still.
+  On opening, the model is sketched first: agents, each with a worker's name and its own way of working (a fast
+  one, one that stops to think, a CAD one with a crosshair, coordinates and dimensions, one that erases and redoes),
+  draw their segments out of step and then the reactor switches on over it. **Sketch** (B) replays it; a click or a
+  key skips it. On top, a **ticker** with the latest events that stops
   on hover, and a clock.
 - The **timeline** starts at the first test (not at the start of the execution), marks **now** with a line
   and compresses long pauses with no test running (≈, with how long they lasted). Ctrl + wheel zooms in or

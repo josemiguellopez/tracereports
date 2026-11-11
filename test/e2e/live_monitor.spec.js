@@ -231,48 +231,131 @@ test("una clave que no existe vuelve a la ejecución más nueva, sin error", asy
 	const info = test.info();
 	info.errors_ = info.errors_.filter((e) => !/status of 404/.test(e));
 });
-test("mapa Agentes: cada worker un agente; el trabado se ve, un clic filtra la tabla por él; la estela abre su test", async ({ page }) => {
+test("mapa Agentes: el reactor señala lo importante; el nombre de un worker filtra la tabla; con «Fallo» lo que pasó no responde; zoom para apuntar al que falló, girarlo y pantalla completa", async ({ page }) => {
 	await open(page);
 	const view = page.locator("#view-live");
 	await view.locator('[data-live-fieldview="agents"]').click();
 	const canvas = view.locator(".la-canvas");
 	await expect(canvas).toHaveAttribute("data-agents", "20");
+	// al abrir, los agentes bocetan el modelo; después se enciende (y aparecen las anotaciones)
+	await expect(canvas).toHaveAttribute("data-sketch", "on");
+	await expect(view.locator(".la-note")).toHaveCount(0);
+	await expect(canvas).toHaveAttribute("data-sketch", "off", { timeout: 6000 });
 	await expect(canvas).toHaveAttribute("aria-label", /Agentes de la ejecución: 20 workers/);
-	await expect(view.locator(".lf-core")).toHaveCount(0); // el núcleo lo dibuja el lienzo
-	// dónde quedó cada agente (el mismo cálculo que usa el lienzo)
-	const at = (pick) => page.evaluate(async (pick) => {
-		const A = window.TraceReportsLiveAgents, LIVE = window.TraceReportsLive;
-		const { execution, now } = await (await fetch("/api/v1/live/execution?key=x%3Asuite-laptop")).json();
-		const c = document.querySelector(".la-canvas"), r = c.getBoundingClientRect();
-		const lay = A.agentsLayout(A.agentsModel(execution, now, LIVE), r.width, r.height);
-		const a = pick === "nosig" ? lay.agents.find((x) => x.state === "no_signal") : lay.agents.find((x) => x.dots.length);
-		const p = pick === "nosig" ? { x: a.x, y: a.y } : a.dots[0];
-		return { x: r.left + p.x, y: r.top + p.y, key: a.key, name: pick === "nosig" ? a.label : a.dots[0].t.name };
-	}, pick);
 	await canvas.scrollIntoViewIfNeeded();
-	// el sin señal: su tarjeta lo dice; un clic deja en la tabla solo sus tests
-	const stuck = await at("nosig");
-	await page.mouse.move(stuck.x, stuck.y);
+	// las anotaciones: el sin señal, el más lento y el último fallo
+	await expect(view.locator(".la-note.nosig")).toContainText("SIN SEÑAL", { timeout: 6000 });
+	await expect(view.locator(".la-note.turtle")).toContainText("LENTO");
+	await expect(view.locator(".la-note.fail")).toContainText("ÚLTIMO FALLO");
+	// dónde quedó cada cosa, con el zoom de ahora (lo que dibujó el lienzo)
+	const plan = () => page.evaluate(() => {
+		const c = document.querySelector(".la-canvas"), r = c.getBoundingClientRect(), lay = c.layout();
+		const { k, x: vx, y: vy } = c.view();
+		const stuck = lay.segs.find((a) => a.state === "no_signal");
+		const cells = lay.segs.flatMap((a) => a.cells);
+		const pass = cells.find((nd) => nd.t.state === "PASS" && nd.t.ended_at), fail = cells.find((nd) => nd.t.state === "FAIL");
+		const at = (p) => ({ x: r.left + vx + p.x * k, y: r.top + vy + p.y * k });
+		return { stuck: { key: stuck.key, ...at(stuck.lp) }, pass: { name: pass.t.name, id: pass.t.id, ...at(pass) }, fail: { name: fail.t.name, id: fail.t.id, r: fail.r, ...at(fail) } };
+	});
+	const p = await plan();
+	// las anotaciones no tapan celdas: se puede apuntar a cualquier test
+	const covered = await page.evaluate(() => {
+		const c = document.querySelector(".la-canvas"), r = c.getBoundingClientRect();
+		const boxes = [...document.querySelectorAll(".la-note .la-box")].map((b) => b.getBoundingClientRect());
+		return c.layout().segs.flatMap((s) => s.cells).filter((cell) => boxes.some((b) => {
+			const x = r.left + cell.x, y = r.top + cell.y;
+			return x > b.left && x < b.right && y > b.top && y < b.bottom;
+		})).map((cell) => cell.t.name);
+	});
+	expect(covered).toEqual([]);
 	const tip = view.locator(".la-wrap .lf-tip");
+	// el nombre del worker trabado: su tarjeta y, con un clic, la tabla con solo sus tests (otro clic: todos)
+	await page.mouse.move(p.stuck.x, p.stuck.y);
 	await expect(tip).toContainText("Sin señal");
-	await expect(tip).toContainText(stuck.key);
-	await page.mouse.click(stuck.x, stuck.y);
-	await expect(view.locator(`[aria-label="Quitar filtro: ${stuck.key}"]`)).toBeVisible();
-	await page.mouse.click(stuck.x, stuck.y); // otro clic en el mismo: todos de nuevo
-	await expect(view.locator(`[aria-label="Quitar filtro: ${stuck.key}"]`)).toHaveCount(0);
-	// un punto de la estela es un test terminado: su tarjeta y, con un clic, su detalle al costado
-	const dot = await at("trail");
-	await page.mouse.move(dot.x, dot.y);
-	await expect(tip).toContainText(dot.name);
-	await page.mouse.click(dot.x, dot.y);
-	await expect(view.locator(".live-panel h4")).toHaveText(dot.name);
+	await page.mouse.click(p.stuck.x, p.stuck.y);
+	await expect(view.locator(`[aria-label="Quitar filtro: ${p.stuck.key}"]`)).toBeVisible();
+	await page.mouse.click(p.stuck.x, p.stuck.y);
+	await expect(view.locator(`[aria-label="Quitar filtro: ${p.stuck.key}"]`)).toHaveCount(0);
+	// un nodo: su tarjeta y, con un clic, su detalle al costado
+	await page.mouse.move(5, 5);
+	await page.mouse.move(p.pass.x, p.pass.y);
+	await expect(tip).toContainText(p.pass.name);
+	await page.mouse.click(p.pass.x, p.pass.y);
+	await expect(view.locator(".live-panel h4")).toHaveText(p.pass.name);
 	await page.keyboard.press("Escape");
-	// con el teclado: las flechas recorren los agentes con su tarjeta
+	// con el filtro "Fallo": el que pasó queda apagado y no responde; el fallo sí
+	await view.locator('.live-tile[data-live-state="FAIL"]').click();
+	await canvas.scrollIntoViewIfNeeded();
+	const q = await plan();
+	await page.mouse.move(5, 5);
+	await page.mouse.move(q.pass.x, q.pass.y);
+	await page.waitForTimeout(300);
+	await expect(tip).toBeHidden();
+	await page.mouse.click(q.pass.x, q.pass.y);
+	await expect(view.locator(".live-panel")).toHaveCount(0);
+	await page.mouse.move(q.fail.x, q.fail.y);
+	await expect(tip).toContainText(q.fail.name);
+	await expect(view.locator(".la-note.nosig")).toHaveCount(0); // las anotaciones también siguen al filtro
+	await view.locator('.live-tile[data-live-state="FAIL"]').click();
+	// zoom: botones y teclas, como en el campo; 0 vuelve
 	await canvas.focus();
+	await page.keyboard.press("+");
+	await expect(canvas).toHaveAttribute("data-zoom", "1.25");
+	await view.locator('.la-wrap [data-lf="in"]').click();
+	await expect(canvas).toHaveAttribute("data-zoom", "1.56");
+	await canvas.focus();
+	await page.keyboard.press("0");
+	await expect(canvas).toHaveAttribute("data-zoom", "1.00");
+	// apuntar al que falló: Ctrl + rueda sobre él lo agranda (queda bajo el mouse) y un clic abre su detalle
+	const f0 = (await plan()).fail;
+	await page.mouse.move(f0.x, f0.y);
+	await page.keyboard.down("Control");
+	for (let i = 0; i < 6; i++) await page.mouse.wheel(0, -100);
+	await page.keyboard.up("Control");
+	await expect.poll(async () => Number(await canvas.getAttribute("data-zoom"))).toBeGreaterThan(1.5);
+	const z = Number(await canvas.getAttribute("data-zoom"));
+	const big = await page.evaluate((id) => { const c = document.querySelector(".la-canvas"); return c.layout().at.get(id).r; }, f0.id);
+	expect(big * z).toBeGreaterThan(f0.r * 1.5); // en pantalla, bastante más grande
+	const f1 = (await plan()).fail; // donde quedó con el zoom (debajo del mouse, salvo en un borde)
+	await page.mouse.move(5, 5);
+	await page.mouse.move(f1.x + 2, f1.y);
+	await expect(tip).toContainText(f0.name);
+	await page.mouse.click(f1.x + 2, f1.y);
+	await expect(view.locator(".live-panel h4")).toHaveText(f0.name);
+	await page.keyboard.press("Escape");
+	await canvas.focus();
+	await page.keyboard.press("0");
+	// sin zoom, arrastrar gira el reactor (la celda cambia de lugar) y 0 lo devuelve
+	await expect(canvas).toHaveAttribute("data-cam", "0.00 0.72");
+	const box = await canvas.boundingBox();
+	await page.mouse.move(box.x + 60, box.y + box.height / 2);
+	await page.mouse.down();
+	await page.mouse.move(box.x + 160, box.y + box.height / 2 - 30, { steps: 5 });
+	await page.mouse.up();
+	await expect(canvas).not.toHaveAttribute("data-cam", "0.00 0.72");
+	expect((await plan()).fail.x).not.toBeCloseTo(f0.x, 0);
+	await canvas.focus();
+	await page.keyboard.press("0");
+	await expect(canvas).toHaveAttribute("data-cam", "0.00 0.72");
+	// B repite el boceto; un clic lo salta sin abrir nada
+	await page.keyboard.press("b");
+	await expect(canvas).toHaveAttribute("data-sketch", "on");
+	const c0 = await canvas.boundingBox();
+	await page.mouse.click(c0.x + c0.width / 2, c0.y + c0.height / 2);
+	await expect(canvas).toHaveAttribute("data-sketch", "off");
+	await expect(view.locator(".live-panel")).toHaveCount(0);
+	await expect(view.locator(".la-note.fail .la-box")).toBeVisible(); // las anotaciones vuelven
+	await canvas.focus();
+	// las flechas recorren los workers, con su tarjeta
 	await page.keyboard.press("ArrowRight");
 	await expect(tip).toContainText("gw0");
+	// pantalla completa (F) y Esc para volver
+	await page.keyboard.press("f");
+	await expect(page.locator("body > .la-wrap.lf-full")).toBeVisible();
+	await page.keyboard.press("Escape");
+	await expect(page.locator("body > .la-wrap.lf-full")).toHaveCount(0);
+	await expect(view.locator(".la-canvas")).toBeVisible();
 	// de vuelta al campo
 	await view.locator('[data-live-fieldview="field"]').click();
-	await expect(view.locator(".lf-core")).toHaveCount(1);
 	await expect(view.locator(".la-canvas")).toHaveCount(0);
 });

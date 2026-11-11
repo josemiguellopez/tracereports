@@ -682,12 +682,21 @@ cualquier cliente:
   nueva solo la eligen: nunca sacan de En vivo). **Pausar vista** (o Espacio) congela el campo
   para analizar mientras la ingesta sigue en el servidor: cuenta los eventos que llegan y "Reanudar (+N)" se
   pone al día. **Cuadrícula**: un cuadro por test, en el orden en que empezaron; un clic abre
-  su detalle. **Agentes**: la ejecución por dentro de un chip. Cada worker (o proceso, si el cliente no lo informa)
-  es un agente en órbita alrededor del núcleo, que muestra la cola (lo que falta empezar) y un anillo con lo que
-  pasó y falló; cuando un test empieza sale un paquete hacia su agente y al terminar vuelve un bit de su color. El
-  agente sin señal palpita en rojo, el lento en ámbar y el desocupado queda apagado; su estela son sus últimos tests.
-  Un clic en un agente deja en la tabla solo sus tests (otro clic, todos); en un punto de la estela, el detalle del
-  test. Con "reducir movimiento" se dibuja quieto. Arriba, una **cinta** con los últimos eventos que
+  su detalle. **Agentes**: la ejecución como un reactor, un disco inclinado que se ve en perspectiva y se
+  gira arrastrando. El núcleo brilla con la ejecución y su anillo dice cuánto pasó y cuánto falló; alrededor, un
+  segmento por worker (o proceso, si el cliente no lo informa), con una bobina del color de su estado (corriendo,
+  lento, sin señal, libre) y sus tests adentro como celdas, en orden desde el borde interior. Con pocos tests las
+  celdas son grandes; cuando un worker llena su segmento se ven los últimos, los anteriores se cuentan junto a su
+  nombre y los fallos se ven siempre. Las anotaciones señalan con una línea guía y se escriben solas (el worker sin
+  señal, el más lento, el último fallo), sin tapar celdas ni nombres. Mismos controles que el Campo: pausa, zoom
+  (botones, + / −, Ctrl + rueda) para apuntar al test exacto, arrastrar para girar (con zoom, para moverse), 0 para
+  restablecer y pantalla completa (F, Esc); con un filtro, lo que no coincide queda apagado y no responde. Un clic en
+  el nombre de un worker deja en la tabla solo sus tests; en una celda, el detalle del test. Con "reducir
+  movimiento" se dibuja quieto.
+  Al abrir, primero se boceta el modelo: unos agentes, cada uno con el nombre de un worker y su manera de trabajar
+  (uno rápido, uno que se queda pensando, uno de CAD con cruz, coordenadas y cotas, uno que borra y rehace), dibujan
+  sus segmentos a destiempo y después el reactor se enciende encima. **Boceto** (B) lo repite; un clic o una tecla
+  lo salta. Arriba, una **cinta** con los últimos eventos que
   se detiene con el mouse, y un reloj.
 - La **línea de tiempo** empieza en el primer test (no en el inicio de la ejecución), marca **ahora** con una
   línea y comprime las pausas largas sin ningún test corriendo (≈, con cuánto duraron). Ctrl + rueda acerca o
