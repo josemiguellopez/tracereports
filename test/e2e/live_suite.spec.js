@@ -803,10 +803,15 @@ test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no
 	await expect(tip.locator(".lfc-state")).toHaveText("Fallo");
 	await expect(tip.locator(".lfc-name")).toHaveText(fail.name);
 	await expect(tip.locator(".lfc-hint")).toContainText("Ctrl + clic");
+	// la tarjeta va en la capa superior: las tarjetas fijas del mapa (ingesta, anomalía, carriles) no la tapan
+	expect(await tip.evaluate((n) => n.matches(":popover-open") && getComputedStyle(n).position)).toBe("fixed");
 	const accent = await tip.evaluate((n) => [getComputedStyle(n).borderLeftColor, getComputedStyle(document.body).getPropertyValue("--color-danger")]);
 	expect(accent[0]).not.toBe("rgba(0, 0, 0, 0)");
 	await page.mouse.move(pass.x, pass.y);
 	await expect(tip).toHaveClass(/st-pass/);
+	// la anomalía: el error en dos líneas (no una cortada), con cortes suaves en / . _ : ]
+	const anom = view.locator(".lf-hud.bl.bad > b");
+	expect(await anom.evaluate((b) => [getComputedStyle(b).webkitLineClamp, getComputedStyle(b).whiteSpace])).toEqual(["2", "normal"]);
 	// filtrado por Fallo: el que pasó se ve tenue pero no se puede tocar
 	await view.locator('.live-tile[data-live-state="FAIL"]').click();
 	await page.evaluate(() => document.querySelector("#view-live .live-map").scrollIntoView({ block: "center" }));

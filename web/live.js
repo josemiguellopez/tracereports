@@ -842,7 +842,7 @@
 					: `<b><i class="lf-dot" aria-hidden="true"></i>${esc(t(I.label))}</b><small>${esc(t("{n} eventos/min", { n: ing.perMin }))} · ${esc(ago)}</small>`}
 				<span class="lf-bars" aria-hidden="true">${bars}</span><span class="lf-bars-x" aria-hidden="true"><small>${esc(t("hace 1 min"))}</small><small>${esc(t("ahora"))}</small></span></div>
 			${top ? `<button type="button" class="lf-hud bl bad" data-live-facet="error" data-v="${esc(top.sig)}" data-tip-title="${esc(t("Anomalía dominante"))}" data-tip="${esc(`${top.sig}\n${t("Clic: ver solo los tests con este error.")}`)}">
-				<span>${esc(t("ANOMALÍA"))}</span><b data-no-i18n>${esc(shortXPaths(top.sig))}</b><small>${esc(t("{n} tests · {f} archivos", { n: top.count, f: top.files.length }))}</small></button>`
+				<span>${esc(t("ANOMALÍA"))}</span><b data-no-i18n>${esc(shortXPaths(top.sig)).replace(/([/._:\]])/g, "$1<wbr>")}</b><small>${esc(t("{n} tests · {f} archivos", { n: top.count, f: top.files.length }))}</small></button>`
 				: `<div class="lf-hud bl ok"><span>${esc(t("ANOMALÍA"))}</span><b>${esc(t("Sin fallos"))}</b><small>${esc(t("nada que agrupar"))}</small></div>`}
 			<div class="lf-hud br" tabindex="0" data-tip="${esc(t("Carriles con un test corriendo ahora, del total de carriles de la ejecución."))}">
 				<span>${esc(t("CARRILES"))}</span><b>${active} / ${g.lanes.length}</b><small>${esc(t("activos"))}</small></div>

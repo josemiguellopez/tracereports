@@ -203,6 +203,14 @@
 		canvas.setAttribute("role", "img");
 		const tip = document.createElement("div");
 		tip.className = "lf-tip"; tip.hidden = true; tip.setAttribute("role", "status");
+		// la tarjeta va en la capa superior del navegador (popover): las tarjetas fijas del mapa (ingesta,
+		// anomalía, carriles) están en otra capa por encima del canvas y la tapaban
+		const topLayer = typeof tip.showPopover === "function";
+		if (topLayer) tip.popover = "manual";
+		const hideTip = () => {
+			tip.hidden = true;
+			if (topLayer && tip.matches(":popover-open")) tip.hidePopover();
+		};
 		const t_ = opts.t || ((x) => x);
 		// la barra de controles (vive con el canvas: no se redibuja con la vista)
 		const bar = document.createElement("div");
@@ -400,7 +408,7 @@
 		function kick() { if (!raf) raf = requestAnimationFrame(loop); }
 
 		function showTip(it, x, y) {
-			if (!it) { tip.hidden = true; return; }
+			if (!it) { hideTip(); return; }
 			tip.innerHTML = "";
 			const c = labels.card?.(it);
 			if (c) cardInto(tip, c, it.name);
@@ -411,6 +419,17 @@
 				tip.append(b, s);
 			}
 			tip.hidden = false;
+			if (topLayer) {
+				if (!tip.matches(":popover-open")) tip.showPopover();
+				// en coordenadas de la ventana: abajo a la derecha del punto; si no cabe, arriba o a la izquierda
+				const r = canvas.getBoundingClientRect(), vx = r.left + x, vy = r.top + y;
+				const tw = tip.offsetWidth, th = tip.offsetHeight, vw = innerWidth, vh = innerHeight;
+				const left = vx + 14 + tw <= vw - 4 ? vx + 14 : vx - 14 - tw;
+				const top = vy + 14 + th <= vh - 4 ? vy + 14 : vy - 14 - th;
+				tip.style.left = Math.max(4, Math.min(vw - tw - 4, left)) + "px";
+				tip.style.top = Math.max(4, Math.min(vh - th - 4, top)) + "px";
+				return;
+			}
 			const tw = tip.offsetWidth, th = tip.offsetHeight;
 			tip.style.left = Math.max(4, Math.min(w - tw - 4, x + 14)) + "px";
 			tip.style.top = Math.max(4, Math.min(h - th - 4, y + 14)) + "px";
@@ -489,7 +508,7 @@
 			if (drag && (e.buttons & 1)) {
 				const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
 				if (!dragged && Math.hypot(dx, dy) < 4) return;
-				if (!dragged) { dragged = true; canvas.setPointerCapture?.(drag.id); wrap.classList.add("lf-dragging"); tip.hidden = true; hover = null; }
+				if (!dragged) { dragged = true; canvas.setPointerCapture?.(drag.id); wrap.classList.add("lf-dragging"); hideTip(); hover = null; }
 				// arrastrar gira (a los lados) e inclina (arriba/abajo); con Shift, mueve
 				if (drag.pan) setView({ panX: drag.v.panX + dx, panY: drag.v.panY + dy });
 				else setView({ yaw: drag.v.yaw + dx * 0.008, pitch: drag.v.pitch - dy * 0.004 });
@@ -507,7 +526,7 @@
 		const endDrag = () => { drag = null; wrap.classList.remove("lf-dragging"); };
 		canvas.addEventListener("pointerup", endDrag);
 		canvas.addEventListener("pointercancel", endDrag);
-		canvas.addEventListener("pointerleave", () => { inside = false; hover = null; tip.hidden = true; draw(); kick(); });
+		canvas.addEventListener("pointerleave", () => { inside = false; hover = null; hideTip(); draw(); kick(); });
 		canvas.addEventListener("click", (e) => {
 			if (dragged) { dragged = false; return; } // fue un arrastre, no un clic
 			const r = canvas.getBoundingClientRect(), it = hitTest(layout, g, e.clientX - r.left, e.clientY - r.top, spin, match);
@@ -567,7 +586,7 @@
 			canvas.setAttribute("aria-label", `${labels.aria} ${it.name}: ${labels.tip(it)}`);
 			draw();
 		});
-		canvas.addEventListener("blur", () => { focusIdx = -1; tip.hidden = true; draw(); kick(); });
+		canvas.addEventListener("blur", () => { focusIdx = -1; hideTip(); draw(); kick(); });
 		// Esc fuera del canvas también sale de la pantalla completa
 		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && expanded) setExpanded(false); }, true);
 

@@ -2324,6 +2324,9 @@ tr.lt-new > td { animation: lt-in 220ms var(--mo-ease) both; }
 .lf-tip { position: absolute; z-index: 5; max-width: 300px; padding: 7px 10px; border-radius: 8px; pointer-events: none; white-space: pre-line;
 	background: var(--color-tooltip-bg, #111); color: var(--color-tooltip-text, #fff); font-size: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.3); }
 .lf-tip b { display: block; font-size: 12.5px; margin-bottom: 2px; overflow-wrap: anywhere; }
+/* en la capa superior (popover): fija a la ventana, por encima de las tarjetas del mapa y de la pantalla completa */
+.lf-tip[popover] { position: fixed; inset: auto; margin: 0; }
+.lf-tip[popover]:not(.lf-card) { border: 0; overflow: visible; }
 .lf-hud { position: absolute; z-index: 4; display: grid; gap: 1px; padding: 6px 9px; min-width: 128px; max-width: 46%; text-align: left;
 	border: 1px solid color-mix(in srgb, var(--color-border) 80%, transparent); border-radius: 6px; font: inherit; color: var(--color-text);
 	background: color-mix(in srgb, var(--color-surface) 94%, transparent); }
@@ -2332,6 +2335,10 @@ tr.lt-new > td { animation: lt-in 220ms var(--mo-ease) both; }
 .lf-hud > span { font: 600 9.5px var(--font-mono); letter-spacing: .12em; color: var(--color-text-muted); }
 .lf-hud > b { display: flex; align-items: center; gap: 6px; font: 700 13px var(--font-mono); letter-spacing: .04em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lf-hud.tr > b, .lf-hud.br > b { justify-content: flex-end; }
+/* la anomalía: el error en dos líneas que cortan donde se puede (/, ., espacio), con … al final; entero en el tooltip */
+.lf-hud.bl.bad { max-width: min(46%, 340px); }
+.lf-hud.bl.bad > b { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; white-space: normal;
+	overflow-wrap: break-word; word-break: break-word; font-size: 12px; line-height: 1.35; letter-spacing: .01em; }
 .lf-hud > small { font-size: 11px; color: var(--color-text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .lf-hud.ok > b { color: var(--color-success); } .lf-hud.warn > b { color: var(--color-warning); }
 .lf-hud.bad > b { color: var(--color-danger); } .lf-hud.done > b { color: var(--color-text-muted); }

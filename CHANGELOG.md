@@ -6,6 +6,14 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed (Live: the map card under the fixed cards, the anomaly cut to one line)
+
+- **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
+  fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
+  point, or above/left when it does not fit in the window.
+- **The anomaly card shows the error in two lines** instead of one cut short, breaking at `/`, `.`, `_`, `:`
+  or `]` of the locator, with "…" at the end; the full text is in its tooltip.
+
 ### Changed (Maintenance: choose any number of days)
 
 - **Keep** and **Clean up now…** share one days picker: 1, 2, 3, 7, 14 and 30 days, 2, 3 and 6 months, 1
