@@ -216,6 +216,27 @@ func (s *Server) liveExecutions(withTests bool, only string) ([]liveExec, error)
 	return out, nil
 }
 
+// execTitle names an execution: its execution_id or, without one, project · branch · commit (with the
+// name of the run when it is a single run).
+func execTitle(executionID, project, branch, commit, firstName string, runs int) string {
+	if executionID != "" {
+		return executionID
+	}
+	parts := []string{}
+	for _, p := range []string{project, branch} {
+		if p != "" {
+			parts = append(parts, p)
+		}
+	}
+	if commit != "" {
+		parts = append(parts, commit[:min(7, len(commit))])
+	}
+	if runs == 1 || len(parts) == 0 {
+		parts = append([]string{firstName}, parts...)
+	}
+	return strings.Join(parts, " · ")
+}
+
 // execMatches: the execution of the key (x:…, g:…) or the one that has the run (r:<id>).
 func execMatches(g db.Execution, key string) bool {
 	if id, ok := strings.CutPrefix(key, "r:"); ok {
@@ -271,22 +292,7 @@ func (s *Server) buildExec(g db.Execution, now int64, withTests bool) (liveExec,
 	if e.Running {
 		e.EndedAt = 0
 	}
-	e.Title = e.ExecutionID
-	if e.Title == "" {
-		parts := []string{}
-		for _, p := range []string{e.Project, e.Branch} {
-			if p != "" {
-				parts = append(parts, p)
-			}
-		}
-		if e.Commit != "" {
-			parts = append(parts, e.Commit[:min(7, len(e.Commit))])
-		}
-		if len(g.Runs) == 1 || len(parts) == 0 {
-			parts = append([]string{first.Name}, parts...)
-		}
-		e.Title = strings.Join(parts, " · ")
-	}
+	e.Title = execTitle(e.ExecutionID, e.Project, e.Branch, e.Commit, first.Name, len(g.Runs))
 	// ETA: con los tests planificados, al ritmo que lleva la ejecución (ya cuenta el paralelismo)
 	if e.Running && e.Planned > e.Done && e.Done > 0 {
 		elapsed := now - e.StartedAt

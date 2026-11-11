@@ -194,6 +194,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/{run_id}/control", s.runControl)
 		r.Get("/live", s.getLive)
 		r.Get("/live/execution", s.getLiveExecution)
+		r.Get("/live/history", s.getLiveHistory)
 		r.Get("/live/endpoints", s.liveEndpoints)
 		r.Get("/runs/{run_id}/export", s.exportRun)
 		r.Get("/runs/{run_id}/tickets", s.listTickets)

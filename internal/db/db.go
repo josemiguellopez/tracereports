@@ -211,6 +211,9 @@ CREATE INDEX IF NOT EXISTS idx_runs_search_started ON runs(started_at DESC, id D
 -- borrado recorría la tabla entera (una fila por envío de los clientes), y la limpieza de una base grande
 -- tenía tomada la escritura por minutos
 CREATE INDEX IF NOT EXISTS idx_idempotency_run ON idempotency(run_id);
+-- el historial de En vivo completa una ejecución encontrada por uno de sus archivos con todos sus runs
+-- (solo los que tienen execution_id: el índice ocupa poco)
+CREATE INDEX IF NOT EXISTS idx_runs_execution ON runs(execution_id) WHERE execution_id != '';
 `
 
 // NameKey is the identity of a test reported without its own key: only its name, so two

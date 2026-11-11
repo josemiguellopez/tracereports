@@ -211,6 +211,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/dom/steps/{seq}` | Un snapshot de paso (`404` si no existe) |
 | GET | `/tests/{test_id}/dom/baseline?label=` | La página del mismo paso en el último PASS del test que guardó sus páginas (`204` si no hay) |
 | GET | `/live` | En vivo: ejecuciones en curso o terminadas en las últimas 2 h, con conteos, progreso y ETA |
+| GET | `/live/history?q=&from=&to=&before=&limit=30` | Ejecuciones anteriores de los últimos 90 días, la más nueva primero, de a páginas: `{total, next, executions}`. `q` busca en el nombre, proyecto, ambiente, rama, execution_id o un archivo de la ejecución (sin distinguir mayúsculas, literal); `from`/`to` son un período en ms Unix; `before` es el `next` de la página anterior (0: no hay más); `limit` hasta 100. Cada ejecución: `{key, title, execution_id, project, environment, branch, running, started_at, ended_at, total, done, runs, counts: {PASS, FAIL}, files}`; se abre una con `/live/execution?key=` |
 | GET | `/live/execution?key=` | Una ejecución con sus corridas y tests (estado `running`, `turtle`, `no_signal` o el resultado, duración, p50/p90, último paso) |
 | GET | `/runs/{run_id}/control` | `{cancel, by, reason}`: lo consultan entre tests los clientes con control remoto |
 | GET | `/tests/{test_id}/drift` | p95 por endpoint del test frente a la mediana de sus ejecuciones anteriores |

@@ -209,6 +209,7 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/dom/steps/{seq}` | One step snapshot (`404` if it does not exist) |
 | GET | `/tests/{test_id}/dom/baseline?label=` | The page of the same step in the test's last PASS that kept its pages (`204` if none) |
 | GET | `/live` | Live: executions running or finished in the last 2 h, with counts, progress and ETA |
+| GET | `/live/history?q=&from=&to=&before=&limit=30` | Earlier executions of the last 90 days, newest first, in pages: `{total, next, executions}`. `q` searches name, project, environment, branch, execution_id or a file of the execution (case-insensitive, literal); `from`/`to` are a period in Unix ms; `before` is the `next` of the previous page (0: no more); `limit` up to 100. Each execution: `{key, title, execution_id, project, environment, branch, running, started_at, ended_at, total, done, runs, counts: {PASS, FAIL}, files}`; open one with `/live/execution?key=` |
 | GET | `/live/execution?key=` | One execution with its runs and tests (state `running`, `turtle`, `no_signal` or the result, duration, p50/p90, last step) |
 | GET | `/runs/{run_id}/control` | `{cancel, by, reason}`: asked by clients with remote control between tests |
 | GET | `/tests/{test_id}/drift` | p95 per endpoint of the test vs. the median of its previous runs |
