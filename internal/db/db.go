@@ -95,6 +95,10 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows a single writer; one connection avoids SQLITE_BUSY under concurrent writes.
 	sqldb.SetMaxOpenConns(1)
+	if err := useTempDir(sqldb, filepath.Join(filepath.Dir(path), "tmp")); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
 	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema + deliveriesSchema + aiUsageSchema + labSchema + similarSchema + liveSchema + sessionsSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)

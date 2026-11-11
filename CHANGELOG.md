@@ -6,6 +6,14 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Fixed (deleting and compacting failed with "disk full" while the disk had space)
+
+- **SQLite's temporary files now go next to the database** (`<DATA_DIR>/tmp`), not to `/tmp`. In the container
+  `/tmp` is a 256 MB tmpfs: deleting runs with a lot of evidence (the statement journal of the DELETE), the
+  automatic retention and compacting a database of several GB (VACUUM) needed more than that and failed with
+  "database or disk is full", shown as "the server's data disk is full" while the data disk had hundreds of GB
+  free. Leftover temporary files of a previous run are removed at startup.
+
 ### Changed (Maintenance: compacting the database apart from deleting)
 
 - **Deleting no longer compacts the database right away**: compacting (VACUUM) rewrites the whole file; on a
