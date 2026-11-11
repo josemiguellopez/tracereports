@@ -235,6 +235,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
 	var e *ai.Escalation
+	facts = s.AI.LocalizedFacts(facts, in.TestID, in.Lang) // después de su huella (revision): la caché no cambia
 	if in.NoAI {
 		e = ai.EscalateTemplate(facts, in.RunID, in.TestID, in.Audience, in.Lang)
 	} else {
@@ -280,6 +281,7 @@ func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool
 		}
 	}
 	var e *ai.Escalation
+	facts = s.AI.LocalizedFacts(facts, ref.TestID, ref.Lang)
 	if noAI {
 		e = ai.EscalateTemplate(facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang)
 	} else {

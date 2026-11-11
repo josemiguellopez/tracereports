@@ -95,3 +95,36 @@ test("Escalar con la suite corriendo: la evidencia que sigue llegando no borra n
 	await request.patch(`/api/v1/tests/${other}/finish`, { data: { status: "PASS" } });
 	await request.patch(`/api/v1/runs/${run}/finish`, {});
 });
+
+test("En vivo: con fallos en dos .py, «Escalar los fallos» dice de qué archivo son y cómo escalar los del otro", async ({ page, request }) => {
+	const exe = `e2e-escalar-dos-${Date.now()}`;
+	const file = async (name, tests) => {
+		const { run_id: run } = await (await request.post("/api/v1/runs", { data: { name, environment: "qa", execution_id: exe, planned: tests.length } })).json();
+		const ids = {};
+		for (const [t, status] of tests) {
+			const { test_id: id } = await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: t } })).json();
+			await request.post(`/api/v1/tests/${id}/logs`, { data: { status, message: `paso ${t}` } });
+			await request.patch(`/api/v1/tests/${id}/finish`, { data: { status, error_message: status === "FAIL" ? `TimeoutException en ${t}` : "" } });
+			ids[t] = id;
+		}
+		await request.patch(`/api/v1/runs/${run}/finish`, {});
+		return { run, ids };
+	};
+	const a = await file("shop/test_checkout.py", [["test_001_pagar", "FAIL"], ["test_002_pagar_otra_vez", "FAIL"]]);
+	const b = await file("shop/test_login.py", [["test_010_ingresar", "FAIL"], ["test_011_salir", "PASS"]]);
+	await page.goto(`/#view=live&exec=${encodeURIComponent(`x:${exe}`)}`);
+	const btn = page.locator(".live-summary [data-live-escalate]");
+	await expect(btn).toContainText("Escalar los fallos de");
+	await expect(btn.locator(".ls-escfile")).toHaveText("test_checkout.py");
+	await expect(btn).toHaveAttribute("data-tip", /2 fallos de test_checkout\.py.*otros 1 archivos se escalan eligiendo el fallo/);
+	await btn.click();
+	await expect(page).toHaveURL(new RegExp(`run=${a.run}&view=escalate`));
+	await expect(page.locator("#esc-scope option")).toHaveCount(3); // la ejecución completa del archivo + sus 2 fallos
+	// el del otro archivo: eligiéndolo
+	await page.goto(`/#view=live&exec=${encodeURIComponent(`x:${exe}`)}`);
+	await page.locator(".la-row", { hasText: "test_010_ingresar" }).click();
+	await page.locator("[data-live-close]").click();
+	await btn.click();
+	await expect(page).toHaveURL(new RegExp(`run=${b.run}&view=escalate`));
+	await expect(page.locator("#esc-scope")).toHaveValue(String(b.ids.test_010_ingresar));
+});

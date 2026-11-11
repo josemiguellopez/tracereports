@@ -26,6 +26,12 @@ with a team that runs TraceReports in Docker on Windows with suites of 16 worker
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
   fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
   point, or above/left when it does not fit in the window.
+- **Escalate: the probable cause in the summary's language, and which file "Escalate the failures" covers**:
+  the local engine picks its language from the test names, so a Spanish summary could show the probable cause in
+  English; the summary now writes the same rule again in its own language (the stored diagnosis does not change, and
+  if the evidence now concludes another rule the stored text stays). In Live, with failures in several files and no
+  failure picked, the button says which file it escalates ("Escalate the failures of test_checkout.py") and that the
+  other files' failures are escalated by picking them (Escalate works per file).
 - **Live timeline: running bars keep their names**: the shine of a running bar moved with a transform, which
   counts as overflow even inside a clipped bar, so depending on the instant a bar that fit looked cut and lost its
   name (and the check failed at random in CI). The shine now moves its background. The timeline also measures its

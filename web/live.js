@@ -1395,7 +1395,21 @@
 		const sel = pick != null && failed.find((x) => x.id === pick);
 		return sel
 			? `<span class="ls-escpick"><a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${sel.run_id}&view=escalate" data-esc-pick="${sel.id}" data-live-escalate data-tip-title="${esc(sel.name)}" data-tip="${esc(t("Arma el reporte de este fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar este fallo"))}</a>${data.panel ? "" : `<button type="button" class="cf-btn cf-btn-sm ls-escpick-x" data-live-escunpick aria-label="${esc(t("Escalar todos los fallos, no solo {n}", { n: sel.name }))}" data-tip="${esc(t("Escalar todos los fallos, no solo {n}", { n: sel.name }))}">×</button>`}</span>`
-			: `<a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${run}&view=escalate" data-esc-pick="0" data-live-escalate data-tip="${esc(t("Arma el reporte del fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar los fallos"))}</a>`;
+			: allFailsButton(failed, run, h);
+	}
+	/**
+	 * Sin un fallo elegido: los fallos del archivo (run) del primero. Escalar trabaja por archivo, así que con
+	 * fallos en varios .py el botón dice de cuál son y cómo escalar los otros (antes decía "los fallos" y
+	 * dejaba afuera los de los demás archivos sin avisar).
+	 */
+	function allFailsButton(failed, run, h) {
+		const { t, esc, icon } = h;
+		const others = new Set(failed.map((x) => x.run_id)).size - 1;
+		const href = `href="#run=${run}&view=escalate" data-esc-pick="0" data-live-escalate`;
+		if (!others) return `<a class="cf-btn cf-btn-sm cf-btn-primary" ${href} data-tip="${esc(t("Arma el reporte del fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar los fallos"))}</a>`;
+		const mine = failed.filter((x) => x.run_id === run), file = String(mine[0]?.file || "").split(/[/·]/).pop().trim();
+		const tip = t("Arma el reporte de los {n} fallos de {f}. Escalar trabaja por archivo: los fallos de los otros {m} archivos se escalan eligiendo el fallo (en Requiere atención o en la tabla).", { n: mine.length, f: file, m: others });
+		return `<a class="cf-btn cf-btn-sm cf-btn-primary" ${href} data-tip-title="${esc(mine[0]?.file || file)}" data-tip="${esc(tip)}">${icon("i-megaphone")}${esc(t("Escalar los fallos de"))} <span class="ls-escfile" data-no-i18n>${esc(file)}</span></a>`;
 	}
 
 	/** Los atajos de teclado de la vista (tecla ?). */

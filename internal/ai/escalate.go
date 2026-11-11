@@ -108,6 +108,9 @@ type Facts struct {
 	AISuggest   string   `json:"ai_suggestion,omitempty"`
 	LocatorPick string   `json:"locator_pick,omitempty"`
 	NoRule      bool     `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
+	// TriageRule: the local engine's rule that wrote the test's triage ("" when an LLM or nothing did).
+	// Its text is in the language the engine chose then; LocalizedFacts writes it again in the escalation's.
+	TriageRule string `json:"-"`
 	Steps       []string `json:"steps,omitempty"`
 	Screenshot  string   `json:"screenshot,omitempty"` // URL relativa de la captura del fallo
 	ShotCaption string   `json:"shot_caption,omitempty"`
@@ -259,6 +262,9 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 		if t.Triage != nil && t.Triage.State == "DONE" {
 			f.Category, f.AISummary, f.AISuggest, f.LocatorPick = t.Triage.Category, t.Triage.Summary, t.Triage.Suggestion, t.Triage.LocatorPick
 			f.NoRule = t.Triage.Provider == ProviderBuiltin && t.Triage.Rule == builtin.DefaultRule
+			if t.Triage.Provider == ProviderBuiltin {
+				f.TriageRule = t.Triage.Rule
+			}
 		}
 		start := 0
 		if len(t.Logs) > 10 {
@@ -437,6 +443,32 @@ func newEscalation(f *Facts, runID, testID int64, audience, lang string) *Escala
 		e.Facts.Assessment = &cp
 	}
 	return e
+}
+
+// LocalizedFacts returns the facts with the test's diagnosis written in lang when the local engine
+// wrote it: the engine picks its language from the test names, so an escalation in Spanish showed the
+// probable cause in English. Its rules are deterministic and exist in both languages, so the same rule
+// is written again in lang; if the evidence now concludes another rule (it changed since), the stored
+// text stays, so the escalation never says something the triage did not. The facts are not changed.
+func (a *Analyzer) LocalizedFacts(f *Facts, testID int64, lang string) *Facts {
+	if f == nil || testID == 0 || f.TriageRule == "" || (lang != "es" && lang != "en") {
+		return f
+	}
+	t, err := a.store.GetTest(testID)
+	if err != nil {
+		return f
+	}
+	in, err := a.builtinInput(t, lang)
+	if err != nil {
+		return f
+	}
+	d := a.redactDiagnosis(builtin.Diagnose(in))
+	if d.Rule != f.TriageRule || d.Summary == "" {
+		return f
+	}
+	c := *f
+	c.AISummary, c.AISuggest = d.Summary, d.Suggestion
+	return &c
 }
 
 func (a *Analyzer) Escalate(ctx context.Context, f *Facts, runID, testID int64, audience, lang string) *Escalation {

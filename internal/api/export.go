@@ -355,10 +355,12 @@ func (s *Server) exportEscalations(runID int64, detail *db.RunDetail, shots *[]s
 			slog.Warn("export: escalation facts", "run_id", runID, "test_id", testID, "err", err)
 			continue
 		}
+		// el diagnóstico del motor local, en cada idioma (una vez por idioma, no por audiencia)
+		byLang := map[string]*ai.Facts{"es": s.AI.LocalizedFacts(facts, testID, "es"), "en": s.AI.LocalizedFacts(facts, testID, "en")}
 		for _, audience := range ai.Audiences {
 			for _, lang := range []string{"es", "en"} {
 				ref := escalationRef{RunID: runID, TestID: testID, Audience: audience, Lang: lang}
-				f := *facts
+				f := *byLang[lang]
 				e := ai.EscalateTemplate(&f, runID, testID, audience, lang)
 				s.withOwner(e)
 				s.withDev(e)
