@@ -39,7 +39,8 @@ tasks.withType<JavaCompile> { options.encoding = "UTF-8" }
 tasks.register<JavaExec>("installChromium") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("com.microsoft.playwright.CLI")
-    args("install", "--with-deps", "chromium")
+    // -PbrowserOnly: solo el navegador, sin las librerías del sistema (cuando apt no está disponible)
+    args(if (project.hasProperty("browserOnly")) listOf("install", "chromium") else listOf("install", "--with-deps", "chromium"))
 }
 
 tasks.test {
