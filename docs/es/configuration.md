@@ -875,15 +875,18 @@ La evidencia vive en la carpeta de datos (`DATA_DIR`; en Docker, el volumen `tra
 - lo que ocupa cada proyecto (sus archivos más su parte de la base, aproximada);
 - los archivos que ninguna ejecución usa (de borrados interrumpidos o versiones anteriores).
 
-**Retención.** *Conservar* elige cuántos días de ejecuciones se guardan (30, 60, 90, 180, 365 o todo) sin
-reiniciar el servidor; necesita el mismo permiso que Ajustes. Cada 6 horas se borran las ejecuciones
-terminadas más antiguas, con sus capturas, y se compacta la base. `TRACEREPORTS_RETENTION_DAYS` manda sobre
+**Retención.** *Conservar* elige cuántos días de ejecuciones se guardan sin reiniciar el servidor: opciones de 1, 2, 3,
+7, 14 y 30 días, 2, 3 y 6 meses, 1 año o todo, y **Otro…** para escribir cualquier número de días (de 1 a
+3650; se guarda con Enter o al salir del campo). Necesita el mismo permiso que Ajustes. Cada 6 horas se borran
+las ejecuciones terminadas más antiguas, con sus capturas; la base se compacta aparte (ver abajo). `TRACEREPORTS_RETENTION_DAYS` manda sobre
 la interfaz y bloquea el selector. Sin ninguna de las dos no se borra nada (y el servidor lo avisa al
 arrancar).
 
-**Limpiar ahora…** (administración) pregunta cuántos días conservar, muestra primero qué se borraría
-(ejecuciones, tests y el espacio que se liberaría) y borra solo al confirmar. Bajo el selector se ven la
-última limpieza (cuándo, qué y cuánto liberó) y la próxima. Una ejecución en curso nunca se borra. La limpieza
+**Limpiar ahora…** (administración) pregunta cuántos días conservar, con las mismas opciones y **Otro…**,
+muestra primero qué se borraría (ejecuciones, tests y el espacio que se liberaría; con **Otro…** se actualiza
+mientras escribes), la fecha de corte y la ejecución más antigua, y borra solo al confirmar. Bajo el selector
+se ven la última limpieza (cuándo, qué y cuánto liberó; si se cortó con un error, lo que alcanzó a borrar y el
+error) y la próxima. Una ejecución en curso nunca se borra. La limpieza
 (y eliminar en lote) borra de a 25 ejecuciones por vez: con una base de varios GB puede tardar unos minutos,
 pero los clientes siguen enviando mientras tanto. Mientras trabaja, la pantalla lo dice y un segundo clic no la
 repite.

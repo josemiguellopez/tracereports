@@ -4761,9 +4761,29 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		return "";
 	}
 
-	// cuántos días conservar: las opciones del selector (0 = todo)
-	const RETENTION_CHOICES = [0, 30, 60, 90, 180, 365];
-	const retentionText = (d) => (d ? tr("{n} días", { n: d }) : tr("Conservar todo"));
+	// cuántos días: opciones rápidas cortas (una suite diaria) y largas; "Otro…" escribe cualquiera
+	const DAY_PRESETS = [1, 2, 3, 7, 14, 30, 60, 90, 180, 365];
+	const MAX_DAYS = 3650;
+	const retentionText = (d) => !d ? tr("Conservar todo") : d === 1 ? tr("1 día") : d === 365 ? tr("1 año")
+		: d >= 60 && d % 30 === 0 ? tr("{n} meses", { n: d / 30 }) : tr("{n} días", { n: d });
+	/**
+	 * Selector de días ("Conservar", "Borrar lo de más de"): opciones rápidas y "Otro…", que abre un
+	 * campo para escribir los días (1 a 3650). Un valor que no está entre las opciones se ve en el campo.
+	 */
+	function daysPicker(key, value, { zero = false, disabled = false } = {}) {
+		const ui = (S.maint.daysCustom ||= {});
+		const custom = ui[key] || (value > 0 && !DAY_PRESETS.includes(value));
+		const off = disabled ? "disabled" : "";
+		const opts = [...(zero ? [0] : []), ...DAY_PRESETS].map((d) => `<option value="${d}" ${!custom && d === value ? "selected" : ""}>${retentionText(d)}</option>`).join("");
+		return `<span class="days-pick"><select data-days-pick="${key}" ${off}>${opts}<option value="custom" ${custom ? "selected" : ""}>${tr("Otro…")}</option></select>
+			${custom ? `<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="days-input" data-days-input="${key}" value="${value > 0 ? value : ""}" ${off}
+				aria-label="${esc(tr("Días (de 1 a {n})", { n: MAX_DAYS }))}" placeholder="${esc(tr("días"))}"><span class="days-unit">${tr("días")}</span>` : ""}</span>`;
+	}
+	/** Los días escritos en "Otro…": un entero de 1 a 3650, o null. */
+	function typedDays(input) {
+		const v = input.value.trim(), n = Number(v);
+		return /^[0-9]+$/.test(v) && n >= 1 && n <= MAX_DAYS ? n : null;
+	}
 
 	/** Tarjeta de almacenamiento: disco, lo que ocupa la evidencia, ritmo, proyectos y retención. */
 	function storageCard() {
@@ -4789,12 +4809,11 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			<table class="stor-table"><thead><tr><th>${tr("Proyecto")}</th><th>${tr("Ejecuciones")}</th><th>Tests</th><th>${tr("Espacio (aprox.)")}</th></tr></thead>
 			<tbody>${st.projects.map((p) => `<tr><td data-no-i18n>${esc(p.project || tr("(sin proyecto)"))}</td><td>${p.runs}</td><td>${p.tests}</td><td>${fmtBytes(p.bytes)}</td></tr>`).join("")}</tbody></table>
 			${st.more_projects ? `<small>${tr("y {n} proyecto(s) más", { n: st.more_projects })}</small>` : ""}</details>` : "";
-		const choices = [...new Set([...RETENTION_CHOICES, ret.days])].sort((a, b) => (a || 1e9) - (b || 1e9));
-		const last = ret.last ? tr("Última limpieza: {d} · {r} ejecución(es) · liberó {b}", { d: fmtDateTime(ret.last.at), r: ret.last.runs, b: fmtBytes(ret.last.freed_bytes) }) : tr("Todavía no se limpió nada.");
+		const last = (ret.last ? tr("Última limpieza: {d} · {r} ejecución(es) · liberó {b}", { d: fmtDateTime(ret.last.at), r: ret.last.runs, b: fmtBytes(ret.last.freed_bytes) }) : tr("Todavía no se limpió nada."))
+			+ (ret.last?.error ? ` · <span class="stor-cut">${tr("se cortó con un error:")} <span data-no-i18n>${esc(ret.last.error)}</span></span>` : "");
 		const next = ret.days && ret.next_at ? ` · ${tr("Próxima: {d}", { d: fmtDateTime(ret.next_at) })}` : "";
 		const retention = `<div class="stor-retention">
-			<label class="m-suite"><span>${tr("Conservar")}</span><select data-stor-retention ${ret.editable ? "" : "disabled"}>
-				${choices.map((d) => `<option value="${d}" ${d === ret.days ? "selected" : ""}>${retentionText(d)}</option>`).join("")}</select></label>
+			<label class="m-suite"><span>${tr("Conservar")}</span>${daysPicker("retention", ret.days, { zero: true, disabled: !ret.editable })}</label>
 			<p>${ret.days ? tr("Cada {h} h se borran las ejecuciones terminadas de más de {n} días, con sus capturas.", { h: ret.every_hours, n: ret.days }) : tr("Sin retención: la evidencia se guarda para siempre.")}
 				${ret.source === "env" ? `<small>${tr("Lo fija TRACEREPORTS_RETENTION_DAYS en el servidor.")}</small>` : ""}
 				<small>${last}${next}</small></p>
@@ -4850,11 +4869,26 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		const busy = c.busy, off = busy ? "disabled" : "";
 		const progress = busy ? `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(tr("Limpiando {r} ejecución(es) de más de {n} días… se borran de a tandas y los clientes siguen enviando; con una base grande puede tardar unos minutos.", { r: p?.runs || 0, n: c.days }))}</p>` : "";
 		return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${esc(tr("Limpiar ahora"))}" ${busy ? 'aria-busy="true"' : ""}>
-			<label class="m-suite"><span>${tr("Borrar lo de más de")}</span><select data-stor-clean-days ${off}>
-				${RETENTION_CHOICES.filter(Boolean).map((d) => `<option value="${d}" ${d === c.days ? "selected" : ""}>${retentionText(d)}</option>`).join("")}</select></label>
+			<div class="clean-days"><label class="m-suite"><span>${tr("Borrar lo de más de")}</span>${daysPicker("clean", c.days, { disabled: busy })}</label>
+				<small class="m-hint" data-clean-cutoff>${tr("Se borra lo que empezó antes del {d}", { d: fmtDateTime(Date.now() - c.days * 864e5) })}${S.maint.storage?.oldest_run ? ` · ${tr("la ejecución más antigua es del {d}", { d: fmtDateTime(S.maint.storage.oldest_run) })}` : ""}</small></div>
 			${body}${progress}
 			<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-stor-clean-go ${busy || !p?.runs ? "disabled" : ""}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Limpiando…")}` : tr("Limpiar")}</button>
 				<button type="button" class="cf-btn cf-btn-sm" data-stor-clean-cancel ${off}>${tr("Cancelar")}</button></div></div>`;
+	}
+
+	/** Aplica los días elegidos: en "Limpiar ahora", la vista previa; en "Conservar", se guarda. */
+	async function applyDays(key, days) {
+		const m = S.maint;
+		if (key === "clean") {
+			if (m.clean && !m.clean.busy && !(days === m.clean.days && m.clean.preview)) { m.clean.days = days; await previewClean(); }
+			return;
+		}
+		if (key !== "retention" || days === m.storage?.retention?.days) return;
+		try {
+			const r = await apiSend("PUT", "/api/v1/ui/maintenance/retention", { days });
+			m.msg = { ok: true, text: r.days ? tr("Listo: se conservarán los últimos {n} días; lo más antiguo se borra en la próxima limpieza.", { n: r.days }) : tr("Listo: la evidencia se guarda para siempre.") };
+		} catch (err) { m.msg = { ok: false, text: err.message }; }
+		await loadStorage();
 	}
 
 	async function previewClean() {
@@ -4902,6 +4936,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 					<th>${tr("Ejecución")}</th><th>${tr("Proyecto · ambiente · rama")}</th><th>${tr("Estado")}</th><th>Tests</th><th>${tr("Inicio")}</th><th>${tr("Cierre")}</th>
 				</tr></thead><tbody>${runs.map((r) => maintRow(r, act)).join("")}</tbody></table></div>
 			</div>`;
+		const typing = document.activeElement?.matches?.("[data-days-input]") ? { key: document.activeElement.dataset.daysInput, at: document.activeElement.selectionStart } : null;
 		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Mantenimiento")}</h4>
 				<p class="page-sub">${tr("Cuánto ocupa la evidencia y cuánto se conserva, y las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos.")}</p></div></div>
 			${storageCard()}
@@ -4916,6 +4951,10 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			</div>
 			${m.msg ? `<p class="set-msg ${m.msg.ok ? "ok" : "err"}" role="status">${esc(m.msg.text)}</p>` : ""}
 			${table}`);
+		if (typing) {
+			const inp = el.querySelector(`[data-days-input="${typing.key}"]`);
+			if (inp && document.activeElement !== inp) { inp.focus(); inp.setSelectionRange(typing.at, typing.at); }
+		}
 		// "Ver conexiones →" del aviso de un run: se llega a esa tarjeta
 		if (m.focusConn && m.conn?.data) { m.focusConn = false; $("#maint-connections")?.scrollIntoView({ block: "start", behavior: "smooth" }); }
 	}
@@ -4970,6 +5009,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			if (e.target.closest("[data-maint-cancel]")) { m.action = null; renderMaintenance(); return; }
 			if (e.target.closest("[data-stor-clean]")) {
 				m.clean = { days: m.storage?.retention?.days || 90, preview: null, busy: false };
+				(m.daysCustom ||= {}).clean = false;
 				m.msg = null;
 				previewClean();
 				return;
@@ -5016,15 +5056,27 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			}
 			const f = e.target.closest("[data-maint-filter]");
 			if (f) { m[f.dataset.maintFilter] = f.value; m.msg = null; loadMaintenance(); return; }
-			const cd = e.target.closest("[data-stor-clean-days]");
-			if (cd && m.clean && !m.clean.busy) { m.clean.days = Number(cd.value); previewClean(); return; }
-			const ret = e.target.closest("[data-stor-retention]");
-			if (ret) {
-				try {
-					const r = await apiSend("PUT", "/api/v1/ui/maintenance/retention", { days: Number(ret.value) });
-					m.msg = { ok: true, text: r.days ? tr("Listo: se conservarán los últimos {n} días; lo más antiguo se borra en la próxima limpieza.", { n: r.days }) : tr("Listo: la evidencia se guarda para siempre.") };
-				} catch (err) { m.msg = { ok: false, text: err.message }; }
-				await loadStorage();
+			const dp = e.target.closest("[data-days-pick]");
+			if (dp) {
+				const key = dp.dataset.daysPick, ui = (m.daysCustom ||= {});
+				if (dp.value === "custom") { // abre el campo con lo que había, listo para escribir
+					ui[key] = true;
+					renderMaintenance();
+					const inp = el.querySelector(`[data-days-input="${key}"]`);
+					inp?.focus();
+					inp?.select();
+					return;
+				}
+				ui[key] = false;
+				await applyDays(key, Number(dp.value));
+				return;
+			}
+			const di = e.target.closest("[data-days-input]");
+			if (di) {
+				const n = typedDays(di);
+				if (n === null) { di.setCustomValidity(tr("Escribe un número de días entre 1 y {n}.", { n: MAX_DAYS })); di.reportValidity(); return; }
+				di.setCustomValidity("");
+				await applyDays(di.dataset.daysInput, n);
 				return;
 			}
 			const stale = e.target.closest("[data-maint-stale]");
@@ -5036,6 +5088,20 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 				} catch (err) { m.msg = { ok: false, text: err.message }; }
 				renderMaintenance();
 			}
+		});
+		// al limpiar, la vista previa sigue lo que se escribe (sin esperar a salir del campo)
+		let typed = 0;
+		el.addEventListener("input", (e) => {
+			const di = e.target.closest("[data-days-input]");
+			if (!di) return;
+			di.setCustomValidity("");
+			if (di.dataset.daysInput !== "clean") return;
+			clearTimeout(typed);
+			typed = setTimeout(() => { const n = typedDays(di); if (n !== null && m.clean && !m.clean.busy && n !== m.clean.days) applyDays("clean", n); }, 350);
+		});
+		el.addEventListener("keydown", (e) => {
+			const di = e.target.closest("[data-days-input]");
+			if (di && e.key === "Enter") { e.preventDefault(); di.dispatchEvent(new Event("change", { bubbles: true })); }
 		});
 		el.addEventListener("submit", (e) => {
 			const f = e.target.closest("[data-maint-close-form]");

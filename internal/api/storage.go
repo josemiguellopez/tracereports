@@ -46,6 +46,8 @@ type RetentionRun struct {
 	FreedBytes int64  `json:"freed_bytes"`
 	Trigger    string `json:"trigger"` // auto | manual
 	By         string `json:"by,omitempty"`
+	// Error: la limpieza se cortó con un error; lo de Runs y FreedBytes sí se borró
+	Error string `json:"error,omitempty"`
 }
 
 // retentionState is the cleanup in progress and the next automatic one.
@@ -127,15 +129,21 @@ func (s *Server) PurgeOld(days int, trigger, by string) (RetentionRun, error) {
 			"older_than_days", days, "trigger", trigger)
 	}
 	if purgeErr != nil {
+		run.Error = purgeErr.Error()
+	}
+	// también una limpieza cortada a medias: lo que borró se ve en "Última limpieza" (decía 0)
+	if purgeErr == nil || n > 0 {
+		if raw, err := json.Marshal(run); err == nil {
+			if err := s.Store.SaveSettings(map[string]string{settingRetentionLast: string(raw)}); err != nil {
+				slog.Error("retention: save the last cleanup", "err", err)
+			}
+		}
+	}
+	if purgeErr != nil {
 		if n > 0 {
 			s.publish("run", 0, 0, map[string]string{"action": "deleted"})
 		}
 		return run, purgeErr
-	}
-	if raw, err := json.Marshal(run); err == nil {
-		if err := s.Store.SaveSettings(map[string]string{settingRetentionLast: string(raw)}); err != nil {
-			slog.Error("retention: save the last cleanup", "err", err)
-		}
 	}
 	s.publish("run", 0, 0, map[string]string{"action": "deleted"}) // las listas abiertas se ponen al día
 	return run, nil

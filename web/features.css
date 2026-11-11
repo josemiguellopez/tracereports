@@ -535,6 +535,21 @@ fieldset:disabled .prov-card { cursor: not-allowed; opacity: .7; }
 .stor-retention { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; border-top: 1px solid var(--color-border); padding-top: 12px; }
 .stor-retention p { flex: 1; min-width: 220px; margin: 0; font-size: 13px; }
 .stor-retention small { display: block; color: var(--color-text-muted); }
+/* selector de días: opciones rápidas y "Otro…" con el campo al lado */
+.days-pick { display: inline-flex; align-items: center; gap: 6px; }
+.days-input {
+	width: 4.5em; background: var(--color-surface); color: var(--color-text); border: 1px solid var(--color-border);
+	border-radius: var(--radius); padding: 6px 8px; font: inherit; font-size: 13px; text-align: right;
+}
+.days-input:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 1px; }
+.days-input:invalid { border-color: var(--color-fail, #e5484d); }
+.days-unit { font-size: 13px; color: var(--color-text-muted); }
+.clean-days { grid-column: 1 / -1; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
+.maint-confirm .days-pick select { width: auto; }
+.maint-confirm .days-input { width: 4.5em; }
+.clean-days .m-suite > span, .stor-retention .m-suite > span { white-space: nowrap; }
+.days-pick select { min-width: 9.5em; }
+.stor-cut { color: var(--color-fail, #e5484d); }
 .maint-stale-icon { color: var(--color-warning); display: inline-flex; }
 .maint-stale-icon svg { width: 22px; height: 22px; }
 .maint-stale-text { flex: 1; min-width: 220px; }

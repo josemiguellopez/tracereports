@@ -6,6 +6,14 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+### Changed (Maintenance: choose any number of days)
+
+- **Keep** and **Clean up now…** share one days picker: 1, 2, 3, 7, 14 and 30 days, 2, 3 and 6 months, 1
+  year (and everything, for Keep), plus **Other…** to type any number of days (1 to 3650). In Clean up now the
+  preview follows what you type, and the cutoff date and the oldest run are shown next to it.
+- **A cleanup cut halfway is recorded**: "Last cleanup" said 0 runs after a retention that deleted 875 and then
+  failed; it now shows what was deleted and the error.
+
 ### Fixed (deleting and compacting failed with "disk full" while the disk had space)
 
 - **SQLite's temporary files now go next to the database** (`<DATA_DIR>/tmp`), not to `/tmp`. In the container

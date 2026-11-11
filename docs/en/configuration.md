@@ -865,15 +865,18 @@ attachments). **Maintenance → Storage** shows:
 - what each project takes (its files plus its share of the database, approximate);
 - files no run uses (left by interrupted deletions or earlier versions).
 
-**Retention.** *Keep* chooses how many days of runs to keep (30, 60, 90, 180, 365 or everything) without
-restarting the server; it needs the same permission as Settings. Every 6 hours the finished runs older
-than that are deleted with their screenshots and the database is compacted. `TRACEREPORTS_RETENTION_DAYS`
+**Retention.** *Keep* chooses how many days of runs to keep without restarting the server: 1, 2, 3, 7, 14 or 30
+days, 2, 3 or 6 months, 1 year or everything, and **Other…** to type any number of days (1 to 3650; saved
+with Enter or on leaving the field). It needs the same permission as Settings. Every 6 hours the finished
+runs older than that are deleted with their screenshots; the database is compacted apart (see below). `TRACEREPORTS_RETENTION_DAYS`
 wins over the interface and locks the selector. Without either, nothing is deleted (and the server says
 so when it starts).
 
-**Clean up now…** (admin) asks how many days to keep, shows first what would be deleted (runs, tests and
-the space it would free) and deletes only after confirming. The last cleanup (when, what and how much it
-freed) and the next one are shown below the selector. A run still in progress is never deleted. The cleanup
+**Clean up now…** (admin) asks how many days to keep, with the same choices and **Other…**, shows first
+what would be deleted (runs, tests and the space it would free; with **Other…** it updates as you type), the
+cutoff date and the oldest run, and deletes only after confirming. The last cleanup (when, what and how much
+it freed; if it stopped with an error, what it managed to delete and the error) and the next one are shown
+below the selector. A run still in progress is never deleted. The cleanup
 (and bulk delete) deletes 25 runs at a time: with a database of several GB it may take a few minutes, but the
 clients keep sending meanwhile. While it works the screen says so and a second click does not repeat it.
 

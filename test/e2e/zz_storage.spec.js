@@ -27,7 +27,7 @@ test("Mantenimiento: almacenamiento, retención y limpiar ahora con vista previa
 	await expect(card).toContainText("Sin retención: la evidencia se guarda para siempre.");
 
 	// la retención se guarda desde la interfaz
-	await card.locator("[data-stor-retention]").selectOption("90");
+	await card.locator("[data-days-pick=\"retention\"]").selectOption("90");
 	await expect(page.locator(".set-msg.ok")).toContainText("se conservarán los últimos 90 días");
 	await expect(card).toContainText("se borran las ejecuciones terminadas de más de 90 días");
 	expect((await (await request.get("/api/v1/maintenance/storage")).json()).retention.days).toBe(90);
@@ -35,8 +35,8 @@ test("Mantenimiento: almacenamiento, retención y limpiar ahora con vista previa
 	// limpiar ahora: la vista previa dice lo mismo que la API antes de borrar nada (se cancela)
 	await card.locator("[data-stor-clean]").click();
 	const confirm = card.locator(".maint-confirm");
-	await expect(confirm.locator("[data-stor-clean-days]")).toHaveValue("90");
-	await confirm.locator("[data-stor-clean-days]").selectOption("30");
+	await expect(confirm.locator("[data-days-pick=\"clean\"]")).toHaveValue("90");
+	await confirm.locator("[data-days-pick=\"clean\"]").selectOption("30");
 	const pv = await (await request.get("/api/v1/maintenance/storage/preview?days=30")).json();
 	if (pv.runs) {
 		await expect(confirm).toContainText(`Se borrarán ${pv.runs} ejecución(es) terminadas de más de 30 días (${pv.tests} tests)`);
@@ -73,7 +73,7 @@ test("Limpiar ahora: mientras limpia dice qué pasa, todo queda bloqueado y un s
 	await expect(go.locator(".maint-spin")).toHaveCount(1);
 	await expect(confirm.locator(".maint-progress[role=status]")).toContainText("se borran de a tandas");
 	await expect(confirm).toHaveAttribute("aria-busy", "true");
-	await expect(confirm.locator("[data-stor-clean-days]")).toBeDisabled();
+	await expect(confirm.locator("[data-days-pick=\"clean\"]")).toBeDisabled();
 	await expect(confirm.locator("[data-stor-clean-cancel]")).toBeDisabled();
 	await expect(card.locator("[data-stor-clean]")).toBeDisabled();
 	expect(calls).toBe(1);
@@ -132,4 +132,60 @@ test("Compactar ahora: sin espacio en el disco no deja empezar y dice por qué",
 	const confirm = page.locator(".maint-confirm", { hasText: "Se reescribe la base" });
 	await expect(confirm.locator(".set-msg.err")).toContainText("No hay espacio suficiente para compactar");
 	await expect(confirm.locator("[data-stor-compact-go]")).toBeDisabled();
+});
+
+test("días a elección: opciones cortas y largas, «Otro…» con vista previa en vivo y la retención con cualquier número de días", async ({ page, request }) => {
+	const asked = [];
+	await page.route("**/api/v1/maintenance/storage/preview?**", (r) => {
+		const days = Number(new URL(r.request().url()).searchParams.get("days"));
+		asked.push(days);
+		return r.fulfill({ json: { days, runs: days, tests: days * 3, files: 0, files_bytes: 0, db_bytes_approx: 2 ** 20, freed_bytes_approx: 2 ** 20 } });
+	});
+	await page.goto("/#view=maintenance");
+	const card = page.locator(".stor-card");
+	const keep = card.locator('[data-days-pick="retention"]');
+	// opciones de 1 día a 1 año, y "Otro…"
+	for (const label of ["Conservar todo", "1 día", "2 días", "3 días", "7 días", "14 días", "30 días", "2 meses", "6 meses", "1 año", "Otro…"])
+		await expect(keep.locator("option", { hasText: label })).toHaveCount(1);
+
+	// limpiar: "Otro…" abre el campo con el foco; lo que se escribe actualiza la vista previa sin salir del campo
+	await card.locator("[data-stor-clean]").click();
+	const confirm = card.locator(".maint-confirm");
+	await confirm.locator('[data-days-pick="clean"]').selectOption("custom");
+	const days = confirm.locator('[data-days-input="clean"]');
+	await expect(days).toBeFocused();
+	await days.fill("45");
+	await expect(confirm).toContainText("Se borrarán 45 ejecución(es) terminadas de más de 45 días (135 tests)");
+	await expect(days).toBeFocused(); // la vista previa no le quita el foco a lo que se escribe
+	await expect(confirm.locator("[data-clean-cutoff]")).toContainText("Se borra lo que empezó antes del");
+	await expect(confirm.locator("[data-clean-cutoff]")).toContainText("la ejecución más antigua es del");
+	// un valor fuera de rango no pide nada al servidor y lo dice
+	await days.fill("0");
+	await days.press("Enter");
+	expect(await days.evaluate((el) => el.validationMessage)).toContain("entre 1 y 3650");
+	expect(asked).not.toContain(0);
+	await confirm.locator("[data-stor-clean-cancel]").click();
+
+	// la retención con cualquier número de días: se guarda con Enter y se ve en el campo al volver
+	await keep.selectOption("custom");
+	const keepDays = card.locator('[data-days-input="retention"]');
+	await keepDays.fill("5");
+	await keepDays.press("Enter");
+	await expect(page.locator(".set-msg.ok")).toContainText("se conservarán los últimos 5 días");
+	expect((await (await request.get("/api/v1/maintenance/storage")).json()).retention.days).toBe(5);
+	await page.reload();
+	await expect(page.locator('.stor-card [data-days-pick="retention"]')).toHaveValue("custom");
+	await expect(page.locator('.stor-card [data-days-input="retention"]')).toHaveValue("5");
+});
+
+test("una limpieza que se cortó a medias dice cuánto borró y el error", async ({ page }) => {
+	await page.route("**/api/v1/maintenance/storage", async (r) => {
+		const json = await (await r.fetch()).json();
+		json.retention.last = { at: Date.now() - 60000, days: 1, runs: 875, files: 52545, freed_bytes: 5719252473, trigger: "auto", error: "database or disk is full (13)" };
+		return r.fulfill({ json });
+	});
+	await page.goto("/#view=maintenance");
+	const card = page.locator(".stor-card");
+	await expect(card).toContainText("875 ejecución(es)");
+	await expect(card.locator(".stor-cut")).toContainText("se cortó con un error: database or disk is full (13)");
 });
