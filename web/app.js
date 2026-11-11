@@ -30,7 +30,7 @@
 			storage: null, storageError: null, clean: null },
 		runSearch: { q: "", project: "", environment: "", branch: "", tag: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent", items: [], cursor: "", total: 0, loading: false, error: null, selected: 0, compare: [], facets: {}, timer: 0, newCount: 0 },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
-		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0 },
+		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0, stale: false },
 		settings: { data: null, form: null, msg: null, busy: false, error: null, loading: false,
 			usage: null, usageError: null, usageLoading: false, status: null, statusLoading: false,
 			gen: {}, snips: {}, connTab: "ps", check: null, checkInput: null, checking: false,
@@ -270,7 +270,8 @@
 			return;
 		}
 		if (!current() || id !== S.runId) return; // ya se eligió otra ejecución
-		if (S.run && JSON.stringify(S.run) !== JSON.stringify(run)) invalidateEscalation();
+		// otra ejecución, o cambió lo que se escala (los pasos de otros tests de la suite que sigue no cuentan)
+		if (S.run && (S.run.id !== run.id || escEvidence(S.run) !== escEvidence(run))) invalidateEscalation();
 		if (S.run?.id !== run.id || run.status !== "RUNNING") S.closeRun = null;
 		S.run = run;
 		S.runLoadedAt = Date.now();
@@ -293,7 +294,7 @@
 		}
 		if (!current() || id !== S.testId) return; // ya se eligió otro test
 		test.logs ||= []; // un test recién iniciado llega sin "logs" (omitempty)
-		if (S.test?.id === id && JSON.stringify(S.test) !== JSON.stringify(test)) {
+		if (S.test?.id === id && JSON.stringify(S.test) !== JSON.stringify(test) && (!S.esc.test || S.esc.test === id)) {
 			invalidateEscalation();
 			if (S.view === "escalate") renderEscalate();
 		}
@@ -1625,6 +1626,7 @@
 			const known = livePanelCache().get(id), prev = L.panel;
 			// lo que ya se tiene de ese test; si no, con el panel abierto, lo anterior atenuado hasta que
 			// llegue lo nuevo (el encabezado ya es del test elegido): nunca un panel vacío entre medio
+			L.ui.escPick = id; // Escalar sigue con este test aunque se cierre el panel (hasta elegir otro o soltarlo)
 			L.panel = { id, tab: prev?.tab || "trace",
 				...(known ? { test: known.test, net: known.net, netAt: known.netAt } : prev?.test ? { test: prev.test, net: prev.net, stale: true } : {}) };
 			renderLiveView();
@@ -1815,6 +1817,7 @@
 			if (d("[data-live-alllanes]")) { ui().allLanes = !ui().allLanes; return redraw(); }
 			if ((b = d("[data-live-zoom]"))) { const z = b.dataset.liveZoom; return instant(b, () => { ui().zoom = window.TraceReportsLive.zoomStep(ui().zoom, z); }); }
 			if (d("[data-live-close]")) { L.panel = null; return redraw(); }
+			if (d("[data-live-escunpick]")) { L.ui.escPick = null; return redraw(); } // Escalar vuelve a todos los fallos
 			if ((b = d("[data-live-all]"))) return instant(b, () => { ui().states = []; ui().problems = false; ui().open = {}; });
 			if ((b = d("[data-live-stack]"))) { const id = b.dataset.liveStack; ui().stacks = { ...ui().stacks, [id]: !ui().stacks?.[id] }; return redraw(); }
 			if ((b = d("[data-live-openall]"))) { const on = b.dataset.liveOpenall === "1"; ui().openAll = on; ui().open = {}; ui().showOk = on; return redraw(); }
@@ -2479,7 +2482,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 
 	function onLive(type, e) {
 		const sameRun = e.run_id === S.runId;
-		if (sameRun && ["run", "test", "triage", "summary", "log", "network", "console", "artifact"].includes(type)) {
+		if (sameRun && ["run", "test", "triage", "summary", "log", "network", "console", "artifact"].includes(type) && escTouchedBy(type, e)) {
 			invalidateEscalation();
 			if (S.view === "escalate") renderEscalate();
 		}
@@ -4031,17 +4034,26 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			${signals ? `<ul>${signals}</ul>` : `<p>${esc(L.qa_clean_desc)}</p>`}</section>`;
 	}
 	const escFmt = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
-	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}:${S.esc.evidence}`;
+	/** Qué se escala (ejecución, test, público, idioma, con o sin IA): otro alcance es otro resumen. */
+	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}`;
 	/** Sin IA: elegido por la persona, o porque no hay IA configurada. */
 	const escNoAI = () => !S.config.ai_enabled || !!S.esc.noAI;
 
-	// El resumen en memoria y las respuestas en vuelo pertenecen a la evidencia anterior.
-	// Retirarlo no genera IA: el cache del servidor valida su huella; regenerar sigue siendo explícito.
+	// Cambió la evidencia de lo que se escala. Con la ejecución terminada, el resumen en memoria y las respuestas
+	// en vuelo son de la evidencia anterior: se retiran (no genera IA: el caché del servidor valida su huella;
+	// regenerar sigue siendo explícito). Con la ejecución todavía corriendo la evidencia llega sin parar: lo que se
+	// ve, o se está armando, NO se borra ni se cancela (eso hacía parpadear la vista y obligaba a pedirlo dos veces);
+	// queda marcado "llegó evidencia nueva", con Regenerar.
 	function invalidateEscalation() {
 		S.esc.evidence++;
-		S.esc.loadedKey = null; S.esc.data = null; S.esc.msg = null; S.esc.loading = false;
+		if (S.run?.status === "RUNNING" && (S.esc.data || S.esc.loading)) { S.esc.stale = true; return; }
+		S.esc.loadedKey = null; S.esc.data = null; S.esc.msg = null; S.esc.loading = false; S.esc.stale = false;
 		turn("escalate"); turn("escalate-cache");
 	}
+	/** Lo de una ejecución que importa a lo que se escala: con un test elegido, ese test (y el análisis general). */
+	const escEvidence = (run) => JSON.stringify(S.esc.test ? [run.tests?.find((t) => t.id === S.esc.test) ?? null, run.summary ?? null] : run);
+	/** ¿Este evento en vivo cambia lo que se está escalando? Un test elegido: solo lo suyo (y el análisis de la ejecución). */
+	const escTouchedBy = (type, e) => !S.esc.test || e.test_id === S.esc.test || type === "triage" || type === "summary";
 
 	function escReportURL(e) {
 		return STATIC ? `${location.href.split("#")[0]}${e.facts.report_path}` : `${location.origin}/${e.facts.report_path}`;
@@ -4057,7 +4069,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		const key = escKey();
 		if (S.esc.loadedKey === key) return;
 		const current = turn("escalate-cache");
-		S.esc.loadedKey = key; S.esc.data = null; S.esc.msg = null;
+		S.esc.loadedKey = key; S.esc.data = null; S.esc.msg = null; S.esc.stale = false;
 		if (escNoAI()) { if (S.view === "escalate") renderEscalate(); return; } // la plantilla no se guarda
 		try {
 			const res = await fetch(`/api/v1/runs/${S.run.id}/escalation?test=${S.esc.test}&audience=${S.esc.audience}&lang=${S.esc.lang}`);
@@ -4070,7 +4082,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	}
 
 	async function generateEscalation(regenerate) {
-		const key = escKey(), current = turn("escalate");
+		const key = escKey(), current = turn("escalate"), evidence = S.esc.evidence;
 		turn("escalate-cache"); // una lectura anterior no pisa la generación solicitada
 		S.esc.loadedKey = key;
 		S.esc.loading = true; S.esc.msg = null; renderEscalate();
@@ -4079,6 +4091,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			// otro test, público o idioma elegido mientras tanto: el resultado y su aviso son de otro escalado
 			if (current() && escKey() === key) {
 				S.esc.data = data;
+				S.esc.stale = S.esc.evidence !== evidence; // llegó evidencia mientras se armaba
 				if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
 				if (data.ai_skipped === "no_failures") S.esc.msg = { ok: true, text: tr("Esta ejecución todavía no terminó completa: el resumen se armó con los datos del reporte, sin IA, para que no invente un problema que no existe.") };
 				if (data.ai_skipped === "invented_failure") S.esc.msg = { ok: true, text: tr("La IA describió un fallo que esta ejecución no tiene, así que se descartó su texto y el resumen se armó con los datos del reporte.") };
@@ -4542,11 +4555,12 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 					${cfg.trackers.map((k) => `<button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(k.id)}" data-tip="${tr("Crea un ticket en {t} con este resumen, la captura y el link al reporte. Si el mismo test ya tiene uno, te muestra ese en vez de duplicarlo.", { t: k.name })}">${icon("i-bug")}${esc(k.name)}</button>`).join("")}
 				</div>` : ""}
 			</div>` : "";
+		const stale = e && st.stale && !st.loading ? `<p class="set-msg ok esc-stale" role="status">${icon("i-info")}<span>${tr("Llegó evidencia nueva desde que se armó este resumen.")} <button class="cf-btn cf-btn-sm" data-esc-gen>${tr("Regenerar")}</button></span></p>` : "";
 		const preview = !canAct() && !STATIC
 			? `<div class="card m-empty">${icon("i-megaphone")}<h5>${tr("Escalar no está disponible desde aquí")}</h5><p>${esc(actReason())}</p></div>`
 			: st.loading ? `<div class="card esc-loading"><div class="shimmer"></div><div class="shimmer"></div><div class="shimmer short"></div>
 				<p class="m-hint">${cfg.ai_enabled ? tr("La IA está escribiendo el resumen para {a}…", { a: tr(AUDIENCES.find((a) => a.id === st.audience).name) }) : tr("Armando el resumen…")}</p></div>`
-			: e ? `<div class="esc-frame">${share}${escCard(e)}${escTimingHTML(e)}</div>`
+			: e ? `${stale}<div class="esc-frame">${share}${escCard(e)}${escTimingHTML(e)}</div>`
 			: `<div class="card m-empty">${icon("i-megaphone")}<h5>${tr("Elige qué escalar y para quién")}</h5>
 				<p>${tr("El resumen junta el error, la captura, las llamadas al backend que fallaron y el diagnóstico, explicado para la audiencia que elijas. Después lo copias como texto o imagen, o lo envías a Teams o Slack.")}</p></div>`;
 		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Escalar un fallo")}</h4>

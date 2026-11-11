@@ -1385,14 +1385,16 @@
 	/**
 	 * Escalar desde el resumen: con un fallo elegido (en Requiere atención, el mapa o la tabla), ese fallo y su
 	 * run; si no, todos los fallos. data-esc-pick le dice a Escalar qué test (0 = la ejecución completa): sin
-	 * él, Escalar quedaba con el último test escalado y no con el elegido.
+	 * él, Escalar quedaba con el último test escalado y no con el elegido. El elegido sigue elegido al cerrar su
+	 * panel (antes, al cerrarlo, Escalar volvía a "los fallos" y abría otro test); la ✕ lo suelta.
 	 */
 	function escalateButton(failed, run, data, h) {
 		if (!failed.length) return "";
 		const { t, esc, icon } = h;
-		const sel = data.panel && failed.find((x) => x.id === data.panel.id);
+		const pick = data.panel?.id ?? data.ui?.escPick;
+		const sel = pick != null && failed.find((x) => x.id === pick);
 		return sel
-			? `<a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${sel.run_id}&view=escalate" data-esc-pick="${sel.id}" data-live-escalate data-tip-title="${esc(sel.name)}" data-tip="${esc(t("Arma el reporte de este fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar este fallo"))}</a>`
+			? `<span class="ls-escpick"><a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${sel.run_id}&view=escalate" data-esc-pick="${sel.id}" data-live-escalate data-tip-title="${esc(sel.name)}" data-tip="${esc(t("Arma el reporte de este fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar este fallo"))}</a>${data.panel ? "" : `<button type="button" class="cf-btn cf-btn-sm ls-escpick-x" data-live-escunpick aria-label="${esc(t("Escalar todos los fallos, no solo {n}", { n: sel.name }))}" data-tip="${esc(t("Escalar todos los fallos, no solo {n}", { n: sel.name }))}">×</button>`}</span>`
 			: `<a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${run}&view=escalate" data-esc-pick="0" data-live-escalate data-tip="${esc(t("Arma el reporte del fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar los fallos"))}</a>`;
 	}
 

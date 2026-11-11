@@ -26,6 +26,13 @@ with a team that runs TraceReports in Docker on Windows with suites of 16 worker
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
   fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
   point, or above/left when it does not fit in the window.
+- **Escalate keeps the picked failure and no longer flickers while the suite runs**: in Live, the failure opened
+  last stays picked for Escalate after its panel is closed (before, Escalate fell back to all failures and opened
+  another test); an × next to the button lets it go. In Escalate, with a test picked, only that test's evidence
+  touches the summary (the steps of the other tests of a suite that keeps running used to cancel the summary being
+  built, so it flickered and had to be asked for twice); while the execution is still running, new evidence no
+  longer clears or cancels it, it is marked "new evidence arrived" with Regenerate. A finished execution whose
+  evidence changes still drops the old summary.
 - **Live: a third map view, Agents**: the execution as a reactor, a tilted disk seen in perspective that can be
   turned by dragging. The core glows with the execution and its ring shows what passed and failed; around it, one
   segment per worker, with a coil on its inner edge in the worker's state color (running, slow, no signal, idle) and

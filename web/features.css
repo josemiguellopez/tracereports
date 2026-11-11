@@ -2410,6 +2410,9 @@ tr.lt-new > td { animation: lt-in 220ms var(--mo-ease) both; }
 @keyframes la-caret { 50% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .la-box b::after { animation: none; } }
 .live-map.is-agents .lf-stage::before { display: none; }
+.ls-escpick { display: inline-flex; align-items: stretch; }
+.ls-escpick > .cf-btn-primary:not(:last-child) { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.ls-escpick-x { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: -1px; padding: 0 8px; font-size: 15px; line-height: 1; }
 .live-map.is-agents .lf-core { background: color-mix(in srgb, var(--color-surface) 78%, transparent); border-color: transparent; box-shadow: 0 0 24px color-mix(in srgb, var(--color-info) 25%, transparent); } /* el texto se lee; la luz, alrededor */
 .lf-canvas { display: block; width: 100%; height: 100%; outline: none; }
 .lf-canvas:focus-visible { box-shadow: inset 0 0 0 2px var(--color-focus); }
