@@ -767,6 +767,28 @@
 		if (sep >= 0) cut = cut - 6 + sep;
 		return [s.slice(0, cut), s.slice(cut)];
 	}
+	/** Un archivo en una línea que no se sale de su tarjeta: acortado por el medio (se ve el .py), entero en el tooltip. */
+	function fileName(file, esc) {
+		return `<span class="lc-file" data-tip="${esc(file)}">${midFile(file, esc)}</span>`;
+	}
+	/**
+	 * Un archivo acortado por el medio con un final corto (hasta 18 caracteres, desde un separador): en una
+	 * columna angosta lo que queda a la vista es "…express_chrome.py", no un final que tampoco cabe.
+	 */
+	function splitFile(name) {
+		const s = String(name || "");
+		if (s.length <= 22) return [s, ""];
+		let cut = s.length - 18;
+		const sep = s.slice(cut, cut + 8).search(/[_\s·./:-]/);
+		if (sep >= 0) cut += sep;
+		return [s.slice(0, cut), s.slice(cut)];
+	}
+	function midFile(name, esc) {
+		const [a, b] = splitFile(name);
+		return `<span class="mid" data-no-i18n><span class="mid-a">${esc(a)}</span>${b ? `<span class="mid-b">${esc(b)}</span>` : ""}</span>`;
+	}
+	/** "1 test" / "3 tests": el singular cuando es uno. */
+	const countText = (n, one, many, t) => (n === 1 ? t(one) : t(many, { n }));
 	function midName(name, esc) {
 		const [a, b] = splitName(name);
 		return `<span class="mid" data-no-i18n><span class="mid-a">${esc(a)}</span>${b ? `<span class="mid-b">${esc(b)}</span>` : ""}</span>`;
@@ -842,7 +864,7 @@
 					: `<b><i class="lf-dot" aria-hidden="true"></i>${esc(t(I.label))}</b><small>${esc(t("{n} eventos/min", { n: ing.perMin }))} · ${esc(ago)}</small>`}
 				<span class="lf-bars" aria-hidden="true">${bars}</span><span class="lf-bars-x" aria-hidden="true"><small>${esc(t("hace 1 min"))}</small><small>${esc(t("ahora"))}</small></span></div>
 			${top ? `<button type="button" class="lf-hud bl bad" data-live-facet="error" data-v="${esc(top.sig)}" data-tip-title="${esc(t("Anomalía dominante"))}" data-tip="${esc(`${top.sig}\n${t("Clic: ver solo los tests con este error.")}`)}">
-				<span>${esc(t("ANOMALÍA"))}</span><b data-no-i18n>${esc(shortXPaths(top.sig)).replace(/([/._:\]])/g, "$1<wbr>")}</b><small>${esc(t("{n} tests · {f} archivos", { n: top.count, f: top.files.length }))}</small></button>`
+				<span>${esc(t("ANOMALÍA"))}</span><b data-no-i18n>${esc(shortXPaths(top.sig)).replace(/([/._:\]])/g, "$1<wbr>")}</b><small>${esc(`${countText(top.count, "1 test", "{n} tests", t)} · ${countText(top.files.length, "1 archivo", "{n} archivos", t)}`)}</small></button>`
 				: `<div class="lf-hud bl ok"><span>${esc(t("ANOMALÍA"))}</span><b>${esc(t("Sin fallos"))}</b><small>${esc(t("nada que agrupar"))}</small></div>`}
 			<div class="lf-hud br" tabindex="0" data-tip="${esc(t("Carriles con un test corriendo ahora, del total de carriles de la ejecución."))}">
 				<span>${esc(t("CARRILES"))}</span><b>${active} / ${g.lanes.length}</b><small>${esc(t("activos"))}</small></div>
@@ -1175,7 +1197,7 @@
 			return `<li style="--i:${i}" data-attn="${x.id}"><button type="button" class="la-row ${st.cls} ${data.panel?.id === x.id ? "sel" : ""}" data-live-test="${x.id}" data-live-run="${x.run_id}" data-tip="${esc(t("Clic: el detalle al costado (traza, últimos pasos y captura). Doble clic: abrir el test."))}" aria-label="${esc(`${t(st.label)} · ${x.name} · ${x.file}`)}">
 				<span class="lt-state ${st.cls}">${icon(st.icon)}${esc(t(st.label))}${regBadge(regressionOf(regs, x.id), h)}</span>
 				<span class="la-name" data-tip="${esc(x.name)}">${midName(x.name, esc)}</span>
-				<span class="la-file" data-no-i18n data-tip="${esc(x.file)}">${esc(x.file)}</span>
+				<span class="la-file" data-tip="${esc(x.file)}">${midFile(x.file, esc)}</span>
 				<span class="la-wk" data-no-i18n>${esc(x.worker || "")}</span>
 				<span class="la-dur lt-num">${esc(fmtDur(x.elapsed))}${x.state === "no_signal" ? ` <small>${esc(t("sin señal hace {t}", { t: fmtDur(x.idle) }))}</small>` : ""}</span>
 				<span class="la-vs">${x.p50 && x.factor ? `<span class="lt-vs ${x.factor >= 2 ? "hi" : ""}">×${num1(x.factor)}</span>` : ""}</span></button></li>`;
@@ -1212,8 +1234,22 @@
 				${stat(failed.length, t("fallaron"), failed.length ? "fail" : "", t("En fallo o interrumpidos."))}
 				${stat(nNew, t("nuevos"), nNew ? "fail" : "", t("Fallos que en su ejecución anterior pasaron: lo primero que conviene mirar."))}
 				${stat(slow, t("lentos"), slow ? "warn" : "", t("Tardaron 1,5 veces lo normal o más."))}</div>
-			<div class="ls-acts">${failed.length ? `<a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${run}&view=escalate" data-tip="${esc(t("Arma el reporte del fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar los fallos"))}</a>` : ""}
+			<div class="ls-acts">${escalateButton(failed, run, data, h)}
 				<a class="cf-btn cf-btn-sm" href="#run=${run}&view=dashboard" data-tip="${esc(t("Abre el reporte de la ejecución: tests, pasos, capturas y red."))}">${icon("i-chart")}${esc(t("Ver el reporte"))}</a></div></section>`;
+	}
+
+	/**
+	 * Escalar desde el resumen: con un fallo elegido (en Requiere atención, el mapa o la tabla), ese fallo y su
+	 * run; si no, todos los fallos. data-esc-pick le dice a Escalar qué test (0 = la ejecución completa): sin
+	 * él, Escalar quedaba con el último test escalado y no con el elegido.
+	 */
+	function escalateButton(failed, run, data, h) {
+		if (!failed.length) return "";
+		const { t, esc, icon } = h;
+		const sel = data.panel && failed.find((x) => x.id === data.panel.id);
+		return sel
+			? `<a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${sel.run_id}&view=escalate" data-esc-pick="${sel.id}" data-live-escalate data-tip-title="${esc(sel.name)}" data-tip="${esc(t("Arma el reporte de este fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar este fallo"))}</a>`
+			: `<a class="cf-btn cf-btn-sm cf-btn-primary" href="#run=${run}&view=escalate" data-esc-pick="0" data-live-escalate data-tip="${esc(t("Arma el reporte del fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar los fallos"))}</a>`;
 	}
 
 	/** Los atajos de teclado de la vista (tecla ?). */
@@ -1294,13 +1330,13 @@
 				const kind = regressionOf(regs, x.id);
 				return `<li class="${kind}"><button type="button" class="lc-whorow" data-live-test="${x.id}" data-live-run="${x.run_id}" data-tip="${esc(t("Clic: el detalle al costado. Doble clic: abrir el test."))}">
 					<span class="lc-wn" data-tip="${esc(x.name)}">${midName(x.name, esc)}</span>
-					<small class="lc-wf">${kind ? regBadge(kind, h) : regPending(h)}<span class="lc-time">${esc(h.clock(x.ended_at || x.started_at, true))}</span> · <span data-no-i18n>${esc(x.file)}${x.worker ? ` · ${esc(x.worker)}` : ""}</span></small></button></li>`;
+					<small class="lc-wf">${kind ? regBadge(kind, h) : regPending(h)}<span class="lc-time">${esc(h.clock(x.ended_at || x.started_at, true))}</span><span class="lc-dot">·</span>${fileName(x.file, esc)}${x.worker ? `<span class="lc-dot">·</span><span data-no-i18n>${esc(x.worker)}</span>` : ""}</small></button></li>`;
 			}).join("")}</ol>${g.ts.length > WHO ? `<button type="button" class="lf-more lc-whomore" data-live-errall="${esc(g.sig)}" data-tip="${esc(all ? t("Muestra solo los primeros.") : t("Muestra todos los tests con este error."))}">${esc(all ? t("ver menos") : t("ver los {n}", { n: g.ts.length }))}</button>` : ""}` : "";
 			const tally = `${g.nNew ? `<span class="lc-tally new" data-tip="${esc(t("Fallos nuevos con este error: en su ejecución anterior pasaron."))}">${esc(g.nNew === 1 ? t("{n} nuevo", { n: 1 }) : t("{n} nuevos", { n: g.nNew }))}</span>` : ""}${g.nOld ? `<span class="lc-tally old" data-tip="${esc(t("Con este error y ya fallaban en su ejecución anterior."))}">${esc(g.nOld === 1 ? t("{n} ya fallaba", { n: 1 }) : t("{n} ya fallaban", { n: g.nOld }))}</span>` : ""}${g.nFirst ? `<span class="lc-tally first" data-tip="${esc(t("Con este error y sin una ejecución anterior con qué comparar."))}">${esc(t("{n} primera vez", { n: g.nFirst }))}</span>` : ""}`;
 			return `<li class="${open ? "open" : ""} ${g.nNew ? "has-new" : ""}"><div class="lc-errrow ${ui.errors.includes(g.sig) ? "on" : ""}">
 				<button type="button" class="lc-row" data-live-errgroup="${esc(g.sig)}" aria-expanded="${open}" data-tip-title="${esc(g.sig)}" data-tip="${esc(open ? t("Clic: ocultar los tests con este error.") : t("Clic: ver a qué tests pertenece este error."))}">
 				<span class="live-chev" aria-hidden="true">${icon("i-chevron")}</span><b class="lc-count fail">${g.count}</b><span class="lc-main"><code data-no-i18n>${esc(shortXPaths(g.sig))}</code>
-				<small>${esc(g.files.length === 1 ? g.files[0] : t("{n} archivos", { n: g.files.length }))} · ${esc(t("último {h}", { h: h.clock(g.last, true) }))}</small>${tally ? `<span class="lc-tallies">${tally}</span>` : ""}</span></button>
+				<small class="lc-meta">${g.files.length === 1 ? fileName(g.files[0], esc) : `<span>${esc(t("{n} archivos", { n: g.files.length }))}</span>`}<span class="lc-dot">·</span><span>${esc(t("último {h}", { h: h.clock(g.last, true) }))}</span></small>${tally ? `<span class="lc-tallies">${tally}</span>` : ""}</span></button>
 				<button type="button" class="lc-filter ${ui.errors.includes(g.sig) ? "on" : ""}" data-live-facet="error" data-v="${esc(g.sig)}" aria-pressed="${ui.errors.includes(g.sig)}" aria-label="${esc(t("Filtrar la tabla por este error"))}" data-tip="${esc(t("Filtrar la tabla, el mapa y la línea de tiempo por este error (otro clic lo quita)."))}">${icon("i-search")}</button></div>${who}</li>`;
 		}).join("")}</ol>
 				${groups.length > 5 ? `<p class="m-hint">${esc(t("y {n} errores más", { n: groups.length - 5 }))}</p>` : ""}`
@@ -1422,6 +1458,7 @@
 			<div class="live-ptabs" role="tablist">${tabBtn("trace", "Traza")}${tabBtn("steps", "Últimos pasos")}${tabBtn("shot", "Captura")}</div>
 			<div class="live-pbody${panel.stale ? " is-stale" : ""}" role="tabpanel"${panel.stale ? ' aria-busy="true"' : ""}>${body}</div>
 			<div class="lp-open"><a class="cf-btn cf-btn-primary" href="#run=${live?.run_id || full?.run_id}&view=tests&test=${panel.id}">${esc(t("Abrir el test"))}</a>
+				${isFailed(live?.state || full?.status) && h.canAct?.() ? `<a class="cf-btn" href="#run=${live?.run_id || full?.run_id}&view=escalate" data-esc-pick="${panel.id}" data-live-escalate data-tip="${esc(t("Arma el reporte de este fallo para el equipo de desarrollo, con evidencia y causa probable."))}">${icon("i-megaphone")}${esc(t("Escalar este fallo"))}</a>` : ""}
 				<span class="m-hint">${esc(t("Atajos: doble clic en su punto del mapa · Ctrl + clic en cualquier punto"))}</span></div></aside>`;
 	}
 

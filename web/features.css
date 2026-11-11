@@ -96,7 +96,7 @@ mark.cf-masked { background: color-mix(in srgb, var(--color-danger) 22%, transpa
 	position: absolute; left: 50%; bottom: calc(100% + 8px); z-index: 40; transform: translate(-50%, 4px);
 	display: flex; flex-direction: column; gap: 6px; min-width: 190px; padding: 10px 12px;
 	background: var(--color-tooltip-bg); color: var(--color-tooltip-text); border-radius: var(--radius);
-	box-shadow: var(--shadow-elevated); font-weight: 400; font-size: 12px; white-space: normal; text-align: left;
+	box-shadow: var(--shadow-elevated); font-weight: 400; font-size: 12px; white-space: normal; text-align: left; overflow-wrap: anywhere;
 	opacity: 0; visibility: hidden; pointer-events: none; transition: opacity var(--motion-fast), transform var(--motion-fast);
 }
 .cf-tip::after { content: ""; position: absolute; top: 100%; left: 50%; margin-left: -5px; border: 5px solid transparent; border-top-color: var(--color-tooltip-bg); }
@@ -300,7 +300,8 @@ body[data-theme="pixel"] .drift-chip { font-size: 17px; }
 
 /* ── tips (data-tip) ── */
 .cf-tooltip {
-	position: fixed; z-index: 1200; max-width: 300px; padding: 9px 12px; pointer-events: none;
+	position: fixed; z-index: 1200; max-width: min(420px, calc(100vw - 16px)); padding: 9px 12px; pointer-events: none;
+	overflow-wrap: anywhere; /* un nombre de archivo o un error sin espacios se parte dentro de la caja, no se sale */
 	display: flex; flex-direction: column; gap: 4px;
 	background: var(--color-tooltip-bg); color: var(--color-tooltip-text); border-radius: var(--radius);
 	box-shadow: var(--shadow-elevated); font: 400 12.5px/1.45 var(--font-ui); text-align: left; text-transform: none; letter-spacing: 0;
@@ -2016,6 +2017,7 @@ button.live-tile:disabled:hover { background: var(--color-surface); }
 .la-name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .la-file, .la-wk { color: var(--color-text-muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .la-wk { font-family: var(--font-mono); }
+.la-file { display: flex; min-width: 0; overflow: hidden; } /* acortado por el medio: se ve el final (.py), entero en el tooltip */
 .la-dur { text-align: right; white-space: nowrap; }
 .la-dur small { display: block; color: var(--color-danger); font-size: 11px; }
 .la-row.nosig .lt-state svg { animation: live-pulse 1.2s ease-in-out infinite; }
@@ -2503,6 +2505,23 @@ tr.lt-row.lane-hl > td:first-child { box-shadow: inset 3px 0 0 var(--color-prima
 .lc-wn { display: flex; min-width: 0; font-weight: 600; }
 .lc-whorow small { grid-column: 1; font-size: 11px; color: var(--color-text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .lc-whorow .lt-reg { grid-column: 2; grid-row: 2; justify-self: end; }
+/* el archivo de un error: acortado por el medio, en una línea que nunca se sale de la tarjeta */
+/* una línea: la hora, el worker y "último" nunca se mueven; el archivo usa lo que queda. Se achica primero el
+   principio del nombre y, en una columna muy angosta, también el final, siempre con "…" (nunca a sangre) */
+.lc-meta, .lc-whorow small.lc-wf { display: flex; align-items: center; gap: 0 4px; min-width: 0; white-space: nowrap; overflow: hidden; }
+.lc-meta > span, .lc-wf > span { flex: none; }
+.lc-meta > .lc-file, .lc-wf > .lc-file { flex: 0 1 auto; display: flex; min-width: 0; overflow: hidden; }
+.lc-dot { flex: none; }
+.lc-file .mid, .la-file .mid { min-width: 0; max-width: 100%; }
+.lc-file .mid-b, .la-file .mid-b { flex: 0 0 auto; max-width: calc(100% - 1.6em); overflow: hidden; text-overflow: ellipsis; }
+.lc-file .mid-a, .la-file .mid-a { min-width: 1.6em; } /* el final (.py) entero; se achica el principio, y el final solo si ni él cabe */
+/* tarjeta angosta: el archivo baja a su propia línea, con todo el ancho (no queda en "s… _…") */
+.lc-list { container-type: inline-size; }
+@container (max-width: 340px) {
+	.lc-meta, .lc-whorow small.lc-wf { flex-wrap: wrap; row-gap: 1px; }
+	.lc-meta > .lc-file, .lc-wf > .lc-file { flex-basis: 100%; order: 9; }
+	.lc-meta > .lc-file + .lc-dot, .lc-wf > .lc-dot:has(+ .lc-file) { display: none; }
+}
 
 /* el panel: el carril del test, con lo que corrió antes y después */
 .lp-strip { display: grid; gap: 4px; padding: 8px 10px; border: 1px solid var(--color-border); border-radius: 8px; background: var(--color-surface-raised); }

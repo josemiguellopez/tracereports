@@ -26,6 +26,15 @@ with a team that runs TraceReports in Docker on Windows with suites of 16 worker
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
   fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
   point, or above/left when it does not fit in the window.
+- **Escalating from Live escalates the failure you picked**: with several failures, the summary's button kept
+  the test escalated last (or the first failure's run), whatever test was selected. Now, with a failed test picked
+  in Requiere atención, the map or the table, it says **Escalate this failure** and opens Escalate with that test;
+  without one it opens the whole execution. The side panel of a failed test also has **Escalate this failure**.
+- **Long names stay inside their tooltip**: a file name or an error with no spaces wrapped outside the tooltip box
+  (and over the rows below); it now breaks inside it (up to 420 px wide).
+- **A long file name no longer spills out of the Errors card**: under each error and in each of its tests the
+  file is shortened in the middle (the end, with `.py`, stays visible) and shown whole in its tooltip; the
+  anomaly card says "1 file" / "1 test" in the singular.
 - **The anomaly card shows the error in two lines** instead of one cut short, breaking at `/`, `.`, `_`, `:`
   or `]` of the locator, with "…" at the end; the full text is in its tooltip.
 

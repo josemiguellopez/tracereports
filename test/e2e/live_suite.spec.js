@@ -927,3 +927,50 @@ test("mapa: el clic se nota al instante; dos clics rápidos en un punto nuevo lo
 	await page.waitForTimeout(300);
 	test.info().errors_ = test.info().errors_.filter((e) => !/404|\/api\/v1\/runs\/\d+/.test(e));
 });
+
+test("errores agrupados: un archivo de nombre largo se acorta por el medio sin salirse de la tarjeta; la anomalía dice «1 archivo»", async ({ page }) => {
+	const LONG = "Shop · test_registrar_orden_de_compra_mayorista_con_descuento_por_volumen_y_envio_express_chrome.py";
+	// el error de los fallos también largo y sin espacios donde partirlo (como un AssertionError con la ruta del test)
+	const ERR = "AssertionError: shop/test_registrar_orden_de_compra_mayorista_con_descuento_por_volumen_y_envio_express_chrome.py::TestCheckout::test_002_validar_total";
+	const ex = () => { const e = liveSuite(Date.now()); for (const r of e.execution.execution.runs) if (r.tests.some((x) => x.state === "FAIL")) { r.name = LONG; for (const x of r.tests) if (x.state === "FAIL") x.last_step = ERR; } return e; };
+	await page.route("**/api/v1/live", (r) => r.fulfill({ json: ex().list }));
+	await page.route("**/api/v1/live/execution?**", (r) => r.fulfill({ json: ex().execution }));
+	await page.reload();
+	const view = page.locator("#view-live");
+	await expect(view.locator(".lf-hud.bl.bad small")).toHaveText("3 tests · 1 archivo");
+	const card = view.locator(".lc-list").first();
+	await card.locator(".lc-row").first().click();
+	const files = card.locator(".lc-file");
+	await expect(files).toHaveCount(4); // bajo el error y en cada uno de sus 3 tests
+	for (const f of await files.all()) {
+		await expect(f).toHaveAttribute("data-tip", LONG); // entero al pasar el cursor
+		await expect(f.locator(".mid-b")).toContainText(".py"); // el final se ve
+	}
+	// nada se sale: cada línea cabe en su fila y la lupa de filtrar sigue a la vista
+	const overflow = await card.evaluate((el) => [...el.querySelectorAll(".lc-meta, .lc-wf")].map((n) => n.scrollWidth - n.clientWidth).filter((d) => d > 1));
+	expect(overflow).toEqual([]);
+	await expect(card.locator(".lc-filter").first()).toBeInViewport();
+	const [row, box] = await Promise.all([card.locator(".lc-errrow").first().boundingBox(), card.boundingBox()]);
+	expect(row.x + row.width).toBeLessThanOrEqual(box.x + box.width + 1);
+	// en cualquier ancho: el final del archivo (con .py) se ve entero, sin "…", y nada sale de su fila
+	// (Requiere atención incluida: ahí también se cortaba al final, pegado al worker)
+	for (const width of [1400, 1000]) {
+		await page.setViewportSize({ width, height: 900 });
+		await expect(view.locator(".la-file .mid-b").first()).toContainText(".py");
+		const bad = await view.evaluate((v) => {
+			const cut = [...v.querySelectorAll(".lc-file .mid-b, .la-file .mid-b")].filter((n) => n.offsetParent && n.scrollWidth > n.getBoundingClientRect().width + 0.5);
+			const out = [...v.querySelectorAll(".lc-meta > *, .lc-wf > *, .la-row > *")].filter((n) => { const r = n.getBoundingClientRect(), c = n.parentElement.getBoundingClientRect(); return r.width && r.right > c.right + 1; });
+			return { cut: cut.length, out: out.length };
+		});
+		expect(bad, `a ${width} px`).toEqual({ cut: 0, out: 0 });
+	}
+	// el tooltip con el nombre entero (archivo en Requiere atención, error en la anomalía) lo parte dentro de su caja
+	const tip = page.locator("#cf-tooltip");
+	for (const target of [view.locator(`.la-file[data-tip="${LONG}"]`).first(), view.locator(".lf-hud.bl.bad")]) {
+		await target.hover();
+		await expect(tip).toBeVisible();
+		const spill = await tip.evaluate((n) => { const r = n.getBoundingClientRect(); return [...n.querySelectorAll("*")].filter((k) => k.getBoundingClientRect().right > r.right + 1).length + (n.scrollWidth > n.clientWidth + 1 ? 1 : 0); });
+		expect(spill).toBe(0);
+		await page.mouse.move(5, 5);
+	}
+});
