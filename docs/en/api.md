@@ -3,7 +3,7 @@
 🌐 **English** · [Español](../es/api.md)
 
 Base: `http://<server>:8080/api/v1`. Everything is JSON, except screenshot uploads (multipart) and
-the export (ZIP). Errors answer `{"error": "message"}`.
+the export (ZIP). Errors answer `{"error": "message"}`; a server error (5xx) also carries `ref` (the same code is in the server log next to the full error) and, when the cause is one to act on, `kind`: `disk_full`, `busy` (503 with `Retry-After`), `read_only` or `corrupt`.
 
 **Authentication**: if the server has `TRACEREPORTS_TOKEN`, writes require
 `Authorization: Bearer <token>` or `X-TraceReports-Token: <token>`. If it has `TRACEREPORTS_UI_USER` /
@@ -26,16 +26,17 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 
 | Method | Path | Body | Response |
 |---|---|---|---|
-| POST | `/runs` | `{name, environment, project, branch, commit, framework}` | `201 {run_id}` |
+| POST | `/runs` | `{name, environment, project, branch, commit, framework, execution_id, planned}` | `201 {run_id}` |
 | POST | `/runs/{run_id}/tests` | `{name, category, description, key, suite, params, worker}` | `201 {test_id}` |
 | POST | `/tests/{test_id}/logs` | `{status, message, timestamp}` | `201` created step |
 | POST | `/tests/{test_id}/screenshot` | multipart: `file` (PNG/JPEG/GIF/WEBP), `message`, `status` | `201 {url, log}` |
 | POST | `/tests/{test_id}/artifact` | multipart: `file`, `kind` (`trace` or `video`), `name` | `201` artifact. Playwright trace (ZIP) or video (WebM/MP4), up to 100 MB |
 | POST | `/tests/{test_id}/console` | `{entries: [{level, text, location, timestamp}]}` | `201 {stored, dropped}`. Browser console: `error`, `warning`, `pageerror`, `info`, `log`, `debug` (max 500 per test) |
 | POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (up to 5000 per batch, 48 MiB per request) | `201 {stored, errors}`. `body_size` is the original size in UTF-8 bytes; send `body_truncated: true` when the body arrives already cut, so the report does not show it as complete |
-| POST | `/tests/{test_id}/dom` | Page snapshot on failure (see below), up to 4 MB / 2000 elements | `201` |
+| POST | `/tests/{test_id}/dom` | Page snapshot on failure, or of a step with `kind: "step"` (see below), up to 4 MB / 2000 elements / 6000 nodes | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
-| PATCH | `/runs/{run_id}/finish` | `{interrupted}` (optional) | `200` run |
+| PATCH | `/runs/{run_id}/finish` | `{interrupted, delivery}` (optional) | `200` run. `delivery`: how the evidence arrived according to the client, `{late, late_at, reason, detail, retried, rejected, dropped, lost, spooled, client, host}`; stored only when something went wrong, shown in the report and in Maintenance > Connections |
+| POST | `/runs/{run_id}/plan` | `{planned}`: how many tests the client collected (progress and ETA in Live) | `200` |
 
 - Step `status`: `INFO`, `PASS`, `FAIL`, `WARNING`, `SKIP`. `timestamp`: epoch in ms or
   RFC 3339 (optional, default now).
@@ -109,6 +110,15 @@ suggests replacement selectors and the AI picks the most likely one. The clients
 }
 ```
 
+The Python client also sends `page` (`{w, h}`, the whole page) and `nodes`, the page as a flat tree that
+the **Inspector** redraws: each node has `i` (its index), `p` (the parent's index, `-1` for `body`; a
+parent always comes first), `tag`, `attrs`, its own `text`, its box (`x`, `y`, `w`, `h`, page
+coordinates), `visible`, `depth`, `tx`/`ty` (where the text starts inside the box) and `style`. The server
+keeps only known attributes (`id`, `class`, `name`, `role`, `type`, `placeholder`, `href`, `title`, `for`,
+`alt`, `data-test*`, `aria-*`) and styles (colors, font, border, display, opacity…; no `url()`), masks
+secrets in texts and values, and drops a tree that is not well formed. With `"kind": "step"` and
+`"label"` it is the page of a step (up to 40 per test); without them, the page at the failure.
+
 ### Real time of an event
 
 Every write accepts the optional header `X-TraceReports-Timestamp: <epoch ms>`: when the event really
@@ -179,6 +189,9 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/settings` | Settings: language, AI provider (without the key: only its last 4 characters), whether they can be edited and why not |
 | GET | `/auth/check` | With `X-TraceReports-Token`: `{token_required, token_sent, token_valid}`. Checks a token without writing anything |
 | GET | `/runs?limit=50` | Runs with counters (`total`, `passed`, `failed`, `skipped`, `warning`, `running`, `interrupted`, `quarantined`). A run still `RUNNING` carries `idle_ms` (time since it last received anything); a closed one may carry `closed_by` (a UI user, `manual` without a login, or `auto` for inactivity) and `close_reason` |
+| GET | `/maintenance/stalls/{name}` | Downloads a stall dump (`stall-YYYYMMDD-HHMMSS.txt`). Needs the Settings permission |
+| POST | `/ui/maintenance/compact` | Compacts the database now (admin): `{at, took_ms, freed_bytes, trigger, by}`; 409 if one is running or, with `kind: "disk_space"`, `need` and `free`, if the data disk has no room for it. `GET /maintenance/storage` says in `compact` whether it is pending, `reclaimable_bytes`, `need_bytes`, `free_bytes`, `running_runs` and the last one |
+| GET | `/maintenance/connections` | Client connections: `{days, runs, slow, slow_after_ms, started_at, auth, stalls, stall_after_ms}`. `stalls`: the episodes in which several requests went without an answer for more than 10 s at once (`start`, `end`, `max_stuck`, `paths`, `db_wait_ms` and, with the Settings permission, `dump`). `runs`: the runs of the last 7 days with a delivery report (created late, retries, lost); `slow`: the last 50 requests over 2 s since the server started; `auth` (Settings permission only): the addresses with rejected credentials in the last 15 min |
 | GET | `/maintenance?state=&project=&environment=&branch=&older_than_hours=` | Runs with problems across projects, newest first (up to 200): `state` empty (running or incomplete), `idle` (running, no activity for 5 min), `running`, `incomplete`, `manual` (closed by hand) or `auto` (closed for inactivity). Answers `{runs, idle_warn_ms, stale: {hours, source, editable}}`; `source` is `env`, `ui` or `default` |
 | GET | `/runs/search?...` | Paginated history for Search: `{items, next_cursor, total_estimate}` |
 | GET | `/runs/facets?...` | Frequent filter values for Search: project, environment, branch and tag |
@@ -191,6 +204,13 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/history` | The test's latest runs (by name) |
 | GET | `/tests/{test_id}/network` | The test's network calls |
 | GET | `/tests/{test_id}/locator` | Broken selector and suggested replacements (`204` if the failure was not a selector) |
+| GET | `/tests/{test_id}/dom` | Page snapshot at the failure, as stored (`204` if there is none) |
+| GET | `/tests/{test_id}/dom/steps` | Step snapshots: `[{seq, label, at}]` |
+| GET | `/tests/{test_id}/dom/steps/{seq}` | One step snapshot (`404` if it does not exist) |
+| GET | `/tests/{test_id}/dom/baseline?label=` | The page of the same step in the test's last PASS that kept its pages (`204` if none) |
+| GET | `/live` | Live: executions running or finished in the last 2 h, with counts, progress and ETA |
+| GET | `/live/execution?key=` | One execution with its runs and tests (state `running`, `turtle`, `no_signal` or the result, duration, p50/p90, last step) |
+| GET | `/runs/{run_id}/control` | `{cancel, by, reason}`: asked by clients with remote control between tests |
 | GET | `/tests/{test_id}/drift` | p95 per endpoint of the test vs. the median of its previous runs |
 | GET | `/stream?run={id}` | Live events (Server-Sent Events): `run`, `test`, `log`, `network`, `triage`, `summary` |
 | GET | `/network/{id}/body` | Full stored body (JSON or plain text, never executable HTML) |
@@ -263,7 +283,10 @@ in local mode, the server's own machine.
 Related reads: `GET /runs/{run_id}/recurrence` (in how many previous runs of the same suite each
 incident showed up) and `GET /runs/{run_id}/escalation?test=&audience=&lang=` (the saved summary,
 if the evidence did not change since it was written, or `204`). `GET /metrics` also accepts `env`, `tag`, `from` and `to` (`YYYY-MM-DD`), and
-`GET /tests/{test_id}/history` accepts `limit` (up to 60).
+`GET /tests/{test_id}/history` accepts `limit` (up to 60) and `newer` (also up to that many later runs,
+first in the list). `GET /tests/{test_id}/locator` also says `has_dom` and `dom_elements` (whether the
+page snapshot arrived, so no suggestions with a snapshot means none fit) and `failed_selector_truncated`
+(the selector reached the server cut: no replacements are searched).
 
 FixLab (the Lab, checks, Verify and capsules: `/network/{id}/lab`, `/ui/lab/send`, `/ui/lab/checks`,
 `/ui/lab/verify`, `/runs/{run_id}/lab`, `/network/{id}/capsule`, `/runs/{run_id}/lab/capsule`): see

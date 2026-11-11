@@ -117,6 +117,15 @@ Antes de cada captura, el cliente **tapa** (un recuadro magenta) los elementos s
 `FAIL`, y trace y video solo de tests fallidos) u `off` (nada de eso). El servidor aplica la misma
 variable por su cuenta (ver [Configuración → Capturas de pantalla](configuration.md#capturas-de-pantalla)).
 
+## En vivo: ejecución, tests planificados y control remoto
+
+| Variable | Efecto |
+|---|---|
+| `TRACEREPORTS_EXECUTION_ID` | Agrupa en En vivo las corridas de una misma ejecución. Sin ella, el id del build de CI (`BUILD_BUILDID`, `GITHUB_RUN_ID`, `CI_PIPELINE_ID`, `BUILD_TAG`) |
+| `TRACEREPORTS_REMOTE_CONTROL=1` | Cuando alguien cancela la ejecución desde En vivo, los tests que faltan se saltan con el motivo. No se mata nada |
+
+El reporter de Playwright Test envía cuántos tests va a correr (progreso y ETA). Con Selenium u otro runner: `startRun(name, { planned })`, `setPlanned(n)` y `cancelRequested()`.
+
 ## API
 
 | Método | Descripción |

@@ -12,7 +12,7 @@ To use it without publishing, include it as a Gradle *composite build* (like the
 // settings.gradle.kts
 includeBuild("../path/to/tracereports/client/java")
 // build.gradle.kts
-dependencies { testImplementation("tracereports:tracereports-java:0.4.1") }
+dependencies { testImplementation("tracereports:tracereports-java:0.5.0") }
 ```
 
 With Maven: `cd client/java && ./gradlew publishToMavenLocal` (it lands in `~/.m2`) or
@@ -105,6 +105,15 @@ afterwards, also when the screenshot fails. If they cannot be covered, no screen
 `TRACEREPORTS_SCREENSHOTS` decides which screenshots `t.screenshot(...)` sends: `all` (default), `failures`
 (only those of a `FAIL` step) or `off` (none). The server applies the same variable on its own (see
 [Configuration → Screenshots](configuration.md#screenshots)).
+
+## Live: execution, planned tests and remote control
+
+| Variable | Effect |
+|---|---|
+| `TRACEREPORTS_EXECUTION_ID` | Groups in Live the runs of one execution. Without it, the CI build id (`BUILD_BUILDID`, `GITHUB_RUN_ID`, `CI_PIPELINE_ID`, `BUILD_TAG`) |
+| `TRACEREPORTS_REMOTE_CONTROL=1` | When someone cancels the execution from Live, the tests left are skipped with the reason. Nothing is killed |
+
+With JUnit 5 the planned tests come from the test plan on their own. Without JUnit: `RunInfo.planned(n)`, `setPlanned(n)` and `cancelRequested()`.
 
 ## Without JUnit
 

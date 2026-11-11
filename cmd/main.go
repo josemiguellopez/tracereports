@@ -41,7 +41,9 @@
 //	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
 //	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
 //	TRACEREPORTS_LAB      off = disable FixLab's Request Lab (resending captured calls from the report)
-//	TRACEREPORTS_LAB_HOSTS  extra hosts a shared server's Lab may call (host, host:port or *.domain)
+//	TRACEREPORTS_LAB_HOSTS  extra hosts a shared server's Lab may call (host, host:port or *.domain);
+//	                        an internal one listed here is called without asking for confirmation
+//	TRACEREPORTS_LAB_STRICT 1 = a shared server's Lab never calls an internal host outside LAB_HOSTS
 package main
 
 import (
@@ -287,6 +289,7 @@ func runServer(parent context.Context) error {
 	}
 	analyzer := ai.New(store)
 	analyzer.Redact = redaction
+	analyzer.Shots = atrest.Dir{Path: shotsDir, Vault: vault}
 	// los análisis de IA terminan en segundo plano: la UI se entera en vivo por SSE
 	analyzer.OnChange = func(kind string, runID, testID int64) {
 		hub.Publish(live.Event{Type: kind, RunID: runID, TestID: testID})
@@ -316,7 +319,8 @@ func runServer(parent context.Context) error {
 		// criterios de "¿podemos salir a producción?" (TRACEREPORTS_RELEASE_GATE)
 		ReleaseGate: &gate,
 		// FixLab: reenviar llamadas capturadas desde el reporte (TRACEREPORTS_LAB=off lo apaga)
-		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS"))},
+		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS")),
+			Strict: labStrict(env.Get("LAB_STRICT"))},
 		// tracereports demo (TRACEREPORTS_DEMO lo pone la demo)
 		Demo: env.Bool("DEMO"),
 		// qué capturas se guardan: all, failures u off (TRACEREPORTS_SCREENSHOTS)
@@ -362,7 +366,10 @@ func runServer(parent context.Context) error {
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	startRetention(ctx, store, shotsDir)
+	apiServer.StartRetention(ctx)
+	apiServer.StartCompaction(ctx) // devuelve al disco lo borrado cuando no hay ejecuciones en curso
+	apiServer.StartLiveAlerts(ctx)
+	apiServer.StartStallWatch(ctx) // avisa y guarda un volcado cuando el servidor queda trabado
 	startStaleRuns(ctx, apiServer)
 	if err := startWeekly(ctx, env.Get("WEEKLY_SUMMARY"), apiServer, notifier); err != nil {
 		return err
@@ -400,6 +407,16 @@ func runServer(parent context.Context) error {
 func labOff(v string) bool {
 	switch strings.ToLower(strings.TrimSpace(v)) {
 	case "off", "0", "false", "no":
+		return true
+	}
+	return false
+}
+
+// labStrict: TRACEREPORTS_LAB_STRICT on, so a shared server's Lab never calls an internal host
+// outside TRACEREPORTS_LAB_HOSTS (without it, the person confirms it).
+func labStrict(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
 		return true
 	}
 	return false

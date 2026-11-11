@@ -114,6 +114,13 @@ def _identity(item):
     return key, suite, params
 
 
+def _planned_enabled():
+    """TRACEREPORTS_PLANNED=off: el plugin no informa los tests planificados. Para un lanzador propio que
+    crea una corrida por archivo: el total de la sesión no corresponde a ninguna corrida, así que el
+    lanzador informa cada una con set_planned (ver docs/es/python.md)."""
+    return (env("PLANNED") or "").strip().lower() not in ("off", "0", "false", "no")
+
+
 class TraceReportsPlugin:
     def __init__(self, config):
         self.config = config
@@ -150,6 +157,27 @@ class TraceReportsPlugin:
 
     def pytest_sessionstart(self, session):
         self._ensure_run()
+
+    # ─── En vivo: tests planificados y cancelación cooperativa ──────────────
+    def pytest_collection_finish(self, session):
+        """Cuántos tests va a correr esta sesión: progreso y ETA en En vivo. Con xdist el controlador no
+        recolecta (ver pytest_xdist_node_collection_finished) y los workers no lo informan."""
+        if self.workerinput is None and session.items and _planned_enabled():
+            self.cr.set_planned(len(session.items))
+
+    @pytest.hookimpl(optionalhook=True)
+    def pytest_xdist_node_collection_finished(self, node, ids):
+        if not getattr(self, "_planned_sent", False) and ids and _planned_enabled():
+            self._planned_sent = True
+            self.cr.set_planned(len(ids))
+
+    @pytest.hookimpl(tryfirst=True)
+    def pytest_runtest_setup(self, item):
+        """TRACEREPORTS_REMOTE_CONTROL=1: si alguien pidió cancelar desde TraceReports, los tests que
+        faltan se saltan (SKIP con el motivo) y la ejecución cierra normal. No se mata ningún proceso."""
+        cancel, reason = self.cr.cancel_requested()
+        if cancel:
+            pytest.skip("Cancelado desde TraceReports" + (f": {reason}" if reason else ""))
 
     @pytest.hookimpl(optionalhook=True)
     def pytest_configure_node(self, node):
@@ -218,6 +246,9 @@ class TraceReportsPlugin:
             terminalreporter.write_line(f"TraceReports: {self.cr.report_url}")
             where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir}`"
             terminalreporter.write_line(f"TraceReports local copy: {where}")
+        elif self.cr.recording and self.cr.pushed_report_url is not None:
+            # la ejecución no se pudo crear al inicio, pero al final el servidor respondió y se subió
+            terminalreporter.write_line(f"TraceReports (uploaded at the end): {self.cr.pushed_report_url or self.cr.offline_dir}")
         elif self.cr.recording:
             where = self.cr.offline_report or f"`tracereports report {self.cr.offline_dir} -o report`"
             terminalreporter.write_line(f"TraceReports (no server): evidence in {self.cr.offline_dir}; report: {where}; "
@@ -267,7 +298,15 @@ class TraceReportsPlugin:
         if driver is not None:
             item.stash[_DRIVER] = driver
             discard_logs(driver)  # lo de antes del test (otro test con el mismo driver) no es suyo
-        yield
+        # TRACEREPORTS_DOM_STEPS: la página de cada paso con captura, con el navegador de este test
+        if self.capture_dom and page is not None:
+            self.cr.dom_step_source = lambda: capturar_dom(page, kind="step")
+        elif self.capture_dom and driver is not None:
+            self.cr.dom_step_source = lambda: _selenium_dom(driver, kind="step")
+        try:
+            yield
+        finally:
+            self.cr.dom_step_source = None
         # Con la página todavía abierta: esperar (máx. 2 s) las llamadas en vuelo y enviar la red.
         # Después del teardown pytest-playwright cierra la página y ya no se puede esperar.
         test_id = item.stash.get(_TEST_ID, None)
@@ -338,5 +377,7 @@ class TraceReportsPlugin:
             reportar_red(page, self.cr, test_id=test_id, esperar_en_vuelo_ms=0)
         if outcome["status"] == "FAIL":
             self.cr.log_fail(outcome["message"] or "Falló", test_id=test_id)
+        elif outcome["status"] == "SKIP" and outcome["message"]:
+            self.cr.log("SKIP", outcome["message"], test_id=test_id)  # por qué se omitió (p. ej. cancelado desde En vivo)
         self.cr.end_test(outcome["status"] or "PASS", error_message=outcome["message"] if outcome["status"] == "FAIL" else "",
                          error_trace=outcome["trace"], test_id=test_id, attempts=outcome["attempts"])

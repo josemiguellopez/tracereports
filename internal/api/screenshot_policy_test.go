@@ -31,7 +31,8 @@ func storedFiles(t *testing.T, srv *Server) []string {
 	}
 	var out []string
 	for _, e := range entries {
-		if !strings.HasPrefix(e.Name(), "t.db") {
+		// la base y la carpeta de temporales de SQLite comparten carpeta con las capturas en estos tests
+		if !strings.HasPrefix(e.Name(), "t.db") && e.Name() != "tmp" {
 			out = append(out, e.Name())
 		}
 	}

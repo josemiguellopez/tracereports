@@ -29,3 +29,6 @@ allure-report/
 /tracereports-report/
 /models/
 /cmd.exe
+
+# Claude Code: ajustes personales de este equipo
+.claude/settings.local.json

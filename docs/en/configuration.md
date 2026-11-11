@@ -23,7 +23,8 @@ steps to apply it.
 | `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = encrypts new screenshots, traces, videos and DOM snapshots (AES-256-GCM). Needs `TRACEREPORTS_DB_KEY`. See [Evidence encryption](security-hardening.md#application-level-evidence-encryption-optional) |
 | `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Its key (32 bytes, base64 or hex), or a file holding it; never inside `DATA_DIR` |
 | `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | The previous key, only while rotating it (`tracereports evidence rekey`) |
-| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) to **view** the reports |
+| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login to **view** the reports: the sign-in page (`/login/`) in the browser, HTTP Basic for the API |
+| `TRACEREPORTS_SESSION_IDLE_MIN` / `_MAX_HOURS` / `_REMEMBER_DAYS` | `30` / `8` / `7` | Sign-in page session: it expires after this many minutes without use, or after this many hours anyway; "Remember me" keeps it this many days |
 | `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | **Read-only** login for the rest of the team: sees everything, never sends results, changes Settings nor uses actions. A different user from the admin one |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Without UI login: names served besides `localhost` (comma separated; `*` = any). See [Security](#security) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (all) | Only these networks get in (`10.0.0.0/8,fd00::/8`, or single IPs); the rest gets `403`, even with a token. This machine always gets in. See [Restrict by source network](#restrict-by-source-network) |
@@ -50,15 +51,21 @@ steps to apply it.
 | `TRACEREPORTS_REDACT` | on | `off` stores secrets as received (not recommended) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
-| `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days |
+| `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days, every 6 h; without it, the days chosen in Maintenance (see [Storage and retention](#storage-and-retention)) |
 | `TRACEREPORTS_SCREENSHOTS` | `all` | Which screenshots the server keeps: `all`, `failures` (only of a failed step or test) or `off` (none, no trace or video either). See [Screenshots](#screenshots) |
 | `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
-| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). See [FixLab](fixlab.md#security) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). An internal host listed here is called without asking for confirmation. See [FixLab](fixlab.md#security) |
+| `TRACEREPORTS_LAB_STRICT` | off | `1`: a shared server's Lab never calls an internal host (private IP or this machine) outside `TRACEREPORTS_LAB_HOSTS`; without it, the person confirms it |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Status page (Statuspage format, `…/api/v2/summary.json`) that Settings → AI usage shows instead of the provider's: a mirror, a proxy or the page of an OpenAI-compatible provider |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Automatic AI diagnoses per run; the rest are left *not analyzed* and can be analyzed by hand. It counts one diagnosis per test **result**: resending the same result, a restart or a provider error do not spend another one, and a manual *Re-analyze* does not count. `0` = no limit |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Only if the server asks for it on start (a database left halfway by an older version): `backfill` counts the diagnoses already made as spent, `keep` leaves the count as it is |
 | `TRACEREPORTS_LEGACY_DB` | — | Only if the server asks for it on start: `ignore` starts with a new database when `DATA_DIR` has `#`, `?` or `%` and an older version kept the database elsewhere (move it instead to keep the data) |
 | `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Closes as *incomplete* a run still *in progress* that received nothing for N hours (the client died without closing it); its unfinished tests become *Interrupted*. Decimals allowed (`0.5`). `0` = never. Without the variable, it is set from *Maintenance*. See [Abandoned runs](#abandoned-runs) |
+| `TRACEREPORTS_REDACT_PII` | on | Masks RUTs, phone numbers and e-mails in the DOM snapshot (text and text attributes; the locator attributes stay: id, class, data-test*, placeholder and aria-label). Dates are not touched. `off` turns it off |
+| `TRACEREPORTS_NO_SIGNAL_MIN` | `3` | Live: a running test is *without signal* when nothing of it arrived for N minutes (server clock). Decimals allowed. See [Live](#live) |
+| `TRACEREPORTS_LIVE_ALERTS` | — | `1` sends the Live alerts (a test without signal, a slow test, too many failures) to the Teams/Slack webhooks, once each |
+| `TRACEREPORTS_ALERT_TURTLE` | — | Also alert a test that runs N times its p90 (e.g. `3`) |
+| `TRACEREPORTS_ALERT_FAILURES` | — | Also alert an execution still running with more than N failures |
 
 ## Security
 
@@ -89,8 +96,12 @@ TRACEREPORTS_UI_PASSWORD=a-strong-password
 - **Settings → Connect your tests** walks you through the token: it generates it in the browser,
   gives you the `.env` line, the commands for PowerShell, macOS/Linux, GitHub Actions and GitLab CI
   with your URL, and checks that the server accepts it.
-- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: the browser asks for a user and password to see
-  the UI and the read API.
+- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: the UI opens on a sign-in page (`/login/`) and keeps the
+  session in an `HttpOnly`, `SameSite=Strict` cookie (`Secure` with HTTPS); only a hash of it is stored. It expires
+  after `TRACEREPORTS_SESSION_IDLE_MIN` without use (a forgotten tab does not keep it alive) or
+  `TRACEREPORTS_SESSION_MAX_HOURS` anyway; "Remember me" keeps it `TRACEREPORTS_SESSION_REMEMBER_DAYS`. Changing the
+  password ends every session. Failed sign-ins count for the same brake as HTTP Basic and the tokens. The
+  read API keeps accepting HTTP Basic and the tokens, as before.
 - **Settings from the UI** (AI provider, default language): can be changed with the UI login or
   the token. Without login nor token (local mode), also from the machine where the server runs,
   connected directly: the real connection is checked and a request that comes through a proxy
@@ -199,6 +210,7 @@ run failed. The rule with the highest priority wins (on a tie, the most confiden
 | `network_error` | `INFRA_ERROR` | The error message is about DNS, a refused connection, TLS or a connection exception (`ConnectionError`) |
 | `js_error` | `LOGIC_BUG` | An uncaught JavaScript error and the expected element never showed up |
 | `backend_client_error` | `LOGIC_BUG` | A 4xx the application did not recover from |
+| `blank_page` | `INFRA_ERROR` | The page was blank at the failure (DOM snapshot with nothing visible, or a single-color screenshot) |
 | `locator_not_found` | `LOCATOR_CHANGED` | The selector did not find the element |
 | `assertion` | `LOGIC_BUG` | A check failed (cites the expected value, the actual one and the line) |
 | `environment_down` | `INFRA_ERROR` | 80 % or more of a run of at least 5 tests failed |
@@ -560,11 +572,14 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
 
 ## For whoever fixes it: reproduce and compare
 
-- **Run it locally**: a test's detail has the command to run it on your machine, at the run's exact
-  version (`git checkout <commit> && …`): `pytest '<nodeid>'`,
-  `npx playwright test <file> -g '<title>' --project=<project>`, Maven/Gradle for JUnit or
-  `go test ./<package>/... -run '^TestX$'`. It comes from the test identity, so the client must
-  report it (all of them do).
+- **Run it locally**: a test's detail has the commands to run it on your machine: only that test
+  (`pytest '<nodeid>'`, `npx playwright test <file> -g '<title>' --project=<project>`, Maven/Gradle
+  for JUnit or `go test ./<package>/... -run '^TestX$'`) and its whole file or class. When the error
+  says the test needed an earlier one (empty data, a step skipped because a previous one failed),
+  the whole file comes first: alone, that test fails for another reason. The run's commit is a note
+  (`git checkout <commit>` only if your copy is on another version), never chained to the command.
+  The same goes for Escalate (Development), tickets, the Lab capsule and MCP. It comes from the test
+  identity, so the client must report it (all of them do).
 - **Resend it in the Lab (FixLab)**: *Open in Lab* on a failed call (**Network** tab) or on a
   backend incident resends the call with a fresh session (it repeats the recorded login and reads
   anti-CSRF tokens live; you only type the password) to see whether the failure **still happens**:
@@ -572,7 +587,8 @@ each. Retention deletes them with their run, and the exported ZIP includes up to
   connection**. Save it as a **check** and press **Verify** on the incident once it is fixed;
   export it to Postman, Bruno or `.http`; take it to your terminal or CI with
   `tracereports repro` / `verify`, or to Claude Code with `tracereports mcp`. On a shared server it
-  only calls the hosts the test called and `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off`
+  only calls the hosts the test called and `TRACEREPORTS_LAB_HOSTS`, and asks before an internal host
+  that is not in that list (`TRACEREPORTS_LAB_STRICT=1` refuses it); `TRACEREPORTS_LAB=off`
   disables it. Full guide: [FixLab](fixlab.md).
 - **Compare with the last time it passed**: on a failed call (**Network** tab), it finds the same
   call (same method, host and path, with ids normalized: `/orders/123` = `/orders/456`) in the most
@@ -606,6 +622,101 @@ Set it with `TRACEREPORTS_RELEASE_GATE`, for example
 `min_pass_rate=98; critical=smoke,checkout,login; max_new_failures=0; max_flaky=2`. A malformed
 criterion stops the server from starting. Through the API: `GET /api/v1/runs/{id}/release`.
 
+## Live
+
+**Live** (side menu) shows what is running now, per execution, with what the server already receives
+from any client:
+
+- **Executions**: the runs of one execution together. They share `execution_id` (the clients send
+  `TRACEREPORTS_EXECUTION_ID` or the CI build id); without it, runs of the same project, environment, branch
+  and commit that start one after another (a launcher that creates a run per file).
+- **Progress and ETA** when the client says how many tests it collected (the pytest plugin does).
+- **Turtle**: a running test slower than its p90 in its previous runs (or twice its median). **No signal**:
+  nothing of it arrived for `TRACEREPORTS_NO_SIGNAL_MIN` minutes (3 by default). They go first.
+- **Status tiles** (Pass, Fail, Warning, Running, Turtle, No signal) that filter the table with a click, and
+  **Only with problems** (fail, interrupted, turtle, no signal), on by default with more than 20 runs or lanes.
+- **Timeline**: a minimap of the whole execution (drag to zoom into a stretch; −, + and Fit) and the lanes
+  per worker. Without `worker` (a run per file), lanes are reused like processes: each run takes the first
+  free lane, so 86 runs in 12 processes show as 12 lanes.
+- A **table** grouped by file, worker or status, most severe first, with the duration against the median
+  and the last step (one line, without URLs; the full text in the tooltip), and a search over test, file,
+  worker or step. With many files, the ones without problems fold into one line.
+- **Side panel**: clicking a test (row or bar) shows its status and, in tabs, its **trace** (the steps and
+  the backend calls on one timeline, failed calls in red and the moment of the failure marked), the last 5
+  steps and the latest screenshot, without leaving Live; "Open the test" goes to the detail.
+- **Execution health**: failure rate (and the difference against the previous execution of the same
+  project), typical (p50) and slow (p95) duration and pace in tests per minute, each with its sparkline.
+- **Diagnosis**: errors grouped by signature (a click filters), the slowest against their history, the
+  **execution backend** (endpoints of all its runs, errors first, with p95) and the recent activity. On the
+  minimap, the failure or no-signal icon marks where each one happened.
+- **Facets** beside the table (status, error, file, worker), several at once, and the table sorts by status,
+  name, duration or against the median. **Pause** freezes the view to analyze it.
+- **Needs attention**, on top: the tests that failed, have no signal, were interrupted or are turtles, with
+  file, worker, duration and ×p50; one click opens the detail.
+- The chosen statuses and the search go in the link (`&f=fail,warn`, `&lq=text`): sharing it opens the view
+  already filtered. Values of `f`: `fail`, `nosig`, `turtle`, `warn`, `run`, `pass`, `skip`, `int`.
+- `/` jumps to the search box and `Esc` clears it. The last step fits one line, with XPaths shortened and the
+  stack trace in a badge that opens below; the table has a **Worker** column and "Expand all / Collapse all".
+- **Past executions**: the list shows the last 2 hours, but any execution opens with the same view by its
+  key or by one of its runs (`#view=live&exec=r:888`). **Observability**, in the top bar, opens the
+  execution of the run being looked at.
+- **Show** (All / With problems) and **Group by** (file, worker, status, error) are segmented controls: they answer
+  in the same frame as the click (the control changes and a thin bar says it is recomputing) and a status
+  line says what is shown: "Showing 6 of 234 tests · Only with problems · Grouped by file".
+- **Execution map**, in two views. **Field** (default): the execution as a torus of particles read like a clock; the angle is time (the start
+  on top, clockwise, with pauses compressed) and each ring a worker or process. Each test is a point where it
+  ended (or where it is, on the dashed "now" hand, in the text color: red is only for failures), bigger the slower it was, with a thin trail of how long it
+  lasted; failures glow. Hovering shows it, a click (or the arrows and Enter) opens its detail. Around it, the
+  channels (tests, failures, network, workers: each filters or groups), the **real ingestion** (events of this
+  execution that arrived through the stream in the last minute and how long ago the last one; finished or
+  without events it never says "active"), the dominant anomaly (a click filters by its signature) and
+  the error pressure. Every incoming event fires a pulse from its channel to its test. The field can be handled: drag rotates and tilts, Shift + drag moves,
+  +/− (or Ctrl + wheel; the wheel in full screen) zooms, F goes full screen (Esc returns), 0 resets the view;
+  a click marks the particle at once and opens its detail; Ctrl/⌘ + click (or the panel's **Open the test**)
+  opens the test, and so does a double click on the particle already chosen (two quick clicks on a new one only
+  choose it, they never take you out of Live). **Pause view** (or Space) freezes the field to look into
+  something while ingestion goes on in the server: it counts the events arriving and "Resume (+N)" catches up.
+  **Grid**: one square per test, in the order they started; a click opens its detail. On top, a **ticker** with the latest events that stops
+  on hover, and a clock.
+- The **timeline** starts at the first test (not at the start of the execution), marks **now** with a line
+  and compresses long pauses with no test running (≈, with how long they lasted). Ctrl + wheel zooms in or
+  out; **Fit to window** goes back to everything; **Hide idle** keeps only the lanes that are running.
+  Without `worker`, lanes are called **Process 1, Process 2…** (a parallel lane); the legend explains it, and
+  **×1.7** too (took 1.7 times normal: its median in earlier executions).
+- **Group by error** puts tests together by cause (the signature with its selector shortened: "TimeoutException
+  in fa-plus-circle"), the most affected first and "No failure" last.
+- The table draws **100 rows at a time** ("Show 100 more"); search filters once you stop typing, so the page
+  does not freeze on big executions. Times are in 24 h and numbers follow the language ("×1,7" in Spanish).
+- In Live, **Trace Buddy** shrinks so it does not cover the table (full size on hover or with its chat open)
+  and the page title shows the execution.
+- Long names carry the **ellipsis in the middle** (the start and the end, which tells one test from another,
+  stay visible), with the full name in the tooltip and a button to copy it; the Test column widens by
+  dragging its edge (or with ← →) and **Names on 2 lines** shows them whole. Both preferences are remembered
+  in that browser.
+- Choosing a status (or a facet, or searching) shows in the **timeline**: matches stand out, lanes without a
+  match fold into one line, the minimap counts only those and the title says "3 of 234 tests match". Hovering a
+  lane highlights its tests in the table.
+- **New failures**: every failed test says whether it passed in its previous execution ("New") or was already
+  failing. Shown in Needs attention (which has its own search box and status filter, "new" included), the table
+  and **Grouped errors**, where each error opens with the tests it belongs to.
+- The side panel shows the **test's lane** with what ran before and after it. When the execution ends, a
+  **closing summary** with duration, results, new failures and slow tests, and "Escalate the failures".
+- **Keyboard**: J/K next or previous needing attention, O opens the test, P pauses, C compact mode (no
+  diagnosis cards nor charts, for a small screen or a TV), ? shows the shortcuts; a double click on a row opens
+  the test.
+- Every control, icon, column and status has a **tooltip** (mouse or keyboard focus) saying what it is or
+  does. Statuses have their own icon set (the turtle is an icon, not the word).
+- **Charts**: results over time (by status), cumulative failure rate (with the previous one as a reference)
+  and the duration distribution (with p50 and p95); each with "Show data" as a table.
+- The **execution picker** shows the time, how long ago it started or ended and whether it is running,
+  recent, from today or earlier; with more than 8 executions it has a search box and groups them by age.
+- **Cancel execution…** (admin): a cooperative cancel. No process is killed: clients with
+  `TRACEREPORTS_REMOTE_CONTROL=1` see it between tests, skip the rest and close the run.
+- **Alerts** to Teams/Slack with `TRACEREPORTS_LIVE_ALERTS=1` (see the reference).
+
+It updates through the live events (SSE) and every 10 s, so a test without signal shows up although nothing
+arrives.
+
 ## History, flaky and comparison
 
 No configuration needed. They are computed from the data that already exists:
@@ -634,7 +745,17 @@ Each failure goes to an incident by evidence, never by the AI category alone:
    the application did not keep working with that host afterwards. **Expected** responses never
    count. The signature includes method, **host**, normalized path and outcome.
 2. Otherwise, the **error signature**: exception type, message without numbers or ids and the
-   innermost frame of the project's code.
+   file of the innermost frame of the project's code. The same error raised from several lines of a
+   file is one incident; its location lists the lines (`tests/x.py:135, 158`). The lines Python adds
+   to a chained exception ("During handling of the above exception…") are skipped.
+3. **In cascade**: in a test file whose tests depend on each other, the first failed test and the
+   later failed tests of that file whose error points to it (it names that test, or says that data
+   is missing or that the test was skipped because a previous step failed) are one incident with the
+   cause of the first one. A test that passes in between breaks the chain. If the first one ran much
+   longer than the rest (5 minutes or more) it is shown as hung, and a page that was blank at the
+   failure (a DOM snapshot with nothing visible, or a single-color screenshot) is added as evidence;
+   the local rules engine then concludes `blank_page`, not a broken selector. The tests of a cascade
+   do not count as independent failures for "the environment was probably down".
 
 Every failure stays in some incident. The AI describes at most the 8 largest (the rest are shown
 with their evidence) and its cause is presented as a **hypothesis**, next to the evidence it relies
@@ -703,6 +824,72 @@ branch and age, to close or delete them in bulk (a running run is not deleted: c
 **The threshold from the interface.** In Maintenance, *Close after* changes the threshold (30 min to
 48 h, or *Never*) without restarting the server; it needs the same permission as Settings. If the server
 has `TRACEREPORTS_STALE_RUN_HOURS`, the variable wins and the selector is locked.
+
+### Client connections
+
+**Maintenance → Client connections** tells whether the evidence reaches the server well, without logging into
+the machine that runs it. On top, a summary says how much there is of each thing (a click takes you to that
+list); each list is folded and shows 10 rows, with "Show more". What you leave open stays open when refreshing.
+
+- **Runs with delivery problems** (7 days), **one row per execution** (with many workers an execution leaves
+  dozens of runs with the same problem): how many runs, what happened and on which machines; the execution opens
+  to show its runs one by one. The runs: those the client could not create in time (it recorded locally and
+  uploaded them at the end), with the cause (`the server did not answer within 30 s`), the address it connected
+  to and how long it waited, the machine and the client version; also those with retries or lost evidence. The
+  report of those runs says so on top ("This run arrived at the end"). The client reports it when it closes the
+  run (Python; see `delivery` in the [API](api.md)).
+- **Slow server requests**: the last 50 over 2 s since it started (also in the log as `slow request`). If a test
+  said "timed out" and nothing shows here at that time, the request never reached the server: the problem is in
+  the network or in Docker (see `scripts/watch-health.ps1` in [Docker](docker.md#troubleshooting)).
+- **Server stalls**: moments when several requests went without an answer for more than 10 s at once (a task
+  was holding the database and everything waited). The server says so in the log (`server stalled`) and saves a
+  dump of what each task was doing at that moment in `DATA_DIR/diagnostics/` (the last 10); with the Settings
+  permission it can be downloaded from here to report the problem.
+- **Rejected credentials** (Settings permission only): the addresses that failed the token or the login in the
+  last 15 min and whether they got blocked; usually a wrong token in the tests `.env`.
+
+If a Maintenance action fails, the message names the cause when there is something to do (data disk full, busy
+database, data folder not writable) and always a **reference**: the same code is in the server log next to the
+full error (`docker compose logs tracereports | grep <reference>`).
+
+### Storage and retention
+
+The evidence lives in the data folder (`DATA_DIR`; in Docker, the `tracereports-data` volume mounted at
+`/data`): the SQLite database (runs, steps, network, DOM) and `screenshots/` (screenshots and
+attachments). **Maintenance → Storage** shows:
+
+- the disk of that folder: how much is in use and free, with a warning (also in the log, every 6 h) from
+  80 %, saying how much of it TraceReports takes;
+- the evidence stored (database and files), how many runs and since when, the average growth per day and
+  how long the disk would last at that pace;
+- what each project takes (its files plus its share of the database, approximate);
+- files no run uses (left by interrupted deletions or earlier versions).
+
+**Retention.** *Keep* chooses how many days of runs to keep without restarting the server: 1, 2, 3, 7, 14 or 30
+days, 2, 3 or 6 months, 1 year or everything, and **Other…** to type any number of days (1 to 3650; saved
+with Enter or on leaving the field). It needs the same permission as Settings. Every 6 hours the finished
+runs older than that are deleted with their screenshots; the database is compacted apart (see below). `TRACEREPORTS_RETENTION_DAYS`
+wins over the interface and locks the selector. Without either, nothing is deleted (and the server says
+so when it starts).
+
+**Clean up now…** (admin) asks how many days to keep, with the same choices and **Other…**, shows first
+what would be deleted (runs, tests and the space it would free; with **Other…** it updates as you type), the
+cutoff date and the oldest run, and deletes only after confirming. The last cleanup (when, what and how much
+it freed; if it stopped with an error, what it managed to delete and the error) and the next one are shown
+below the selector. A run still in progress is never deleted. The cleanup
+(and bulk delete) deletes 25 runs at a time: with a database of several GB it may take a few minutes, but the
+clients keep sending meanwhile. While it works the screen says so and a second click does not repeat it.
+
+**Compact the database**: deleting does not shrink the database file right away (the deleted data is overwritten
+with zeros, but the space stays inside the file). Compacting gives it back to the disk, but rewrites the whole
+database: with several GB it takes minutes, the clients wait to save while it runs and it needs as much free disk
+as the database takes. So it runs apart: by itself when no run is in progress and the clients have sent nothing
+for 15 min (at most once every 20 h), or with **Compact now…**, which says how much it would give back, how much
+space it needs (it does not start without it) and whether runs are in progress.
+
+API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
+(`{"days": N}`, 0 = keep everything) and `POST /ui/maintenance/retention/run` (`{"days": N}`, or `{}` for
+the retention in force).
 
 ## AI diagnosis after a restart
 

@@ -23,7 +23,8 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { domSnapshotInPage } from "./dom.js";
-import { MASKED_SHOT, playwrightScreenshot, screenshotsPolicy } from "./mask.js";
+import { cancelReason, skipMessage } from "./control.js";
+import { MASKED_SHOT, maskSelector, playwrightScreenshot, screenshotsPolicy } from "./mask.js";
 
 export { MASKED_SHOT, playwrightScreenshot };
 
@@ -139,7 +140,7 @@ export function captureConsole(page) {
 /** Snapshot de los elementos de la página, o null si ya no está disponible. */
 export async function captureDom(page) {
   try {
-    return await page.evaluate(domSnapshotInPage);
+    return await page.evaluate(domSnapshotInPage, maskSelector());
   } catch {
     return null;
   }
@@ -157,6 +158,13 @@ export function withTraceReports(baseTest) {
 }
 
 const fixtures = {
+  // TRACEREPORTS_REMOTE_CONTROL=1: si cancelaron la ejecución desde En vivo, el test se salta con el motivo
+  tracereportsControl: [async ({}, use, testInfo) => {
+    const reason = cancelReason();
+    if (reason !== null) testInfo.skip(true, skipMessage(reason));
+    await use();
+  }, { auto: true }],
+
   page: async ({ page }, use, testInfo) => {
     const net = captureNetwork(page);
     const cons = captureConsole(page);

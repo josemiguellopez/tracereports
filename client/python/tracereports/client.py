@@ -53,6 +53,7 @@ import logging
 import mimetypes
 import os
 import shutil
+import socket
 import subprocess
 import threading
 import time
@@ -64,18 +65,25 @@ from typing import Any, Callable, Iterator, Optional, Union
 
 from ._env import env
 from .binary import resolve_binary
-from .context import detect_branch, detect_commit
+from .context import default_execution_id, detect_branch, detect_commit
+from .dom import dom_on, dom_signature, dom_steps_enabled, dom_steps_mode
 from .mask import screenshot_allowed
 from .offline import Recorder, new_session_dir
 from .transport import Sender
 from .mirror import Mirror
 
 __all__ = ["TraceReports"]
-__version__ = "0.5.1"
+__version__ = "0.6.0"
 
 log = logging.getLogger("tracereports")
 
 BytesOrPath = Union[bytes, bytearray, str, "os.PathLike[str]"]
+
+# Tope para crear o cerrar la ejecución contando los reintentos (run_timeout es por intento): con un
+# servidor que acepta y no responde, cada proceso (p. ej. 16 workers de xdist) espera esto como mucho.
+# 30 s: un corte de unos segundos (el reenvío de puertos de Docker Desktop, la red) no hace perder la
+# ejecución; un servidor caído (conexión rechazada) sigue pasando a local al instante.
+RUN_TOTAL_SECONDS = 30.0
 
 _SKIP_EXCEPTION_NAMES = {"SkipTest", "Skipped", "SkipException"}  # unittest, pytest, others
 
@@ -87,13 +95,18 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+# TRACEREPORTS_DOM_STEPS=on-problem: páginas en memoria por test y antigüedad máxima de la base de comparación
+MAX_DOM_BUFFER = 40
+BASELINE_MAX_AGE_MS = 7 * 24 * 3600 * 1000
+
+
 class TraceReports:
     """Client for the TraceReports server REST API."""
 
     def __init__(
         self,
         base_url: Optional[str] = None,
-        timeout: float = 2.0,
+        timeout: Optional[float] = None,
         upload_timeout: float = 5.0,
         enabled: bool = True,
         max_consecutive_failures: int = 3,
@@ -107,10 +120,16 @@ class TraceReports:
         offline: Optional[str] = None,
         offline_base: Optional[str] = None,
         offline_name: Optional[str] = None,
+        run_timeout: Optional[float] = None,
     ) -> None:
         """
         :param base_url: server URL. Defaults to $TRACEREPORTS_URL or http://localhost:8080.
-        :param timeout: seconds per JSON request (keep it short so the browser is never blocked).
+        :param timeout: seconds per JSON request (default $TRACEREPORTS_TIMEOUT or 2; keep it short so
+            the browser is never blocked).
+        :param run_timeout: seconds to create and close the run, which can take longer on a busy server
+            (default $TRACEREPORTS_RUN_TIMEOUT, or 10, or ``timeout`` if it is longer). A timeout is
+            retried with the same Idempotency-Key, so a slow server never ends with two runs; all the
+            attempts together take at most 15 s (or one ``run_timeout`` if it is longer).
         :param upload_timeout: seconds per screenshot upload.
         :param enabled: set False (or $TRACEREPORTS_DISABLED=1) to turn every call into a no-op.
         :param max_consecutive_failures: kept for compatibility; an unreachable server now opens a
@@ -131,7 +150,8 @@ class TraceReports:
             created; "always": record without trying a server; "both": also keep a local copy; "off": never record.
         """
         self.base_url = (base_url or env("URL") or "http://localhost:8080").rstrip("/")
-        self.timeout = timeout
+        self.timeout = timeout if timeout is not None else _env_float("TIMEOUT", 2.0)
+        self.run_timeout = run_timeout if run_timeout is not None else _env_float("RUN_TIMEOUT", max(10.0, self.timeout))
         self.upload_timeout = upload_timeout
         self.enabled = enabled and env("DISABLED", "") not in ("1", "true", "yes")
         self.max_consecutive_failures = max_consecutive_failures
@@ -146,6 +166,20 @@ class TraceReports:
         self.run_id: Optional[int] = None
         self.run_created = False  # this client created the run (and must close it)
         self.unregistered_tests = 0  # tests whose creation failed: their evidence was not sent
+        # TRACEREPORTS_DOM_STEPS=1: the page of each step with a screenshot also goes to the Inspector.
+        # dom_step_source returns the snapshot of the current page (the pytest plugin sets it per test).
+        self.dom_steps = dom_steps_enabled()
+        # TRACEREPORTS_DOM_STEPS=on-problem: las páginas esperan aquí hasta saber si el test tuvo un problema
+        self.dom_steps_mode = dom_steps_mode()
+        self._dom_buffer: "dict[int, list[tuple[str, str, dict]]]" = {}
+        self._dom_problem: "set[int]" = set()
+        # TRACEREPORTS_DOM_ON=fail,warning: also the page of each WARNING step (it often comes before a failure)
+        self.dom_on_warning = "warning" in dom_on()
+        self.dom_step_source: Optional[Callable[[], Optional[dict]]] = None
+        self._dom_step_sig: "dict[tuple[int, str], str]" = {}
+        # TRACEREPORTS_REMOTE_CONTROL=1: between tests, ask the server whether the run was cancelled
+        self.remote_control = env("REMOTE_CONTROL", "").strip().lower() in ("1", "true", "yes", "on")
+        self._control = {"checked": 0.0, "cancel": False, "reason": "", "off": False}
         self._local = threading.local()  # current test id per thread
         self._expect: "dict[int, list[dict]]" = {}  # test_id -> respuestas esperadas
         self._lock = threading.Lock()
@@ -162,6 +196,10 @@ class TraceReports:
         self._offline_name = offline_name or env("OFFLINE_NAME", "")
         self.offline_dir: Optional[str] = None  # carpeta donde se está grabando (None: se envía al servidor)
         self.offline_report: Optional[str] = None  # index.html generado al cerrar
+        self._push_at_end = False  # la ejecución no se pudo crear al inicio: end_run intenta subir la grabación
+        self._late: Optional[dict] = None  # por qué no se pudo crear al inicio (va en el informe de entrega)
+        self._sender_before_offline = None  # el envío de antes de grabar en local: guarda el detalle del timeout
+        self.pushed_report_url: Optional[str] = None  # la ejecución subida al final (push), si se pudo
 
     # ------------------------------------------------------------- offline
 
@@ -172,6 +210,7 @@ class TraceReports:
 
     def _go_offline(self, reason: str) -> None:
         directory = self._offline_base if self._offline_explicit else new_session_dir(self._offline_base, self._offline_name)
+        self._sender_before_offline = self._sender
         try:
             self._sender = Recorder(directory)
         except OSError as err:
@@ -252,6 +291,8 @@ class TraceReports:
         commit: Optional[str] = None,
         framework: str = "",
         detect_context: bool = True,
+        execution_id: Optional[str] = None,
+        planned: int = 0,
     ) -> Optional[int]:
         """
         Create a run (suite execution). Returns run_id or None if the server is unreachable.
@@ -267,17 +308,29 @@ class TraceReports:
             branch = detect_branch() if branch is None else branch
             commit = detect_commit() if commit is None else commit
         payload = {"name": name, "environment": environment, "project": project or env("PROJECT", ""),
-                   "branch": branch or "", "commit": commit or "", "framework": framework}
+                   "branch": branch or "", "commit": commit or "", "framework": framework,
+                   # agrupa en En vivo las corridas de una misma ejecución (un run por archivo, un build de CI)
+                   "execution_id": default_execution_id() if execution_id is None else execution_id}
+        if planned > 0:
+            payload["planned"] = int(planned)
         if self._sender.spool_dir and self.enabled:
             resent = self._sender.load_spool()
             if resent:
                 log.info("tracereports: resending %d events saved by a previous run", resent)
-        res = self._request("POST", "/api/v1/runs", payload)
+        res = self._request("POST", "/api/v1/runs", payload, self.run_timeout, self._run_total())
         if not res and self.enabled and self.offline_mode in ("auto", "both") and not self.recording:
-            # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo
-            self._go_offline(f"could not create the run at {self.base_url} (server down or wrong token)")
+            # sin servidor, caído o con el token equivocado: se graba en vez de perderlo todo; si al
+            # final el servidor responde, end_run sube la grabación (un corte breve no la pierde)
+            why = self._create_failure()
+            self._go_offline(f"could not create the run at {self.base_url} ({why})")
+            self._push_at_end = self.recording
             if self.recording:
-                res = self._request("POST", "/api/v1/runs", payload)
+                # va con el cierre del run (y con la grabación cuando se sube): el servidor lo muestra
+                # en el reporte y en Mantenimiento > Conexiones
+                self._late = {"late": True, "late_at": int(time.time() * 1000), "reason": why,
+                              "detail": getattr(self._sender_before_offline, "last_failure_detail", "")}
+            if self.recording:
+                res = self._request("POST", "/api/v1/runs", payload, self.run_timeout)
         if res and res.get("run_id", 0) > 0 and self.offline_mode == "both" and not self.recording:
             self._go_mirror(res["run_id"], payload)
         self.run_id = res.get("run_id") if res else None
@@ -321,11 +374,14 @@ class TraceReports:
         if not rid:
             return None
         payload = {"interrupted": bool(interrupted)}
-        res = self._request("PATCH", f"/api/v1/runs/{rid}/finish", payload)
+        report = self._delivery_report()
+        if report:
+            payload["delivery"] = report
+        res = self._request("PATCH", f"/api/v1/runs/{rid}/finish", payload, self.run_timeout, self._run_total())
         if res is None and self.enabled:
             # el servidor no respondió: el cierre también va al spool (se reenvía con lo demás)
             sender = self._sender.sender if isinstance(self._sender, Mirror) else self._sender
-            sender.enqueue("PATCH", f"/api/v1/runs/{rid}/finish", json.dumps(payload).encode(), "application/json", self.timeout)
+            sender.enqueue("PATCH", f"/api/v1/runs/{rid}/finish", json.dumps(payload).encode(), "application/json", self.run_timeout)
             self._sender.drain_to_spool()
         if isinstance(self._sender, Mirror):
             self._sender.close(pending == 0 and res is not None and self.delivery_problems() == 0 and not interrupted)
@@ -334,7 +390,66 @@ class TraceReports:
             self._sender.finalize(self.offline_report, env("OFFLINE_KEEP") == "1", before)
         elif self.recording:
             self._offline_finish()
+            if self._push_at_end:
+                self._push_recording()
         return res
+
+    def _delivery_report(self) -> Optional[dict]:
+        """How this run's evidence arrived, for the server (only when something went wrong): created
+        late (recorded locally), retried, rejected, dropped, lost or spooled. The server shows it in
+        the run and in Maintenance > Connections."""
+        d = self.delivery
+        counts = {k: int(d.get(k) or 0) for k in ("retried", "rejected", "dropped", "lost", "spooled")}
+        if not self._late and not any(counts.values()):
+            return None
+        report = {**(self._late or {}), **{k: v for k, v in counts.items() if v}, "client": f"python {__version__}"}
+        try:
+            report["host"] = socket.gethostname()[:120]
+        except OSError:
+            pass
+        return report
+
+    def _create_failure(self) -> str:
+        """Why the run could not be created, in the words of the warning."""
+        why = getattr(self._sender, "last_failure", "")
+        if why == "timeout":
+            return f"the server did not answer within {self._run_total():.0f} s"
+        if why == "HTTP 401":
+            return "wrong token"
+        if why.startswith("HTTP "):
+            return f"the server answered {why}"
+        return "server down or unreachable"
+
+    def _push_recording(self) -> None:
+        """The run could not be created at the start: if the server answers now, upload the recording
+        (``tracereports push``, idempotent) so the run reaches the server. TRACEREPORTS_OFFLINE_PUSH=0
+        turns it off."""
+        self._push_at_end = False
+        if env("OFFLINE_PUSH", "1").lower() in ("0", "false", "no", "off") or not self.offline_dir:
+            return
+        later = f"upload it later with `tracereports push {self.offline_dir}`"
+        try:
+            with urllib.request.urlopen(self.base_url + "/healthz", timeout=3) as resp:  # noqa: S310 (el servidor configurado)
+                up = resp.status == 200
+        except (urllib.error.URLError, OSError, ValueError):
+            up = False
+        if not up:
+            log.warning("tracereports: the server still does not answer; %s", later)
+            return
+        try:
+            environ = dict(os.environ, TRACEREPORTS_URL=self.base_url)
+            if self.token:
+                environ["TRACEREPORTS_TOKEN"] = self.token
+            out = subprocess.run([resolve_binary(), "push", self.offline_dir], env=environ, check=True,
+                                 timeout=600, capture_output=True, text=True)
+        except Exception as err:  # noqa: BLE001 (binario ausente, rechazo, timeout: la grabación queda)
+            detail = (getattr(err, "stderr", "") or str(err)).strip().splitlines()
+            log.warning("tracereports: could not upload the recording (%s); %s", detail[-1] if detail else err, later)
+            return
+        urls = [line.split("Report: ", 1)[1] for line in out.stdout.splitlines() if line.startswith("Report: ")]
+        self.pushed_report_url = urls[0] if urls else ""
+        log.warning("tracereports: the server answered again; the recording was uploaded: %s",
+                    self.pushed_report_url or self.offline_dir)
 
     def download_report(self, dest_dir: str = ".", run_id: Optional[int] = None, timeout: float = 60.0) -> Optional[str]:
         """
@@ -431,6 +546,10 @@ class TraceReports:
         if not tid:
             return None
         if exc is not None:
+            status = status or "FAIL"
+        if self.dom_steps_mode == "on-problem":
+            self._flush_dom_buffer(tid, status or "")
+        if exc is not None:
             error_message = error_message or f"{type(exc).__name__}: {exc}"
             error_trace = error_trace or "".join(traceback.format_exception(type(exc), exc, exc.__traceback__))
             status = status or "FAIL"
@@ -480,6 +599,10 @@ class TraceReports:
             f"/api/v1/tests/{tid}/logs",
             {"status": status.upper(), "message": str(message), "timestamp": int(time.time() * 1000)},
         )
+        if status.upper() in ("FAIL", "WARNING"):
+            self._dom_problem.add(tid)  # TRACEREPORTS_DOM_STEPS=on-problem: sus páginas se mandan
+        if status.upper() == "WARNING" and self.dom_on_warning:
+            self._dom_step(tid, str(message), warning=True)  # TRACEREPORTS_DOM_ON=warning
 
     def log_info(self, message: str, **kw: Any) -> None:
         self.log("INFO", message, **kw)
@@ -511,6 +634,10 @@ class TraceReports:
         tid = test_id or self.current_test_id
         if not tid or not self.enabled:
             return None
+        if status.upper() in ("FAIL", "WARNING"):
+            self._dom_problem.add(tid)
+        if status.upper() != "FAIL":  # la página del fallo la toma el plugin aparte
+            self._dom_step(tid, message, warning=status.upper() == "WARNING")
         # TRACEREPORTS_SCREENSHOTS=off|failures: la captura ni se lee ni se envía (ver mask.py)
         if not screenshot_allowed(status):
             return None
@@ -619,17 +746,110 @@ class TraceReports:
             self._emit_raw("POST", f"/api/v1/tests/{tid}/network", body, "application/json", max(self.upload_timeout, 10.0))
         return {"stored": len(payload), "errors": errors}
 
-    def attach_dom(self, snapshot: Optional[dict], test_id: Optional[int] = None) -> bool:
+    def attach_dom(self, snapshot: Optional[dict], test_id: Optional[int] = None, kind: str = "", label: str = "") -> bool:
         """
-        Sube el snapshot de la página tomado al fallar (ver tracereports.capturar_dom):
-        con él la UI recomienda selectores para reemplazar uno roto y marca el elemento en la
-        captura. Enviar ANTES de end_test().
+        Sube un snapshot de la página (ver tracereports.capturar_dom). El del fallo (por defecto)
+        permite recomendar selectores y, con el nivel ``structure``, redibujar la página en el
+        Inspector; ``kind="step"`` con ``label`` es la página de un paso. Enviar ANTES de end_test().
         """
         tid = test_id or self.current_test_id
         if not tid or not snapshot or not self.enabled:
             return False
+        if kind:
+            snapshot["kind"] = kind
+        if label:
+            snapshot["label"] = str(label)[:300]
         body = json.dumps(snapshot).encode()
         return self._emit_raw("POST", f"/api/v1/tests/{tid}/dom", body, "application/json", max(self.upload_timeout, 10.0))
+
+    def _dom_step(self, test_id: int, label: str, warning: bool = False) -> None:
+        """With TRACEREPORTS_DOM_STEPS, the page of this step (once per distinct page); with
+        TRACEREPORTS_DOM_ON=warning, the page of a WARNING step too."""
+        source = self.dom_step_source
+        if not source or not (self.dom_steps or (warning and self.dom_on_warning)):
+            return
+        try:
+            snap = source()
+        except Exception:  # la evidencia nunca rompe el test
+            return
+        if not snap:
+            return
+        kind = "warning" if warning and self.dom_on_warning else "step"
+        sig = dom_signature(snap)
+        if self._dom_step_sig.get((test_id, kind)) == sig:
+            return  # la misma pantalla que el paso anterior
+        self._dom_step_sig[(test_id, kind)] = sig
+        if self.dom_steps_mode == "on-problem":
+            buf = self._dom_buffer.setdefault(test_id, [])
+            if len(buf) < MAX_DOM_BUFFER:  # el servidor guarda hasta 40 por test
+                buf.append((kind, label, snap))
+            return
+        self.attach_dom(snap, test_id=test_id, kind=kind, label=label)
+
+    def _flush_dom_buffer(self, test_id: int, status: str) -> None:
+        """TRACEREPORTS_DOM_STEPS=on-problem, al terminar el test: sus páginas van si falló o tuvo un
+        WARNING. Si pasó, van solo como base de "Comparar con el último PASS" cuando el servidor no tiene
+        una de ese test de los últimos 7 días; un servidor sin esa función (404) no recibe nada."""
+        buf = self._dom_buffer.pop(test_id, None)
+        problem = (status or "").upper() in ("FAIL", "WARNING") or test_id in self._dom_problem
+        self._dom_problem.discard(test_id)
+        if not buf:
+            return
+        if not problem:
+            base = self._best_effort("GET", f"/api/v1/tests/{test_id}/dom/baseline", None)
+            if not isinstance(base, dict):
+                return  # sin servidor, servidor anterior o error: no se manda nada
+            started = base.get("started_at") or 0
+            if started and time.time() * 1000 - started < BASELINE_MAX_AGE_MS:
+                return  # ya hay un PASS reciente para comparar
+        for kind, label, snap in buf:
+            self.attach_dom(snap, test_id=test_id, kind=kind, label=label)
+
+    # ------------------------------------------------------ En vivo (servidor)
+
+    def set_planned(self, planned: int) -> None:
+        """How many tests this run will execute (progress and ETA in Live). Best effort: a server
+        without Live ignores it and nothing is counted as lost evidence."""
+        if planned > 0:
+            self._best_effort("POST", f"/api/v1/runs/{self.run_id}/plan", {"planned": int(planned)})
+
+    def cancel_requested(self, every: float = 5.0) -> "tuple[bool, str]":
+        """With TRACEREPORTS_REMOTE_CONTROL=1: whether someone asked from TraceReports to cancel this
+        run (Live → Cancel execution), and why. Asks at most every ``every`` seconds; a server
+        without the endpoint, or no server, never cancels. Nothing is killed: the caller skips."""
+        c = self._control
+        if c["cancel"]:
+            return True, c["reason"]
+        if not self.remote_control or c["off"] or time.monotonic() - c["checked"] < every:
+            return False, ""
+        c["checked"] = time.monotonic()
+        res = self._best_effort("GET", f"/api/v1/runs/{self.run_id}/control", None)
+        if res is None:
+            return False, ""
+        if res == "missing":
+            c["off"] = True  # un servidor sin control remoto: no se vuelve a preguntar
+            return False, ""
+        if res.get("cancel"):
+            c["cancel"], c["reason"] = True, str(res.get("reason") or "")
+        return c["cancel"], c["reason"]
+
+    def _best_effort(self, method: str, path: str, payload: Optional[dict], timeout: float = 3.0):
+        """A direct call to the server, outside the evidence queue: never recorded offline, never
+        counted as lost. Returns the JSON, "missing" for a 404/405 (an older server) or None."""
+        if not (self.enabled and self.run_id and self.run_id > 0 and not self._sender.server_down()):
+            return None
+        try:
+            body = None if payload is None else json.dumps(payload).encode()
+            headers = dict(self._headers())
+            if body is not None:
+                headers["Content-Type"] = "application/json"
+            req = urllib.request.Request(self.base_url + path, data=body, method=method, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310 (la URL es la del servidor configurado)
+                return json.loads(resp.read() or b"{}")
+        except urllib.error.HTTPError as err:
+            return "missing" if err.code in (404, 405) else None
+        except Exception:  # la evidencia (y el control) nunca rompen el test
+            return None
 
     # ---------------------------------------------------- framework helpers
 
@@ -703,11 +923,17 @@ class TraceReports:
     def _active(self) -> bool:
         return self.enabled
 
-    def _request(self, method: str, path: str, payload: dict) -> Optional[dict]:
+    def _run_total(self) -> float:
+        """Total time to create or close the run, retries included (never less than one attempt)."""
+        return max(RUN_TOTAL_SECONDS, self.run_timeout)
+
+    def _request(self, method: str, path: str, payload: dict, timeout: Optional[float] = None,
+                 total: Optional[float] = None) -> Optional[dict]:
         """Synchronous call whose answer is needed (run/test ids, closing the run)."""
         if not self.enabled:
             return None
-        return self._sender.send_now(method, path, json.dumps(payload).encode(), "application/json", self.timeout)
+        return self._sender.send_now(method, path, json.dumps(payload).encode(), "application/json",
+                                     self.timeout if timeout is None else timeout, total=total)
 
     def _emit(self, method: str, path: str, payload: dict) -> bool:
         return self._emit_raw(method, path, json.dumps(payload).encode(), "application/json", max(self.timeout, 5.0))
@@ -725,7 +951,7 @@ class TraceReports:
 # JSON que realmente se envía, hasta NETWORK_BATCH_BYTES y batch_size conexiones. Una conexión más
 # grande va sola; si sola pasa NETWORK_ALONE_BYTES, se envía sin bodies ni headers (body_truncated,
 # con su body_size original) para que siempre entre.
-NETWORK_BATCH_BYTES = 8 << 20
+NETWORK_BATCH_BYTES = 2 << 20
 NETWORK_ALONE_BYTES = 40 << 20
 
 

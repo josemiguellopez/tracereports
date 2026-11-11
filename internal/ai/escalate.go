@@ -45,9 +45,9 @@ type Escalation struct {
 	// explain, and a model asked to explain a failure invents one).
 	AISkipped string `json:"ai_skipped,omitempty"`
 	// Kind: KindSuccess for an AI summary of a run without failures ("" = of a failure).
-	Kind string `json:"kind,omitempty"`
+	Kind      string `json:"kind,omitempty"`
 	CreatedAt int64  `json:"created_at"`
-	Facts        Facts    `json:"facts"`
+	Facts     Facts  `json:"facts"`
 	// Timing is how long an AI summary took, split between the provider and TraceReports (shown
 	// under the card in the UI, not shared). Nil for the template.
 	Timing *AITiming `json:"timing,omitempty"`
@@ -87,30 +87,33 @@ func (t *AITiming) Finish(total time.Duration) {
 
 // Facts is the evidence an escalation is built from (also what the summary card shows).
 type Facts struct {
-	RunName     string        `json:"run_name"`
-	Env         string        `json:"env"`
-	RunStatus   string        `json:"run_status"`
-	StartedAt   int64         `json:"started_at"`
-	DurationMs  int64         `json:"duration_ms"`
-	Total       int           `json:"total"`
-	Passed      int           `json:"passed"`
-	Failed      int           `json:"failed"`
-	Skipped     int           `json:"skipped"`
-	Warning     int           `json:"warning,omitempty"`    // tests que terminaron con advertencia
-	Running     int           `json:"running,omitempty"`    // tests que todavía no terminaron
-	Incomplete  bool          `json:"incomplete,omitempty"` // se cerró sin que terminaran todos sus tests
-	TestName    string        `json:"test_name,omitempty"`
-	TestTags    string        `json:"test_tags,omitempty"`
-	TestDesc    string        `json:"test_desc,omitempty"`
-	Error       string        `json:"error,omitempty"`
-	Category    string        `json:"category,omitempty"`
-	AISummary   string        `json:"ai_summary,omitempty"`
-	AISuggest   string        `json:"ai_suggestion,omitempty"`
-	LocatorPick string        `json:"locator_pick,omitempty"`
-	NoRule      bool          `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
-	Steps       []string      `json:"steps,omitempty"`
-	Screenshot  string        `json:"screenshot,omitempty"` // URL relativa de la captura del fallo
-	ShotCaption string        `json:"shot_caption,omitempty"`
+	RunName     string   `json:"run_name"`
+	Env         string   `json:"env"`
+	RunStatus   string   `json:"run_status"`
+	StartedAt   int64    `json:"started_at"`
+	DurationMs  int64    `json:"duration_ms"`
+	Total       int      `json:"total"`
+	Passed      int      `json:"passed"`
+	Failed      int      `json:"failed"`
+	Skipped     int      `json:"skipped"`
+	Warning     int      `json:"warning,omitempty"`    // tests que terminaron con advertencia
+	Running     int      `json:"running,omitempty"`    // tests que todavía no terminaron
+	Incomplete  bool     `json:"incomplete,omitempty"` // se cerró sin que terminaran todos sus tests
+	TestName    string   `json:"test_name,omitempty"`
+	TestTags    string   `json:"test_tags,omitempty"`
+	TestDesc    string   `json:"test_desc,omitempty"`
+	Error       string   `json:"error,omitempty"`
+	Category    string   `json:"category,omitempty"`
+	AISummary   string   `json:"ai_summary,omitempty"`
+	AISuggest   string   `json:"ai_suggestion,omitempty"`
+	LocatorPick string   `json:"locator_pick,omitempty"`
+	NoRule      bool     `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
+	Steps       []string `json:"steps,omitempty"`
+	Screenshot  string   `json:"screenshot,omitempty"` // URL relativa de la captura del fallo
+	ShotCaption string   `json:"shot_caption,omitempty"`
+	// ShotBlank: every screenshot of the test is blank (the page never rendered). The screenshot is
+	// still the evidence, but shown as a notice: a big white box looks like an image that failed to load.
+	ShotBlank   bool          `json:"shot_blank,omitempty"`
 	Network     []NetFact     `json:"network,omitempty"`
 	FailedTests []FailedFact  `json:"failed_tests,omitempty"`
 	Incidents   []db.Incident `json:"incidents,omitempty"`
@@ -286,10 +289,10 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 			continue
 		}
 		if f.Screenshot == "" { // si todas están en blanco, se queda la última
-			f.Screenshot, f.ShotCaption = shot, clip(t.Logs[i].Message, 160)
+			f.Screenshot, f.ShotCaption, f.ShotBlank = shot, clip(t.Logs[i].Message, 160), shots.Path != ""
 		}
 		if shots.Path == "" || !blankImage(shots, filepath.Base(shot)) {
-			f.Screenshot, f.ShotCaption = shot, clip(t.Logs[i].Message, 160)
+			f.Screenshot, f.ShotCaption, f.ShotBlank = shot, clip(t.Logs[i].Message, 160), false
 			break
 		}
 	}
@@ -404,7 +407,10 @@ func (f *Facts) promptBlock(scope string) string {
 			fmt.Fprintf(&b, "- %s %s%s -> %s after %d ms. Body: %s\n", n.Method, n.Host, n.Path, n.Outcome, n.DurationMs, n.Body)
 		}
 	}
-	if f.Screenshot != "" {
+	if f.ShotBlank {
+		b.WriteString("Every screenshot of the test is blank: the page never rendered (it did not finish loading). Do not " +
+			"conclude that the UI changed or that a selector broke: the element could never appear on a blank page.\n")
+	} else if f.Screenshot != "" {
 		fmt.Fprintf(&b, "A screenshot of the moment of the failure is attached to the report (%s).\n", f.ShotCaption)
 	}
 	return b.String()
@@ -710,6 +716,63 @@ Evidence:
 	}
 	e.Title, e.Severity, e.Headline, e.Owner = out.Title, out.Severity, out.Headline, out.Owner
 	e.WhatHappened, e.Impact, e.Evidence, e.RootCause, e.NextSteps = out.WhatHappened, out.Impact, out.Evidence, out.RootCause, out.NextSteps
+	fillFromTemplate(e)
 	e.Source, e.Model = "ai", a.Model()
 	return nil
+}
+
+// schemaWords are the field names of the escalation JSON: a small model sometimes copies the name
+// of a field instead of filling it ("evidence": ["title"]).
+var schemaWords = map[string]bool{"title": true, "severity": true, "headline": true, "what_happened": true, "impact": true,
+	"evidence": true, "root_cause": true, "next_steps": true, "owner": true, "string": true, "n/a": true, "none": true, "-": true}
+
+// usable: a field the model really wrote (not empty, not a field name nor a placeholder).
+func usable(s string) bool {
+	t := strings.ToLower(strings.Trim(strings.TrimSpace(s), `"'.:`))
+	return t != "" && !schemaWords[t] && len([]rune(t)) >= 3
+}
+
+func usableList(xs []string) []string {
+	var out []string
+	for _, x := range xs {
+		if usable(x) {
+			out = append(out, strings.TrimSpace(x))
+		}
+	}
+	return out
+}
+
+// fillFromTemplate replaces, with what the template builds from the evidence, every field the model
+// left empty, filled with a field name, or wrote as a copy of the title (the executive summary
+// repeating the title says nothing). The rest of the model's text stays.
+func fillFromTemplate(e *Escalation) {
+	tpl := *e
+	templateEscalation(&tpl)
+	same := func(a, b string) bool { return strings.EqualFold(strings.TrimSpace(a), strings.TrimSpace(b)) }
+	if !usable(e.Title) {
+		e.Title = tpl.Title
+	}
+	if !usable(e.Headline) || same(e.Headline, e.Title) {
+		e.Headline = tpl.Headline
+	}
+	for _, f := range []struct {
+		got *string
+		tpl string
+	}{{&e.WhatHappened, tpl.WhatHappened}, {&e.Impact, tpl.Impact},
+		{&e.RootCause, tpl.RootCause}, {&e.Owner, tpl.Owner}} {
+		if !usable(*f.got) {
+			*f.got = f.tpl
+		}
+	}
+	if e.Evidence = usableList(e.Evidence); len(e.Evidence) == 0 {
+		e.Evidence = tpl.Evidence
+	}
+	if e.NextSteps = usableList(e.NextSteps); len(e.NextSteps) == 0 {
+		e.NextSteps = tpl.NextSteps
+	}
+	switch e.Severity {
+	case "critical", "high", "medium", "low":
+	default:
+		e.Severity = tpl.Severity
+	}
 }

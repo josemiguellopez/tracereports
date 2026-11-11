@@ -36,7 +36,7 @@ import java.util.logging.Logger;
  */
 public final class TraceReports {
     private static final Logger LOG = Logger.getLogger("tracereports");
-    public static final String VERSION = "0.4.1";
+    public static final String VERSION = "0.5.0";
 
     final String baseUrl;
     final String token;
@@ -183,6 +183,81 @@ public final class TraceReports {
 
     public String baseUrl() { return baseUrl; }
 
+    // ─── En vivo ─────────────────────────────────────────────────────────
+
+    /** Lo que responde el servidor a un cliente con control remoto. */
+    public record Control(boolean cancel, String reason) {}
+
+    private volatile Control cancelled;
+    private volatile boolean controlOff;
+    private volatile long controlChecked;
+
+    /**
+     * Cuántos tests va a correr esta ejecución (progreso y ETA en En vivo). De mejor esfuerzo: un servidor
+     * sin En vivo lo ignora y no cuenta como evidencia perdida.
+     */
+    public void setPlanned(int planned) {
+        if (planned > 0) bestEffort("POST", "/api/v1/runs/" + runId + "/plan", "{\"planned\":" + planned + "}");
+    }
+
+    /**
+     * Con TRACEREPORTS_REMOTE_CONTROL=1: si alguien pidió cancelar esta ejecución desde En vivo, y por qué.
+     * Pregunta como mucho cada 5 s; sin servidor, o con uno anterior, nunca cancela. No detiene nada:
+     * quien llama salta el test.
+     */
+    public Control cancelRequested() {
+        return cancelRequested(Duration.ofSeconds(5));
+    }
+
+    public Control cancelRequested(Duration every) {
+        String rc = Context.env("TRACEREPORTS_REMOTE_CONTROL").trim().toLowerCase();
+        return cancelRequested(every, rc.equals("1") || rc.equals("true") || rc.equals("yes") || rc.equals("on"));
+    }
+
+    Control cancelRequested(Duration every, boolean remoteControl) {
+        if (cancelled != null) return cancelled;
+        if (!remoteControl || controlOff || System.currentTimeMillis() - controlChecked < every.toMillis()) {
+            return new Control(false, "");
+        }
+        controlChecked = System.currentTimeMillis();
+        String res = bestEffort("GET", "/api/v1/runs/" + runId + "/control", null);
+        if ("missing".equals(res)) {
+            controlOff = true; // un servidor sin control remoto: no se vuelve a preguntar
+        } else if (res != null) {
+            try {
+                if (Json.read(res) instanceof Map<?, ?> m && Boolean.TRUE.equals(m.get("cancel"))) {
+                    cancelled = new Control(true, m.get("reason") == null ? "" : String.valueOf(m.get("reason")));
+                    return cancelled;
+                }
+            } catch (RuntimeException e) {
+                // una respuesta que no se entiende no cancela
+            }
+        }
+        return new Control(false, "");
+    }
+
+    /** Una llamada directa, fuera de la cola de evidencia: nunca se graba offline ni cuenta como perdida. */
+    private String bestEffort(String method, String path, String body) {
+        if (!enabled || runId <= 0) return null;
+        try {
+            java.net.http.HttpRequest.Builder b = java.net.http.HttpRequest.newBuilder(java.net.URI.create(baseUrl + path))
+                    .timeout(Duration.ofSeconds(3))
+                    .method(method, body == null ? java.net.http.HttpRequest.BodyPublishers.noBody()
+                            : java.net.http.HttpRequest.BodyPublishers.ofString(body));
+            headers().forEach(b::header);
+            if (body != null) b.header("Content-Type", "application/json");
+            java.net.http.HttpResponse<String> r = java.net.http.HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(3)).build()
+                    .send(b.build(), java.net.http.HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() == 404 || r.statusCode() == 405) return "missing";
+            return r.statusCode() / 100 == 2 ? r.body() : null;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        } catch (Exception e) {
+            return null; // el control nunca rompe el test
+        }
+    }
+
     public boolean enabled() { return enabled; }
 
     /** Id de la ejecución, o 0 si no hay. */
@@ -238,6 +313,9 @@ public final class TraceReports {
         p.put("branch", info.branch != null ? info.branch : Context.branch());
         p.put("commit", info.commit != null ? info.commit : Context.commit());
         p.put("framework", info.framework);
+        // agrupa en En vivo las corridas de una misma ejecución (un proceso por módulo, un build de CI)
+        p.put("execution_id", info.executionId != null ? info.executionId : Context.executionId());
+        if (info.planned > 0) p.put("planned", info.planned);
         if (enabled && offlineMode.equals("always") && !recording()) goOffline(null);
         runId = Json.number(request("POST", "/api/v1/runs", p), "run_id");
         if (runId == 0 && enabled && (offlineMode.equals("auto") || offlineMode.equals("both")) && !recording()) {
@@ -329,7 +407,8 @@ public final class TraceReports {
     /** Datos de una ejecución. */
     public static final class RunInfo {
         final String name;
-        String environment = "", project, branch, commit, framework = "";
+        String environment = "", project, branch, commit, framework = "", executionId;
+        int planned;
 
         public RunInfo(String name) { this.name = name; }
         public RunInfo environment(String v) { environment = v == null ? "" : v; return this; }
@@ -337,6 +416,10 @@ public final class TraceReports {
         public RunInfo branch(String v) { branch = v; return this; }
         public RunInfo commit(String v) { commit = v; return this; }
         public RunInfo framework(String v) { framework = v == null ? "" : v; return this; }
+        /** Agrupa en En vivo las corridas de una ejecución (por defecto TRACEREPORTS_EXECUTION_ID o el build de CI). */
+        public RunInfo executionId(String v) { executionId = v; return this; }
+        /** Cuántos tests va a correr (progreso y ETA en En vivo). */
+        public RunInfo planned(int v) { planned = Math.max(0, v); return this; }
     }
 
     /**

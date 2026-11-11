@@ -156,11 +156,8 @@ func (s *Server) deleteRuns(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// si una tanda falla, las anteriores ya se borraron: sus archivos se borran igual y después se informa
 	n, files, err := s.Store.DeleteRuns(ids)
-	if err != nil {
-		serverError(w, err)
-		return
-	}
 	for _, url := range files {
 		name := strings.TrimPrefix(url, "/screenshots/")
 		if name == url || name != filepath.Base(name) || strings.HasPrefix(name, ".") || s.ScreenshotsDir == "" {
@@ -170,9 +167,12 @@ func (s *Server) deleteRuns(w http.ResponseWriter, r *http.Request) {
 	}
 	if n > 0 {
 		slog.Info("maintenance: runs deleted by hand", "runs", n, "by", s.uiUser(r))
-		if err := s.Store.Compact(); err != nil {
-			slog.Error("maintenance: compact the database", "err", err)
-		}
+		s.publish("run", 0, 0, map[string]string{"action": "deleted"}) // las listas abiertas (Recientes) se ponen al día
+		s.markCompactPending() // compactar reescribe toda la base: se hace aparte (compact.go)
+	}
+	if err != nil {
+		serverError(w, err)
+		return
 	}
 	writeJSON(w, http.StatusOK, map[string]int{"deleted": n, "skipped": len(ids) - n})
 }

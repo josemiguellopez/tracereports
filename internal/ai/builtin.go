@@ -87,6 +87,14 @@ func (a *Analyzer) builtinInput(t *db.Test, lang string) (builtin.Input, error) 
 		return builtin.Input{}, err
 	}
 	in.RunFailed, in.RunTotal = run.Failed, run.Total
+	shot := ""
+	for i := len(t.Logs) - 1; i >= 0; i-- {
+		if l := t.Logs[i]; l.Screenshot != "" && l.Status == "FAIL" {
+			shot = l.Screenshot
+			break
+		}
+	}
+	in.BlankPage = a.blankPage(t.ID, shot)
 	return in, nil
 }
 
@@ -113,6 +121,13 @@ func (a *Analyzer) builtinIncidents(run *db.RunDetail, incidents []db.Incident) 
 		names = append(names, t.Name)
 	}
 	lang := a.builtinLang(names...)
+	// los que fallaron en cascada no son fallos independientes: no cuentan para "ambiente caído"
+	followers := 0
+	for _, inc := range incidents {
+		if inc.Kind == "cascade" {
+			followers += len(inc.TestIDs) - 1
+		}
+	}
 	out := make([]builtin.Diagnosis, len(incidents))
 	for i, inc := range incidents {
 		t, err := a.store.GetTest(inc.TestIDs[0])
@@ -123,7 +138,7 @@ func (a *Analyzer) builtinIncidents(run *db.RunDetail, incidents []db.Incident) 
 		if err != nil {
 			return nil, "", err
 		}
-		in.RunFailed, in.RunTotal = run.Failed, run.Total
+		in.RunFailed, in.RunTotal = run.Failed-followers, run.Total-followers
 		out[i] = a.redactDiagnosis(builtin.Diagnose(in))
 	}
 	return out, lang, nil
@@ -144,6 +159,9 @@ func (a *Analyzer) builtinRun(run *db.RunDetail, rt *db.RunTriage) error {
 			in.Category = d.Category
 		}
 		incs[i] = builtin.Incident{Title: in.Title, Tests: len(in.TestIDs), Diagnosis: d}
+		if in.Kind == "cascade" {
+			incs[i].Followers = len(in.TestIDs) - 1
+		}
 	}
 	headline, summary := builtin.Summarize(lang, run.Total, run.Failed, incs)
 	if headline != "" {

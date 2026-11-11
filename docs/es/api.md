@@ -3,7 +3,7 @@
 🌐 [English](../en/api.md) · **Español**
 
 Base: `http://<servidor>:8080/api/v1`. Todo es JSON, salvo la subida de capturas (multipart) y la
-exportación (ZIP). Los errores responden `{"error": "mensaje"}`.
+exportación (ZIP). Los errores responden `{"error": "mensaje"}`; un error del servidor (5xx) trae además `ref` (el mismo código queda en el log del servidor junto al error completo) y, si la causa es algo que se puede arreglar, `kind`: `disk_full`, `busy` (503 con `Retry-After`), `read_only` o `corrupt`.
 
 **Autenticación**: si el servidor tiene `TRACEREPORTS_TOKEN`, las escrituras requieren
 `Authorization: Bearer <token>` o `X-TraceReports-Token: <token>`. Si tiene `TRACEREPORTS_UI_USER` /
@@ -26,16 +26,17 @@ curl -s -X PATCH -H "$H" localhost:8080/api/v1/runs/$RUN/finish
 
 | Método | Ruta | Body | Respuesta |
 |---|---|---|---|
-| POST | `/runs` | `{name, environment, project, branch, commit, framework}` | `201 {run_id}` |
+| POST | `/runs` | `{name, environment, project, branch, commit, framework, execution_id, planned}` | `201 {run_id}` |
 | POST | `/runs/{run_id}/tests` | `{name, category, description, key, suite, params, worker}` | `201 {test_id}` |
 | POST | `/tests/{test_id}/logs` | `{status, message, timestamp}` | `201` paso creado |
 | POST | `/tests/{test_id}/screenshot` | multipart: `file` (PNG/JPEG/GIF/WEBP), `message`, `status` | `201 {url, log}` |
 | POST | `/tests/{test_id}/artifact` | multipart: `file`, `kind` (`trace` o `video`), `name` | `201` artefacto. Trace de Playwright (ZIP) o video (WebM/MP4), hasta 100 MB |
 | POST | `/tests/{test_id}/console` | `{entries: [{level, text, location, timestamp}]}` | `201 {stored, dropped}`. Consola del navegador: `error`, `warning`, `pageerror`, `info`, `log`, `debug` (máx. 500 por test) |
 | POST | `/tests/{test_id}/network` | `{connections: [Conn]}` (hasta 5000 por lote, 48 MiB por solicitud) | `201 {stored, errors}`. `body_size` es el tamaño original en bytes UTF-8; envía `body_truncated: true` si el body llega ya recortado, para que el reporte no lo muestre como completo |
-| POST | `/tests/{test_id}/dom` | Snapshot de la página al fallar (ver abajo), hasta 4 MB / 2000 elementos | `201` |
+| POST | `/tests/{test_id}/dom` | Snapshot de la página al fallar, o de un paso con `kind: "step"` (ver abajo), hasta 4 MB / 2000 elementos / 6000 nodos | `201` |
 | PATCH | `/tests/{test_id}/finish` | `{status, error_message, error_trace, attempts}` | `200` test |
-| PATCH | `/runs/{run_id}/finish` | `{interrupted}` (opcional) | `200` ejecución |
+| PATCH | `/runs/{run_id}/finish` | `{interrupted, delivery}` (opcionales) | `200` ejecución. `delivery`: cómo llegó la evidencia según el cliente, `{late, late_at, reason, detail, retried, rejected, dropped, lost, spooled, client, host}`; se guarda solo si hubo algún problema y se ve en el reporte y en Mantenimiento > Conexiones |
+| POST | `/runs/{run_id}/plan` | `{planned}`: cuántos tests recolectó el cliente (progreso y ETA en En vivo) | `200` |
 
 - `status` de un paso: `INFO`, `PASS`, `FAIL`, `WARNING`, `SKIP`. `timestamp`: epoch en ms o
   RFC 3339 (opcional, default ahora).
@@ -110,6 +111,15 @@ propone selectores de reemplazo y la IA elige el más probable. Los clientes ya 
 }
 ```
 
+El cliente de Python también envía `page` (`{w, h}`, la página entera) y `nodes`, la página como árbol
+plano que redibuja el **Inspector**: cada nodo tiene `i` (su índice), `p` (el índice del padre, `-1` para
+`body`; un padre siempre va antes), `tag`, `attrs`, su `text` propio, su caja (`x`, `y`, `w`, `h`, en
+coordenadas de la página), `visible`, `depth`, `tx`/`ty` (dónde empieza el texto dentro de la caja) y
+`style`. El servidor deja solo atributos conocidos (`id`, `class`, `name`, `role`, `type`, `placeholder`,
+`href`, `title`, `for`, `alt`, `data-test*`, `aria-*`) y estilos (colores, fuente, borde, display,
+opacidad…; sin `url()`), enmascara secretos en textos y valores, y descarta un árbol mal formado. Con
+`"kind": "step"` y `"label"` es la página de un paso (hasta 40 por test); sin ellos, la del fallo.
+
 ### Hora real de un evento
 
 Toda escritura acepta el header opcional `X-TraceReports-Timestamp: <epoch en ms>`: la hora en que el
@@ -181,6 +191,9 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/settings` | Ajustes: idioma, proveedor de IA (sin la key: solo sus 4 últimos caracteres), si se pueden editar y por qué no |
 | GET | `/auth/check` | Con `X-TraceReports-Token`: `{token_required, token_sent, token_valid}`. Verifica un token sin escribir nada |
 | GET | `/runs?limit=50` | Ejecuciones con contadores (`total`, `passed`, `failed`, `skipped`, `warning`, `running`, `interrupted`, `quarantined`). Una que sigue `RUNNING` trae `idle_ms` (tiempo desde lo último que recibió); una cerrada puede traer `closed_by` (un usuario de la interfaz, `manual` sin login, o `auto` por inactividad) y `close_reason` |
+| GET | `/maintenance/stalls/{name}` | Descarga un volcado de bloqueo (`stall-AAAAMMDD-HHMMSS.txt`). Necesita el permiso de Ajustes |
+| POST | `/ui/maintenance/compact` | Compacta la base ahora (administración): `{at, took_ms, freed_bytes, trigger, by}`; 409 si ya hay una en curso o, con `kind: "disk_space"`, `need` y `free`, si el disco de los datos no tiene lugar. `GET /maintenance/storage` dice en `compact` si está pendiente, `reclaimable_bytes`, `need_bytes`, `free_bytes`, `running_runs` y la última |
+| GET | `/maintenance/connections` | Las conexiones de los clientes: `{days, runs, slow, slow_after_ms, started_at, auth, stalls, stall_after_ms}`. `stalls`: los episodios en que varios pedidos estuvieron más de 10 s sin respuesta a la vez (`start`, `end`, `max_stuck`, `paths`, `db_wait_ms` y, con el permiso de Ajustes, `dump`). `runs`: las ejecuciones de los últimos 7 días con un informe de entrega (creadas tarde, reintentos, perdidos); `slow`: los últimos 50 pedidos de más de 2 s desde que arrancó el servidor; `auth` (solo con el permiso de Ajustes): las direcciones con credenciales rechazadas en los últimos 15 min |
 | GET | `/maintenance?state=&project=&environment=&branch=&older_than_hours=` | Ejecuciones con problemas de todos los proyectos, las más nuevas primero (hasta 200): `state` vacío (en curso o incompletas), `idle` (en curso, sin actividad hace 5 min), `running`, `incomplete`, `manual` (cerradas a mano) o `auto` (cerradas por inactividad). Responde `{runs, idle_warn_ms, stale: {hours, source, editable}}`; `source` es `env`, `ui` o `default` |
 | GET | `/runs/search?...` | Historial paginado para Buscar: `{items, next_cursor, total_estimate}` |
 | GET | `/runs/facets?...` | Valores frecuentes para los filtros de Buscar: proyecto, ambiente, rama y tag |
@@ -193,6 +206,13 @@ curl -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/zip" --data
 | GET | `/tests/{test_id}/history` | Últimas ejecuciones del test (por nombre) |
 | GET | `/tests/{test_id}/network` | Llamadas de red del test |
 | GET | `/tests/{test_id}/locator` | Selector roto y reemplazos sugeridos (`204` si el fallo no fue de un selector) |
+| GET | `/tests/{test_id}/dom` | Snapshot de la página al fallar, tal como se guardó (`204` si no hay) |
+| GET | `/tests/{test_id}/dom/steps` | Snapshots de los pasos: `[{seq, label, at}]` |
+| GET | `/tests/{test_id}/dom/steps/{seq}` | Un snapshot de paso (`404` si no existe) |
+| GET | `/tests/{test_id}/dom/baseline?label=` | La página del mismo paso en el último PASS del test que guardó sus páginas (`204` si no hay) |
+| GET | `/live` | En vivo: ejecuciones en curso o terminadas en las últimas 2 h, con conteos, progreso y ETA |
+| GET | `/live/execution?key=` | Una ejecución con sus corridas y tests (estado `running`, `turtle`, `no_signal` o el resultado, duración, p50/p90, último paso) |
+| GET | `/runs/{run_id}/control` | `{cancel, by, reason}`: lo consultan entre tests los clientes con control remoto |
 | GET | `/tests/{test_id}/drift` | p95 por endpoint del test frente a la mediana de sus ejecuciones anteriores |
 | GET | `/stream?run={id}` | Eventos en vivo (Server-Sent Events): `run`, `test`, `log`, `network`, `triage`, `summary` |
 | GET | `/network/{id}/body` | Body guardado completo (JSON o texto plano, nunca HTML ejecutable) |
@@ -265,7 +285,10 @@ o, en modo local, el mismo equipo del servidor.
 Lecturas relacionadas: `GET /runs/{run_id}/recurrence` (en cuántas ejecuciones anteriores de la
 misma suite apareció cada incidente) y `GET /runs/{run_id}/escalation?test=&audience=&lang=` (el
 resumen guardado si la evidencia no cambió desde que se escribió, o `204`). `GET /metrics` acepta también `env`, `tag`, `from` y `to`
-(`AAAA-MM-DD`), y `GET /tests/{test_id}/history` acepta `limit` (hasta 60).
+(`AAAA-MM-DD`), y `GET /tests/{test_id}/history` acepta `limit` (hasta 60) y `newer` (también hasta
+esa cantidad de ejecuciones posteriores, primeras en la lista). `GET /tests/{test_id}/locator` dice además
+`has_dom` y `dom_elements` (si llegó el snapshot de la página: sin sugerencias con snapshot es que ninguna
+sirve) y `failed_selector_truncated` (el selector llegó cortado: no se buscan reemplazos).
 
 FixLab (el Lab, los checks, Verificar y las cápsulas: `/network/{id}/lab`, `/ui/lab/send`,
 `/ui/lab/checks`, `/ui/lab/verify`, `/runs/{run_id}/lab`, `/network/{id}/capsule`,

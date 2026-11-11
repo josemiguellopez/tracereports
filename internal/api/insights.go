@@ -26,6 +26,19 @@ func (s *Server) testHistory(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
+	// ?newer=N also brings up to N later runs (newest first, before the rest): opened from an older
+	// cell of the strip, the history still shows what came after it
+	if n, _ := strconv.Atoi(r.URL.Query().Get("newer")); n > 0 {
+		after, err := s.Store.TestHistoryAfter(t.Key, t.RunID, min(n, 60))
+		if err != nil {
+			serverError(w, err)
+			return
+		}
+		for i, j := 0, len(after)-1; i < j; i, j = i+1, j-1 {
+			after[i], after[j] = after[j], after[i]
+		}
+		hist = append(after, hist...)
+	}
 	writeJSON(w, http.StatusOK, hist)
 }
 

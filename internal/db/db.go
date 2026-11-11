@@ -20,6 +20,7 @@ var ErrNotFound = errors.New("not found")
 // Store wraps the SQLite database.
 type Store struct {
 	db    handle        // la base, o una transacción dentro de Atomic
+	ro    *sql.DB       // conexiones de solo lectura (WAL): las consultas pesadas no ocupan la que escribe
 	vault *atrest.Vault // sella las instantáneas del DOM (TRACEREPORTS_ENCRYPT_AT_REST); nil = en claro
 }
 
@@ -94,7 +95,11 @@ func Open(path string) (*Store, error) {
 	}
 	// SQLite allows a single writer; one connection avoids SQLITE_BUSY under concurrent writes.
 	sqldb.SetMaxOpenConns(1)
-	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema + deliveriesSchema + aiUsageSchema + labSchema + similarSchema); err != nil {
+	if err := useTempDir(sqldb, filepath.Join(filepath.Dir(path), "tmp")); err != nil {
+		sqldb.Close()
+		return nil, err
+	}
+	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema + deliveriesSchema + aiUsageSchema + labSchema + similarSchema + liveSchema + sessionsSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
@@ -148,6 +153,19 @@ func Open(path string) (*Store, error) {
 		{"ai_usage_daily", "err_other", "INTEGER NOT NULL DEFAULT 0"},
 		// escalamiento en caché: huella de la evidencia con que se escribió
 		{"escalations", "revision", "TEXT NOT NULL DEFAULT ''"},
+		// En vivo: hora del servidor de lo último que llegó de cada test ("sin señal"), la ejecución a la
+		// que pertenece la corrida (varias corridas de un mismo lanzador o build de CI), cuántos tests
+		// planificó el cliente (progreso y ETA) y la cancelación pedida desde la interfaz
+		{"tests", "last_signal", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "execution_id", "TEXT NOT NULL DEFAULT ''"},
+		{"runs", "planned", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "cancel_at", "INTEGER NOT NULL DEFAULT 0"},
+		{"runs", "cancel_by", "TEXT NOT NULL DEFAULT ''"},
+		{"runs", "cancel_reason", "TEXT NOT NULL DEFAULT ''"},
+		// cómo llegó la evidencia de un run, según su cliente (delivery.go): creado tarde, reintentos, perdidos
+		{"runs", "delivery", "TEXT NOT NULL DEFAULT ''"},
+		// la página de un paso o de un WARNING (TRACEREPORTS_DOM_ON=warning)
+		{"test_dom_steps", "kind", "TEXT NOT NULL DEFAULT 'step'"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()
@@ -174,7 +192,12 @@ func Open(path string) (*Store, error) {
 		sqldb.Close()
 		return nil, fmt.Errorf("migrate interrupted tests: %w", err)
 	}
-	return &Store{db: dbHandle{sqldb}}, nil
+	ro, err := openReaders(uri)
+	if err != nil {
+		sqldb.Close()
+		return nil, err
+	}
+	return &Store{db: dbHandle{sqldb}, ro: ro}, nil
 }
 
 // migrations run on every start (idempotent). Tests stored before the stable identity keep
@@ -184,6 +207,10 @@ UPDATE tests SET test_key = 'name:' || name WHERE test_key = '';
 CREATE INDEX IF NOT EXISTS idx_tests_key ON tests(test_key, run_id);
 CREATE INDEX IF NOT EXISTS idx_runs_context ON runs(project, environment, branch, id);
 CREATE INDEX IF NOT EXISTS idx_runs_search_started ON runs(started_at DESC, id DESC);
+-- borrar una ejecución borra sus claves de idempotencia (ON DELETE CASCADE): sin este índice, cada run
+-- borrado recorría la tabla entera (una fila por envío de los clientes), y la limpieza de una base grande
+-- tenía tomada la escritura por minutos
+CREATE INDEX IF NOT EXISTS idx_idempotency_run ON idempotency(run_id);
 `
 
 // NameKey is the identity of a test reported without its own key: only its name, so two
@@ -217,6 +244,9 @@ func ensureColumn(sqldb *sql.DB, table, column, definition string) error {
 // Close closes the database.
 func (s *Store) Close() error {
 	if d, ok := s.db.(dbHandle); ok {
+		if s.ro != nil {
+			s.ro.Close()
+		}
 		return d.DB.Close()
 	}
 	return nil // un Store de Atomic no es dueño de la conexión
@@ -271,6 +301,10 @@ type RunMeta struct {
 	Branch    string `json:"branch"`
 	Commit    string `json:"commit"`
 	Framework string `json:"framework"`
+	// ExecutionID groups the runs of one execution (a launcher that creates a run per file, a CI build).
+	ExecutionID string `json:"execution_id"`
+	// Planned is how many tests the client collected (0 = unknown): progress and ETA in Live.
+	Planned int `json:"planned"`
 }
 
 // Test is a single test case inside a run.
@@ -290,6 +324,10 @@ type Test struct {
 	Attempts int `json:"attempts"`
 	// KeyApprox: reported without its own key; its history is matched by name only.
 	KeyApprox bool `json:"key_approx,omitempty"`
+	// HasDOM: there is a page snapshot of the failure; DOMSteps: snapshots of the pages it went
+	// through (TRACEREPORTS_DOM_STEPS). Filled by GetTest (the Inspector tab).
+	HasDOM   bool `json:"has_dom,omitempty"`
+	DOMSteps int  `json:"dom_steps,omitempty"`
 	// Conexiones de red capturadas y cuántas no terminaron OK (HTTP >= 400 o sin respuesta).
 	NetworkTotal  int `json:"network_total"`
 	NetworkErrors int `json:"network_errors"`
@@ -357,6 +395,8 @@ type RunDetail struct {
 	StepStats map[string]int `json:"step_stats"`
 	// Summary is the diagnosis of the whole run (nil until the run is finished).
 	Summary *RunTriage `json:"summary"`
+	// Delivery is how its evidence arrived, when its client reported a problem (nil: it arrived fine).
+	Delivery *RunDelivery `json:"delivery,omitempty"`
 }
 
 // ---------- Runs ----------
@@ -369,8 +409,8 @@ func (s *Store) CreateRun(name, environment string) (int64, error) {
 // CreateRunWithMeta inserts a new run with its context (project, branch, commit, framework).
 func (s *Store) CreateRunWithMeta(name, environment string, m RunMeta) (int64, error) {
 	now := NowMs()
-	res, err := s.db.Exec(`INSERT INTO runs(name, environment, started_at, project, branch, commit_sha, framework, last_activity)
-		VALUES(?,?,?,?,?,?,?,?)`, name, environment, now, m.Project, m.Branch, m.Commit, m.Framework, now)
+	res, err := s.db.Exec(`INSERT INTO runs(name, environment, started_at, project, branch, commit_sha, framework, last_activity, execution_id, planned)
+		VALUES(?,?,?,?,?,?,?,?,?,?)`, name, environment, now, m.Project, m.Branch, m.Commit, m.Framework, now, m.ExecutionID, max(m.Planned, 0))
 	if err != nil {
 		return 0, err
 	}
@@ -508,10 +548,10 @@ func (s *Store) GetRun(runID int64) (*Run, error) {
 	var r Run
 	var activity int64
 	err := s.db.QueryRow(`SELECT id, name, environment, status, started_at, ended_at, project, branch, commit_sha, framework, incomplete,
-		last_activity, closed_by, close_reason
+		last_activity, closed_by, close_reason, execution_id, planned
 		FROM runs WHERE id=?`, runID).
 		Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
-			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason)
+			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason, &r.ExecutionID, &r.Planned)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -551,6 +591,7 @@ func (s *Store) listRunsWhere(where string, args []any, limit int) ([]Run, error
 	rows, err := s.db.Query(`
 		SELECT r.id, r.name, r.environment, r.status, r.started_at, r.ended_at,
 		       r.project, r.branch, r.commit_sha, r.framework, r.incomplete, r.last_activity, r.closed_by, r.close_reason,
+		       r.execution_id, r.planned,
 		       COUNT(t.id),
 		       COALESCE(SUM(t.status='PASS'),0),
 		       COALESCE(SUM(t.status='FAIL'),0),
@@ -572,6 +613,7 @@ func (s *Store) listRunsWhere(where string, args []any, limit int) ([]Run, error
 		var activity int64
 		if err := rows.Scan(&r.ID, &r.Name, &r.Environment, &r.Status, &r.StartedAt, &r.EndedAt,
 			&r.Project, &r.Branch, &r.Commit, &r.Framework, &r.Incomplete, &activity, &r.ClosedBy, &r.CloseReason,
+			&r.ExecutionID, &r.Planned,
 			&r.Total, &r.Passed, &r.Failed, &r.Skipped, &r.Warning, &r.Running, &r.Interrupted, &r.Quarantined); err != nil {
 			return nil, err
 		}
@@ -589,6 +631,9 @@ func (s *Store) GetRunDetail(runID int64) (*RunDetail, error) {
 		return nil, err
 	}
 	d := &RunDetail{Run: *run, Tests: []Test{}, StepStats: map[string]int{}}
+	if d.Delivery, err = s.RunDeliveryOf(runID); err != nil {
+		return nil, err
+	}
 
 	rows, err := s.db.Query(testSelect+` WHERE t.run_id = ? ORDER BY t.id`, runID)
 	if err != nil {
@@ -733,6 +778,11 @@ func (s *Store) GetTest(testID int64) (*Test, error) {
 		return nil, err
 	}
 	if t.Console, err = s.ConsoleOf(testID); err != nil {
+		return nil, err
+	}
+	// snapshots de la página (Inspector): el del fallo y los de los pasos
+	if err := s.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM test_dom WHERE test_id=?), (SELECT COUNT(*) FROM test_dom_steps WHERE test_id=?)`,
+		testID, testID).Scan(&t.HasDOM, &t.DOMSteps); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.Query(`SELECT id, test_id, status, message, timestamp, screenshot FROM logs WHERE test_id=? ORDER BY timestamp, id`, testID)

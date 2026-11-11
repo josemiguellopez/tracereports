@@ -19,6 +19,7 @@ import (
 
 	"github.com/josemiguellopez/tracereports/internal/lab"
 	"github.com/josemiguellopez/tracereports/internal/redact"
+	"github.com/josemiguellopez/tracereports/internal/repro"
 )
 
 // FixLab en la terminal: `tracereports repro <cápsula>` muestra cómo correr el test y reenvía
@@ -376,7 +377,11 @@ func (c *labCLI) repro(args []string) error {
 				fmt.Fprintf(c.out, "  error: %s\n", call.Test.Error)
 			}
 			for _, cmd := range call.Test.Commands {
-				fmt.Fprintf(c.out, "  run it (%s): %s\n", cmd.Label, cmd.Cmd)
+				scope := map[string]string{repro.ScopeTest: "this test", repro.ScopeFile: "whole file", repro.ScopeClass: "whole class"}[cmd.Scope]
+				fmt.Fprintf(c.out, "  run it (%s, %s): %s\n", cmd.Label, scope, cmd.Cmd)
+			}
+			if commit := repro.NormalizeCommit(cap.Run.Commit); commit != "" && len(call.Test.Commands) > 0 {
+				fmt.Fprintf(c.out, "  the run used commit %s (git checkout it only if your copy is on another version)\n", commit)
 			}
 		}
 		p := call.Plan

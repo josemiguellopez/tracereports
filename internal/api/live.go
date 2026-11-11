@@ -46,9 +46,19 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 		snap.Elements = snap.Elements[:maxDOMElements]
 	}
 	cleanSnapshot(s.redactor(), &snap)
+	cleanNodes(s.redactor(), &snap)
+	if snap.Kind != "step" && snap.Kind != "warning" {
+		snap.Kind = "fail"
+	}
 	raw, _ := json.Marshal(snap)
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
-		return http.StatusCreated, map[string]int{"elements": len(snap.Elements)}, tx.SaveDOM(id, string(raw))
+		out := map[string]any{"elements": len(snap.Elements), "nodes": len(snap.Nodes), "kind": snap.Kind}
+		if snap.Kind != "fail" { // una página por la que pasó el test (TRACEREPORTS_DOM_STEPS) o la de un WARNING
+			seq, err := tx.SaveDOMStepKind(id, snap.Kind, snap.Label, snap.At, string(raw))
+			out["seq"] = seq
+			return http.StatusCreated, out, err
+		}
+		return http.StatusCreated, out, tx.SaveDOM(id, string(raw))
 	})
 	if respondErr(w, err, "test") {
 		return
@@ -62,12 +72,15 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 // the end, for what the client already cut).
 func cleanSnapshot(p *redact.Policy, snap *locator.Snapshot) {
 	field := func(v string, max int) string { return redactThenCut(p, v, max) }
-	snap.URL, snap.Title = field(snap.URL, maxURLChars), field(snap.Title, 300)
+	// lo que se lee en la página (no lo que la identifica para un locator): sin RUT, teléfonos ni correos
+	shown := func(v string, max int) string { return personal(field(v, max)) }
+	snap.URL, snap.Title = shown(snap.URL, maxURLChars), shown(snap.Title, 300)
 	for i := range snap.Elements {
 		e := &snap.Elements[i]
 		e.Tag, e.Role, e.Type, e.TestIDAttr = field(e.Tag, 40), field(e.Role, 60), field(e.Type, 40), field(e.TestIDAttr, 40)
 		e.ID, e.Name, e.TestID = field(e.ID, 200), field(e.Name, 200), field(e.TestID, 200)
-		e.Label, e.Placeholder, e.Text = field(e.Label, 120), field(e.Placeholder, 120), field(e.Text, 120)
+		// la etiqueta y el placeholder son texto fijo de la interfaz y sirven de locator: quedan como están
+		e.Label, e.Placeholder, e.Text = field(e.Label, 120), field(e.Placeholder, 120), shown(e.Text, 120)
 	}
 }
 
@@ -81,14 +94,44 @@ type LocatorReport struct {
 	Screenshot     string               `json:"screenshot,omitempty"`  // captura del fallo (para el bounding box)
 	Viewport       locator.Size         `json:"viewport"`
 	PageURL        string               `json:"page_url,omitempty"`
+	// HasDOM: the client sent the page snapshot (no suggestions then means none fit, not that it
+	// is missing); DOMElements: how many elements it has.
+	HasDOM      bool `json:"has_dom"`
+	DOMElements int  `json:"dom_elements"`
+	// FailedSelectorTruncated: the selector reached the server cut (only its beginning is known), so
+	// no replacements are searched for it.
+	FailedSelectorTruncated bool `json:"failed_selector_truncated,omitempty"`
+	// BackendCause: the element did not show up because this backend call failed just before, so
+	// there are no replacements (the selector is not the problem). Only the Inspector uses it.
+	BackendCause *BackendCall `json:"backend_cause,omitempty"`
+}
+
+// BackendCall is a failed call, without the query (it can carry secrets).
+type BackendCall struct {
+	Method   string `json:"method"`
+	Endpoint string `json:"endpoint"`
+	Status   int    `json:"status"` // 0 = no answer
+	Error    string `json:"error,omitempty"`
 }
 
 func (s *Server) locatorReport(t *db.Test) (*LocatorReport, error) {
 	cands, failed, err := ai.LocatorCandidates(s.Store, t)
-	if err != nil || (failed == "" && len(cands) == 0) {
+	if err != nil {
 		return nil, err
 	}
-	rep := &LocatorReport{FailedSelector: failed, Suggestions: cands}
+	var cause *BackendCall
+	if failed == "" && len(cands) == 0 {
+		sel, c, err := ai.LocatorBackendCause(s.Store, t)
+		if err != nil || c == nil {
+			return nil, err
+		}
+		host, path := db.NormalizeEndpoint(c.URL)
+		failed, cause = sel, &BackendCall{Method: c.Method, Endpoint: host + path, Status: c.Status, Error: c.ErrorText}
+		if c.Failed {
+			cause.Status = 0
+		}
+	}
+	rep := &LocatorReport{FailedSelector: failed, Suggestions: cands, FailedSelectorTruncated: locator.Truncated(failed), BackendCause: cause}
 	if rep.Suggestions == nil {
 		rep.Suggestions = []locator.Suggestion{}
 	}
@@ -108,6 +151,7 @@ func (s *Server) locatorReport(t *db.Test) (*LocatorReport, error) {
 		var snap locator.Snapshot
 		if json.Unmarshal([]byte(raw), &snap) == nil {
 			rep.Viewport, rep.PageURL = snap.Viewport, snap.URL
+			rep.HasDOM, rep.DOMElements = true, len(snap.Elements)
 		}
 	}
 	return rep, nil

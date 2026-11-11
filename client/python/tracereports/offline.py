@@ -150,7 +150,7 @@ class Recorder:
 
     # ---- interfaz del Sender
     def send_now(self, method: str, path: str, body: bytes, content_type: str, timeout: float,
-                 retries: int = 2) -> Optional[dict]:
+                 retries: int = 2, total: Optional[float] = None) -> Optional[dict]:
         return self._record(method, path, body, content_type)
 
     def enqueue(self, method: str, path: str, body: bytes, content_type: str, timeout: float) -> bool:

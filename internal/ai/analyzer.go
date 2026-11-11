@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/locator"
@@ -67,6 +68,9 @@ type Analyzer struct {
 	testsCancel map[int64]context.CancelFunc
 	// Redact masks secrets in every prompt (nil = redact.Default()).
 	Redact *redact.Policy
+	// Shots (optional) is where the screenshots live: a blank one is evidence of a page that never
+	// loaded (grouping.go).
+	Shots atrest.Dir
 	// MaxPerRun limits the automatic per-test analyses of one run (TRACEREPORTS_AI_MAX_PER_RUN,
 	// default 50); the rest are marked SKIPPED and can still be analyzed from the UI.
 	MaxPerRun int

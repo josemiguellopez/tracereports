@@ -12,16 +12,23 @@ function slowLLM(ms) {
 	let n = 0;
 	return new Promise((resolve) => {
 		const srv = http.createServer((req, res) => {
-			req.resume();
-			// la primera llamada choca con el límite y el proveedor pide esperar 1 s
-			if (++n === 1) {
-				req.on("end", () => { res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "1" }); res.end('{"error":{"message":"Rate limit reached"}}'); });
-				return;
-			}
-			req.on("end", () => setTimeout(() => {
+			let body = "";
+			req.on("data", (c) => { body += c; });
+			// la primera llamada del escalamiento choca con el límite y el proveedor pide esperar 1 s. Solo
+			// cuentan las del escalamiento: el servidor es compartido y el análisis en segundo plano de
+			// ejecuciones de otros specs también llega aquí mientras esta IA está configurada
+			req.on("end", () => {
+				if (body.includes("writing an escalation") && ++n === 1) {
+					res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "1" });
+					res.end('{"error":{"message":"Rate limit reached"}}');
+					return;
+				}
+				respond();
+			});
+			const respond = () => setTimeout(() => {
 				res.setHeader("Content-Type", "application/json");
 				res.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(ESC) } }], usage: { prompt_tokens: 900, completion_tokens: 80 } }));
-			}, ms));
+			}, ms);
 		}).listen(0, "127.0.0.1", () => resolve(srv));
 	});
 }

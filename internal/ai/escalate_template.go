@@ -17,6 +17,10 @@ var tpl = map[string]map[string]string{
 		"what_locator":   "La pantalla cambió y la automatización ya no encuentra un elemento: es mantenimiento del test, no un error del producto.",
 		"what_logic":     "La aplicación respondió, pero con un resultado distinto del esperado.",
 		"what_infra":     "Falló el entorno de pruebas (navegador, red o datos de prueba), no necesariamente la aplicación.",
+		"what_blank":     "La página no llegó a cargar: el navegador quedó en blanco y el test no pudo continuar. No es un cambio de la interfaz ni un selector roto.",
+		"cause_blank":    "Probablemente la aplicación o el ambiente no respondieron a tiempo al abrir la página (carga del servidor, red o demasiadas sesiones en paralelo).",
+		"ev_shot_blank":  "Las capturas del test están en blanco: la página no se mostró.",
+		"step_blank":     "Revisar la carga del ambiente en ese momento y que el test verifique que la página cargó antes de seguir; después, volver a ejecutarlo.",
 		"what_unknown":   "El test no pudo completar su flujo.",
 		"impact_biz":     "Mientras no se resuelva, los usuarios podrían no completar \"%s\".",
 		"impact_qa":      "%d de %d tests de la suite fallaron; los resultados de esta ejecución no son confiables para aprobar la versión.",
@@ -89,6 +93,10 @@ var tpl = map[string]map[string]string{
 		"what_locator":   "The screen changed and the automation no longer finds an element: it is test maintenance, not a product bug.",
 		"what_logic":     "The application answered, but with a different result than expected.",
 		"what_infra":     "The test environment failed (browser, network or test data), not necessarily the application.",
+		"what_blank":     "The page never loaded: the browser stayed blank and the test could not go on. It is not a UI change nor a broken selector.",
+		"cause_blank":    "The application or the environment probably did not answer in time when the page was opened (server load, network or too many parallel sessions).",
+		"ev_shot_blank":  "The test's screenshots are blank: the page was never shown.",
+		"step_blank":     "Check the load of the environment at that moment and that the test checks the page loaded before going on; then run it again.",
 		"what_unknown":   "The test could not complete its flow.",
 		"impact_biz":     "Until it is fixed, users might not be able to complete \"%s\".",
 		"impact_qa":      "%d of %d tests of the suite failed; this run's results cannot be used to approve the release.",
@@ -287,6 +295,12 @@ func templateEscalation(e *Escalation) {
 		return
 	}
 
+	// página en blanco: el elemento nunca pudo aparecer, así que "cambió la interfaz" sería falso, y
+	// "falló el entorno" se queda corto. Un backend que falló o un bug con evidencia propia mandan.
+	blank := f.ShotBlank && (cat == "LOCATOR_CHANGED" || cat == "INFRA_ERROR" || cat == "")
+	if blank {
+		cat = "INFRA_ERROR"
+	}
 	switch cat {
 	case "BACKEND_TIMEOUT":
 		e.WhatHappened, e.Severity, e.Owner = t["what_backend"], "high", t["owner_backend"]
@@ -299,10 +313,13 @@ func templateEscalation(e *Escalation) {
 	default:
 		e.WhatHappened, e.Severity, e.Owner = t["what_unknown"], "medium", t["owner_qa"]
 	}
+	if blank {
+		e.WhatHappened = t["what_blank"]
+	}
 	if e.TestID == 0 && f.Total > 0 && f.Failed*2 >= f.Total && cat != "LOCATOR_CHANGED" {
 		e.Severity = "critical"
 	}
-	if e.Audience == "dev" && f.AISummary != "" {
+	if e.Audience == "dev" && f.AISummary != "" && !blank {
 		e.WhatHappened = f.AISummary
 	}
 	// ejecución completa sin causa clara: los incidentes agrupados dicen más que "no pudo completar su flujo"
@@ -347,7 +364,9 @@ func templateEscalation(e *Escalation) {
 			e.Evidence = append(e.Evidence, fmt.Sprintf(t["ev_net"], n.Method, n.Path, n.Outcome, n.DurationMs))
 		}
 	}
-	if f.Screenshot != "" && f.ShotCaption != "" {
+	if f.ShotBlank {
+		e.Evidence = append(e.Evidence, t["ev_shot_blank"])
+	} else if f.Screenshot != "" && f.ShotCaption != "" {
 		e.Evidence = append(e.Evidence, fmt.Sprintf(t["ev_shot"], f.ShotCaption))
 	}
 	if f.Flaky != "" {
@@ -367,9 +386,12 @@ func templateEscalation(e *Escalation) {
 	}
 
 	e.RootCause = t["cause_unknown"]
-	if f.AISummary != "" {
+	switch {
+	case blank: // el diagnóstico del test (selector roto) no vio que la página estaba en blanco
+		e.RootCause = t["cause_blank"]
+	case f.AISummary != "":
 		e.RootCause = f.AISummary
-	} else if len(f.Incidents) > 0 && f.Incidents[0].Cause != "" {
+	case len(f.Incidents) > 0 && f.Incidents[0].Cause != "":
 		e.RootCause = f.Incidents[0].Cause
 	}
 
@@ -394,12 +416,16 @@ func templateEscalation(e *Escalation) {
 	case "LOGIC_BUG":
 		e.NextSteps = append(e.NextSteps, t["step_bug"])
 	case "INFRA_ERROR":
-		e.NextSteps = append(e.NextSteps, t["step_rerun"])
+		if blank {
+			e.NextSteps = append(e.NextSteps, t["step_blank"])
+		} else {
+			e.NextSteps = append(e.NextSteps, t["step_rerun"])
+		}
 	}
 	if incidents {
 		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["step_incident"], clip(f.Incidents[0].Title, 140)))
 	}
-	if f.AISuggest != "" && e.Audience != "business" {
+	if f.AISuggest != "" && e.Audience != "business" && !blank { // con página en blanco sugeriría tocar un selector
 		e.NextSteps = append([]string{f.AISuggest}, e.NextSteps...)
 	}
 	e.NextSteps = append(e.NextSteps, t["step_report"])

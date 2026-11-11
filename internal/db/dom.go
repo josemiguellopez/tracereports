@@ -15,7 +15,119 @@ CREATE TABLE IF NOT EXISTS test_dom (
 	snapshot   TEXT    NOT NULL,   -- JSON de locator.Snapshot (elementos + posiciones)
 	created_at INTEGER NOT NULL
 );
+-- las páginas por las que pasó el test (TRACEREPORTS_DOM_STEPS): el Inspector recorre el test sin
+-- reproducirlo. Se borran con el test (retención incluida).
+CREATE TABLE IF NOT EXISTS test_dom_steps (
+	test_id    INTEGER NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+	seq        INTEGER NOT NULL,
+	label      TEXT    NOT NULL DEFAULT '',
+	at         INTEGER NOT NULL DEFAULT 0,
+	snapshot   TEXT    NOT NULL,
+	created_at INTEGER NOT NULL,
+	PRIMARY KEY (test_id, seq)
+);
 `
+
+// MaxDOMSteps bounds the step snapshots of one test: a long test keeps its first pages, and the
+// one of the failure always has its own place (test_dom).
+const MaxDOMSteps = 40
+
+// DOMStep is one page a test went through: the step it was taken at, without the snapshot.
+type DOMStep struct {
+	Seq   int    `json:"seq"`
+	Label string `json:"label"`
+	At    int64  `json:"at"`
+	Kind  string `json:"kind"` // step | warning (TRACEREPORTS_DOM_ON=warning: la página de un WARNING)
+}
+
+// SaveDOMStep appends a step snapshot of a test and returns its number (0 when the test already
+// has MaxDOMSteps: it is not stored).
+func (s *Store) SaveDOMStep(testID int64, label string, at int64, snapshotJSON string) (int, error) {
+	return s.SaveDOMStepKind(testID, "step", label, at, snapshotJSON)
+}
+
+// SaveDOMStepKind is SaveDOMStep with the kind of page: "step" or "warning".
+func (s *Store) SaveDOMStepKind(testID int64, kind, label string, at int64, snapshotJSON string) (int, error) {
+	if kind != "warning" {
+		kind = "step"
+	}
+	var exists, n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM tests WHERE id=?`, testID).Scan(&exists); err != nil {
+		return 0, err
+	}
+	if exists == 0 {
+		return 0, ErrNotFound
+	}
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM test_dom_steps WHERE test_id=?`, testID).Scan(&n); err != nil {
+		return 0, err
+	}
+	if n >= MaxDOMSteps {
+		return 0, nil
+	}
+	seq := n + 1
+	if s.vault.Encrypting() { // el snapshot y también la etiqueta del paso: dice qué hacía el test
+		sealed, err := s.vault.Seal(domStepName(testID, seq), snapshotJSON)
+		if err != nil {
+			return 0, err
+		}
+		snapshotJSON = sealed
+		if label != "" {
+			if label, err = s.vault.Seal(domStepName(testID, seq)+":label", label); err != nil {
+				return 0, err
+			}
+		}
+	}
+	if at <= 0 {
+		at = NowMs()
+	}
+	_, err := s.db.Exec(`INSERT INTO test_dom_steps(test_id, seq, label, at, snapshot, created_at, kind) VALUES(?,?,?,?,?,?,?)`,
+		testID, seq, label, at, snapshotJSON, NowMs(), kind)
+	return seq, err
+}
+
+// ListDOMSteps lists the step snapshots of a test, in order.
+func (s *Store) ListDOMSteps(testID int64) ([]DOMStep, error) {
+	rows, err := s.db.Query(`SELECT seq, label, at, kind FROM test_dom_steps WHERE test_id=? ORDER BY seq`, testID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DOMStep{}
+	for rows.Next() {
+		var d DOMStep
+		if err := rows.Scan(&d.Seq, &d.Label, &d.At, &d.Kind); err != nil {
+			return nil, err
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	for i := range out {
+		if atrest.Sealed(out[i].Label) {
+			if out[i].Label, err = s.vault.Open(domStepName(testID, out[i].Seq)+":label", out[i].Label); err != nil {
+				out[i].Label = "" // sellada con una llave que no está: el paso sigue listado, sin su etiqueta
+			}
+		}
+	}
+	return out, nil
+}
+
+// GetDOMStep returns one step snapshot (ErrNotFound when it does not exist).
+func (s *Store) GetDOMStep(testID int64, seq int) (string, error) {
+	var snap string
+	err := s.db.QueryRow(`SELECT snapshot FROM test_dom_steps WHERE test_id=? AND seq=?`, testID, seq).Scan(&snap)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	if err != nil {
+		return "", err
+	}
+	return s.vault.Open(domStepName(testID, seq), snap)
+}
+
+// domStepName binds a sealed step snapshot to its test and position.
+func domStepName(testID int64, seq int) string { return fmt.Sprintf("test_dom_step:%d:%d", testID, seq) }
 
 // SaveDOM stores the page snapshot taken when the test failed (one per test, last wins).
 func (s *Store) SaveDOM(testID int64, snapshotJSON string) error {
@@ -257,7 +369,90 @@ func (s *Store) DOMKeys() (map[string]int, error) {
 		}
 		out[atrest.SealedKeyID(snap)]++
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// los snapshots por paso cuentan igual (una base de una versión anterior no tiene la tabla)
+	if ok, err := s.HasTable("test_dom_steps"); err != nil || !ok {
+		return out, err
+	}
+	steps, err := s.db.Query(`SELECT snapshot FROM test_dom_steps`)
+	if err != nil {
+		return nil, err
+	}
+	defer steps.Close()
+	for steps.Next() {
+		var snap string
+		if err := steps.Scan(&snap); err != nil {
+			return nil, err
+		}
+		out[atrest.SealedKeyID(snap)]++
+	}
+	return out, steps.Err()
+}
+
+// resealDOMSteps does what ResealDOM does for the step snapshots.
+func (s *Store) resealDOMSteps(v *atrest.Vault) (changed, unreadable int, err error) {
+	if ok, err := s.HasTable("test_dom_steps"); err != nil || !ok {
+		return 0, 0, err
+	}
+	type key struct {
+		test int64
+		seq  int
+	}
+	var keys []key
+	rows, err := s.db.Query(`SELECT test_id, seq FROM test_dom_steps ORDER BY test_id, seq`)
+	if err != nil {
+		return 0, 0, err
+	}
+	for rows.Next() {
+		var k key
+		if err := rows.Scan(&k.test, &k.seq); err != nil {
+			rows.Close()
+			return 0, 0, err
+		}
+		keys = append(keys, k)
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, 0, err
+	}
+	for _, k := range keys {
+		var snap, label string
+		if err := s.db.QueryRow(`SELECT snapshot, label FROM test_dom_steps WHERE test_id=? AND seq=?`, k.test, k.seq).Scan(&snap, &label); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue
+			}
+			return changed, unreadable, err
+		}
+		// la etiqueta va con su snapshot: la misma llave
+		if label != "" && !(atrest.Sealed(label) && atrest.SealedKeyID(label) == v.KeyID()) {
+			if plain, err := v.Open(domStepName(k.test, k.seq)+":label", label); err == nil {
+				if sealed, err := v.Seal(domStepName(k.test, k.seq)+":label", plain); err == nil {
+					if _, err := s.db.Exec(`UPDATE test_dom_steps SET label=? WHERE test_id=? AND seq=?`, sealed, k.test, k.seq); err != nil {
+						return changed, unreadable, err
+					}
+				}
+			}
+		}
+		if atrest.Sealed(snap) && atrest.SealedKeyID(snap) == v.KeyID() {
+			continue
+		}
+		plain, err := v.Open(domStepName(k.test, k.seq), snap)
+		if err != nil {
+			unreadable++
+			continue
+		}
+		sealed, err := v.Seal(domStepName(k.test, k.seq), plain)
+		if err != nil {
+			return changed, unreadable, err
+		}
+		if _, err := s.db.Exec(`UPDATE test_dom_steps SET snapshot=? WHERE test_id=? AND seq=?`, sealed, k.test, k.seq); err != nil {
+			return changed, unreadable, err
+		}
+		changed++
+	}
+	return changed, unreadable, nil
 }
 
 // ResealDOM seals with the current key of v the snapshots stored in clear or sealed with another
@@ -306,5 +501,6 @@ func (s *Store) ResealDOM(v *atrest.Vault) (changed, unreadable int, err error) 
 		}
 		changed++
 	}
-	return changed, unreadable, nil
+	c, u, err := s.resealDOMSteps(v)
+	return changed + c, unreadable + u, err
 }

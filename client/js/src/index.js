@@ -20,7 +20,7 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
-import { detectBranch, detectCommit } from "./context.js";
+import { defaultExecutionId, detectBranch, detectCommit } from "./context.js";
 import { env } from "./env.js";
 import { screenshotAllowed } from "./mask.js";
 import { Recorder, newSessionDir } from "./offline.js";
@@ -28,7 +28,7 @@ import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 import { downloadBinary } from "./binary.js";
 
-export const VERSION = "0.4.2";
+export const VERSION = "0.5.0";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
 /** The URL without its trailing slashes (a loop, not /\/+$/: that regex is quadratic on many slashes). */
@@ -179,6 +179,47 @@ export class TraceReports {
     }
   }
 
+  /**
+   * Cuántos tests va a correr esta ejecución (progreso y ETA en En vivo). De mejor esfuerzo: un
+   * servidor sin En vivo lo ignora y no cuenta como evidencia perdida.
+   */
+  async setPlanned(planned) {
+    if (planned > 0) await this.bestEffort("POST", `/api/v1/runs/${this.runId}/plan`, { planned: Math.floor(planned) });
+  }
+
+  /**
+   * Con TRACEREPORTS_REMOTE_CONTROL=1: si alguien pidió cancelar esta ejecución desde En vivo, y por
+   * qué. Pregunta como mucho cada `everyMs`; sin servidor, o con uno anterior, nunca cancela.
+   */
+  async cancelRequested({ everyMs = 5000 } = {}) {
+    const c = (this.control ??= { checked: 0, cancel: false, reason: "", off: false });
+    if (c.cancel) return { cancel: true, reason: c.reason };
+    if (!["1", "true", "yes", "on"].includes(String(env("REMOTE_CONTROL") || "").trim().toLowerCase()) || c.off || Date.now() - c.checked < everyMs) {
+      return { cancel: false, reason: "" };
+    }
+    c.checked = Date.now();
+    const res = await this.bestEffort("GET", `/api/v1/runs/${this.runId}/control`);
+    if (res === "missing") c.off = true; // un servidor sin control remoto: no se vuelve a preguntar
+    else if (res?.cancel) Object.assign(c, { cancel: true, reason: String(res.reason || "") });
+    return { cancel: c.cancel, reason: c.reason };
+  }
+
+  /** Una llamada directa, fuera de la cola de evidencia: nunca se graba offline ni cuenta como perdida. */
+  async bestEffort(method, apiPath, payload) {
+    if (!this.enabled || !(this.runId > 0) || this.sender.serverDown?.()) return null;
+    try {
+      const res = await fetch(this.baseUrl + apiPath, {
+        method, signal: AbortSignal.timeout(3000),
+        headers: { ...this.headers(), ...(payload ? { "Content-Type": "application/json" } : {}) },
+        body: payload ? JSON.stringify(payload) : undefined,
+      });
+      if (res.status === 404 || res.status === 405) return "missing";
+      return res.ok ? await res.json().catch(() => ({})) : null;
+    } catch {
+      return null; // el control nunca rompe el test
+    }
+  }
+
   headers() {
     const h = { "User-Agent": `tracereports-js/${VERSION}` };
     if (this.token) h.Authorization = `Bearer ${this.token}`;
@@ -224,7 +265,7 @@ export class TraceReports {
    * git) definen el contexto: historial y comparaciones solo usan ejecuciones del mismo proyecto,
    * ambiente y rama.
    */
-  async startRun(name, { environment = "", project, branch, commit, framework = "" } = {}) {
+  async startRun(name, { environment = "", project, branch, commit, framework = "", executionId, planned = 0 } = {}) {
     this.offlineName = name || this.offlineName;
     if (env("RUN_ID")) return this.joinRun(env("RUN_ID"));
     const payload = {
@@ -234,7 +275,10 @@ export class TraceReports {
       branch: branch ?? detectBranch(),
       commit: commit ?? detectCommit(),
       framework,
+      // agrupa en En vivo las corridas de una misma ejecución (un proceso por archivo, un build de CI)
+      execution_id: executionId ?? (String(env("EXECUTION_ID") || "").trim().slice(0, 120) || defaultExecutionId()),
     };
+    if (planned > 0) payload.planned = Math.floor(planned);
     if (this.enabled && this.offlineMode === "always" && !this.recording) this.goOffline("offline mode");
     const res = await this.request("POST", "/api/v1/runs", payload);
     let created = res;

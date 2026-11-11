@@ -11,6 +11,7 @@ import (
 	"github.com/josemiguellopez/tracereports/internal/ai"
 	"github.com/josemiguellopez/tracereports/internal/correlate"
 	"github.com/josemiguellopez/tracereports/internal/db"
+	"github.com/josemiguellopez/tracereports/internal/repro"
 	"github.com/josemiguellopez/tracereports/internal/tracker"
 )
 
@@ -19,12 +20,12 @@ var ticketLabels = map[string]map[string]string{
 		"footer":  "Creado desde TraceReports con la evidencia del reporte.",
 		"context": "Contexto técnico", "stack": "Stack trace", "repro": "Reproducir en local", "response": "Respuesta",
 		"console": "Consola del navegador", "baseline": "La última vez que el test pasó (ejecución #%d) respondió HTTP %d", "artifacts": "Trace y video",
-		"attempts": "Intentos", "key": "Identidad del test"},
+		"attempts": "Intentos", "key": "Identidad del test", "lang": "es"},
 	"en": {"error": "Error", "network": "Backend calls that failed", "test": "Test", "run": "Run", "logs": "logs", "trace": "trace",
 		"footer":  "Created from TraceReports with the report evidence.",
 		"context": "Technical context", "stack": "Stack trace", "repro": "Run it locally", "response": "Response",
 		"console": "Browser console", "baseline": "The last time the test passed (run #%d) it answered HTTP %d", "artifacts": "Trace and video",
-		"attempts": "Attempts", "key": "Test identity"},
+		"attempts": "Attempts", "key": "Test identity", "lang": "en"},
 }
 
 // trackerByID returns a configured tracker.
@@ -219,7 +220,7 @@ func (s *Server) issueFrom(e *ai.Escalation) *tracker.Issue {
 	for _, d := range f.Dev {
 		devIssue(is, d, tl, s.publicURL(), len(f.Dev) > 1 || f.TestName == "")
 	}
-	if name := filepath.Base(f.Screenshot); strings.HasPrefix(f.Screenshot, "/screenshots/") && name != "." {
+	if name := filepath.Base(f.Screenshot); strings.HasPrefix(f.Screenshot, "/screenshots/") && name != "." && !f.ShotBlank {
 		if img, err := s.shots().ReadFile(name); err == nil && len(img) <= maxScreenshotBody {
 			is.Image = img
 		}
@@ -267,11 +268,7 @@ func devIssue(is *tracker.Issue, d *ai.DevFacts, tl map[string]string, base stri
 		is.Code = append(is.Code, [2]string{tl["stack"], d.ErrorTrace})
 	}
 	if len(d.Repro) > 0 {
-		cmds := make([]string, len(d.Repro))
-		for i, c := range d.Repro {
-			cmds[i] = c.Cmd
-		}
-		is.Code = append(is.Code, [2]string{tl["repro"], strings.Join(cmds, "\n")})
+		is.Code = append(is.Code, [2]string{tl["repro"], repro.Script(d.Repro, d.Commit, tl["lang"])})
 	}
 	for _, c := range d.Calls {
 		title := c.Method + " " + c.URL

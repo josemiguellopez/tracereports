@@ -26,6 +26,11 @@ import (
 // preview is cut on pretty-printed JSON, which is larger than the raw body.
 const bodyFileMinChars = 4000
 
+// exportAssets: the files of the interface that go in the exported report next to index.html. Every
+// script and stylesheet index.html loads must be here, or the report opens broken without a server
+// (TestExportCarriesEveryAssetOfIndex checks it).
+var exportAssets = []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "inspector.js", "live.js", "livefield.js", "runnotify.js", "app.js"}
+
 // staticDataMarker is replaced in index.html by the <script> that loads the exported data.
 const staticDataMarker = "<!-- tracereports:static-data -->"
 
@@ -192,7 +197,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 
 	add("README.txt", []byte(exportReadme), zip.Deflate)
 	add("index.html", index, zip.Deflate)
-	for _, asset := range []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "app.js"} {
+	for _, asset := range exportAssets {
 		content, err := fs.ReadFile(s.Web, asset)
 		if err != nil {
 			slog.Error("export: read asset", "asset", asset, "err", err)
@@ -231,6 +236,8 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 			add(b.name, b.content, zip.Deflate)
 		}
 	}
+	// las páginas del Inspector, de a una (cada una pesa cientos de KB), con su índice al final
+	s.exportDOM(id, detail.Tests, add)
 	// capturas, traces y videos: se copian del disco al ZIP sin cargarlos enteros en memoria
 	for _, name := range shots {
 		f, err := s.shots().Open(name) // el ZIP lleva la evidencia descifrada: quien exporta ya la ve
