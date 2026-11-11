@@ -512,7 +512,7 @@ func (s *Server) cancelExecution(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	slog.Info("live: cancel requested", "execution", in.Key, "runs", marked, "by", s.uiUser(r))
+	slog.Info("live: cancel requested", "execution", oneLine(in.Key), "runs", marked, "by", oneLine(s.uiUser(r)))
 	writeJSON(w, http.StatusOK, map[string]int{"runs": marked})
 }
 

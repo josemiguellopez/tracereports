@@ -227,7 +227,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	peer, _ := r.Context().Value(peerKey{}).(string)
 	ip := s.Net.ClientIP(peer, r.Header)
-	if left := s.authFails.blocked(ip); left > 0 {
+	if left := s.authFailures().blocked(ip); left > 0 {
 		w.Header().Set("Retry-After", strconv.Itoa(int(left.Seconds())+1))
 		writeError(w, http.StatusTooManyRequests, "too many failed logins from this address: try again later")
 		return
@@ -244,13 +244,13 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	role := s.Auth.roleFor(in.User, in.Password)
 	if role == "" {
-		s.authFails.fail(ip)
+		s.authFailures().fail(ip)
 		time.Sleep(400 * time.Millisecond) // sin prisa para quien prueba claves
 		slog.Warn("ui login failed", "ip", ip.String())
 		writeError(w, http.StatusUnauthorized, "wrong user or password")
 		return
 	}
-	s.authFails.reset(ip)
+	s.authFailures().reset(ip)
 	// una sesión anterior de este navegador se cierra (no quedan dos)
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		_ = s.Store.DeleteSession(hashToken(c.Value))
@@ -276,7 +276,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 		maxAge = int(life.Seconds())
 	}
 	setSessionCookie(w, r, tok, maxAge)
-	slog.Info("ui login", "role", role, "remember", in.Remember)
+	slog.Info("ui login", "role", oneLine(role), "remember", in.Remember)
 	writeJSON(w, http.StatusOK, viewOf(sessionInfo{role: role, user: in.User, s: sess}, true))
 }
 

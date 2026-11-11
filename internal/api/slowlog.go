@@ -28,7 +28,7 @@ func slowRequests(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w}
 		next.ServeHTTP(rec, r)
 		if d := time.Since(start); d >= slowRequestAfter {
-			slog.Warn("slow request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "ms", d.Milliseconds())
+			slog.Warn("slow request", "method", oneLine(r.Method), "path", oneLine(r.URL.Path), "status", rec.status, "ms", d.Milliseconds())
 			rememberSlow(slowEntry{At: start.UnixMilli(), Method: r.Method, Path: r.URL.Path, Status: rec.status, Ms: d.Milliseconds()})
 		}
 	})

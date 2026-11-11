@@ -126,7 +126,7 @@ func (s *Server) PurgeOld(days int, trigger, by string) (RetentionRun, error) {
 		// el espacio de la base se devuelve al compactarla, aparte (compact.go): reescribe toda la base
 		s.markCompactPending()
 		slog.Info("retention: old runs deleted", "runs", n, "files", run.Files, "freed_bytes", run.FreedBytes,
-			"older_than_days", days, "trigger", trigger)
+			"older_than_days", days, "trigger", oneLine(trigger))
 	}
 	if purgeErr != nil {
 		run.Error = purgeErr.Error()
@@ -385,7 +385,7 @@ func (s *Server) setRetention(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	slog.Info("maintenance: retention changed", "days", *in.Days, "by", s.uiUser(r))
+	slog.Info("maintenance: retention changed", "days", *in.Days, "by", oneLine(s.uiUser(r)))
 	days, source := s.RetentionDays()
 	writeJSON(w, http.StatusOK, map[string]any{"days": days, "source": source, "editable": true})
 }

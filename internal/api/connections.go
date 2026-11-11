@@ -32,8 +32,8 @@ func (s *Server) connections(w http.ResponseWriter, r *http.Request) {
 		"started_at": slowSince.UnixMilli()}
 	// las direcciones que fallaron credenciales y los volcados de los bloqueos: solo para quien administra
 	editable, _ := s.settingsAccess(r)
-	if editable && s.authFails != nil {
-		out["auth"] = s.authFails.snapshot()
+	if editable {
+		out["auth"] = s.authFailures().snapshot()
 	}
 	out["stalls"] = recentStalls(editable)
 	out["stall_after_ms"] = stallAfter.Milliseconds()

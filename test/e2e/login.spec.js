@@ -114,14 +114,16 @@ test("bien: envía usuario, clave y recordarme, y vuelve a donde estaba (con su 
 	await expect(page).toHaveURL(/\/#run=1&view=tests(&|$)/); // la app agrega el test elegido
 	expect(body).toEqual({ user: "admin", password: "pw", remember: true });
 
-	// next hacia otro sitio: se queda en este
-	for (const evil of ["%2F%2Fevil.example%2Fx", "https%3A%2F%2Fevil.example", "%2Flogin%2F"]) {
+	// next hacia otro sitio: se queda en este (también con una tabulación o barra invertida, que el navegador
+	// borra o convierte: "/<tab>/evil.example" termina en //evil.example)
+	const here = new URL(page.url()).host;
+	for (const evil of ["%2F%2Fevil.example%2Fx", "https%3A%2F%2Fevil.example", "%2Flogin%2F", "%2F%09%2Fevil.example%2Fx", "%2F%0A%2Fevil.example%2Fx", "%2F%5C%2Fevil.example%2Fx"]) {
 		await openLogin(page, `?next=${evil}`);
 		await page.locator("#user").fill("admin");
 		await page.locator("#pass").fill("pw");
 		await page.locator("#go").click();
 		await page.waitForURL((u) => !u.pathname.startsWith("/login"));
-		expect(new URL(page.url()).host).toBe(new URL(page.url()).host);
+		expect(new URL(page.url()).host).toBe(here);
 		expect(new URL(page.url()).pathname).toBe("/");
 	}
 });

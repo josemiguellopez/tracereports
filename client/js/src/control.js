@@ -10,15 +10,18 @@ import path from "node:path";
 
 export const CONTROL_FILE_ENV = "TRACEREPORTS_CONTROL_FILE";
 
-/** Una ruta nueva para el archivo de control de esta ejecución. */
+/**
+ * Una ruta nueva para el archivo de control de esta ejecución, en una carpeta propia recién creada
+ * (mkdtemp: nombre impredecible, solo este usuario), no un nombre adivinable en la carpeta temporal.
+ */
 export function newControlFile() {
-  return path.join(os.tmpdir(), `tracereports-control-${process.pid}-${Date.now()}.json`);
+  return path.join(fs.mkdtempSync(path.join(os.tmpdir(), "tracereports-control-")), "control.json");
 }
 
 /** Guarda que la ejecución se canceló (lo llama el reporter). */
 export function writeCancel(file, reason) {
   try {
-    fs.writeFileSync(file, JSON.stringify({ cancel: true, reason: String(reason || "") }));
+    fs.writeFileSync(file, JSON.stringify({ cancel: true, reason: String(reason || "") }), { mode: 0o600 });
   } catch { /* el control nunca rompe la ejecución */ }
 }
 

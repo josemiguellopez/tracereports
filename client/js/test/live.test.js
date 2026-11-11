@@ -5,6 +5,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
 import path from "node:path";
 import { TraceReports } from "../src/index.js";
 import TraceReportsReporter from "../src/reporter.js";
@@ -104,10 +105,17 @@ test("archivo de control: sin archivo nadie canceló; con cancelación, el motiv
     assert.equal(cancelReason(""), null);
     writeCancel(file, "QA caído");
     assert.equal(cancelReason(file), "QA caído");
+    // en una carpeta propia recién creada, no un nombre adivinable en la carpeta temporal
+    assert.equal(path.dirname(path.dirname(file)), os.tmpdir());
+    assert.match(path.basename(path.dirname(file)), /^tracereports-control-.{6}$/);
+    const other = newControlFile();
+    assert.notEqual(other, file);
+    fs.rmSync(path.dirname(other), { recursive: true, force: true });
+    if (process.platform !== "win32") assert.equal(fs.statSync(file).mode & 0o777, 0o600);
     assert.equal(skipMessage("QA caído"), "Cancelado desde TraceReports: QA caído");
     assert.equal(skipMessage(""), "Cancelado desde TraceReports");
   } finally {
-    fs.rmSync(file, { force: true });
+    fs.rmSync(path.dirname(file), { recursive: true, force: true });
   }
 });
 

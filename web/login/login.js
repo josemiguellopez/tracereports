@@ -37,10 +37,14 @@ if (lang === "en") {
 const params = new URLSearchParams(location.search);
 function safeNext() {
 	const n = params.get("next") || "/";
-	// solo una ruta de este mismo sitio (nada de //otro.sitio ni de volver al login)
-	if (!n.startsWith("/") || n.startsWith("//") || n.startsWith("/\\") || n.startsWith("/login")) return "/";
+	// solo una ruta de este mismo sitio (nada de //otro.sitio ni de volver al login): se resuelve como lo
+	// haría el navegador y se exige el mismo origen, así ni barras invertidas ni tabulaciones lo engañan
+	if (!n.startsWith("/") || n.startsWith("//") || n.startsWith("/\\")) return "/";
+	let u;
+	try { u = new URL(n, location.origin); } catch { return "/"; }
+	if (u.origin !== location.origin || u.pathname.startsWith("/login")) return "/";
 	// el servidor no ve el #run=… del enlace, pero el navegador lo conserva en esta página: vuelve con él
-	return !n.includes("#") && location.hash ? n + location.hash : n;
+	return u.pathname + u.search + (u.hash || location.hash);
 }
 function leave() { location.replace(safeNext()); }
 

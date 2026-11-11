@@ -11,6 +11,16 @@ All notable changes to TraceReports. The format follows
 Python client 0.6.0, JavaScript client 0.5.0 and Java client 0.5.0; the Go client does not change. Validated
 with a team that runs TraceReports in Docker on Windows with suites of 16 workers.
 
+### Security
+
+- **Sign-in page: no redirect to another site through `next`**: a `next` such as `/<tab>/evil.example` passed the
+  check and the browser, which drops tabs and newlines from URLs, went to `//evil.example`. `next` is now
+  resolved like the browser does and must be on the same origin.
+- **JavaScript client: the cancel control file goes in a fresh private folder** (`mkdtemp`, mode 0600) instead of
+  a guessable name in the temporary folder.
+- Values from requests are kept on one log line in the new log entries (cancel, sign-in, slow requests, retention).
+- Fixed a data race when the router was built from several goroutines (tests only: the server builds it once).
+
 ### Fixed (Live: the map card under the fixed cards, the anomaly cut to one line)
 
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the

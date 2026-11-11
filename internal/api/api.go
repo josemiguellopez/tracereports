@@ -58,6 +58,7 @@ type Server struct {
 	Live           *live.Hub // eventos en vivo (SSE); nil = desactivado
 	Auth           Auth
 	authFails      *authFailures // fallos de credenciales por IP (Basic, tokens y la página de ingreso)
+	authFailsOnce  sync.Once     // authFails se crea una vez aunque Router se llame desde varias goroutines
 	ScreenshotsDir string
 	// Vault encrypts the evidence at rest (TRACEREPORTS_ENCRYPT_AT_REST): the files of
 	// ScreenshotsDir and, through the Store, the DOM snapshots. nil = in clear, as before.
@@ -112,6 +113,17 @@ func (s *Server) redactor() *redact.Policy {
 	return s.Redact
 }
 
+// authFailures is the one counter of failed credentials for HTTP Basic, tokens and the sign-in page,
+// created on first use (a Server built in a test has none until then).
+func (s *Server) authFailures() *authFailures {
+	s.authFailsOnce.Do(func() {
+		if s.authFails == nil {
+			s.authFails = newAuthFailures()
+		}
+	})
+	return s.authFails
+}
+
 // Router builds the chi router.
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
@@ -121,10 +133,7 @@ func (s *Server) Router() http.Handler {
 		securityHeaders(contentSecurityPolicy(s.Web)),
 		middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
 	// freno a la fuerza bruta, CSRF de otros sitios y después las credenciales
-	if s.authFails == nil {
-		s.authFails = newAuthFailures() // el mismo contador para HTTP Basic, los tokens y la página de ingreso
-	}
-	r.Use(s.authThrottle(s.authFails), sameSiteWrites, s.sessionAuth, s.Auth.middleware, s.hostGuard)
+	r.Use(s.authThrottle(s.authFailures()), sameSiteWrites, s.sessionAuth, s.Auth.middleware, s.hostGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
 		r.Use(gzipBodies, s.trackActivity, s.idempotent)
