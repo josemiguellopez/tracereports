@@ -667,7 +667,7 @@ cualquier cliente:
 - **Mostrar** (Todos / Con problemas) y **Agrupar por** (archivo, worker, estado, error) son controles segmentados:
   responden en el mismo cuadro del clic (el control cambia y una barra fina avisa que se recalcula) y una
   línea de estado dice qué se ve: «Mostrando 6 de 234 tests · Solo con problemas · Agrupado por archivo».
-- **Mapa de la ejecución**, en dos vistas. **Campo** (por defecto): la ejecución como un toroide de partículas que se lee como un reloj; el ángulo es
+- **Mapa de la ejecución**, en tres vistas. **Campo** (por defecto): la ejecución como un toroide de partículas que se lee como un reloj; el ángulo es
   el tiempo (arriba el comienzo, en sentido horario, con las pausas comprimidas) y cada anillo un worker o
   proceso. Cada test es un punto donde terminó (o donde va, sobre la aguja punteada de "ahora", en el color del texto: el rojo es solo de los fallos), más grande cuanto
   más lento fue, con una estela fina de lo que duró; los fallos brillan. Pasar el mouse lo muestra, un clic (o
@@ -682,7 +682,12 @@ cualquier cliente:
   nueva solo la eligen: nunca sacan de En vivo). **Pausar vista** (o Espacio) congela el campo
   para analizar mientras la ingesta sigue en el servidor: cuenta los eventos que llegan y "Reanudar (+N)" se
   pone al día. **Cuadrícula**: un cuadro por test, en el orden en que empezaron; un clic abre
-  su detalle. Arriba, una **cinta** con los últimos eventos que
+  su detalle. **Agentes**: la ejecución por dentro de un chip. Cada worker (o proceso, si el cliente no lo informa)
+  es un agente en órbita alrededor del núcleo, que muestra la cola (lo que falta empezar) y un anillo con lo que
+  pasó y falló; cuando un test empieza sale un paquete hacia su agente y al terminar vuelve un bit de su color. El
+  agente sin señal palpita en rojo, el lento en ámbar y el desocupado queda apagado; su estela son sus últimos tests.
+  Un clic en un agente deja en la tabla solo sus tests (otro clic, todos); en un punto de la estela, el detalle del
+  test. Con "reducir movimiento" se dibuja quieto. Arriba, una **cinta** con los últimos eventos que
   se detiene con el mouse, y un reloj.
 - La **línea de tiempo** empieza en el primer test (no en el inicio de la ejecución), marca **ahora** con una
   línea y comprime las pausas largas sin ningún test corriendo (≈, con cuánto duraron). Ctrl + rueda acerca o

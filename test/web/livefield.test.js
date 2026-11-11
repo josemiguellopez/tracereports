@@ -89,7 +89,7 @@ test("el campo de la suite grande: un arco por test y los carriles inferidos; el
 	const h = { t: (s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s), esc, icon: (n) => `<svg data-i="${n}"></svg>`, canAct: () => true, clock: () => "10:00" };
 	const html = (ingest) => LIVE.render({ list: d.list.executions, exec: e, now: d.execution.now, ui: { problems: false }, ingest }, h);
 	const quiet = html(null);
-	assert.ok(quiet.includes('class="card live-map is-field"') && quiet.includes("data-live-field>"), "el campo es la vista por defecto");
+	assert.ok(quiet.includes('class="card live-map is-field"') && quiet.includes('data-live-field data-mode="field">'), "el campo es la vista por defecto");
 	assert.ok(/class="lf-hud tl warn"[\s\S]*?SIN EVENTOS/.test(quiet), "sin eventos del stream no dice activa");
 	const active = html({ state: "active", perMin: 42, lastAgo: 2000, byKind: { test: 5 } });
 	assert.ok(/class="lf-hud tl ok"[\s\S]*?INGESTA ACTIVA[\s\S]*?42 eventos\/min · último hace 2 s/.test(active));

@@ -29,7 +29,7 @@ const bodyFileMinChars = 4000
 // exportAssets: the files of the interface that go in the exported report next to index.html. Every
 // script and stylesheet index.html loads must be here, or the report opens broken without a server
 // (TestExportCarriesEveryAssetOfIndex checks it).
-var exportAssets = []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "inspector.js", "live.js", "livefield.js", "runnotify.js", "app.js"}
+var exportAssets = []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "inspector.js", "live.js", "livefield.js", "liveagents.js", "runnotify.js", "app.js"}
 
 // staticDataMarker is replaced in index.html by the <script> that loads the exported data.
 const staticDataMarker = "<!-- tracereports:static-data -->"

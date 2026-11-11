@@ -26,6 +26,24 @@ with a team that runs TraceReports in Docker on Windows with suites of 16 worker
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
   fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
   point, or above/left when it does not fit in the window.
+- **Live: a third map view, Agents**: the execution from inside a chip — each worker is an agent orbiting the core
+  (the queue and a pass/fail ring); packets go out when a test starts and come back in its color when it ends, over a
+  circuit background with travelling bits. The agent with no signal pulses red, the slow one amber, the idle one is
+  dimmed, and its trail shows its latest tests: who is stuck, whether the work is shared and how much is left, at a
+  glance. Click an agent to filter the table by it; a dot of its trail opens the test. Respects "reduce motion".
+- **Live lists the earlier executions, for any volume**: Live shows what runs now and what ended in the last 2
+  hours; when nothing does, instead of an empty screen it shows the earlier executions master-detail (like the
+  Inspector): on the left a compact list, one line per execution grouped by day, with its own scroll that loads
+  older ones when it reaches the end (the page does not move); on the right the selected one with its results,
+  duration, what failed (with the error), its files, **Open in Live** and **See the report**. ↑/↓ move through
+  it, Enter opens, / searches. The execution picker offers them too. They are
+  searched in the database over the last 90 days (name, project, branch, environment, a file of the execution,
+  or a day: "today", "yesterday", "10-11"), with date chips (Today, Yesterday, 7 days, 30 days), 30 per page with
+  **Load older ones** and "Showing 30 of 6,691": no need to know the execution_id. Measured with 20,000 runs
+  (6,700 executions): 2-60 ms per page. "Today" in the picker is the calendar day, not the last 24 h.
+  API: `GET /api/v1/live/history` (see the API docs); new index `idx_runs_execution`.
+- **Switching executions in Live closes the side panel and clears the filters of the previous one** (they were
+  kept: the reset was inside a code comment).
 - **Escalating from Live escalates the failure you picked**: with several failures, the summary's button kept
   the test escalated last (or the first failure's run), whatever test was selected. Now, with a failed test picked
   in Requiere atención, the map or the table, it says **Escalate this failure** and opens Escalate with that test;

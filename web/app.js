@@ -1469,6 +1469,9 @@
 			const list = await api("/api/v1/live");
 			if (!current()) return;
 			L.list = list.executions; L.now = list.now; L.no_signal_ms = list.no_signal_ms;
+			// las anteriores (para el selector y la pantalla vacía): aparte y como mucho una vez por minuto
+			// cada minuto, la primera página al día (si no se pidieron más: no se pierde lo cargado ni el scroll)
+			if (!L.history?.loading && (!L.history?.at || (Date.now() - L.history.at > 60000 && (L.history.pages || 1) === 1))) loadLiveHistory();
 			const fallback = (L.list.find((e) => e.running) || L.list[0])?.key || "";
 			// una ejecución pedida que ya no está en la lista (un enlace, "Observabilidad" de un run anterior,
 			// r:<run>) se pide igual: el servidor la arma por su clave; si no existe, la más nueva
@@ -1499,12 +1502,86 @@
 		if (S.view === "live") { renderLiveView(); writeHash(); }
 	}
 
+	/**
+	 * Las ejecuciones anteriores: el selector las ofrece en "Anteriores" y, si nada corre ni terminó hace poco,
+	 * la pantalla vacía las lista para abrir una sin saber su execution_id. Se buscan en el servidor (lo escrito
+	 * en el buscador que está a la vista, o el día si es una fecha, y el chip de fecha), de a una página;
+	 * append trae la siguiente ("Cargar más antiguas"). No frena la vista en vivo: una respuesta vieja no pisa
+	 * a la nueva.
+	 */
+	async function loadLiveHistory(append = false) {
+		const L = S.liveView, LV = window.TraceReportsLive;
+		const H = (L.history ||= { items: undefined, total: undefined, next: 0, at: 0, loading: false });
+		const typed = L.list?.length ? L.ui.pickerQ : L.ui.histQ;
+		const qy = LV.historyQuery(typed, L.list?.length ? "" : L.ui.histRange, Date.now());
+		const params = new URLSearchParams();
+		if (qy.q) params.set("q", qy.q);
+		if (qy.from) params.set("from", String(qy.from));
+		if (qy.to) params.set("to", String(qy.to));
+		if (append && H.next) params.set("before", String(H.next));
+		const current = turn("live-history");
+		H.loading = true;
+		if (S.view === "live") renderLiveView();
+		try {
+			const r = await api(`/api/v1/live/history?${params}`);
+			if (!current()) return;
+			const seen = new Set(append ? (H.items || []).map((x) => x.key) : []);
+			H.items = append ? [...(H.items || []), ...r.executions.filter((x) => !seen.has(x.key))] : r.executions;
+			Object.assign(H, { total: r.total, next: r.next, at: Date.now(), pages: append ? (H.pages || 1) + 1 : 1, filtered: !!(qy.q || qy.from || qy.to) });
+		} catch {
+			if (!current()) return;
+			H.items ||= []; H.at = Date.now(); // sin historial, la vista sigue igual
+		}
+		H.loading = false;
+		if (S.view === "live") renderLiveView();
+	}
+	/** La vista previa de una anterior: lo que falló (con su error) y el run para "Ver el reporte". Con caché. */
+	let histDetailTimer = 0;
+	function loadHistDetailSoon(key) {
+		const L = S.liveView;
+		if (!key || L.histDetail?.has(key)) return;
+		clearTimeout(histDetailTimer);
+		histDetailTimer = setTimeout(async () => {
+			try {
+				const r = await api(`/api/v1/live/execution?key=${encodeURIComponent(key)}`);
+				const LV = window.TraceReportsLive, runs = r.execution?.runs || [];
+				const fails = runs.flatMap((run) => (run.tests || []).filter((x) => x.state === "FAIL" || x.state === "INTERRUPTED")
+					.map((x) => ({ name: x.name, error: LV.errorSignature(x.last_step) })));
+				const cache = (L.histDetail ||= new Map());
+				cache.set(key, { fails, run: runs[0]?.id || 0 });
+				if (cache.size > 60) cache.delete(cache.keys().next().value); // las 60 últimas vistas
+			} catch { /* sin detalle: la vista previa queda con lo que ya tiene */ }
+			if (S.view === "live") renderLiveView();
+		}, 200); // al quedarse en una (no con cada flecha)
+	}
+	/** Después de dibujar el historial: su scroll y la fila enfocada siguen donde estaban; al llegar al final, más. */
+	let histObserver = null;
+	function afterHistRender(el, top, focusKey) {
+		const L = S.liveView, pane = el.querySelector("[data-live-histpane]");
+		if (!pane) { histObserver?.disconnect(); histObserver = null; return; }
+		pane.scrollTop = top;
+		if (focusKey) [...pane.querySelectorAll("[data-live-histsel]")].find((r) => r.dataset.liveHistsel === focusKey)?.focus({ preventScroll: true });
+		const sel = L.ui.histSel || L.history?.items?.[0]?.key;
+		if (sel && !L.histDetail?.has(sel)) loadHistDetailSoon(sel);
+		const sentinel = pane.querySelector("[data-live-histsentinel]");
+		histObserver?.disconnect();
+		if (sentinel && "IntersectionObserver" in window) {
+			histObserver = new IntersectionObserver((entries) => {
+				if (entries.some((x) => x.isIntersecting) && L.history?.next && !L.history.loading) loadLiveHistory(true);
+			}, { root: pane, rootMargin: "120px" });
+			histObserver.observe(sentinel);
+		}
+	}
+	let liveHistTimer = 0;
+	/** Buscar en el servidor al dejar de escribir (250 ms), no con cada tecla. */
+	const liveHistorySoon = () => { clearTimeout(liveHistTimer); liveHistTimer = setTimeout(() => loadLiveHistory(), 250); };
+
 	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
 	S.ingest = [];
 	S.ingestSince = Date.now(); // desde cuándo esta pestaña cuenta los eventos del stream
 	function liveUI() {
 		return { problems: null, states: [], files: [], workers: [], errors: [], more: {}, sort: null, paused: false,
-			group: "file", q: "", zoom: null, allLanes: false, hideIdle: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", tables: {},
+			group: "file", q: "", zoom: null, allLanes: false, hideIdle: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", histQ: "", histRange: "", tables: {},
 			// preferencias de lectura de esta persona: el ancho de la columna Test y los nombres en 2 líneas
 			...livePrefs() };
 	}
@@ -1622,13 +1699,19 @@
 		// cada cambio de filtro queda en la URL (&f=, &lq=) para compartir el enlace tal cual se ve
 		const redraw = () => { renderLiveView(); if (S.view === "live") writeHash(); };
 		const pick = (key) => {
-			L.key = key; L.exec = null; L.endpoints = undefined; // los fallos nuevos (L.regs) son por id de test, que es único: se conservan L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; L.anim = null;
+			// otra ejecución: sin el panel ni los filtros de la anterior (estaban dentro del comentario y no corrían).
+			// Los fallos nuevos (L.regs) son por id de test, que es único: se conservan
+			const filtered = L.history?.filtered;
+			L.key = key; L.exec = null; L.endpoints = undefined;
+			L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; L.anim = null;
 			renderLiveView(); loadLiveView(true);
+			if (filtered) loadLiveHistory(); // la búsqueda se borró con los filtros: el historial, sin filtrar
 			el.querySelector("[data-live-xpick]")?.focus();
 		};
 		const openPicker = (open) => {
 			ui().pickerOpen = open; if (!open) ui().pickerQ = "";
 			redraw();
+			if (!open && L.history?.filtered) loadLiveHistory(); // lo escrito se borró: la lista vuelve a ser la de siempre
 			if (open) (el.querySelector("[data-live-xq]") || el.querySelector(".xp-opt.on") || el.querySelector(".xp-opt"))?.focus();
 			else el.querySelector("[data-live-xpick]")?.focus();
 		};
@@ -1690,6 +1773,10 @@
 			}
 			if (d("[data-live-xpick]")) return openPicker(!ui().pickerOpen);
 			if ((b = d(".xp-opt[data-live-exec]"))) { ui().pickerOpen = false; return pick(b.dataset.liveExec); }
+			if ((b = d("[data-live-hist]"))) return pick(b.dataset.liveHist); // abrir la anterior elegida
+			if ((b = d("[data-live-histsel]"))) return selectHist(b.dataset.liveHistsel); // elegirla: su vista previa
+			if (d("[data-live-histmore]")) return loadLiveHistory(true); // la página siguiente, más antigua
+			if ((b = d("[data-live-histrange]"))) { ui().histRange = b.dataset.liveHistrange; redraw(); return loadLiveHistory(); }
 			if ((b = d("[data-live-charttable]"))) { ui().tables = { ...ui().tables, [b.dataset.liveCharttable]: !ui().tables[b.dataset.liveCharttable] }; return redraw(); }
 			if (d("[data-live-clear]")) { Object.values(FACET).forEach((k) => { ui()[k] = []; }); return redraw(); }
 			if ((b = d("[data-live-facet]"))) {
@@ -1795,16 +1882,38 @@
 		// "/" lleva al buscador desde cualquier parte de la vista (salvo que se esté escribiendo en otro campo)
 		document.addEventListener("keydown", (e) => {
 			if (e.key !== "/" || S.view !== "live" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable]")) return;
-			const q = el.querySelector("[data-live-q]");
+			const q = el.querySelector("[data-live-q]") || el.querySelector("[data-live-hq]");
 			if (q) { e.preventDefault(); q.focus(); q.select(); }
 		});
 		el.addEventListener("change", (e) => { const sel = e.target.closest("[data-live-exec-select]"); if (sel) pick(sel.value); });
+		// el historial (pantalla vacía): doble clic abre; ↑/↓, Inicio/Fin recorren con su vista previa; Enter abre
+		el.addEventListener("dblclick", (e) => { const r = e.target.closest("[data-live-histsel]"); if (r) pick(r.dataset.liveHistsel); });
+		el.addEventListener("keydown", (e) => {
+			const row = e.target.closest?.("[data-live-histsel]");
+			if (!row) return;
+			const rows = [...el.querySelectorAll("[data-live-histsel]")], i = rows.indexOf(row);
+			const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: rows.length - 1 }[e.key];
+			if (e.key === "Enter" || e.key === " ") { e.preventDefault(); return pick(row.dataset.liveHistsel); }
+			if (to === undefined) return;
+			e.preventDefault();
+			const next = rows[Math.max(0, Math.min(rows.length - 1, to))];
+			if (next) selectHist(next.dataset.liveHistsel, true);
+		});
+		/** Elige una anterior de la lista: se marca al instante y su detalle (lo que falló) llega por detrás. */
+		function selectHist(key, focus = false) {
+			ui().histSel = key;
+			redraw();
+			const r = [...el.querySelectorAll("[data-live-histsel]")].find((x) => x.dataset.liveHistsel === key);
+			if (r) { if (focus) r.focus(); r.scrollIntoView({ block: "nearest" }); }
+			loadHistDetailSoon(key);
+		}
 		el.addEventListener("input", (e) => {
 			// buscar: se recalcula al dejar de escribir (140 ms), no con cada tecla; con 2.000 tests cada redibujo
 			// de la vista entera trababa el campo
 			if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; ui().rowLimit = 0; clearTimeout(qTimer); qTimer = setTimeout(redraw, 140); }
-			if (e.target.matches("[data-live-xq]")) { ui().pickerQ = e.target.value; redraw(); }
+			if (e.target.matches("[data-live-xq]")) { ui().pickerQ = e.target.value; redraw(); liveHistorySoon(); } // las de ahora al instante; las anteriores, del servidor
 			if (e.target.matches("[data-live-aq]")) { ui().attnQ = e.target.value; clearTimeout(qTimer); qTimer = setTimeout(redraw, 140); }
+			if (e.target.matches("[data-live-hq]")) { ui().histQ = e.target.value; liveHistorySoon(); }
 		});
 		// el selector con teclado: flechas entre opciones (desde el buscador también), Enter elige, Escape cierra
 		el.addEventListener("keydown", (e) => {
@@ -1936,15 +2045,16 @@
 		// formulario de cancelar abierto lo que se estaba escribiendo
 		// el buscador en uso no se recrea: se conserva el mismo <input> (valor, foco y cursor), así una
 		// tecla que llega justo con un refresco no se pierde
-		const act = document.activeElement, field = ["[data-live-q]", "[data-live-xq]", "[data-live-aq]"].find((f) => act?.matches?.(f)) || "";
+		const act = document.activeElement, field = ["[data-live-q]", "[data-live-xq]", "[data-live-aq]", "[data-live-hq]"].find((f) => act?.matches?.(f)) || "";
 		const typing = field ? act : null;
 		const optFocus = act?.closest?.(".xp-opt")?.dataset.liveExec, listTop = el.querySelector(".xp-list")?.scrollTop || 0;
+		const histTop = el.querySelector("[data-live-histpane]")?.scrollTop || 0, histFocus = act?.closest?.("[data-live-histsel]")?.dataset.liveHistsel;
 		const reason = el.querySelector(".live-cancel[open] input[name=reason]");
 		const keep = reason ? { value: reason.value, focus: document.activeElement === reason } : null;
 		if (el.querySelector("[data-live-minimap] .lg-brush.drawing, [data-live-resize].drag")) return; // arrastrando: al soltar se dibuja
 		const flip = S.liveView.anim && !S.liveView.anim.first ? flipSnapshot(el) : null;
 		const thumbs = thumbSnapshot(el);
-		const replaced = morphHTML(el, window.TraceReportsLive.render({ list: L.list, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints, ingest: liveIngest(), pausedNew: livePausedNew(), regressions: L.regs || null }, {
+		const replaced = morphHTML(el, window.TraceReportsLive.render({ list: L.list, history: L.history?.items, historyDetail: L.histDetail?.get(L.ui.histSel || L.history?.items?.[0]?.key), historyMeta: L.history ? { total: L.history.total, next: L.history.next, loading: L.history.loading } : null, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints, ingest: liveIngest(), pausedNew: livePausedNew(), regressions: L.regs || null }, {
 			t, esc, icon, canAct,
 			clock: (ms, secs) => liveFmt(secs ? "hms" : "hm").format(ms),
 			// la fecha solo si no es de hoy
@@ -1956,6 +2066,7 @@
 		}
 		const list = el.querySelector(".xp-list");
 		if (list) list.scrollTop = listTop;
+		afterHistRender(el, histTop, histFocus);
 		if (optFocus) [...el.querySelectorAll(".xp-opt")].find((o) => o.dataset.liveExec === optFocus)?.focus();
 		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
 		el.classList.toggle("live-compact", !!L.ui.compact);
@@ -2134,21 +2245,34 @@
 	 * después de cada redibujo, con los datos del momento; así su animación nunca se reinicia.
 	 */
 	function syncLiveField(el) {
-		const L = S.liveView, F = window.TraceReportsLiveField, LIVE = window.TraceReportsLive;
+		const L = S.liveView, F = window.TraceReportsLiveField, A = window.TraceReportsLiveAgents, LIVE = window.TraceReportsLive;
 		const slot = el.querySelector("[data-live-field]");
-		if (!F || !slot || !L.exec) { L.field?.attach(null); return; }
+		if (!F || !slot || !L.exec) { L.field?.attach(null); L.agents?.attach(null); return; }
 		const t = window.TraceReportsI18n.t;
-		if (!L.field) L.field = F.create({ t, onPick: (id) => loadLivePanel(id), onPause: toggleLivePause, onHover: prefetchLivePanel,
-			onOpen: (id, run) => { S.leavingLive = Date.now(); L.panel = null; location.hash = `#run=${run}&view=tests&test=${id}`; } });
-		L.field.attach(slot);
+		const onOpen = (id, run) => { S.leavingLive = Date.now(); L.panel = null; location.hash = `#run=${run}&view=tests&test=${id}`; };
+		// el mismo lugar, dos motores: el campo (el tiempo en círculo) o los agentes (el chip por dentro)
+		const agentsMode = slot.dataset.mode === "agents" && A;
+		if (agentsMode) {
+			L.field?.attach(null);
+			// clic en un agente: la tabla con los tests de ese worker (otro clic en el mismo, todos de nuevo)
+			if (!L.agents) L.agents = A.create({ t, onPick: (id) => loadLivePanel(id), onOpen, onHover: prefetchLivePanel,
+				onWorker: (key) => { L.ui.workers = L.ui.workers.length === 1 && L.ui.workers[0] === key ? [] : [key]; renderLiveView(); } });
+			L.agents.attach(slot);
+		} else {
+			L.agents?.attach(null);
+			if (!L.field) L.field = F.create({ t, onPick: (id) => loadLivePanel(id), onPause: toggleLivePause, onHover: prefetchLivePanel, onOpen });
+			L.field.attach(slot);
+		}
+		const engine = agentsMode ? L.agents : L.field;
 		const tests = LIVE.allTests(L.exec), shown = LIVE.filterTests(tests, L.ui, LIVE.problemsOn(L.exec, L.ui, LIVE.lanesOf(L.exec, L.now).length));
 		const filtered = (L.ui.states.length || L.ui.files.length || L.ui.workers.length || L.ui.errors.length || (L.ui.q || "").trim()) ? new Set(shown.map((x) => x.id)) : null;
 		const clock = (ms) => liveFmt("hms").format(ms);
 		const ing = liveIngest();
-		L.field.update({
+		engine.update({
 			exec: L.exec, now: L.now || Date.now(), live: LIVE, match: filtered, selected: L.panel?.id, paused: !!L.ui.paused, pausedNew: livePausedNew(),
 			head: `${L.exec.title} · ${t(LIVE.INGEST[ing?.state || "quiet"].label)} · ${t("{n} eventos/min", { n: ing?.perMin || 0 })}`,
-			aria: t("Campo de la ejecución: {n} tests en {l} carriles. Flechas para recorrerlos, Enter para abrir.", { n: tests.length, l: LIVE.lanesOf(L.exec, L.now).length }),
+			aria: agentsMode ? t("Agentes de la ejecución: {l} workers y {n} tests. Flechas para recorrer los agentes, Enter para ver sus tests.", { n: tests.length, l: LIVE.lanesOf(L.exec, L.now).length })
+				: t("Campo de la ejecución: {n} tests en {l} carriles. Flechas para recorrerlos, Enter para abrir.", { n: tests.length, l: LIVE.lanesOf(L.exec, L.now).length }),
 			// la tarjeta del mouse: con el color y el ícono de su estado (livefield.js arma el DOM)
 			card: (it) => {
 				const st = LIVE.STATES[it.state] || { cls: "running", icon: "i-st-running", label: it.state };
@@ -2161,7 +2285,7 @@
 ${it.file}${it.worker ? ` · ${it.worker}` : ""}
 ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		});
-		L.field.setMotion(!L.ui.paused);
+		engine.setMotion(!L.ui.paused);
 	}
 
 	/**

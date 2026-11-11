@@ -13,6 +13,8 @@ test.beforeEach(async ({ page }, info) => {
 	page.on("console", (m) => { if (m.type() === "error") info.errors_.push(`console.error: ${m.text()}`); });
 	mutate = null;
 	await page.route("**/api/v1/live", (r) => r.fulfill({ json: liveWorkers(Date.now()).list }));
+	// el historial (ejecuciones anteriores) también simulado: el del servidor e2e trae las de otros tests
+	await page.route("**/api/v1/live/history?**", (r) => r.fulfill({ json: { now: Date.now(), total: 0, next: 0, executions: [] } }));
 	await page.route("**/api/v1/live/execution?**", (r) => {
 		const d = liveWorkers(Date.now()).execution;
 		if (mutate) mutate(d.execution);
@@ -228,4 +230,49 @@ test("una clave que no existe vuelve a la ejecución más nueva, sin error", asy
 	// el 404 de la clave que no existe lo anota el navegador; es el esperado, ningún otro error
 	const info = test.info();
 	info.errors_ = info.errors_.filter((e) => !/status of 404/.test(e));
+});
+test("mapa Agentes: cada worker un agente; el trabado se ve, un clic filtra la tabla por él; la estela abre su test", async ({ page }) => {
+	await open(page);
+	const view = page.locator("#view-live");
+	await view.locator('[data-live-fieldview="agents"]').click();
+	const canvas = view.locator(".la-canvas");
+	await expect(canvas).toHaveAttribute("data-agents", "20");
+	await expect(canvas).toHaveAttribute("aria-label", /Agentes de la ejecución: 20 workers/);
+	await expect(view.locator(".lf-core")).toHaveCount(0); // el núcleo lo dibuja el lienzo
+	// dónde quedó cada agente (el mismo cálculo que usa el lienzo)
+	const at = (pick) => page.evaluate(async (pick) => {
+		const A = window.TraceReportsLiveAgents, LIVE = window.TraceReportsLive;
+		const { execution, now } = await (await fetch("/api/v1/live/execution?key=x%3Asuite-laptop")).json();
+		const c = document.querySelector(".la-canvas"), r = c.getBoundingClientRect();
+		const lay = A.agentsLayout(A.agentsModel(execution, now, LIVE), r.width, r.height);
+		const a = pick === "nosig" ? lay.agents.find((x) => x.state === "no_signal") : lay.agents.find((x) => x.dots.length);
+		const p = pick === "nosig" ? { x: a.x, y: a.y } : a.dots[0];
+		return { x: r.left + p.x, y: r.top + p.y, key: a.key, name: pick === "nosig" ? a.label : a.dots[0].t.name };
+	}, pick);
+	await canvas.scrollIntoViewIfNeeded();
+	// el sin señal: su tarjeta lo dice; un clic deja en la tabla solo sus tests
+	const stuck = await at("nosig");
+	await page.mouse.move(stuck.x, stuck.y);
+	const tip = view.locator(".la-wrap .lf-tip");
+	await expect(tip).toContainText("Sin señal");
+	await expect(tip).toContainText(stuck.key);
+	await page.mouse.click(stuck.x, stuck.y);
+	await expect(view.locator(`[aria-label="Quitar filtro: ${stuck.key}"]`)).toBeVisible();
+	await page.mouse.click(stuck.x, stuck.y); // otro clic en el mismo: todos de nuevo
+	await expect(view.locator(`[aria-label="Quitar filtro: ${stuck.key}"]`)).toHaveCount(0);
+	// un punto de la estela es un test terminado: su tarjeta y, con un clic, su detalle al costado
+	const dot = await at("trail");
+	await page.mouse.move(dot.x, dot.y);
+	await expect(tip).toContainText(dot.name);
+	await page.mouse.click(dot.x, dot.y);
+	await expect(view.locator(".live-panel h4")).toHaveText(dot.name);
+	await page.keyboard.press("Escape");
+	// con el teclado: las flechas recorren los agentes con su tarjeta
+	await canvas.focus();
+	await page.keyboard.press("ArrowRight");
+	await expect(tip).toContainText("gw0");
+	// de vuelta al campo
+	await view.locator('[data-live-fieldview="field"]').click();
+	await expect(view.locator(".lf-core")).toHaveCount(1);
+	await expect(view.locator(".la-canvas")).toHaveCount(0);
 });

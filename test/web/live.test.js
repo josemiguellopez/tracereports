@@ -340,12 +340,14 @@ test("gráficos: resultados por tramo, tasa de fallo acumulada e histograma de d
 });
 
 test("selector de ejecución: hora, antigüedad (en curso, reciente, de hoy, anterior) y buscador con muchas", () => {
-	const now = 100 * 3600e3;
+	const now = new Date(2026, 10, 11, 15, 0).getTime(); // 15:00 hora local: "de hoy" es el día del calendario
 	const x = (i, over) => ({ key: `x:${i}`, title: `build ${i}`, project: i % 2 ? "acme" : "otro", running: false, started_at: now - (i + 1) * 3600e3, ended_at: now - i * 3600e3 - 60e3, done: 10, total: 10, counts: { FAIL: i === 1 ? 2 : 0 }, ...over });
 	assert.equal(L.freshness(x(0, { running: true }), now), "live");
 	assert.equal(L.freshness(x(0), now), "recent");
 	assert.equal(L.freshness(x(5), now), "today");
 	assert.equal(L.freshness(x(30), now), "old");
+	assert.equal(L.freshness(x(0, { ended_at: new Date(2026, 10, 10, 23, 5).getTime() }), now), "old", "la de anoche a las 23:05 no es de hoy");
+	assert.equal(L.freshness(x(0, { ended_at: new Date(2026, 10, 11, 0, 30).getTime() }), now), "today", "la de esta madrugada sí");
 	assert.equal(L.ago(90e3), "2 min");
 	assert.equal(L.ago(3 * 3600e3), "3 h");
 	const few = [x(0, { running: true }), x(1, { ended_at: now - 10 * 60e3 })];
@@ -729,4 +731,66 @@ test("cambiar de test con el panel abierto: el encabezado ya es del nuevo y lo a
 	assert.ok(panel.includes('href="#run=2&view=tests&test=21"'), "Abrir el test ya lleva al nuevo");
 	const fresh = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, tab: "steps", test: { id: 21, run_id: 2, name: "t_fail", logs: [] }, stale: false } }, h);
 	assert.ok(fresh.includes('<div class="live-pbody" role="tabpanel">'), "llegó: sin atenuar");
+});
+
+// ---------- historial: abrir una ejecución anterior sin saber su execution_id ----------
+test("historial: buscar por archivo o por fecha (hoy, ayer, 10-11) y el selector sin repetir las de En vivo", () => {
+	const now = new Date(2026, 10, 11, 15, 0).getTime();
+	const ayer = new Date(2026, 10, 10, 9, 5).getTime(), viejo = new Date(2026, 10, 2, 23, 0).getTime();
+	assert.ok(L.dayWords(now, now).includes("hoy") && L.dayWords(ayer, now).includes("ayer"));
+	assert.ok(L.dayWords(ayer, now).includes("10-11") && L.dayWords(ayer, now).includes("2026-11-10") && L.dayWords(ayer, now).includes("10/11"));
+	const x = { key: "x:nightly", title: "nightly", project: "acme_shop_web", environment: "qa", branch: "main", started_at: ayer, files: ["shop/test_checkout.py"] };
+	for (const q of ["ayer", "10-11", "2026-11-10", "checkout", "NIGHTLY", "acme", "qa"]) assert.ok(L.execMatchesQuery(x, q, now), q);
+	for (const q of ["hoy", "02-11", "login"]) assert.ok(!L.execMatchesQuery(x, q, now), q);
+	assert.ok(L.execMatchesQuery(x, "", now), "sin buscar: todas");
+	const list = [{ key: "x:now", title: "now", running: true, started_at: now - 600e3 }, { key: "x:abierta", title: "abierta de hace 3 días", started_at: viejo }];
+	const history = [{ key: "x:now", title: "repetida" }, x, { ...x, key: "x:vieja", started_at: viejo - 3600e3 }];
+	// sin repetir, la que corre primero y después de la más nueva a la más vieja (la anterior abierta, en su lugar)
+	assert.deepEqual(plain(L.pickerList({ list, history }).map((e) => e.key)), ["x:now", "x:nightly", "x:abierta", "x:vieja"]);
+});
+
+test("pantalla vacía: maestro-detalle — la lista por día con su total y «más antiguas»; a la derecha la elegida", () => {
+	const now = new Date(2026, 10, 11, 15, 0).getTime();
+	const empty = (history, historyMeta = {}, ui = {}, historyDetail) => L.render({ list: [], history, historyMeta, historyDetail, exec: null, key: "", now, ui }, h);
+	assert.ok(empty(undefined).includes("Buscando las ejecuciones anteriores"), "mientras llega el historial");
+	assert.ok(empty([], { total: 0 }).includes("Cuando un cliente empiece a enviar resultados"), "sin historial: la explicación de siempre");
+	const hist = Array.from({ length: 12 }, (_, i) => ({ key: `x:s${i}`, title: `suite-${i}`, project: "acme", environment: "qa", branch: "main", total: 48, runs: 2,
+		files: ["shop/test_a.py", "shop/test_b.py"], started_at: now - (i * 3 + 3) * 3600e3, ended_at: now - (i * 3 + 3) * 3600e3 + 600e3,
+		counts: i === 0 ? { PASS: 45, FAIL: 3 } : { PASS: 48 } })); // de hoy a ayer
+	const html = empty(hist, { total: 1234, next: hist[11].started_at });
+	assert.ok(html.includes("No hay ejecuciones en curso") && html.includes("Ninguna corre ahora ni terminó en las últimas 2 horas"));
+	assert.equal((html.match(/data-live-histsel="/g) || []).length, 12, "una línea por ejecución, la página entera");
+	assert.deepEqual([...html.matchAll(/class="lhist-day"[^>]*>([^<]+)</g)].map((m) => m[1]), ["Hoy", "Ayer"]);
+	assert.ok(html.includes("Mostrando 12 de 1.234") && html.includes("data-live-histsentinel") && html.includes("Cargar más antiguas"));
+	assert.ok(!empty(hist, { total: 12, next: 0 }).includes("data-live-histmore"), "sin más páginas, sin el botón");
+	// sin elegir: la primera, marcada y a la derecha con sus números; lo que falló, mientras llega
+	assert.ok(/class="lhist-row bad on" aria-selected="true" tabindex="0" data-live-histsel="x:s0"/.test(html));
+	assert.ok(/class="lhist-preview"[^]*?suite-0[^]*?acme · qa · main[^]*?<b>45<\/b> pasaron[^]*?<b>3<\/b> fallaron/.test(html));
+	assert.ok(html.includes("Cargando lo que falló…") && html.includes('data-live-hist="x:s0"') && html.includes("Abrir en En vivo"));
+	// con su detalle: los tests que fallaron con su error y el enlace al reporte
+	const withDetail = empty(hist, { total: 12 }, {}, { fails: [{ name: "test_002_pagar", error: "TimeoutException en Pagar" }], run: 77 });
+	assert.ok(/lhp-fails[^]*?test_002_pagar[^]*?TimeoutException en Pagar/.test(withDetail) && withDetail.includes('href="#run=77&view=dashboard"'));
+	// otra elegida (clic o flechas)
+	const other = empty(hist, { total: 12 }, { histSel: "x:s5" });
+	assert.ok(/aria-selected="true" tabindex="0" data-live-histsel="x:s5"/.test(other) && /class="lhist-preview"[^]*?suite-5/.test(other) && other.includes("Todo pasó."));
+	// chips, buscando, nada encontrado
+	assert.ok(/class="lhist-chip on" data-live-histrange="yesterday" aria-pressed="true"/.test(empty(hist, { total: 12 }, { histRange: "yesterday" })));
+	assert.ok(empty(hist, { total: 12, loading: true }).includes("Buscando…"));
+	assert.ok(empty([], { total: 0 }, { histQ: "zzz" }).includes("Ninguna ejecución coincide."), "con una búsqueda sin resultados no vuelve a la explicación");
+});
+test("historial: lo escrito si es un día (hoy, ayer, 10-11, 2026-11-10) y los chips → el rango que se pide al servidor", () => {
+	const now = new Date(2026, 10, 11, 15, 0).getTime(), day = (y, m, d) => new Date(y, m - 1, d).getTime();
+	assert.deepEqual(plain(L.parseDayQuery("hoy", now)), { from: day(2026, 11, 11), to: day(2026, 11, 12) });
+	assert.deepEqual(plain(L.parseDayQuery("Ayer", now)), { from: day(2026, 11, 10), to: day(2026, 11, 11) });
+	assert.deepEqual(plain(L.parseDayQuery("10-11", now)), { from: day(2026, 11, 10), to: day(2026, 11, 11) });
+	assert.deepEqual(plain(L.parseDayQuery("3/11", now)), { from: day(2026, 11, 3), to: day(2026, 11, 4) });
+	assert.deepEqual(plain(L.parseDayQuery("2026-10-31", now)), { from: day(2026, 10, 31), to: day(2026, 11, 1) });
+	assert.deepEqual(plain(L.parseDayQuery("28-12", now)), { from: day(2025, 12, 28), to: day(2025, 12, 29) }, "un día que este año todavía no llega: el del año pasado");
+	for (const q of ["31-02", "nightly", "10-11-2026x", "", "2026-13-01"]) assert.equal(L.parseDayQuery(q, now), null, q);
+	assert.deepEqual(plain(L.rangeOf("7d", now)), { from: day(2026, 11, 5), to: day(2026, 11, 12) });
+	assert.equal(L.rangeOf("", now), null);
+	// lo escrito manda: un día se pide como rango y sin texto; un texto, con el chip
+	assert.deepEqual(plain(L.historyQuery("ayer", "7d", now)), { q: "", from: day(2026, 11, 10), to: day(2026, 11, 11) });
+	assert.deepEqual(plain(L.historyQuery(" checkout ", "today", now)), { q: "checkout", from: day(2026, 11, 11), to: day(2026, 11, 12) });
+	assert.deepEqual(plain(L.historyQuery("", "", now)), { q: "" });
 });

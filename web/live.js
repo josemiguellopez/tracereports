@@ -635,17 +635,164 @@
 	/** Qué tan reciente es una ejecución: en curso, reciente (< 1 h), de hoy (< 24 h) o anterior. */
 	function freshness(x, now) {
 		if (x.running) return "live";
-		const age = now - (x.ended_at || x.started_at || now);
-		return age < 3600e3 ? "recent" : age < 24 * 3600e3 ? "today" : "old";
+		const end = x.ended_at || x.started_at || now;
+		// "de hoy" es el día del calendario, no "hace menos de 24 h": la de anoche a las 23:05 ya es "anterior"
+		return now - end < 3600e3 ? "recent" : new Date(end).toDateString() === new Date(now).toDateString() ? "today" : "old";
 	}
 	const FRESH = { live: "en curso", recent: "reciente", today: "de hoy", old: "anterior" };
 	/** Desde cuántas ejecuciones el selector trae buscador. */
 	const PICKER_SEARCH_FROM = 8;
 
+	/** Las ejecuciones del selector: las de En vivo y, detrás, las anteriores del historial (sin repetir). */
+	function pickerList(data, q = "", now = Date.now()) {
+		const recent = data.list.filter((x) => execMatchesQuery(x, q, now));
+		const seen = new Set(data.list.map((x) => x.key));
+		// todas en un solo orden (las que corren primero, después de la más nueva a la más vieja): una anterior
+		// abierta desde el historial no queda arriba de las de hoy
+		return [...recent, ...(data.history || []).filter((x) => !seen.has(x.key))]
+			.sort((a, b) => (b.running ? 1 : 0) - (a.running ? 1 : 0) || (b.started_at || 0) - (a.started_at || 0));
+	}
+	const DAY = 24 * 3600e3;
+	const startOfDay = (ms) => { const d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime(); };
+	const plusDays = (ms, n) => { const d = new Date(ms); return new Date(d.getFullYear(), d.getMonth(), d.getDate() + n).getTime(); };
+	/**
+	 * Lo escrito, si es un día: "hoy", "ayer", "10-11" o "10/11" (este año; si cae en el futuro, el anterior) o
+	 * "2026-11-10" → {from, to} en hora local. El servidor busca por fechas; el día lo pone el navegador, que
+	 * sabe en qué hora vive la persona.
+	 */
+	function parseDayQuery(q, now) {
+		const k = String(q || "").trim().toLowerCase();
+		const today = startOfDay(now);
+		if (k === "hoy" || k === "today") return { from: today, to: plusDays(today, 1) };
+		if (k === "ayer" || k === "yesterday") return { from: plusDays(today, -1), to: today };
+		let y, mo, da;
+		let m = k.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+		if (m) [y, mo, da] = [+m[1], +m[2], +m[3]];
+		else if ((m = k.match(/^(\d{1,2})[-/](\d{1,2})$/))) {
+			[da, mo] = [+m[1], +m[2]];
+			y = new Date(now).getFullYear();
+			if (new Date(y, mo - 1, da).getTime() > now) y--; // "28-12" en enero: el diciembre pasado
+		} else return null;
+		const d = new Date(y, mo - 1, da);
+		if (d.getFullYear() !== y || d.getMonth() !== mo - 1 || d.getDate() !== da) return null; // "31-02" no es un día
+		return { from: d.getTime(), to: plusDays(d.getTime(), 1) };
+	}
+	/** Los atajos de fecha de la lista de anteriores. */
+	const HIST_RANGES = [["", "Todas"], ["today", "Hoy"], ["yesterday", "Ayer"], ["7d", "7 días"], ["30d", "30 días"]];
+	function rangeOf(key, now) {
+		const today = startOfDay(now);
+		return key === "today" ? { from: today, to: plusDays(today, 1) } : key === "yesterday" ? { from: plusDays(today, -1), to: today }
+			: key === "7d" ? { from: plusDays(today, -6), to: plusDays(today, 1) } : key === "30d" ? { from: plusDays(today, -29), to: plusDays(today, 1) } : null;
+	}
+	/** Lo que se le pide al servidor: el texto o, si es un día, su rango (lo escrito manda sobre el chip). */
+	function historyQuery(q, range, now) {
+		const day = parseDayQuery(q, now);
+		if (day) return { q: "", ...day };
+		return { q: String(q || "").trim(), ...(rangeOf(range, now) || {}) };
+	}
+	/** El encabezado de cada día de la lista: "Hoy", "Ayer" o la fecha. */
+	function dayHeader(ms, now, h) {
+		const d = startOfDay(ms), today = startOfDay(now);
+		return d === today ? h.t("Hoy") : d === plusDays(today, -1) ? h.t("Ayer") : (h.day ? h.day(ms) : new Date(ms).toLocaleDateString());
+	}
+
+	/** Cómo se puede buscar el día de una ejecución: "hoy", "ayer", "10-11", "10/11", "2026-11-10". */
+	function dayWords(ms, now) {
+		if (!ms) return "";
+		const d = new Date(ms), p = (n) => String(n).padStart(2, "0");
+		const dd = p(d.getDate()), mm = p(d.getMonth() + 1);
+		const ref = new Date(now || Date.now()), yest = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate() - 1);
+		const rel = d.toDateString() === ref.toDateString() ? "hoy today" : d.toDateString() === yest.toDateString() ? "ayer yesterday" : "";
+		return `${dd}-${mm} ${dd}/${mm} ${d.getDate()}-${d.getMonth() + 1} ${d.getFullYear()}-${mm}-${dd} ${rel}`;
+	}
+	/** ¿La ejecución tiene lo buscado? En su nombre, proyecto, ambiente, rama, id, alguno de sus archivos o su día. */
+	function execMatchesQuery(x, q, now) {
+		const k = String(q || "").trim().toLowerCase();
+		if (!k) return true;
+		return [x.title, x.project, x.environment, x.branch, x.execution_id, ...(x.files || []), dayWords(x.started_at, now)]
+			.some((f) => f && String(f).toLowerCase().includes(k));
+	}
+
+	/**
+	 * Nada corre ni terminó hace poco: las ejecuciones anteriores, para abrir una aquí sin saber su
+	 * execution_id. Maestro-detalle (como el Inspector): a la izquierda la lista compacta, una línea por
+	 * ejecución y con su propio scroll (se cargan más al llegar al final); a la derecha la elegida, con sus
+	 * resultados, lo que falló y sus archivos. La página no se mueve: se recorre con el mouse o ↑/↓ y se abre
+	 * con Enter o el botón. Se buscan en el servidor (nombre, proyecto, rama, ambiente, archivo o día).
+	 */
+	function emptyHTML(data, ui, now, h) {
+		const { t, esc, icon } = h;
+		const hist = data.history, meta = data.historyMeta || {};
+		const filtering = !!(String(ui.histQ || "").trim() || ui.histRange);
+		const plain = (body) => `<div class="card live-empty">${icon("i-st-running")}<h3>${esc(t("No hay ejecuciones en curso"))}</h3>${body}</div>`;
+		if (!hist) return plain(`<p class="m-hint">${esc(t("Buscando las ejecuciones anteriores…"))}</p>`);
+		if (!hist.length && !filtering && !meta.loading) return plain(`<p class="m-hint">${esc(t("Cuando un cliente empiece a enviar resultados, aquí ves qué terminó, qué sigue corriendo, qué está lento y qué dejó de enviar, por worker y por test."))}</p>`);
+		const sel = hist.find((x) => x.key === ui.histSel) || hist[0];
+		const chips = HIST_RANGES.map(([k, label]) => `<button type="button" class="lhist-chip ${(ui.histRange || "") === k ? "on" : ""}" data-live-histrange="${k}" aria-pressed="${(ui.histRange || "") === k}">${esc(t(label))}</button>`).join("");
+		let lastDay = "";
+		const rows = hist.map((x) => {
+			const day = dayHeader(x.started_at, now, h);
+			const sep = day !== lastDay ? `<li class="lhist-day" role="presentation">${esc(day)}</li>` : "";
+			lastDay = day;
+			const fail = x.counts?.FAIL || 0, pass = x.counts?.PASS || 0, on = sel && x.key === sel.key;
+			return `${sep}<li role="option" id="lh-${esc(x.key)}" class="lhist-row ${fail ? "bad" : "ok"} ${on ? "on" : ""}" aria-selected="${on}" tabindex="${on ? 0 : -1}" data-live-histsel="${esc(x.key)}">
+				<span class="live-dot ${x.running ? "on" : ""}" aria-hidden="true"></span>
+				<b class="lhist-title" data-no-i18n>${esc(x.title)}</b>
+				<span class="lhist-time">${esc(h.clock(x.started_at))}</span>
+				<span class="lhist-res">${fail ? `<span class="xp-b fail">${icon("i-fail")}${fail}</span>` : ""}<span class="lhist-pass">${icon("i-pass")}${pass}</span></span></li>`;
+		}).join("");
+		const count = meta.total !== undefined ? `<small class="lhist-count" aria-live="polite">${esc(meta.loading ? t("Buscando…") : t("Mostrando {n} de {t}", { n: hist.length, t: fmtCount(meta.total) }))}</small>` : "";
+		const more = meta.next ? `<li class="lhist-foot" role="presentation" data-live-histsentinel><button type="button" class="cf-btn cf-btn-sm lhist-more" data-live-histmore ${meta.loading ? "disabled" : ""}>${meta.loading ? `<span class="maint-spin" aria-hidden="true"></span>${esc(t("Cargando…"))}` : esc(t("Cargar más antiguas"))}</button></li>` : "";
+		const list = hist.length
+			? `<ul class="lhist-list" role="listbox" aria-label="${esc(t("Ejecuciones anteriores"))}" aria-activedescendant="${sel ? `lh-${esc(sel.key)}` : ""}" data-live-histlist>${rows}${more}</ul>`
+			: `<p class="m-hint lhist-none">${esc(meta.loading ? t("Buscando…") : t("Ninguna ejecución coincide."))}</p>`;
+		return `<section class="card live-hist" aria-label="${esc(t("Ejecuciones anteriores"))}" ${meta.loading ? 'aria-busy="true"' : ""}>
+			<header class="lhist-top"><span class="lhist-icon">${icon("i-st-running")}</span><div><h3>${esc(t("No hay ejecuciones en curso"))}</h3>
+				<p class="m-hint">${esc(t("Ninguna corre ahora ni terminó en las últimas 2 horas. Elige una anterior para verla aquí."))}</p></div></header>
+			<div class="lhist-tools"><input type="search" class="lhist-q" data-live-hq value="${esc(ui.histQ || "")}" placeholder="${esc(t("Buscar por nombre, proyecto, rama, archivo o fecha (ayer, 10-11)…"))}" aria-label="${esc(t("Buscar ejecución"))}">
+				<div class="lhist-chips" role="group" aria-label="${esc(t("Cuándo"))}">${chips}</div>${count}</div>
+			<div class="lhist-split"><div class="lhist-pane" data-live-histpane>${list}</div>${sel ? previewHTML(sel, data.historyDetail, now, h) : ""}</div>
+			<p class="m-hint lhist-keys">${esc(t("↑ ↓ recorren la lista · Enter abre la elegida · / busca"))}</p></section>`;
+	}
+
+	/** La ejecución elegida en la lista: sus resultados, cuánto duró, lo que falló (al cargarse) y sus archivos. */
+	function previewHTML(x, detail, now, h) {
+		const { t, esc, icon } = h;
+		const fail = x.counts?.FAIL || 0, pass = x.counts?.PASS || 0, other = Math.max(0, (x.total || 0) - fail - pass);
+		const total = Math.max(1, fail + pass + other);
+		const dur = x.ended_at ? fmtDur(x.ended_at - x.started_at) : "";
+		const rel = x.running ? t("empezó hace {t}", { t: ago(now - x.started_at) }) : t("terminó hace {t}", { t: ago(now - (x.ended_at || x.started_at)) });
+		const files = x.files || [];
+		const fails = detail?.fails;
+		const failBody = !fail ? `<p class="lhp-ok">${icon("i-pass")}${esc(t("Todo pasó."))}</p>`
+			: !fails ? `<p class="m-hint">${esc(t("Cargando lo que falló…"))}</p>`
+			: `<ul class="lhp-fails">${fails.slice(0, 5).map((f) => `<li><b data-no-i18n>${esc(f.name)}</b><small data-no-i18n>${esc(f.error || "—")}</small></li>`).join("")}</ul>
+				${fails.length > 5 ? `<p class="m-hint">${esc(t("y {n} más", { n: fails.length - 5 }))}</p>` : ""}`;
+		return `<aside class="lhist-preview" aria-live="polite" aria-label="${esc(x.title)}">
+			<div class="lhp-head"><h4 data-no-i18n>${esc(x.title)}</h4><small data-no-i18n>${esc([x.project, x.environment, x.branch].filter(Boolean).join(" · ") || "—")}</small></div>
+			<div class="lhp-when">${esc(h.day && h.day(x.started_at) ? `${h.day(x.started_at)} · ` : "")}${esc(h.clock(x.started_at))} · ${esc(rel)}${dur ? ` · ${esc(t("duró {t}", { t: dur }))}` : ""}</div>
+			<div class="lhp-bar" role="img" aria-label="${esc(t("{p} pasaron, {f} fallaron", { p: pass, f: fail }))}"><i class="pass" style="flex:${pass / total}"></i><i class="fail" style="flex:${fail / total}"></i><i class="other" style="flex:${other / total}"></i></div>
+			<div class="lhp-nums"><span class="pass"><b>${pass}</b> ${esc(t("pasaron"))}</span><span class="${fail ? "fail" : ""}"><b>${fail}</b> ${esc(t("fallaron"))}</span><span><b>${x.total || 0}</b> tests · <b>${x.runs || files.length}</b> ${esc(t("archivos"))}</span></div>
+			<h6>${esc(t("Lo que falló"))}</h6>${failBody}
+			${files.length ? `<h6>${esc(t("Archivos"))}</h6><p class="lhp-files" data-no-i18n>${files.slice(0, 8).map((f) => `<span>${esc(f)}</span>`).join("")}${files.length > 8 ? `<span>+${files.length - 8}</span>` : ""}</p>` : ""}
+			<div class="lhp-acts"><button type="button" class="cf-btn cf-btn-primary" data-live-hist="${esc(x.key)}">${icon("i-st-running")}${esc(t("Abrir en En vivo"))}</button>
+				${detail?.run ? `<a class="cf-btn" href="#run=${detail.run}&view=dashboard">${icon("i-chart")}${esc(t("Ver el reporte"))}</a>` : ""}</div></aside>`;
+	}
+
+	/** 1234 → "1.234": un total grande se lee de un vistazo. */
+	const fmtCount = (n) => Number(n || 0).toLocaleString("es-CL");
+
 	/** El selector de ejecución: un botón con la elegida y la lista con hora, antigüedad, progreso y fallos. */
 	function execPickerHTML(data, ui, now, h) {
 		const { t, esc, icon } = h;
-		const cur = data.exec || data.list.find((x) => x.key === data.key) || data.list[0];
+		const meta0 = data.historyMeta || {};
+		// con muchas (las de ahora más las anteriores del servidor): buscador; lo escrito filtra las de ahora aquí
+		// y las anteriores en el servidor (data.history ya viene filtrada)
+		// el total del servidor ya cuenta las de ahora (el historial llega hasta este momento)
+		const totalAll = Math.max(data.list.length, meta0.total ?? 0);
+		const searchable = totalAll > PICKER_SEARCH_FROM;
+		const all = pickerList(data, searchable ? ui.pickerQ : "", now);
+		const cur = data.exec || data.list.find((x) => x.key === data.key) || all.find((x) => x.key === data.key) || all[0] || data.list[0];
 		const pct = (x) => Math.min(100, Math.round(((x.done || 0) / Math.max(1, x.planned || x.total || 0)) * 100));
 		const meta = (x) => {
 			const f = freshness(x, now);
@@ -655,9 +802,7 @@
 		const badges = (x) => `${x.counts?.FAIL ? `<span class="xp-b fail">${icon("i-fail")}${x.counts.FAIL}</span>` : ""}${x.counts?.no_signal ? `<span class="xp-b nosig">${icon("i-warning")}${x.counts.no_signal}</span>` : ""}`;
 		const m = meta(cur);
 		// con muchas ejecuciones: buscador y la lista agrupada por antigüedad (en curso, recientes, de hoy, anteriores)
-		const searchable = data.list.length > PICKER_SEARCH_FROM;
-		const q = searchable ? (ui.pickerQ || "").trim().toLowerCase() : "";
-		const found = data.list.map((x, i) => ({ x, i })).filter(({ x }) => !q || [x.title, x.project, x.environment, x.branch, x.execution_id].filter(Boolean).join(" ").toLowerCase().includes(q));
+		const found = all.map((x, i) => ({ x, i }));
 		const GROUP = { live: "En curso", recent: "Recientes", today: "De hoy", old: "Anteriores" };
 		let lastGroup = "";
 		const options = found.map(({ x, i }) => {
@@ -677,10 +822,11 @@
 			<button type="button" class="xp-btn ${m.f}" data-live-xpick data-tip="${esc(t("Cambiar de ejecución: las que corren ahora, las recientes y las anteriores."))}" aria-haspopup="listbox" aria-expanded="${!!ui.pickerOpen}" aria-label="${esc(t("Ejecución: {e}", { e: cur.title }))}">
 				<span class="live-dot ${cur.running ? "on" : ""}" aria-hidden="true"></span>
 				<span class="xp-main"><b data-no-i18n>${esc(cur.title)}</b><small><span class="xp-fresh ${m.f}">${esc(t(FRESH[m.f]))}</span> · ${esc(m.when)} · ${esc(m.rel)}</small></span>
-				${badges(cur)}${data.list.length > 1 ? `<span class="xp-count">${esc(t("{n} ejecuciones", { n: data.list.length }))}</span>` : ""}<span class="xp-chev" aria-hidden="true">${icon("i-chevron")}</span></button>
-			${ui.pickerOpen ? `<div class="xp-pop">${searchable ? `<input type="search" class="xp-q" data-live-xq value="${esc(ui.pickerQ || "")}" placeholder="${esc(t("Buscar ejecución, proyecto o rama…"))}" aria-label="${esc(t("Buscar ejecución"))}">
-				<small class="xp-found">${esc(t("{n} de {t}", { n: found.length, t: data.list.length }))}</small>` : ""}
-				<ul class="xp-list" role="listbox" aria-label="${esc(t("Ejecuciones"))}">${options}</ul></div>` : ""}</div>`;
+				${badges(cur)}${totalAll > 1 ? `<span class="xp-count">${esc(t("{n} ejecuciones", { n: fmtCount(totalAll) }))}</span>` : ""}<span class="xp-chev" aria-hidden="true">${icon("i-chevron")}</span></button>
+			${ui.pickerOpen ? `<div class="xp-pop">${searchable ? `<input type="search" class="xp-q" data-live-xq value="${esc(ui.pickerQ || "")}" placeholder="${esc(t("Buscar por nombre, proyecto, rama, archivo o fecha (ayer, 10-11)…"))}" aria-label="${esc(t("Buscar ejecución"))}">
+				<small class="xp-found">${esc(meta0.loading ? t("Buscando…") : t("{n} de {t}", { n: found.length, t: fmtCount(totalAll) }))}</small>` : ""}
+				<ul class="xp-list" role="listbox" aria-label="${esc(t("Ejecuciones"))}">${options}</ul>
+				${meta0.next ? `<button type="button" class="cf-btn cf-btn-sm xp-more" data-live-histmore ${meta0.loading ? "disabled" : ""}>${esc(meta0.loading ? t("Cargando…") : t("Cargar más antiguas"))}</button>` : ""}</div>` : ""}</div>`;
 	}
 
 	/**
@@ -829,7 +975,7 @@
 	 * su HUD (ingesta real, progreso, la anomalía dominante y los carriles activos) y a la derecha las
 	 * últimas señales y la presión de errores por firma. Todo es un botón: filtra, agrupa o abre el test.
 	 */
-	function fieldHTML(e, tests, data, ui, now, h, g) {
+	function fieldHTML(e, tests, data, ui, now, h, g, mode = "field") {
 		const { t, esc, icon } = h;
 		const ing = data.ingest || { state: e.running ? "quiet" : "done", perMin: 0, lastAgo: null, byKind: {} };
 		const I = INGEST[ing.state] || INGEST.quiet;
@@ -868,14 +1014,14 @@
 				: `<div class="lf-hud bl ok"><span>${esc(t("ANOMALÍA"))}</span><b>${esc(t("Sin fallos"))}</b><small>${esc(t("nada que agrupar"))}</small></div>`}
 			<div class="lf-hud br" tabindex="0" data-tip="${esc(t("Carriles con un test corriendo ahora, del total de carriles de la ejecución."))}">
 				<span>${esc(t("CARRILES"))}</span><b>${active} / ${g.lanes.length}</b><small>${esc(t("activos"))}</small></div>
-			<div class="lf-core" aria-hidden="true"><span>${esc(t("EJECUCIÓN"))}</span><b>${p.pct}<small>%</small></b><small data-no-i18n>${esc(e.commit ? e.commit.slice(0, 7) : String(e.title || "").slice(-12))}</small></div>`;
+			${mode === "agents" ? "" : `<div class="lf-core" aria-hidden="true"><span>${esc(t("EJECUCIÓN"))}</span><b>${p.pct}<small>%</small></b><small data-no-i18n>${esc(e.commit ? e.commit.slice(0, 7) : String(e.title || "").slice(-12))}</small></div>`}`; // en Agentes, el núcleo lo dibuja el canvas
 		const max = Math.max(1, ...errs.slice(0, 3).map((x) => x.count));
 		const pressure = errs.length ? errs.slice(0, 3).map((x) => `<button type="button" class="lf-pr" data-live-facet="error" data-v="${esc(x.sig)}" data-tip-title="${esc(x.sig)}" data-tip="${esc(t("Clic: ver solo los tests con este error."))}">
 				<b data-no-i18n>${esc(x.sig.replace(/^(\w+(?:Error|Exception)).*/, "$1").slice(0, 16))}</b><i style="--bar:${((x.count / max) * 100).toFixed(0)}%"></i><em>${x.count}</em></button>`).join("")
 			: `<p class="m-hint">${esc(t("Sin fallos por ahora."))}</p>`;
 		return `<div class="lf">
 			<div class="lf-lanes" aria-label="${esc(t("Canales"))}">${lanes}</div>
-			<div class="lf-stage">${hud}<div class="lf-slot" data-live-field></div><div class="lf-foot" aria-hidden="true"><span>${esc(t("INGESTA → CORRELACIÓN → TRIAGE"))}</span><span>${esc(t("↑ comienzo · sentido horario"))}</span></div></div>
+			<div class="lf-stage">${hud}<div class="lf-slot" data-live-field data-mode="${mode}"></div><div class="lf-foot" aria-hidden="true"><span>${esc(t("INGESTA → CORRELACIÓN → TRIAGE"))}</span><span>${esc(t("↑ comienzo · sentido horario"))}</span></div></div>
 			<div class="lf-side"><h6>${esc(t("Presión de errores"))}</h6><div class="lf-press">${pressure}</div></div></div>`;
 	}
 
@@ -898,10 +1044,7 @@
 		const { t, esc, icon } = h;
 		const now = data.now || Date.now();
 		const ui = { states: [], files: [], workers: [], errors: [], group: "file", q: "", open: {}, more: {}, ...(data.ui || {}) };
-		if (!data.list.length) {
-			return `<div class="card live-empty">${icon("i-st-running")}<h3>${esc(t("No hay ejecuciones en curso"))}</h3>
-				<p class="m-hint">${esc(t("Cuando un cliente empiece a enviar resultados, aquí ves qué terminó, qué sigue corriendo, qué está lento y qué dejó de enviar, por worker y por test."))}</p></div>`;
-		}
+		if (!data.list.length) return emptyHTML(data, ui, data.now || Date.now(), h);
 		const e = data.exec;
 		const selector = execPickerHTML(data, ui, now, h);
 		if (!e) return `<div class="card live-top">${selector}</div><p class="m-hint">${esc(t("Cargando…"))}</p>`;
@@ -999,14 +1142,15 @@
 		};
 		const legend = `<span class="hm-legend">${["PASS", "WARNING", "FAIL", "turtle", "no_signal", "running"].filter((k) => e.counts[k]).map((k) => `<span class="${stateOf(k).cls}" data-tip="${esc(stTip(stateOf(k)))}"><i></i>${esc(t(stateOf(k).label))}</span>`).join("")}${hm.pending ? `<span class="pending" data-tip="${esc(t("Tests planificados que todavía no empiezan."))}"><i></i>${esc(t("Pendiente"))}</span>` : ""}</span>`;
 		const grid = `<div class="hm-grid">${hm.tests.map(cell).join("")}${hm.pending ? `<span class="hm-c pending" aria-hidden="true"></span>`.repeat(hm.pending) : ""}</div>`;
-		const view = ui.fieldView === "grid" ? "grid" : "field";
+		const view = ui.fieldView === "grid" || ui.fieldView === "agents" ? ui.fieldView : "field";
 		const tabs = `<div class="seg seg-sm" role="radiogroup" aria-label="${esc(t("Vista del mapa"))}" data-seg="field"><span class="seg-thumb" aria-hidden="true"></span>
 			<button type="button" role="radio" class="seg-o ${view === "field" ? "on" : ""}" data-live-fieldview="field" aria-checked="${view === "field"}" data-tip-title="${esc(t("Campo"))}" data-tip="${esc(t("La ejecución como un reloj: el ángulo es el tiempo y cada anillo un worker o proceso. Cada arco es un test; clic para abrirlo."))}">${icon("i-orbit")}<span>${esc(t("Campo"))}</span></button>
-			<button type="button" role="radio" class="seg-o ${view === "grid" ? "on" : ""}" data-live-fieldview="grid" aria-checked="${view === "grid"}" data-tip-title="${esc(t("Cuadrícula"))}" data-tip="${esc(t("Un cuadro por test, en el orden en que empezaron. La misma información, más compacta y navegable con Tab."))}">${icon("i-grid")}<span>${esc(t("Cuadrícula"))}</span></button></div>`;
-		const map = tests.length ? `<section class="card live-map ${view === "field" ? "is-field" : ""}" aria-label="${esc(t("Mapa de la ejecución"))}">
-			<header class="lp-h"><h6>${esc(t("Mapa de la ejecución"))}</h6><span class="m-hint">${esc(view === "field" ? t("el tiempo en círculo: arriba el comienzo, la aguja punteada es ahora") : t("un cuadro por test, en el orden en que empezaron"))}</span><span class="live-spacer"></span>
+			<button type="button" role="radio" class="seg-o ${view === "grid" ? "on" : ""}" data-live-fieldview="grid" aria-checked="${view === "grid"}" data-tip-title="${esc(t("Cuadrícula"))}" data-tip="${esc(t("Un cuadro por test, en el orden en que empezaron. La misma información, más compacta y navegable con Tab."))}">${icon("i-grid")}<span>${esc(t("Cuadrícula"))}</span></button>
+			<button type="button" role="radio" class="seg-o ${view === "agents" ? "on" : ""}" data-live-fieldview="agents" aria-checked="${view === "agents"}" data-tip-title="${esc(t("Agentes"))}" data-tip="${esc(t("La ejecución por dentro: cada worker es un agente que toma tests de la cola (al centro), trabaja y deja su estela. Se ve quién está trabado, si el trabajo se reparte y cuánto falta. Clic en un agente: sus tests en la tabla."))}">${icon("i-cpu")}<span>${esc(t("Agentes"))}</span></button></div>`;
+		const map = tests.length ? `<section class="card live-map${view !== "grid" ? " is-field" : ""}${view === "agents" ? " is-agents" : ""}" aria-label="${esc(t("Mapa de la ejecución"))}">
+			<header class="lp-h"><h6>${esc(t("Mapa de la ejecución"))}</h6><span class="m-hint">${esc(view === "field" ? t("el tiempo en círculo: arriba el comienzo, la aguja punteada es ahora") : view === "agents" ? t("cada worker es un agente: toma tests de la cola, trabaja y deja su estela") : t("un cuadro por test, en el orden en que empezaron"))}</span><span class="live-spacer"></span>
 				${legend}${tabs}</header>
-			${view === "field" ? fieldHTML(e, tests, data, ui, now, h, g) : grid}</section>` : "";
+			${view !== "grid" ? fieldHTML(e, tests, data, ui, now, h, g, view) : grid}</section>` : "";
 
 		// (3) línea de tiempo: minimapa con el recuadro del zoom, carriles con las pausas comprimidas y "ahora"
 		let gantt = "";
@@ -1462,7 +1606,7 @@
 				<span class="m-hint">${esc(t("Atajos: doble clic en su punto del mapa · Ctrl + clic en cualquier punto"))}</span></div></aside>`;
 	}
 
-	window.TraceReportsLive = { num1, anomalyMarks, fmtMs, regressionOf, summaryHTML, laneStripHTML, STATES, PROBLEM, AUTO_PROBLEMS, GROUPS, INGEST, fieldHTML, fmtDur, timeScale, scaleTicks, splitName, sparkline, heatCells, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,
+	window.TraceReportsLive = { num1, dayWords, execMatchesQuery, pickerList, parseDayQuery, rangeOf, historyQuery, anomalyMarks, fmtMs, regressionOf, summaryHTML, laneStripHTML, STATES, PROBLEM, AUTO_PROBLEMS, GROUPS, INGEST, fieldHTML, fmtDur, timeScale, scaleTicks, splitName, sparkline, heatCells, sortRuns, allTests, shortNames, stepText, shortXPaths, stepParts, statesFromHash, statesToHash, attention, span, lanesOf, ganttLayout, ticks, minimap,
 		zoomStep, problemsOn, filterTests, groupTests, progress, mix, percentile, health, errorSignature, errorGroups, slowest, events, anomalies,
 		facets, sortTests, endpointOf, traceLayout, timeBuckets, resultsOverTime, failRateOverTime, durationHistogram, ago, freshness, render };
 })();

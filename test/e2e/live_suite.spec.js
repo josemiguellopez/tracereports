@@ -12,6 +12,8 @@ test.beforeEach(async ({ page }, info) => {
 	page.on("console", (m) => { if (m.type() === "error") info.errors_.push(`console.error: ${m.text()}`); });
 	served = 0;
 	await page.route("**/api/v1/live", (r) => r.fulfill({ json: liveSuite(Date.now()).list }));
+	// el historial (ejecuciones anteriores) también simulado: el del servidor e2e trae las de otros tests
+	await page.route("**/api/v1/live/history?**", (r) => r.fulfill({ json: { now: Date.now(), total: 0, next: 0, executions: [] } }));
 	await page.route("**/api/v1/live/execution?**", (r) => { served++; return r.fulfill({ json: liveSuite(Date.now()).execution }); });
 	await page.route("**/api/v1/live/endpoints?**", (r) => r.fulfill({ json: liveSuiteEndpoints() }));
 	// los tests de esta ejecución son simulados: su historial (para "fallo nuevo") viene vacío salvo que el test lo pida

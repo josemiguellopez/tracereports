@@ -663,7 +663,7 @@ from any client:
 - **Show** (All / With problems) and **Group by** (file, worker, status, error) are segmented controls: they answer
   in the same frame as the click (the control changes and a thin bar says it is recomputing) and a status
   line says what is shown: "Showing 6 of 234 tests · Only with problems · Grouped by file".
-- **Execution map**, in two views. **Field** (default): the execution as a torus of particles read like a clock; the angle is time (the start
+- **Execution map**, in three views. **Field** (default): the execution as a torus of particles read like a clock; the angle is time (the start
   on top, clockwise, with pauses compressed) and each ring a worker or process. Each test is a point where it
   ended (or where it is, on the dashed "now" hand, in the text color: red is only for failures), bigger the slower it was, with a thin trail of how long it
   lasted; failures glow. Hovering shows it, a click (or the arrows and Enter) opens its detail. Around it, the
@@ -676,7 +676,12 @@ from any client:
   opens the test, and so does a double click on the particle already chosen (two quick clicks on a new one only
   choose it, they never take you out of Live). **Pause view** (or Space) freezes the field to look into
   something while ingestion goes on in the server: it counts the events arriving and "Resume (+N)" catches up.
-  **Grid**: one square per test, in the order they started; a click opens its detail. On top, a **ticker** with the latest events that stops
+  **Grid**: one square per test, in the order they started; a click opens its detail. **Agents**: the execution from
+  inside a chip. Each worker (or process, when the client does not report it) is an agent orbiting the core, which
+  shows the queue (what has yet to start) and a ring with what passed and failed; when a test starts a packet goes to
+  its agent and when it ends a bit of its color comes back. The agent with no signal pulses red, the slow one amber and
+  the idle one is dimmed; its trail is its latest tests. Clicking an agent leaves only its tests in the table (click
+  again: all); a dot of the trail opens the test's detail. With "reduce motion" it is drawn still. On top, a **ticker** with the latest events that stops
   on hover, and a clock.
 - The **timeline** starts at the first test (not at the start of the execution), marks **now** with a line
   and compresses long pauses with no test running (≈, with how long they lasted). Ctrl + wheel zooms in or

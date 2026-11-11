@@ -120,7 +120,7 @@ test("Cancelar ejecución: el pedido queda y el cliente lo ve en /control", asyn
 test("En vivo sin nada corriendo explica qué va a mostrar; en el celular la tabla se lee", async ({ page }) => {
 	await page.route("**/api/v1/live", (route) => route.fulfill({ json: { now: Date.now(), no_signal_ms: 4000, executions: [] } }));
 	await page.goto("/#view=live");
-	await expect(page.locator("#view-live .live-empty")).toContainText("No hay ejecuciones en curso");
+	await expect(page.locator("#view-live")).toContainText("No hay ejecuciones en curso"); // con anteriores, también las lista
 	await page.unroute("**/api/v1/live");
 	await page.setViewportSize({ width: 390, height: 800 });
 	await page.goto(`/#view=live&exec=${encodeURIComponent("x:" + exec)}`);
