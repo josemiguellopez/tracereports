@@ -2085,6 +2085,7 @@
 			const tr0 = el.querySelector("[data-live-tape-track]");
 			if (tr0 && S.tapeX) tr0.style.transform = `translateX(${-S.tapeX}px)`; // la cinta sigue donde iba
 			fitBars(el);
+			watchGantt(el);
 			for (const s of el.querySelectorAll(".seg")) placeThumb(s, false, thumbs.get(s.dataset.seg));
 			animateLive(el);
 			if (flip) flipPlay(el, flip);
@@ -2181,11 +2182,29 @@
 	}
 	/** El nombre dentro de una barra del Gantt solo si cabe; si no, la barra queda limpia (el tooltip lo dice). */
 	function fitBars(el) {
-		// solo las barras con nombre (las angostas se dibujan sin texto): medir las 1.200 de una ejecución larga costaba
-		const bars = [...el.querySelectorAll(".lg-track .lg-bar")].filter((b) => b.querySelector(".mid"));
+		// solo las barras con algo adentro (nombre o el ícono de su estado; las angostas se dibujan vacías): medir las
+		// 1.200 de una ejecución larga costaba
+		const bars = [...el.querySelectorAll(".lg-track .lg-bar")].filter((b) => b.firstElementChild);
 		for (const b of bars) b.classList.remove("notext"); // medir con el texto puesto (el ancho pudo cambiar)
 		const over = bars.map((b) => b.scrollWidth > b.clientWidth + 1); // todas las lecturas juntas: un solo cálculo de layout
 		bars.forEach((b, i) => { if (over[i]) b.classList.add("notext"); });
+	}
+	// el ancho del Gantt también cambia sin que cambie la ventana (aparece la barra de scroll al cargar algo de
+	// arriba, se abre un panel): se vuelve a medir entonces, si no los nombres quedaban cortados
+	let ganttRO = null, ganttSeen = null, ganttW = 0, ganttRaf = 0;
+	function watchGantt(el) {
+		const g = el.querySelector(".live-gantt");
+		if (g === ganttSeen || typeof ResizeObserver !== "function") return;
+		ganttSeen = g; ganttW = g ? g.clientWidth : 0;
+		ganttRO ||= new ResizeObserver((en) => {
+			const w = en[en.length - 1].contentRect.width;
+			if (Math.abs(w - ganttW) < 1) return;
+			ganttW = w;
+			cancelAnimationFrame(ganttRaf);
+			ganttRaf = requestAnimationFrame(() => { const v = $("#view-live"); if (v && S.view === "live") fitBars(v); });
+		});
+		ganttRO.disconnect();
+		if (g) ganttRO.observe(g);
 	}
 	let fitTimer = null;
 	window.addEventListener("resize", () => {

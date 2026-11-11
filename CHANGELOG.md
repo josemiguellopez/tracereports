@@ -26,6 +26,11 @@ with a team that runs TraceReports in Docker on Windows with suites of 16 worker
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
   fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
   point, or above/left when it does not fit in the window.
+- **Live timeline: running bars keep their names**: the shine of a running bar moved with a transform, which
+  counts as overflow even inside a clipped bar, so depending on the instant a bar that fit looked cut and lost its
+  name (and the check failed at random in CI). The shine now moves its background. The timeline also measures its
+  bars again when its width changes without the window changing (a scrollbar appearing, a panel opening), and bars
+  that only show their state icon are measured too.
 - **Escalate keeps the picked failure and no longer flickers while the suite runs**: in Live, the failure opened
   last stays picked for Escalate after its panel is closed (before, Escalate fell back to all failures and opened
   another test); an × next to the button lets it go. In Escalate, with a test picked, only that test's evidence

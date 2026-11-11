@@ -144,6 +144,17 @@ test("Gantt legible: gw3 con el archivo actual, nombre solo si cabe, tooltip com
 	const cut = await view.locator(".lg-bar:not(.notext)").evaluateAll((bs) => bs.filter((b) => b.scrollWidth > b.clientWidth + 1).length);
 	expect(cut).toBe(0);
 	expect(await view.locator(".lg-bar.notext").count()).toBeGreaterThan(0);
+	// el Gantt se angosta sin que cambie la ventana (una barra de scroll, un panel): se vuelve a medir y ningún
+	// nombre queda cortado. Y el brillo de lo que corre no cuenta como desborde (con transform, según el
+	// instante, una barra en curso parecía no caber: en CI fallaba al azar y la barra perdía su nombre)
+	// (con la vista en pausa: ningún refresco la vuelve a medir por casualidad)
+	await view.locator("[data-live-pause]").first().click();
+	await view.locator(".live-gantt").evaluate((g) => { g.style.width = "62%"; });
+	await page.waitForTimeout(400);
+	const cutNarrow = await view.locator(".lg-bar:not(.notext)").evaluateAll((bs) => bs.filter((b) => b.scrollWidth > b.clientWidth + 1).length);
+	expect(cutNarrow).toBe(0);
+	await view.locator(".live-gantt").evaluate((g) => { g.style.width = ""; });
+	await view.locator("[data-live-pause]").first().click();
 	// el tooltip de una barra: nombre, archivo, estado, duración, inicio → fin
 	const bar = view.locator(".lg-bar.fail");
 	await bar.hover();

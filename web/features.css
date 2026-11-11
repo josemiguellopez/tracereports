@@ -2296,8 +2296,12 @@ tr.lt-flash > td { animation: live-flash 1800ms ease-out; }
 .lg-bar.notext .mid { display: none; }
 .lg-bar.notext { justify-content: center; padding: 0; }
 .lg-bar .mid { pointer-events: none; }
-.lg-bar.running::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent);
-	transform: translateX(-100%); animation: live-shine 1.8s ease-in-out infinite; pointer-events: none; }
+/* el brillo de lo que corre se mueve con background-position, no con transform: un transform cuenta como desborde
+   (scrollWidth) aunque la barra recorte, y según el instante la barra parecía no caber y perdía su nombre */
+.lg-bar.running::after { content: ""; position: absolute; inset: 0; background: linear-gradient(90deg, transparent, rgba(255,255,255,.45), transparent) no-repeat;
+	background-size: 100% 100%; background-position: -200% 0; animation: lg-shine 1.8s ease-in-out infinite; pointer-events: none; }
+@keyframes lg-shine { from { background-position: -200% 0; } to { background-position: 300% 0; } }
+@media (prefers-reduced-motion: reduce) { .lg-bar.running::after { animation: none; } }
 .lg-bar.nosig { animation: live-slow-pulse 2.4s ease-in-out infinite; }
 .lg-anom { display: grid; place-items: center; }
 .lg-anom svg { width: 11px; height: 11px; }
