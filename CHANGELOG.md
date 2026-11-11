@@ -6,6 +6,11 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-11
+
+Python client 0.6.0, JavaScript client 0.5.0 and Java client 0.5.0; the Go client does not change. Validated
+with a team that runs TraceReports in Docker on Windows with suites of 16 workers.
+
 ### Fixed (Live: the map card under the fixed cards, the anomaly cut to one line)
 
 - **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
@@ -1143,7 +1148,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/josemiguellopez/tracereports/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/josemiguellopez/tracereports/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/josemiguellopez/tracereports/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/josemiguellopez/tracereports/compare/v0.6.0...v0.6.1

@@ -28,7 +28,7 @@ import { Mirror } from "./mirror.js";
 import { Sender } from "./transport.js";
 import { downloadBinary } from "./binary.js";
 
-export const VERSION = "0.4.2";
+export const VERSION = "0.5.0";
 const STATUSES = new Set(["INFO", "PASS", "FAIL", "WARNING", "SKIP"]);
 const truthy = (v) => ["1", "true", "yes"].includes(String(v || "").toLowerCase());
 /** The URL without its trailing slashes (a loop, not /\/+$/: that regex is quadratic on many slashes). */
