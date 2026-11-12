@@ -5004,6 +5004,11 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			<table class="stor-table"><thead><tr><th>${tr("Proyecto")}</th><th>${tr("Ejecuciones")}</th><th>Tests</th><th>${tr("Espacio (aprox.)")}</th></tr></thead>
 			<tbody>${st.projects.map((p) => `<tr><td data-no-i18n>${esc(p.project || tr("(sin proyecto)"))}</td><td>${p.runs}</td><td>${p.tests}</td><td>${fmtBytes(p.bytes)}</td></tr>`).join("")}</tbody></table>
 			${st.more_projects ? `<small>${tr("y {n} proyecto(s) más", { n: st.more_projects })}</small>` : ""}</details>` : "";
+		// las páginas del Inspector (TRACEREPORTS_DOM_STEPS): lo que más crece; por ejecución, las más pesadas
+		const dom = st.dom?.pages ? `<details class="stor-projects stor-dom"><summary>${tr("Páginas del Inspector: {b} en {n} páginas", { b: fmtBytes(st.dom.bytes), n: st.dom.pages })}</summary>
+			<p class="m-hint">${tr("Se guardan comprimidas y los íconos una sola vez ({g} compartidos). Las guardadas con una versión anterior se comprimen al compactar.", { g: fmtBytes(st.dom.glyph_bytes || 0) })}</p>
+			<table class="stor-table"><thead><tr><th>${tr("Ejecución")}</th><th>${tr("Páginas")}</th><th>${tr("Espacio")}</th></tr></thead>
+			<tbody>${(st.dom.runs || []).map((r) => `<tr><td><a href="#run=${r.run_id}&view=tests" data-no-i18n>#${r.run_id} ${esc(r.name)}</a></td><td>${r.pages}</td><td>${fmtBytes(r.bytes)}</td></tr>`).join("")}</tbody></table></details>` : "";
 		const last = (ret.last ? tr("Última limpieza: {d} · {r} ejecución(es) · liberó {b}", { d: fmtDateTime(ret.last.at), r: ret.last.runs, b: fmtBytes(ret.last.freed_bytes) }) : tr("Todavía no se limpió nada."))
 			+ (ret.last?.error ? ` · <span class="stor-cut">${tr("se cortó con un error:")} <span data-no-i18n>${esc(ret.last.error)}</span></span>` : "");
 		const next = ret.days && ret.next_at ? ` · ${tr("Próxima: {d}", { d: fmtDateTime(ret.next_at) })}` : "";
@@ -5016,7 +5021,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		</div>`;
 		return `<section class="card stor-card" aria-label="${esc(tr("Almacenamiento"))}">
 			<header class="stor-head"><span class="maint-stale-icon">${icon("i-server")}</span><b>${tr("Almacenamiento")}</b></header>
-			${warn}${meter}${stats}${orphan}${projects}${retention}${cleanConfirm()}${compactRow(st.compact)}
+			${warn}${meter}${stats}${orphan}${projects}${dom}${retention}${cleanConfirm()}${compactRow(st.compact)}
 		</section>`;
 	}
 

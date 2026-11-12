@@ -47,7 +47,8 @@ func (s *Store) deleteInBatches(ids []int64, cond string, condArgs ...any) (int,
 			_, _ = s.db.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
 		}
 	}
-	_ = s.pruneDOMCSS() // las hojas del modo HTML que ya no usa ningún test
+	_ = s.pruneDOMCSS()    // las hojas del modo HTML que ya no usa ningún test
+	_ = s.pruneDOMGlyphs() // y los íconos de las páginas
 	return deleted, files, nil
 }
 

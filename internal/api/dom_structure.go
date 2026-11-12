@@ -214,6 +214,20 @@ func (s *Server) runDOMFidelity(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"run_id": id, "modes": out})
 }
 
+// runDOMSize is what the Inspector's pages of a run take in the database, as stored (GET
+// /runs/{id}/dom/size): to compare runs before and after packing, or one DOM mode with the other.
+func (s *Server) runDOMSize(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "run_id")
+	if !ok {
+		return
+	}
+	out, err := s.Store.RunDOMSize(id)
+	if respondErr(w, err, "run") {
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 // getDOM returns the snapshot of the moment of the failure (GET /tests/{id}/dom; 204 without one).
 func (s *Server) getDOM(w http.ResponseWriter, r *http.Request) {
 	id, ok := pathID(w, r, "test_id")

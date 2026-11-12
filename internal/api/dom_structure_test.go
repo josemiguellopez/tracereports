@@ -439,3 +439,39 @@ func TestAnimatedSVGIsMarkedAtIngest(t *testing.T) {
 		t.Fatalf("the animation itself is not stored: %s", snap.Nodes[3].SVG)
 	}
 }
+
+// Lo que ocupan las páginas del Inspector de un run (para medir antes y después) y en Almacenamiento.
+func TestDOMSizeOfARunAndInStorage(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", ""))
+	postDOM(t, srv, testID, structSnap("step", "paso 1", ""))
+	runID, err := srv.Store.TestRunID(testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var size struct {
+		RunID int64 `json:"run_id"`
+		Pages int   `json:"pages"`
+		Bytes int64 `json:"bytes"`
+	}
+	json.Unmarshal(do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/runs/%d/dom/size", runID), "").Body.Bytes(), &size)
+	if size.RunID != runID || size.Pages != 2 || size.Bytes <= 0 || size.Bytes > 2000 {
+		t.Fatalf("size: %+v", size)
+	}
+	if c := do(t, srv, http.MethodGet, "/api/v1/runs/99999/dom/size", "").Code; c != http.StatusNotFound {
+		t.Fatalf("missing run: %d", c)
+	}
+	var st struct {
+		DOM struct {
+			Bytes int64 `json:"bytes"`
+			Pages int   `json:"pages"`
+			Runs  []struct {
+				RunID int64 `json:"run_id"`
+			} `json:"runs"`
+		} `json:"dom"`
+	}
+	json.Unmarshal(do(t, srv, http.MethodGet, "/api/v1/maintenance/storage", "").Body.Bytes(), &st)
+	if st.DOM.Pages != 2 || st.DOM.Bytes != size.Bytes || len(st.DOM.Runs) != 1 || st.DOM.Runs[0].RunID != runID {
+		t.Fatalf("storage: %+v", st.DOM)
+	}
+}

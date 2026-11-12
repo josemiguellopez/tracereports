@@ -157,6 +157,7 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
 		r.Put("/ui/tests/{test_id}/dom/fidelity", s.putDOMFidelity)
 		r.Get("/runs/{run_id}/dom/fidelity", s.runDOMFidelity)
+		r.Get("/runs/{run_id}/dom/size", s.runDOMSize)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/runs/{run_id}/close", s.closeRunByHand)
 		r.Post("/ui/live/cancel", s.cancelExecution)
