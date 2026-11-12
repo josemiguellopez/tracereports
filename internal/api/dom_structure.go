@@ -2,12 +2,16 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"math"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/locator"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 )
@@ -35,12 +39,23 @@ var nodeStyles = map[string]bool{"display": true, "position": true, "backgroundC
 	"fontWeight": true, "fontFamily": true, "borderTopWidth": true, "borderTopColor": true, "borderRadius": true,
 	"opacity": true, "textAlign": true, "lineHeight": true,
 	// el orden de las capas (un modal encima de la página) y el recorte de los paneles con scroll
-	"zIndex": true, "overflowX": true, "overflowY": true}
+	"zIndex": true, "overflowX": true, "overflowY": true,
+	// pestañas verticales: el texto va de arriba abajo en una caja alta
+	"writingMode": true,
+	// bordes de cada lado, sombras, fondos degradados (sin url()) y el corte de los textos largos
+	"borderRightWidth": true, "borderRightColor": true, "borderBottomWidth": true, "borderBottomColor": true,
+	"borderLeftWidth": true, "borderLeftColor": true, "boxShadow": true, "backgroundImage": true,
+	"textOverflow": true, "whiteSpace": true, "placeholderColor": true}
+
+// longStyles: los valores que pueden ser largos (varias sombras, un degradado con varias paradas).
+var longStyles = map[string]int{"boxShadow": 400, "backgroundImage": 400}
 
 var (
 	tagRe        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 	ariaAttrRe   = regexp.MustCompile(`^aria-[a-z]{1,30}$`)
+	svgAnimRe    = regexp.MustCompile(`(?i)<animate(?:Transform|Motion)?[\s/>]`)
 	styleValueRe = regexp.MustCompile(`^[a-zA-Z0-9 #%.,()'"_-]*$`)
+	matrixRe     = regexp.MustCompile(`^matrix\((-?\d{1,4}(\.\d{1,6})?(e-?\d{1,2})?, ){4}0, 0\)$`)
 )
 
 // cleanNodes validates and redacts a structural snapshot in place. A tree that does not hold (a
@@ -50,13 +65,22 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 		snap.Nodes = snap.Nodes[:maxDOMNodes]
 	}
 	snap.Glyphs = cleanGlyphs(snap.Glyphs)
+	table := snap.Styles
+	snap.Styles = nil
 	for i := range snap.Nodes {
 		n := &snap.Nodes[i]
 		if n.I != i || n.P >= i || n.P < -1 || !tagRe.MatchString(n.Tag) {
 			snap.Nodes = nil
 			return
 		}
+		if n.S != nil { // un cliente que ya manda la tabla: cada nodo se limpia con su estilo, como siempre
+			if *n.S >= 0 && *n.S < len(table) && n.Style == nil {
+				n.Style = table[*n.S]
+			}
+			n.S = nil
+		}
 		n.Text = personal(redactThenCut(p, n.Text, maxNodeText))
+		n.Shown = personal(redactThenCut(p, n.Shown, maxNodeText))
 		attrs := map[string]string{}
 		for k, v := range n.Attrs {
 			if nodeAttrs[k] || ariaAttrRe.MatchString(k) {
@@ -73,14 +97,25 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 		n.Attrs = attrs
 		style := map[string]string{}
 		for k, v := range n.Style {
-			if nodeStyles[k] && len(v) <= maxStyleValue && styleValueRe.MatchString(v) && !strings.Contains(strings.ToLower(v), "url(") {
+			limit := maxStyleValue
+			if l, ok := longStyles[k]; ok {
+				limit = l
+			}
+			if k == "backgroundImage" && !strings.Contains(v, "gradient(") {
+				continue // solo degradados: una imagen de fondo no se puede cargar (ni se debe)
+			}
+			if nodeStyles[k] && len(v) <= limit && styleValueRe.MatchString(v) && !strings.Contains(strings.ToLower(v), "url(") {
 				style[k] = v
 			}
 		}
 		n.Style = style
 		n.Icons = cleanIcons(n.Icons, snap.Glyphs)
+		n.Anim = svgAnimRe.MatchString(n.SVG) // un skeleton de carga se anima: es una señal del fallo (la animación no se guarda)
 		if n.SVG != "" {
 			n.SVG = cleanSVG(n.SVG)
+		}
+		if !matrixRe.MatchString(n.TF) || n.LW <= 0 || n.LH <= 0 || n.LW > 100000 || n.LH > 100000 {
+			n.TF, n.LW, n.LH = "", 0, 0
 		}
 		for _, c := range []**int{&n.TX, &n.TY} {
 			if *c != nil && (**c < 0 || **c > 100000) {
@@ -88,10 +123,109 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 			}
 		}
 	}
+	if snap.Scroll != nil && (snap.Scroll.X < 0 || snap.Scroll.Y < 0 || snap.Scroll.X > 100000 || snap.Scroll.Y > 200000) {
+		snap.Scroll = nil
+	}
 	if snap.Page != nil && (snap.Page.W <= 0 || snap.Page.H <= 0 || snap.Page.W > 100000 || snap.Page.H > 200000) {
 		snap.Page = nil
 	}
 	snap.Label = redactThenCut(p, snap.Label, 300)
+	tableStyles(snap)
+}
+
+// tableStyles stores each distinct node style once (Snapshot.Styles) and has every node point to its
+// own (Node.S): the same page goes from ~475 KB to ~250 KB uncompressed, which is how it is stored.
+func tableStyles(snap *locator.Snapshot) {
+	seen := map[string]int{}
+	var keys []string
+	for i := range snap.Nodes {
+		n := &snap.Nodes[i]
+		if len(n.Style) == 0 {
+			n.Style = nil
+			continue
+		}
+		keys = keys[:0]
+		for k := range n.Style {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var b strings.Builder
+		for _, k := range keys {
+			b.WriteString(k + "\x00" + n.Style[k] + "\x00")
+		}
+		idx, ok := seen[b.String()]
+		if !ok {
+			idx = len(snap.Styles)
+			seen[b.String()] = idx
+			snap.Styles = append(snap.Styles, n.Style)
+		}
+		n.S, n.Style = &idx, nil
+	}
+}
+
+// putDOMFidelity stores the fidelity the Inspector measured for the failure page (PUT
+// /ui/tests/{id}/dom/fidelity {"fidelity":0.94,"mode":"structure"}). Measuring is reading: any viewer
+// who may use the UI actions records it, and a later snapshot of the same test clears it.
+func (s *Server) putDOMFidelity(w http.ResponseWriter, r *http.Request) {
+	if !s.guardUIWrite(w, r) {
+		return
+	}
+	id, ok := pathID(w, r, "test_id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Fidelity *float64 `json:"fidelity"`
+		Mode     string   `json:"mode"`
+	}
+	if !decodeLimited(w, r, &in) {
+		return
+	}
+	if in.Mode == "" {
+		in.Mode = "structure"
+	}
+	if in.Fidelity == nil || *in.Fidelity < 0 || *in.Fidelity > 1 || (in.Mode != "structure" && in.Mode != "html") {
+		writeError(w, http.StatusBadRequest, "fidelity must be 0..1 and mode structure or html")
+		return
+	}
+	err := s.Store.SetDOMFidelity(id, math.Round(*in.Fidelity*1000)/1000, in.Mode)
+	if errors.Is(err, db.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "test without a failure or warning page")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// runDOMFidelity: the run's measured fidelity by snapshot mode (GET /runs/{id}/dom/fidelity).
+func (s *Server) runDOMFidelity(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "run_id")
+	if !ok {
+		return
+	}
+	out, err := s.Store.RunDOMFidelity(id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run_id": id, "modes": out})
+}
+
+// runDOMSize is what the Inspector's pages of a run take in the database, as stored (GET
+// /runs/{id}/dom/size): to compare runs before and after packing, or one DOM mode with the other.
+func (s *Server) runDOMSize(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "run_id")
+	if !ok {
+		return
+	}
+	out, err := s.Store.RunDOMSize(id)
+	if respondErr(w, err, "run") {
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // getDOM returns the snapshot of the moment of the failure (GET /tests/{id}/dom; 204 without one).

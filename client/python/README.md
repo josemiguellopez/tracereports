@@ -40,3 +40,5 @@ Without an installed binary, closing downloads and verifies the v0.2.0 renderer 
 - `TRACEREPORTS_DOM_STEPS=on-problem`: only of the ones that fail or have a WARNING (and a comparison
   baseline of the passing ones every 7 days).
 - `TRACEREPORTS_DOM_ON=fail,warning` does not limit the above: it only adds the page of each WARNING.
+- `TRACEREPORTS_DOM_MODE=html` (optional; default `structure`): also sends the page's HTML and its style
+  sheets, so the Inspector draws the real page with its CSS in an isolated iframe.

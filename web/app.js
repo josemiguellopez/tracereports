@@ -10,6 +10,7 @@
 		BACKEND_TIMEOUT: "Timeout de backend",
 		LOGIC_BUG: "Bug de lógica",
 		INFRA_ERROR: "Error de infraestructura",
+		TIMING: "Espera insuficiente",
 	};
 
 	const S = {
@@ -111,9 +112,17 @@
 		throw new Error(`no disponible en el reporte exportado: ${path}`);
 	}
 
-	async function api(path) {
+	async function api(path, timeoutMs = 0) {
 		if (STATIC) return staticApi(path);
-		const res = await fetch(path, { headers: { Accept: "application/json" } });
+		// con tiempo límite: un pedido que el servidor no contesta no queda colgado para siempre
+		const ctl = timeoutMs ? new AbortController() : null, timer = ctl && setTimeout(() => ctl.abort(), timeoutMs);
+		let res;
+		try {
+			res = await fetch(path, { headers: { Accept: "application/json" }, signal: ctl?.signal });
+		} catch (err) {
+			if (ctl?.signal.aborted) throw new Error(tr("El servidor no respondió en {s} s", { s: Math.round(timeoutMs / 1000) }));
+			throw err;
+		} finally { if (timer) clearTimeout(timer); }
 		if (!res.ok) {
 			// un error del servidor con su causa o su referencia se explica; si no, el código y la ruta
 			const data = res.status >= 500 ? await res.json().catch(() => ({})) : {};
@@ -1465,9 +1474,14 @@
 		if (STATIC || !window.TraceReportsLive) return;
 		const L = S.liveView;
 		if (L.ui.paused && L.loaded && !force) return; // en pausa: la vista queda quieta para analizar
+		// un pedido a la vez: si el servidor tarda, los avisos y el reloj no apilan pedidos colgados (se pide
+		// otra vez al terminar el que está en curso); después de un error, se espera cada vez más
+		if (L.inflight) { L.again = true; return; }
+		if (!force && Date.now() < (L.retryAt || 0)) return;
+		L.inflight = true;
 		const current = turn("live");
 		try {
-			const list = await api("/api/v1/live");
+			const list = await api("/api/v1/live", LIVE_TIMEOUT_MS);
 			if (!current()) return;
 			L.list = list.executions; L.now = list.now; L.no_signal_ms = list.no_signal_ms;
 			// las anteriores (para el selector y la pantalla vacía): aparte y como mucho una vez por minuto
@@ -1481,27 +1495,34 @@
 			// entera en "Cargando…" mientras el servidor respondía (un clic en el mapa redibuja en ese rato)
 			if (L.exec && L.exec.key !== L.key) L.exec = null;
 			if (L.key) {
-				let one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`).catch((err) => {
+				let one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`, LIVE_TIMEOUT_MS).catch((err) => {
 					if (L.list.some((e) => e.key === L.key) || !fallback) throw err;
 					return null;
 				});
 				if (!current()) return;
-				if (!one) { L.key = fallback; one = await api(`/api/v1/live/execution?key=${encodeURIComponent(fallback)}`); if (!current()) return; }
+				if (!one) { L.key = fallback; one = await api(`/api/v1/live/execution?key=${encodeURIComponent(fallback)}`, LIVE_TIMEOUT_MS); if (!current()) return; }
 				L.exec = one.execution; L.now = one.now;
 				if (L.key.startsWith("r:")) L.key = one.execution.key; // pedida por un run: desde ahora, su clave
 				// la anterior también en el selector (con su hora: "Anteriores")
 				if (!L.list.some((e) => e.key === L.key)) { const { runs, ...summary } = one.execution; L.list = [...L.list, summary]; }
 			}
-			L.loaded = true;
+			L.loaded = true; L.fails = 0; L.retryAt = 0;
 			if (L.panel) loadLivePanel(L.panel.id, true); // el test abierto en el panel sigue al día
 			if (L.key && (L.epKey !== L.key || Date.now() - (L.epAt || 0) > 5000)) loadLiveEndpoints(L.key);
 			loadLiveRegressions();
 		} catch (err) {
+			L.fails = (L.fails || 0) + 1;
+			L.retryAt = Date.now() + Math.min(60000, 2000 * 2 ** (L.fails - 1)); // 2, 4, 8… hasta 60 s
 			if (!current()) return;
 			L.error = err.message;
+		} finally {
+			L.inflight = false;
+			if (L.again) { L.again = false; scheduleLiveView(); }
 		}
 		if (S.view === "live") { renderLiveView(); writeHash(); }
 	}
+	/** Cuánto espera «En vivo» a que el servidor conteste antes de dar el pedido por perdido. */
+	const LIVE_TIMEOUT_MS = 20000;
 
 	/**
 	 * Las ejecuciones anteriores: el selector las ofrece en "Anteriores" y, si nada corre ni terminó hace poco,
@@ -2373,6 +2394,11 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	// también en el reporte exportado: el ZIP trae las páginas en dom/ (ver staticInspector)
 	const hasInspector = (t) => !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
 
+	/** La captura del momento del fallo: la última del test (la misma regla del recomendador de locators, que sin un selector no responde). */
+	/** Las capturas del test con su hora y su estado: el Inspector elige la de cada página por cercanía. */
+	const stepShots = (t) => (t.logs || []).filter((l) => l.screenshot).map((l) => ({ at: l.timestamp, src: l.screenshot, status: l.status }));
+	const lastShot = (t) => [...(t.logs || [])].reverse().find((l) => l.screenshot)?.screenshot || "";
+
 	/** Monta el Inspector una sola vez por test: los refrescos del detalle no lo reinician. */
 	async function mountInspector(t) {
 		const el = $("#inspector-panel");
@@ -2400,9 +2426,15 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			snapshot, steps: steps || [], t: tr,
 			loadStep: (seq) => get(`/api/v1/tests/${t.id}/dom/steps/${seq}`),
 			loadBaseline: (label) => get(`/api/v1/tests/${t.id}/dom/baseline?label=${encodeURIComponent(label || "")}`),
+			// modo HTML: las hojas de estilo de la página, guardadas una vez por su hash
+			loadCSS: (h) => fetch(`/api/v1/dom/css/${h}`).then((r) => (r.status === 200 ? r.text() : Promise.reject(new Error(String(r.status))))),
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
-			screenshot: loc?.screenshot || "",
+			screenshot: loc?.screenshot || lastShot(t),
+			shots: stepShots(t), // la captura de cada paso (la de un WARNING para su página, no la última del test)
+			// la fidelidad medida queda en el servidor para compararla por run (structure frente a html);
+			// sin permiso de escritura en la UI solo se muestra
+			onFidelity: (fidelity, mode) => { apiSend("PUT", `/api/v1/ui/tests/${t.id}/dom/fidelity`, { fidelity, mode }).catch(() => {}); },
 		});
 	}
 
@@ -2425,9 +2457,16 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			snapshot: idx.fail?.included ? await page(`${t.id}/fail`) : null,
 			steps: idx.steps.filter((s) => s.included),
 			loadStep: (seq) => page(`${t.id}/${seq}`),
+			loadCSS: async (h) => { // css/<16 del hash>.js del ZIP (rutas cortas en Windows), una vez por hoja
+				if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("hash");
+				if (window.TRACEREPORTS_CSS?.[h] === undefined) await loadScript(`css/${h.slice(0, 16)}.js`).catch(() => {});
+				if (typeof window.TRACEREPORTS_CSS?.[h] !== "string") throw new Error("missing");
+				return window.TRACEREPORTS_CSS[h];
+			},
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
-			screenshot: loc?.screenshot || "",
+			screenshot: loc?.screenshot || lastShot(t),
+			shots: stepShots(t), // la captura de cada paso (la de un WARNING para su página, no la última del test)
 			compareUnavailable: tr("Comparar con el último PASS necesita el servidor: el reporte exportado no trae ejecuciones anteriores."),
 			notice: omitted ? tr("{n} páginas de este test no entraron en el reporte exportado (tope de tamaño): siguen en el servidor.", { n: omitted }) : "",
 		};
@@ -4005,7 +4044,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación",
 			doc: "Reporte de escalamiento", ref: "N.º", generated: "Generado", severity: "Severidad", audience: "Audiencia",
 			sev_critical: "Crítica", sev_high: "Alta", sev_medium: "Media", sev_low: "Baja", run_date: "Fecha de ejecución",
-			summary: "Resumen ejecutivo",
+			summary: "Resumen ejecutivo", where: "Dónde falló", step: "Paso que falló", last_ok: "Último paso correcto", error: "Error", selector: "Selector no encontrado",
 			foot: "Generado con TraceReports · {d} · Uso interno",
 			blank_title: "La página estaba en blanco al fallar",
 			blank_desc: "El navegador no llegó a mostrar contenido: todas las capturas del test están en blanco.", blank_view: "Ver la captura" },
@@ -4023,7 +4062,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation",
 			doc: "Escalation report", ref: "No.", generated: "Generated", severity: "Severity", audience: "Audience",
 			sev_critical: "Critical", sev_high: "High", sev_medium: "Medium", sev_low: "Low", run_date: "Run date",
-			summary: "Executive summary",
+			summary: "Executive summary", where: "Where it failed", step: "Step that failed", last_ok: "Last step that passed", error: "Error", selector: "Selector not found",
 			foot: "Generated with TraceReports · {d} · Internal use",
 			blank_title: "The page was blank at the failure",
 			blank_desc: "The browser never showed any content: every screenshot of the test is blank.", blank_view: "View the screenshot" },
@@ -4193,6 +4232,13 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	 * resumen ejecutivo y secciones numeradas. El color va solo en la severidad: el resto es sobrio
 	 * para un correo a gerencia, un ticket o un PDF.
 	 */
+	/** «Dónde falló» (audiencia QA): el test, el paso, el error y el selector, de los datos del reporte. */
+	function escWhere(e) {
+		const w = e.facts?.where, L = ESC_L[e.lang] || ESC_L.es;
+		if (e.audience !== "qa" || !w) return null;
+		const rows = [[L.test, w.test, true], [L.step, w.step], [L.last_ok, w.last_ok], [L.error, w.error, true], [L.selector, w.selector, true]].filter(([, v]) => v);
+		return rows.length > 1 ? rows : null;
+	}
 	function escCard(e) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const showCalls = e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length);
@@ -4206,8 +4252,11 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			...(e.owner ? [[L.owner, `<b>${esc(e.owner)}</b>`]] : []),
 		];
 		// secciones numeradas, en el orden en que se leen
+		const where = escWhere(e);
 		const sections = [
-			[L.what, `<p>${esc(e.what_happened)}</p>`], [L.impact, `<p>${esc(e.impact)}</p>`], [L.cause, `<p>${esc(e.root_cause)}</p>`],
+			[L.what, `<p>${esc(e.what_happened)}</p>`],
+			...(where ? [[L.where, `<dl class="esc-where">${where.map(([k, v, mono]) => `<dt>${esc(k)}</dt><dd${mono ? ' class="esc-mono"' : ""}>${esc(v)}</dd>`).join("")}</dl>`]] : []),
+			[L.impact, `<p>${esc(e.impact)}</p>`], [L.cause, `<p>${esc(e.root_cause)}</p>`],
 			...(showCalls ? [[L.calls, `<table class="esc-calls">${f.network.map((n) => `<tr><td><b>${esc(n.method)}</b></td><td class="esc-path">${esc(n.path)}</td>
 				<td class="esc-st">${esc(n.outcome)}</td><td class="esc-ms">${n.duration_ms ? `${n.duration_ms} ms` : ""}</td></tr>`).join("")}</table>`]] : []),
 			...(e.evidence?.length || f.flaky ? [[L.evidence, `${e.evidence?.length ? `<ul>${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
@@ -4222,12 +4271,12 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			</header>
 			<h2 class="esc-title">${esc(e.title)}</h2>
 			<table class="esc-facts">${facts.reduce((rows, x, i) => (i % 2 ? rows[rows.length - 1].push(x) : rows.push([x]), rows), [])
-				.map((row) => `<tr>${row.map(([k, v]) => `<th scope="row">${esc(k)}</th><td>${v}</td>`).join("")}${row.length === 1 ? "<th></th><td></td>" : ""}</tr>`).join("")}</table>
+				.map((row) => `<tr>${row.map(([k, v]) => `<th scope="row">${esc(k)}</th><td${row.length === 1 ? ' colspan="3"' : ""}>${v}</td>`).join("")}</tr>`).join("")}</table>
 			<section class="esc-summary"><h3>${esc(L.summary)}</h3><p class="esc-headline">${esc(e.headline)}</p></section>
 			${escVerdictHTML(e, L)}
 			${escShotHTML(e, L)}
 			${sections.map(([title, body], i) => `<section class="esc-sec"><h3><span class="esc-num">${i + 1}.</span> ${esc(title)}</h3>${body}</section>`).join("")}
-			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name)).join("")}</section>` : ""}
+			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name || !e.test_id)).join("")}</section>` : ""}
 			<footer class="esc-foot"><div><span>${esc(escFmt(L.foot, { d: generated }))}</span>
 				<span class="esc-by">${esc(e.source === "ai" ? escFmt(L.by_ai, { m: e.model || "" }) : L.by_tpl)}</span></div>
 				<a href="${esc(escReportURL(e))}" target="_blank" rel="noopener">${esc(L.report)} ↗</a></footer>
@@ -4278,7 +4327,10 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			(qa.signals || []).forEach((s) => lines.push(`• [${s.level === "risk" ? L.qa_risk : L.qa_note}] ${s.text}`));
 			lines.push("");
 		}
-		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
+		if (e.what_happened) lines.push(`${B(L.what + ":")} ${e.what_happened}`);
+		const where = escWhere(e);
+		if (where) { lines.push("", B(L.where + ":")); where.forEach(([k, v]) => lines.push(`• ${k}: ${v}`)); lines.push(""); }
+		[[L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
 		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
 			lines.push("", B(L.calls + ":"));
 			f.network.forEach((n) => lines.push(`• ${n.method} ${n.path} → ${n.outcome}${n.duration_ms ? ` (${n.duration_ms} ms)` : ""}`));
@@ -4286,7 +4338,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		if (e.evidence?.length) { lines.push("", B(L.evidence + ":")); e.evidence.forEach((x) => lines.push(`• ${x}`)); }
 		if (e.next_steps?.length) { lines.push("", B(L.next + ":")); e.next_steps.forEach((x, i) => lines.push(`${i + 1}. ${x}`)); }
 		if (e.owner) lines.push("", `${B(L.owner + ":")} ${e.owner}`);
-		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name))); }
+		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name || !e.test_id))); }
 		lines.push("", `${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`);
 		lines.push(`${L.report}: ${escReportURL(e)}`);
 		lines.push(escFmt(L.foot, { d: fmtDateTime(e.created_at || Date.now()) }));
@@ -4317,12 +4369,12 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			${f.assessment ? h3(`${L.qa_verdict}: ${L[`qa_${f.assessment.verdict}`] || f.assessment.verdict}`)
 				+ (f.assessment.signals?.length ? `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.assessment.signals.map((s) => `<li><b>${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}:</b> ${esc(s.text)}</li>`).join("")}</ul>` : p(L.qa_clean_desc)) : ""}
 			${shot ? `<img src="${shot}" alt="${esc(L.shot)}" style="margin-top:14px;max-width:100%;border:1px solid #e0e0e0;border-radius:6px">` : ""}
-			${h3(L.what)}${p(e.what_happened)}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
+			${h3(L.what)}${p(e.what_happened)}${escWhere(e) ? h3(L.where) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${escWhere(e).map(([k, v, mono]) => `<li><b>${esc(k)}:</b> ${mono ? `<code>${esc(v)}</code>` : esc(v)}</li>`).join("")}</ul>` : ""}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
 			${e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length) ? h3(L.calls) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.network.map((n) => `<li><code>${esc(n.method)} ${esc(n.path)}</code> → ${esc(n.outcome)}</li>`).join("")}</ul>` : ""}
 			${e.evidence?.length ? h3(L.evidence) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 			${e.next_steps?.length ? h3(L.next) + `<ol style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
 			${e.owner ? `<p style="margin:16px 0 0;font-size:13px;color:#37474f">${esc(L.owner)}: <b>${esc(e.owner)}</b></p>` : ""}
-			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join("") : ""}
+			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name || !e.test_id)).join("") : ""}
 			<p style="margin:16px 0 0"><a href="${esc(escReportURL(e))}" style="color:#1565c0">${esc(L.report)}</a></p>
 			<p style="margin:14px 0 0;padding-top:8px;border-top:1px solid #dfe5ea;font-size:11.5px;color:#90a4ae">${esc(escFmt(L.foot, { d: generated }))}</p>
 		</div>`;
@@ -4368,7 +4420,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		if (e.evidence?.length) out.push(p(b(L.evidence + ":")), list("ul", e.evidence));
 		if (e.next_steps?.length) out.push(p(b(L.next + ":")), list("ol", e.next_steps));
 		if (e.owner) out.push(p(`${b(L.owner + ":")} ${esc(e.owner)}`));
-		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join(""));
+		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name || !e.test_id)).join(""));
 		out.push(p(`${esc(`${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`)}<br>
 			<a href="${esc(escReportURL(e))}">${esc(L.report)}</a>`));
 		return out.join("");
@@ -4404,15 +4456,25 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	}
 
 	/** Convierte la tarjeta en PNG: estilos copiados en línea + SVG foreignObject + canvas (sin librerías). */
+	/**
+	 * El estilo calculado de un elemento de la tarjeta, en línea para el PNG. Un elemento en línea
+	 * (insignia, chip) no lleva su ancho ni su alto: los toma de su texto, como en pantalla. Con el ancho
+	 * fijo de la pantalla (49.84px para «Baja»), al dibujar el PNG a otra escala el texto mide unas
+	 * fracciones más y su última letra salta de línea («BAJ»). Las imágenes y los bloques (las columnas de
+	 * la tabla) sí conservan sus medidas.
+	 */
+	const PNG_SIZE = new Set(["width", "height", "inline-size", "block-size", "min-width", "min-inline-size"]);
+	function pngStyle(n) {
+		const cs = getComputedStyle(n);
+		const fixed = ["IMG", "CANVAS", "svg"].includes(n.tagName) || !cs.display.startsWith("inline");
+		let css = "";
+		for (const prop of cs) if (fixed || !PNG_SIZE.has(prop)) css += `${prop}:${cs.getPropertyValue(prop)};`;
+		return css;
+	}
 	async function cardToPNG(card) {
 		const clone = card.cloneNode(true);
 		const src = [card, ...card.querySelectorAll("*")], dst = [clone, ...clone.querySelectorAll("*")];
-		src.forEach((n, i) => {
-			const cs = getComputedStyle(n);
-			let css = "";
-			for (const prop of cs) css += `${prop}:${cs.getPropertyValue(prop)};`;
-			dst[i].setAttribute("style", css);
-		});
+		src.forEach((n, i) => dst[i].setAttribute("style", pngStyle(n)));
 		clone.querySelectorAll(".esc-copy").forEach((b) => b.remove()); // en la imagen no hay a qué hacer clic
 		for (const img of clone.querySelectorAll("img")) img.src = await toDataURL(img.getAttribute("src")).catch(() => "");
 		const w = card.offsetWidth, h = card.offsetHeight, scale = 2;
@@ -4966,6 +5028,11 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			<table class="stor-table"><thead><tr><th>${tr("Proyecto")}</th><th>${tr("Ejecuciones")}</th><th>Tests</th><th>${tr("Espacio (aprox.)")}</th></tr></thead>
 			<tbody>${st.projects.map((p) => `<tr><td data-no-i18n>${esc(p.project || tr("(sin proyecto)"))}</td><td>${p.runs}</td><td>${p.tests}</td><td>${fmtBytes(p.bytes)}</td></tr>`).join("")}</tbody></table>
 			${st.more_projects ? `<small>${tr("y {n} proyecto(s) más", { n: st.more_projects })}</small>` : ""}</details>` : "";
+		// las páginas del Inspector (TRACEREPORTS_DOM_STEPS): lo que más crece; por ejecución, las más pesadas
+		const dom = st.dom?.pages ? `<details class="stor-projects stor-dom"><summary>${tr("Páginas del Inspector: {b} en {n} páginas", { b: fmtBytes(st.dom.bytes), n: st.dom.pages })}</summary>
+			<p class="m-hint">${tr("Se guardan comprimidas y los íconos una sola vez ({g} compartidos). Las guardadas con una versión anterior se comprimen al compactar.", { g: fmtBytes(st.dom.glyph_bytes || 0) })}</p>
+			<table class="stor-table"><thead><tr><th>${tr("Ejecución")}</th><th>${tr("Páginas")}</th><th>${tr("Espacio")}</th></tr></thead>
+			<tbody>${(st.dom.runs || []).map((r) => `<tr><td><a href="#run=${r.run_id}&view=tests" data-no-i18n>#${r.run_id} ${esc(r.name)}</a></td><td>${r.pages}</td><td>${fmtBytes(r.bytes)}</td></tr>`).join("")}</tbody></table></details>` : "";
 		const last = (ret.last ? tr("Última limpieza: {d} · {r} ejecución(es) · liberó {b}", { d: fmtDateTime(ret.last.at), r: ret.last.runs, b: fmtBytes(ret.last.freed_bytes) }) : tr("Todavía no se limpió nada."))
 			+ (ret.last?.error ? ` · <span class="stor-cut">${tr("se cortó con un error:")} <span data-no-i18n>${esc(ret.last.error)}</span></span>` : "");
 		const next = ret.days && ret.next_at ? ` · ${tr("Próxima: {d}", { d: fmtDateTime(ret.next_at) })}` : "";
@@ -4978,7 +5045,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		</div>`;
 		return `<section class="card stor-card" aria-label="${esc(tr("Almacenamiento"))}">
 			<header class="stor-head"><span class="maint-stale-icon">${icon("i-server")}</span><b>${tr("Almacenamiento")}</b></header>
-			${warn}${meter}${stats}${orphan}${projects}${retention}${cleanConfirm()}${compactRow(st.compact)}
+			${warn}${meter}${stats}${orphan}${projects}${dom}${retention}${cleanConfirm()}${compactRow(st.compact)}
 		</section>`;
 	}
 

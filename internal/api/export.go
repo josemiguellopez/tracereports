@@ -177,11 +177,14 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 	}
 	index = bytes.Replace(index, []byte(staticDataMarker), []byte(`<script src="data.js"></script>`), 1)
 
-	folder := fmt.Sprintf("tracereports_%s_%s_run%d",
+	name := fmt.Sprintf("tracereports_%s_%s_run%d",
 		slug(detail.Name), time.UnixMilli(detail.StartedAt).Format("20060102_1504"), detail.ID)
+	// la carpeta de adentro, corta: «Extraer todo» de Windows la pone dentro de otra con el nombre del ZIP, y
+	// una ruta de más de 260 caracteres (MAX_PATH) no se carga desde file://
+	folder := fmt.Sprintf("run%d", detail.ID)
 
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, folder))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, name))
 
 	// From here on the response is streaming: errors can only be logged.
 	zw := zip.NewWriter(w)

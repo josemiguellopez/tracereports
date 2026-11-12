@@ -278,7 +278,7 @@ type RunControl struct {
 // GetRunControl returns the control flags of a run (ErrNotFound if it does not exist).
 func (s *Store) GetRunControl(runID int64) (RunControl, error) {
 	var c RunControl
-	err := s.db.QueryRow(`SELECT cancel_at, cancel_by, cancel_reason FROM runs WHERE id = ?`, runID).Scan(&c.At, &c.By, &c.Reason)
+	err := s.reader().QueryRow(`SELECT cancel_at, cancel_by, cancel_reason FROM runs WHERE id = ?`, runID).Scan(&c.At, &c.By, &c.Reason)
 	if err == sql.ErrNoRows {
 		return c, ErrNotFound
 	}
@@ -325,7 +325,7 @@ func (s *Store) CancelExecution(key, by, reason string) error {
 // ExecutionCancel returns the cancellation of an execution still in force (ok=false if none).
 func (s *Store) ExecutionCancel(key string) (RunControl, bool, error) {
 	var c RunControl
-	err := s.db.QueryRow(`SELECT at, who, reason FROM execution_cancels WHERE key = ? AND at >= ?`, key, NowMs()-ExecutionCancelTTL).Scan(&c.At, &c.By, &c.Reason)
+	err := s.reader().QueryRow(`SELECT at, who, reason FROM execution_cancels WHERE key = ? AND at >= ?`, key, NowMs()-ExecutionCancelTTL).Scan(&c.At, &c.By, &c.Reason)
 	if err == sql.ErrNoRows {
 		return c, false, nil
 	}
@@ -337,14 +337,14 @@ func (s *Store) ExecutionCancel(key string) (RunControl, bool, error) {
 // working out which execution a run without execution_id belongs to).
 func (s *Store) AnyExecutionCancelled() (bool, error) {
 	var n int
-	err := s.db.QueryRow(`SELECT COUNT(*) FROM execution_cancels WHERE at >= ?`, NowMs()-ExecutionCancelTTL).Scan(&n)
+	err := s.reader().QueryRow(`SELECT COUNT(*) FROM execution_cancels WHERE at >= ?`, NowMs()-ExecutionCancelTTL).Scan(&n)
 	return n > 0, err
 }
 
 // RunExecutionID returns the execution_id of a run ("" without one; ErrNotFound if the run does not exist).
 func (s *Store) RunExecutionID(runID int64) (string, error) {
 	var id string
-	err := s.db.QueryRow(`SELECT execution_id FROM runs WHERE id = ?`, runID).Scan(&id)
+	err := s.reader().QueryRow(`SELECT execution_id FROM runs WHERE id = ?`, runID).Scan(&id)
 	if err == sql.ErrNoRows {
 		return "", ErrNotFound
 	}

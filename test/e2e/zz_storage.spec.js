@@ -189,3 +189,26 @@ test("una limpieza que se cortó a medias dice cuánto borró y el error", async
 	await expect(card).toContainText("875 ejecución(es)");
 	await expect(card.locator(".stor-cut")).toContainText("se cortó con un error: database or disk is full (13)");
 });
+
+// Las páginas del Inspector (lo que más crece con TRACEREPORTS_DOM_STEPS): cuánto ocupan en total y las
+// ejecuciones más pesadas, cada una con su enlace.
+test("Almacenamiento muestra lo que ocupan las páginas del Inspector por ejecución", async ({ page, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: `zz-paginas-${Date.now()}`, environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "test_con_paginas" } })).json()).test_id;
+	const nodes = Array.from({ length: 200 }, (_, i) => ({ i, p: i - 1, tag: "div", text: `fila ${i}`, x: 0, y: i * 20, w: 400, h: 20, visible: true, depth: i }));
+	for (const kind of ["step", "step", "fail"]) {
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { kind, label: kind, url: "https://app/x", viewport: { w: 1000, h: 800 }, nodes, elements: [] } })).ok()).toBeTruthy();
+	}
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+	await request.patch(`/api/v1/runs/${run}/finish`, { data: {} });
+	const size = await (await request.get(`/api/v1/runs/${run}/dom/size`)).json();
+	expect(size.pages).toBe(3);
+
+	await page.goto("/#view=maintenance");
+	const dom = page.locator(".stor-card .stor-dom");
+	await expect(dom.locator("summary")).toContainText("Páginas del Inspector:");
+	await dom.locator("summary").click();
+	await expect(dom).toContainText("Se guardan comprimidas");
+	const row = dom.locator("tr", { hasText: `#${run} ` });
+	if (await row.count()) await expect(row.locator("td").nth(1)).toHaveText("3"); // si entra entre las 10 más pesadas
+});

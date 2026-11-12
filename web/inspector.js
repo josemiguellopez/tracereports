@@ -115,6 +115,115 @@
 		}
 		return bestScore >= 1 ? bestNode : null;
 	}
+	/**
+	 * Cada nodo con su estilo: el servidor guarda cada estilo distinto una vez (styles) y el nodo apunta al
+	 * suyo (s). Un snapshot anterior trae el estilo en cada nodo y queda igual. Devuelve el mismo snapshot.
+	 */
+	function expandStyles(snap) {
+		const table = Array.isArray(snap?.styles) ? snap.styles : null;
+		if (table) for (const n of snap.nodes || []) if (!n.style && Number.isInteger(n.s) && table[n.s]) n.style = table[n.s];
+		return snap;
+	}
+	/**
+	 * Modo HTML: el CSS que el Inspector agrega a la página para dibujarla quieta y sin red. Animaciones
+	 * apagadas (el snapshot es un instante), las imágenes que pedían la sesión como su lugar, los íconos de
+	 * fuente como los PNG que dibujó el cliente (la fuente no viaja), los paneles con scroll corridos como
+	 * estaban y lo fijo (position: fixed) donde se veía con la ventana corrida.
+	 */
+	function htmlExtraCSS(snap, doc) {
+		const rules = ["*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}",
+			"html{overflow:hidden!important}",
+			"[data-tr-ph]{background:repeating-linear-gradient(135deg,#e9ecef 0 8px,#f6f7f8 8px 16px)!important;outline:1px dashed #adb5bd;outline-offset:-1px}"];
+		const glyphs = snap.glyphs || {}, ok = (src) => /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(src || "");
+		for (const n of snap.nodes || []) {
+			for (const ic of n.icons || []) {
+				const src = glyphs[ic.g];
+				if (!ok(src)) continue;
+				const bg = `background:url("${src}") center/contain no-repeat!important`;
+				// el ícono conserva su caja (su carácter, con la fuente que haya): se pinta el PNG encima y la fila mide lo mismo
+				if (ic.pos === "before" || ic.pos === "after") rules.push(`[data-tr-i="${n.i}"]::${ic.pos}{color:transparent!important;${bg}}`);
+				else if (ic.pos === "text") rules.push(`[data-tr-i="${n.i}"]{color:transparent!important;${bg}}`);
+			}
+		}
+		for (const el of doc ? doc.querySelectorAll("[data-tr-scroll][data-tr-i]") : []) {
+			const [x, y] = (el.getAttribute("data-tr-scroll") || "").split(",").map((v) => +v || 0);
+			if (x || y) rules.push(`[data-tr-i="${+el.getAttribute("data-tr-i")}"]>*{translate:${-x}px ${-y}px}`);
+		}
+		const sx = snap.scroll?.x || 0, sy = snap.scroll?.y || 0, nodes = snap.nodes || [];
+		if (sx || sy) {
+			const fixed = (n) => n?.style?.position === "fixed";
+			for (const n of nodes) if (fixed(n) && !(n.p >= 0 && (() => { for (let p = nodes[n.p]; p; p = p.p >= 0 ? nodes[p.p] : null) if (fixed(p)) return true; return false; })())) rules.push(`[data-tr-i="${n.i}"]{translate:${sx}px ${sy}px}`);
+		}
+		return rules.join("\n");
+	}
+	/** El documento que dibuja el iframe: el HTML del snapshot con su CSS, una CSP sin red y el CSS de arriba. */
+	function htmlSrcdoc(snap, sheets, doc) {
+		const csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+		const safe = (css) => String(css).replace(/<\/style/gi, "<\\/style");
+		const head = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">` +
+			sheets.filter((c) => typeof c === "string").map((c) => `<style>${safe(c)}</style>`).join("") + `<style>${safe(htmlExtraCSS(snap, doc))}</style>`;
+		const body = String(snap.html?.doc || "");
+		return "<!doctype html>" + (body.includes("<head></head>") ? body.replace("<head></head>", `<head>${head}</head>`) : `<html><head>${head}</head>${body}</html>`);
+	}
+	/** Cuánto puede separarse una captura de la página de su paso para ser la misma pantalla. */
+	const SHOT_WINDOW_MS = 10_000;
+	/** La captura de un paso: la más cercana en el tiempo a la página (at), dentro de SHOT_WINDOW_MS, y de
+	 * su mismo tipo si la hay (la de un WARNING para la página de un warning). "" si ninguna está cerca. */
+	function nearestShot(shots, at, kind) {
+		if (!at || !shots?.length) return "";
+		const near = shots.filter((s) => s.src && Math.abs((s.at || 0) - at) <= SHOT_WINDOW_MS);
+		const same = kind === "warning" ? near.filter((s) => s.status === "WARNING") : [];
+		const pool = same.length ? same : near;
+		return pool.reduce((best, s) => (!best || Math.abs(s.at - at) < Math.abs(best.at - at) ? s : best), null)?.src || "";
+	}
+	/** Las propiedades de estilo que manda el cliente por nodo (dom.py: STYLE y los extras). */
+	const NODE_STYLE = ["display", "position", "backgroundColor", "color", "fontSize", "fontWeight", "fontFamily", "borderTopWidth",
+		"borderTopColor", "borderRadius", "opacity", "textAlign", "lineHeight", "zIndex", "overflowX", "overflowY", "writingMode"];
+	/** El estilo de un nodo como lo arma el cliente, calculado por el navegador sobre la página real (modo HTML). */
+	function computedStyle(win, el, n) {
+		const st = win.getComputedStyle(el), style = {};
+		for (const k of NODE_STYLE) style[k] = st[k];
+		for (const side of ["Right", "Bottom", "Left"]) {
+			style[`border${side}Width`] = st[`border${side}Width`];
+			if (parseFloat(st[`border${side}Width`]) > 0) style[`border${side}Color`] = st[`border${side}Color`];
+		}
+		if (/gradient\(/.test(st.backgroundImage) && !/url\(/i.test(st.backgroundImage)) style.backgroundImage = st.backgroundImage;
+		if (st.boxShadow && st.boxShadow !== "none") style.boxShadow = st.boxShadow;
+		if (st.textOverflow && st.textOverflow !== "clip") style.textOverflow = st.textOverflow;
+		if (st.whiteSpace && st.whiteSpace !== "normal") style.whiteSpace = st.whiteSpace;
+		if (n.attrs?.placeholder) { try { style.placeholderColor = win.getComputedStyle(el, "::placeholder").color; } catch { /* sin color propio */ } }
+		return style;
+	}
+	/** Fidelidad: la parte de los píxeles de dos imágenes del mismo tamaño (RGBA, ya reducidas) cuyo color
+	 * se parece (ningún canal difiere más de `tol`). A esa escala un texto es una mancha gris: lo que baja
+	 * la cifra es lo que se ve distinto, como un bloque negro donde había barras grises.
+	 */
+	function fidelity(a, b, tol = 48) {
+		const len = Math.min(a.data.length, b.data.length);
+		let same = 0;
+		for (let i = 0; i < len; i += 4) {
+			const d = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2]));
+			if (d <= tol) same++;
+		}
+		return len ? same / (len / 4) : 0;
+	}
+	/** La parte de los píxeles que tienen el color más repetido (cada canal agrupado de a 16). */
+	function dominantShare(img) {
+		const n = img.data.length / 4, seen = new Map();
+		let top = 0;
+		for (let i = 0; i < img.data.length; i += 4) {
+			const k = ((img.data[i] >> 4) << 8) | ((img.data[i + 1] >> 4) << 4) | (img.data[i + 2] >> 4);
+			const c = (seen.get(k) || 0) + 1;
+			seen.set(k, c);
+			if (c > top) top = c;
+		}
+		return n ? top / n : 0;
+	}
+	/** La página rasterizada salió casi de un solo color (en blanco, sin su CSS) y la captura no: es un
+	 * dibujo fallido, no una página distinta, y esa cifra no se muestra ni se guarda. */
+	const failedRaster = (raster, shot) => dominantShare(raster) > 0.97 && dominantShare(shot) < 0.9;
+	/** Bajo esta fidelidad el Inspector avisa que la reconstrucción no es fiable para ese caso. */
+	const FIDELITY_WARN = 0.85;
 	/** Un snapshot básico (solo elements, clientes anteriores) como nodos planos: el Inspector lo dibuja igual. */
 	function fromElements(snap) {
 		const vw = snap.viewport?.w || 1280, vh = snap.viewport?.h || 800;
@@ -277,7 +386,9 @@
 	 * loadStep(seq) → Promise<snapshot>, failed ({selector, error}), screenshot (url), t (traducción) }.
 	 */
 	/** El texto que se ve: una ligadura de Material ("home") la dibuja su ícono, no la palabra. */
-	const shownText = (n) => (n.icons || []).some((ic) => ic.pos === "text") ? "" : n.text || "";
+	const shownText = (n) => (n.icons || []).some((ic) => ic.pos === "text") ? "" : n.text || n.shown || (n.filled ? "•••" : "") || placeholderOf(n);
+	/** El placeholder de un campo vacío: se ve en la página, en su color atenuado. Nunca lo escrito. */
+	const placeholderOf = (n) => (n.tag === "input" || n.tag === "textarea") && !n.text && !n.shown && !n.filled ? n.attrs?.placeholder || "" : "";
 
 	/**
 	 * Dónde va cada ícono dentro de su caja (en px desde la esquina): solo el ícono (un <i class="fa">,
@@ -315,8 +426,11 @@
 		const t = opts.t || ((s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s));
 		let speed = 1, paused = false, runId = 0, current = null, mirror = null, els = [], testCursor = null, ctx = null;
 		let curPage = -1, diffOn = false, diffReq = 0;
-		const pages = [...(opts.steps || []).map((s) => ({ kind: s.kind === "warning" ? "warning" : "step", seq: s.seq, label: s.label })),
+		const pages = [...(opts.steps || []).map((s) => ({ kind: s.kind === "warning" ? "warning" : "step", seq: s.seq, label: s.label, at: s.at })),
 			...(opts.snapshot ? [{ kind: "fail", label: opts.failed?.selector ? t("Momento del fallo: {s}", { s: opts.failed.selector }) : t("Momento del fallo") }] : [])];
+		// la página principal (la que se compara con la captura): la del fallo, o en un test que terminó en
+		// WARNING (sin página del fallo) la de su último warning
+		const mainPage = opts.snapshot ? pages.length - 1 : pages.map((p) => p.kind).lastIndexOf("warning");
 		let prefInstant = false;
 		try { prefInstant = localStorage.getItem(PREF) === "1"; } catch { /* sin almacenamiento */ }
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches) prefInstant = true;
@@ -329,14 +443,18 @@
 				<button class="cf-btn cf-btn-sm" data-insp="instant" type="button">${esc(t("Ver al instante"))}</button>
 				${opts.loadBaseline ? `<button class="cf-btn cf-btn-sm" data-insp="diff" type="button" aria-pressed="false">⇄ ${esc(t("Comparar con el último PASS"))}</button>`
 					: opts.compareUnavailable ? `<button class="cf-btn cf-btn-sm" type="button" disabled title="${esc(opts.compareUnavailable)}" aria-describedby="insp-nocompare">⇄ ${esc(t("Comparar con el último PASS"))}</button><span class="m-hint insp-nocompare" id="insp-nocompare">${esc(opts.compareUnavailable)}</span>` : ""}
-				${opts.screenshot ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
+				${opts.screenshot || opts.shots?.length ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
+				<button class="cf-btn cf-btn-sm" data-insp="view" type="button" hidden aria-pressed="true" title="${esc(t("Página real: el HTML y el CSS de la página dibujados por el navegador. Reconstrucción: la página redibujada por el Inspector."))}"></button>
 				<span class="insp-status" aria-live="polite"></span>
+				<span class="insp-fid" hidden title="${esc(t("Cuánto se parece la página reconstruida a la captura del momento del fallo"))}"></span>
 			</div>
 			${opts.notice ? `<p class="insp-notice" role="note">${esc(opts.notice)}</p>` : ""}
 			${!pages.length ? `<p class="insp-notice" role="note">${esc(t("Este reporte no trae las páginas de este test."))}</p>` : ""}
 			<div class="insp-main">
 				<div class="insp-left">
-					<div class="insp-viewport"><div class="insp-stage"><div class="insp-layer"></div>${opts.screenshot ? `<img class="insp-overlay" alt="${esc(t("Captura del momento del fallo"))}">` : ""}<div class="insp-cursors"></div></div></div>
+					<div class="insp-viewport"><div class="insp-stage"><div class="insp-layer"></div>${opts.screenshot || opts.shots?.length ? `<img class="insp-overlay" alt="${esc(t("Captura del momento del fallo"))}">` : ""}<div class="insp-cursors"></div></div></div>
+					<p class="insp-notice insp-fidwarn" hidden></p>
+					<p class="insp-notice insp-cssnote" hidden></p>
 					<p class="insp-basic m-hint" hidden>${esc(t("Snapshot básico (solo los elementos interactivos): con el cliente actualizado se ve la página completa."))}</p>
 					<ol class="insp-steps" aria-label="${esc(t("Páginas del test"))}"></ol>
 				</div>
@@ -386,12 +504,89 @@
 		const count = (e) => query(e).list?.length ?? 0;
 		const matches = (e) => query(e).list || [];
 
+		// ---------- modo HTML: el navegador dibuja la página con su CSS ----------
+		const EMPTY_SHEET = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+		let viewHTML = true; // con un snapshot HTML se ve la página real; el botón cambia a la reconstrucción
+		const htmlOn = (s) => !!(s?.html?.doc && viewHTML);
+		function parseHTMLDoc(s) { try { return new DOMParser().parseFromString(s.html.doc, "text/html"); } catch { return null; } }
+		// las hojas de la página, una vez por hash (las piden el iframe y el cálculo de estilos)
+		const cssCache = new Map();
+		const sheet = (h) => {
+			if (h === EMPTY_SHEET) return Promise.resolve(""); // un <style> vacío está, sin nada que pedir
+			if (!cssCache.has(h)) cssCache.set(h, opts.loadCSS ? opts.loadCSS(h).catch(() => null) : Promise.resolve(null));
+			return cssCache.get(h);
+		};
+		const sheetsOf = (s) => Promise.all((s.html.css || []).map(sheet));
+		/** Modo HTML sin estilos en los nodos (el servidor no los guarda dos veces): se calculan de la página
+		 * real, su HTML con su CSS, en un iframe oculto sin scripts (sandbox sin allow-scripts y la misma CSP
+		 * sin red). Así la animación y la reconstrucción se dibujan como siempre. */
+		async function hydrateStyles(s) {
+			if (!s || s.styles_from !== "html" || !s.html?.doc || s.hydrated || !s.nodes?.length) return s;
+			s.hydrated = true;
+			const doc = parseHTMLDoc(s);
+			if (!doc) return s;
+			const sheets = await sheetsOf(s);
+			const fr = document.createElement("iframe");
+			fr.setAttribute("sandbox", "allow-same-origin"); // sin allow-scripts: nada de la página corre
+			fr.setAttribute("aria-hidden", "true"); fr.tabIndex = -1;
+			Object.assign(fr.style, { position: "fixed", left: "-100000px", top: "0", border: "0", width: (s.viewport?.w || 1280) + "px", height: (s.viewport?.h || 800) + "px" });
+			const loaded = new Promise((res) => { fr.addEventListener("load", res, { once: true }); setTimeout(res, 4000); });
+			fr.srcdoc = htmlSrcdoc(s, sheets, doc);
+			document.body.appendChild(fr);
+			try {
+				await loaded;
+				const d = fr.contentDocument, win = fr.contentWindow;
+				if (!d || !win) return s;
+				const byI = new Map();
+				const walk = (root) => {
+					for (const el of root.querySelectorAll("[data-tr-i]")) byI.set(+el.getAttribute("data-tr-i"), el);
+					for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot);
+				};
+				walk(d);
+				for (const n of s.nodes) {
+					const el = byI.get(n.i);
+					if (el && !n.style) n.style = computedStyle(win, el, n);
+				}
+			} catch { /* sin estilos: la página real se ve igual, la reconstrucción sin colores */ } finally { fr.remove(); }
+			return s;
+		}
+		async function mountFrame(s, doc, req) {
+			const sheets = await sheetsOf(s);
+			if (req !== frameReq) return;
+			const lost = sheets.filter((c) => typeof c !== "string").length + (s.html.missing || []).length;
+			const note = $(".insp-cssnote");
+			note.hidden = !lost; note.textContent = lost ? t("Faltan {n} hojas de estilo de la página: se ve sin parte de su diseño.", { n: lost }) : "";
+			const fr = document.createElement("iframe");
+			fr.className = "insp-frame"; fr.setAttribute("sandbox", ""); fr.setAttribute("referrerpolicy", "no-referrer");
+			fr.setAttribute("scrolling", "no"); fr.setAttribute("aria-hidden", "true"); fr.tabIndex = -1; fr.title = t("Página real del momento del fallo");
+			Object.assign(fr.style, { width: (s.viewport?.w || current.W) + "px", height: current.H + "px" });
+			current.srcdoc = htmlSrcdoc(s, sheets, doc);
+			const loaded = new Promise((res) => { fr.addEventListener("load", res, { once: true }); setTimeout(res, 4000); });
+			fr.srcdoc = current.srcdoc;
+			stage.querySelector(".insp-frame")?.remove();
+			stage.insertBefore(fr, layer);
+			await loaded;
+			return req === frameReq;
+		}
+		let frameReq = 0;
+
 		// ---------- escenario ----------
 		function show(snap) {
-			const s = snap.nodes?.length ? snap : fromElements(snap);
-			current = { snap: s, nodes: s.nodes, W: s.page?.w || s.viewport?.w || 1280, H: s.page?.h || s.viewport?.h || 800 };
+			const s = snap.nodes?.length ? expandStyles(snap) : fromElements(snap);
+			current = { snap: s, nodes: s.nodes, W: s.page?.w || s.viewport?.w || 1280, H: s.page?.h || s.viewport?.h || 800, shot: shotOf(curPage) };
 			$(".insp-basic").hidden = !s.basic;
-			mirror = buildMirror(current.nodes);
+			// modo HTML: XPath y CSS sobre la página real (la misma que ve Selenium), el iframe la dibuja
+			current.html = htmlOn(s);
+			const vb = $('[data-insp="view"]');
+			vb.hidden = !s.html?.doc; vb.setAttribute("aria-pressed", String(current.html));
+			vb.textContent = current.html ? `◧ ${t("Página real")}` : `◨ ${t("Reconstrucción")}`;
+			stage.classList.toggle("html-mode", current.html); stage.classList.remove("html-build");
+			stage.querySelector(".insp-frame")?.remove(); frameReq++;
+			$(".insp-cssnote").hidden = true;
+			const doc = current.html ? parseHTMLDoc(s) : null;
+			mirror = doc || buildMirror(current.nodes);
+			// la página real lista (sus hojas cargadas y el iframe dibujado): la esperan el fundido y la fidelidad
+			current.frameReady = doc ? mountFrame(s, doc, frameReq).catch(() => false) : Promise.resolve(false);
 			layer.innerHTML = ""; cursors.innerHTML = ""; testCursor = null; els = [];
 			stage.style.width = current.W + "px"; stage.style.height = current.H + "px";
 			stage.style.background = current.nodes[0]?.style?.backgroundColor || "#fff";
@@ -408,25 +603,53 @@
 				Object.assign(el.style, { left: n.x + "px", top: n.y + "px", width: n.w + "px", height: n.h + "px", zIndex: 10 + plan.rank[n.i],
 					color: st.color || "", fontSize: st.fontSize || "", fontWeight: st.fontWeight || "", fontFamily: st.fontFamily || "",
 					borderRadius: st.borderRadius || "", lineHeight: !st.lineHeight || st.lineHeight === "normal" ? "1.2" : st.lineHeight });
+				// una caja girada (pestañas verticales con rotate): su tamaño de layout, centrado donde se ve, con el giro
+				if (n.tf && n.lw > 0 && n.lh > 0) Object.assign(el.style, { left: n.x + (n.w - n.lw) / 2 + "px", top: n.y + (n.h - n.lh) / 2 + "px",
+					width: n.lw + "px", height: n.lh + "px", transform: n.tf });
+				if (st.writingMode && st.writingMode !== "horizontal-tb") el.style.writingMode = st.writingMode;
 				if (plan.opacity[n.i] < 1) el.style.opacity = String(Math.round(plan.opacity[n.i] * 1000) / 1000);
 				// un texto de varias líneas (un párrafo de un modal, "16:43<br>Compra en línea") se ajusta como en la página
 				const lh = parseFloat(st.lineHeight) || fs * 1.2;
-				if ((n.text || "").includes("\n") || n.h > lh * 1.8) el.classList.add("wrap");
-				if (clipped) el.style.clipPath = clipped;
-				if (parseFloat(st.borderTopWidth) > 0) el.style.border = `${st.borderTopWidth} solid ${st.borderTopColor || "#999"}`;
+				// el alto de una línea se mide a lo ancho si el texto va de arriba abajo, y sin el giro de la caja
+				const vertical = /^(vertical|sideways)/.test(st.writingMode || "");
+				const across = n.tf ? (vertical ? n.lw : n.lh) : (vertical ? n.w : n.h);
+				const oneLine = /^(nowrap|pre)$/.test(st.whiteSpace || "") || st.textOverflow === "ellipsis";
+				if ((n.text || "").includes("\n") || (across > lh * 1.8 && !oneLine)) el.classList.add("wrap");
+				if (clipped && !n.tf) el.style.clipPath = clipped; // el recorte va en coordenadas de la página
+				if (!("borderBottomWidth" in st)) { // snapshot anterior: solo el borde de arriba, para los cuatro lados
+					if (parseFloat(st.borderTopWidth) > 0) el.style.border = `${st.borderTopWidth} solid ${st.borderTopColor || "#999"}`;
+				} else for (const side of ["Top", "Right", "Bottom", "Left"]) {
+					const w = st[`border${side}Width`];
+					if (parseFloat(w) > 0) el.style[`border${side}`] = `${w} solid ${st[`border${side}Color`] || "#999"}`;
+				}
+				if (/gradient\(/.test(st.backgroundImage || "")) el.style.backgroundImage = st.backgroundImage;
+				if (st.boxShadow && st.boxShadow !== "none") el.style.setProperty("--pg-shadow", st.boxShadow);
 				el.dataset.bg = transparent(st.backgroundColor) ? "" : st.backgroundColor;
 				if (n.tag === "svg" || n.tag === "img" || n.tag === "canvas") el.classList.add("img");
-				if (n.h <= fs * 2.4 || ["button", "a"].includes(n.tag)) el.classList.add("mid");
+				if (across <= fs * 2.4 || ["button", "a"].includes(n.tag)) el.classList.add("mid");
 				if (n.tag === "button" || (!transparent(st.backgroundColor) && n.text && n.w < 220)) el.classList.add("center");
 				const tx = document.createElement("span"); tx.className = "t";
 				if (n.tx !== undefined && n.tx !== null) Object.assign(tx.style, { position: "absolute", left: n.tx + "px", top: (n.ty || 0) + "px" });
+				if (["input", "select", "textarea"].includes(n.tag)) el.classList.add("ctl");
+				if (placeholderOf(n)) { tx.classList.add("ph"); tx.style.color = n.style?.placeholderColor || ""; }
+				if (st.textOverflow === "ellipsis") { // un texto largo cortado con «…» como en la página
+					tx.classList.add("ellipsis");
+					if (tx.style.position === "absolute") tx.style.maxWidth = Math.max(0, n.w - n.tx) + "px";
+				}
 				el.appendChild(tx);
 				drawIcons(el, n, current.snap.glyphs || {});
 				layer.appendChild(el);
 				els[n.i] = el;
 			}
 			const ov = $(".insp-overlay");
-			if (ov) { ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = snap !== opts.snapshot; }
+			if (ov) {
+				// la captura de esta página: la del fallo, o la de su propio paso (un WARNING: la de ese warning, no la
+				// última del test, que puede ser de otra pantalla); sin una cercana, no hay qué superponer
+				if (current.shot) ov.src = current.shot;
+				ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = !current.shot;
+				Object.assign(ov.style, { left: (current.snap.scroll?.x || 0) + "px", top: (current.snap.scroll?.y || 0) + "px" }); // la parte de la página que muestra
+			}
+			if (isMain(snap) && current.shot && s.nodes?.length && !s.basic) measureSoon(); // sin su captura, no se mide
 			fit();
 			if (diffOn) applyDiff();
 		}
@@ -455,7 +678,7 @@
 				body.textContent = t("No hay un PASS anterior de este test con sus páginas guardadas. Con TRACEREPORTS_DOM_STEPS=1 cada ejecución guarda las páginas de sus pasos y se puede comparar.");
 				return;
 			}
-			const bs = base.snapshot.nodes?.length ? base.snapshot : fromElements(base.snapshot);
+			const bs = base.snapshot.nodes?.length ? expandStyles(base.snapshot) : fromElements(base.snapshot);
 			const d = diffSnapshots(bs.nodes, current.nodes);
 			d.added.forEach((i) => els[i]?.classList.add("diff-added"));
 			d.changed.forEach((c) => els[c.i]?.classList.add("diff-changed"));
@@ -515,9 +738,120 @@
 			await tween(ms, id, (p) => { const e = ease(p); place(c, from.x + (x - from.x) * e, from.y + (y - from.y) * e); });
 		}
 
+		// ---------- fidelidad: la página reconstruida contra la captura ----------
+		let fidReq = 0;
+		const fidDone = {};
+		function measureSoon() {
+			const req = ++fidReq, mode = current.html ? "html" : "structure";
+			if (fidDone[mode] !== undefined) return showFidelity(fidDone[mode]);
+			$(".insp-fid").hidden = true; $(".insp-fidwarn").hidden = true;
+			const once = () => (mode === "html" ? measureHTML() : measure());
+			const run = async () => {
+				// modo HTML: se mide la página real cuando ya tiene sus hojas y el iframe la dibujó, no a ciegas
+				if (mode === "html" && !(await current.frameReady)) return;
+				let f = await once();
+				if (f === undefined && req === fidReq) { await new Promise((r) => setTimeout(r, 1000)); f = await once(); } // un dibujo fallido: otra vez
+				if (req !== fidReq || f === null || f === undefined) return;
+				fidDone[mode] = f; showFidelity(f);
+				opts.onFidelity?.(f, mode);
+			};
+			setTimeout(() => run().catch(() => { /* sin cifra: la captura no se pudo leer */ }), 60);
+		}
+		function showFidelity(f) {
+			const pct = Math.round(f * 100), badge = $(".insp-fid"), warn = $(".insp-fidwarn");
+			if (!badge) return;
+			badge.hidden = false; badge.textContent = t("Fidelidad: {n} %", { n: pct });
+			badge.classList.toggle("low", f < FIDELITY_WARN);
+			warn.hidden = f >= FIDELITY_WARN;
+			warn.textContent = t("La reconstrucción difiere de la captura ({n} %): usa «Superponer captura» para ver la página real.", { n: pct });
+		}
+		const loadImg = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+		/** Las reglas de la hoja del Inspector que dibujan los nodos, para la copia que se rasteriza. */
+		function nodeRules() {
+			let css = "";
+			for (const sh of document.styleSheets) {
+				let rules;
+				try { rules = sh.cssRules; } catch { continue; }
+				for (const r of rules) {
+					if (r.selectorText && /\.insp-(n|layer)\b/.test(r.selectorText) && !/hover|\.sel|match|similar|failed-el|diff|drawing|caret/.test(r.selectorText)) css += r.cssText + "\n";
+				}
+			}
+			return css;
+		}
+		/** La captura y un lienzo vacío del mismo tamaño (240 px de ancho) para comparar con ella. */
+		async function shotAndCanvas() {
+			const s = current.snap, vw = s.viewport?.w || current.W, vh = s.viewport?.h || current.H, sx = s.scroll?.x || 0, sy = s.scroll?.y || 0;
+			const W = 240, H = Math.max(1, Math.round((W * vh) / vw));
+			const canvas = () => {
+				const c = document.createElement("canvas"); c.width = W; c.height = H;
+				const g = c.getContext("2d", { willReadFrequently: true }); g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+				return g;
+			};
+			const shot = await loadImg(current.shot), k = shot.naturalWidth / vw;
+			const ga = canvas();
+			if (shot.naturalHeight / k > vh * 1.15) ga.drawImage(shot, sx * k, sy * k, vw * k, Math.min(vh * k, shot.naturalHeight - sy * k), 0, 0, W, H); // captura de la página entera
+			else ga.drawImage(shot, 0, 0, W, H);
+			return { s, vw, vh, sx, sy, W, H, ga, gb: canvas() };
+		}
+		/** Modo HTML: la página real (el mismo documento del iframe) rasterizada y comparada con la captura. */
+		async function measureHTML() {
+			const { vw, vh, sx, sy, W, H, ga, gb } = await shotAndCanvas();
+			if (!current.srcdoc) return null;
+			const doc = new DOMParser().parseFromString(current.srcdoc, "text/html");
+			doc.querySelectorAll("meta").forEach((m) => m.remove());
+			// en un foreignObject no hay lienzo: el fondo del <body> no se extiende a toda la página como en el iframe
+			// (con todo en absoluto o fijo, el body no tiene alto y la página sale en blanco). <html> del tamaño de la
+			// página y con el fondo del body (el que midió el cliente), antes del CSS de la página, que manda si pinta <html>
+			const root = doc.documentElement, bodyBg = current.nodes.find((n) => n.tag === "body")?.style?.backgroundColor;
+			root.setAttribute("style", `${root.getAttribute("style") || ""};min-width:${vw + sx}px;min-height:${current.H}px`);
+			if (bodyBg && !transparent(bodyBg)) {
+				const st = doc.createElement("style"); st.textContent = `html{background-color:${bodyBg}}`;
+				doc.head.prepend(st);
+			}
+			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${vw}" height="${vh}"><foreignObject x="${-sx}" y="${-sy}" width="${vw + sx}" height="${current.H}">${new XMLSerializer().serializeToString(doc.documentElement)}</foreignObject></svg>`;
+			gb.drawImage(await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)), 0, 0, W, H);
+			const shot = ga.getImageData(0, 0, W, H), raster = gb.getImageData(0, 0, W, H);
+			return failedRaster(raster, shot) ? undefined : fidelity(shot, raster);
+		}
+		/** Dibuja la parte de la página que muestra la captura y la compara con ella, a 240 px de ancho. */
+		async function measure() {
+			const { s, vw, vh, sx, sy, W, H, ga, gb } = await shotAndCanvas();
+			// la reconstrucción como queda al terminar de armarse, sin la animación ni las marcas del Inspector
+			const copy = layer.cloneNode(true);
+			for (const el of copy.querySelectorAll(".insp-n")) {
+				const n = current.nodes[+el.dataset.i];
+				el.classList.remove("hover", "sel", "match", "similar", "failed-el", "diff-added", "diff-changed", "drawing");
+				el.style.clipPath = el.dataset.clip || ""; el.style.backgroundColor = el.dataset.bg || "";
+				const tx = el.querySelector(".t");
+				if (tx) tx.textContent = shownText(n);
+			}
+			copy.querySelectorAll("img").forEach((i) => i.remove());
+			const bg = current.nodes[0]?.style?.backgroundColor || "#fff";
+			const style = document.createElement("style"); style.textContent = nodeRules();
+			const wrap = document.createElement("div");
+			wrap.setAttribute("style", `position:relative;width:${vw}px;height:${vh}px;overflow:hidden;color:#222;font-family:Arial,sans-serif`);
+			wrap.style.background = bg;
+			const page = document.createElement("div");
+			page.setAttribute("style", `position:absolute;left:${-sx}px;top:${-sy}px;width:${current.W}px;height:${current.H}px`);
+			page.appendChild(copy); wrap.append(style, page);
+			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${vw}" height="${vh}"><foreignObject width="100%" height="100%">${new XMLSerializer().serializeToString(wrap)}</foreignObject></svg>`;
+			gb.drawImage(await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)), 0, 0, W, H);
+			// los íconos y los SVG son imágenes: dentro del foreignObject no se cargan, se dibujan encima
+			const f = W / vw;
+			for (const img of layer.querySelectorAll(".insp-n img")) {
+				const n = current.nodes[+img.closest(".insp-n").dataset.i];
+				const box = img.classList.contains("insp-svg") ? { x: 0, y: 0, w: n.w, h: n.h }
+					: { x: parseFloat(img.style.left) || 0, y: parseFloat(img.style.top) || 0, w: parseFloat(img.style.width) || 0, h: parseFloat(img.style.height) || 0 };
+				if (!(box.w > 0 && box.h > 0)) continue;
+				try { gb.drawImage(await loadImg(img.src), (n.x + box.x - sx) * f, (n.y + box.y - sy) * f, box.w * f, box.h * f); } catch { /* sin ese ícono */ }
+			}
+			return fidelity(ga.getImageData(0, 0, W, H), gb.getImageData(0, 0, W, H));
+		}
+
 		// ---------- el enjambre arma la página ----------
-		async function construct(id) {
-			const order = drawable().sort((a, b) => a.depth - b.depth || a.y - b.y || a.x - b.x);
+		/** Los cursores arman la página; con `only`, solo esos nodos (lo que cambió desde el paso anterior). */
+		async function construct(id, only = null) {
+			const order = drawable().filter((n) => !only || only.has(n.i)).sort((a, b) => a.depth - b.depth || a.y - b.y || a.x - b.x);
 			const done = new Map(), total = order.length, status = $(".insp-status");
 			let built = 0;
 			order.forEach((n) => { let r; const pr = new Promise((res) => (r = res)); done.set(n.i, { pr, r }); });
@@ -578,7 +912,15 @@
 				return `<li class="${cls}" data-page="${k}" tabindex="0"><span class="num">${k + 1}</span><span>${esc(p.label || t("Paso {n}", { n: k + 1 }))}</span><small>${tag}</small></li>`;
 			}).join("");
 		}
-		async function pageSnap(p) { return p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq); }
+		/** La página que se muestra es la principal: la del fallo, o la del último warning si no hay fallo. */
+		/** La captura de la página k: la del fallo, o la del paso más cercano a cuando se tomó la página. */
+		function shotOf(k) {
+			const p = pages[k];
+			if (!p) return "";
+			return p.kind === "fail" ? opts.screenshot || "" : nearestShot(opts.shots, p.at, p.kind);
+		}
+		function isMain(snap) { return opts.snapshot ? snap === opts.snapshot : mainPage >= 0 && curPage === mainPage; }
+		async function pageSnap(p) { return hydrateStyles(p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq)); }
 		function markFailure(instant) {
 			cursors.querySelectorAll(".insp-ghost, .insp-simlabel").forEach((g) => g.remove());
 			layer.querySelectorAll(".similar, .failed-el").forEach((e) => e.classList.remove("similar", "failed-el"));
@@ -637,14 +979,50 @@
 					if (id !== runId) return;
 					if (!snap) continue;
 					curPage = k;
+					const prev = current?.nodes;
 					show(snap);
-					if (k === 0 && !instant) { hideAll(); await construct(id); } else { showAll(); counted(); }
+					// qué arman los cursores: la primera página entera; en las siguientes, solo lo que cambió desde la
+					// anterior (un paso sin cambios pasa rápido; uno que cambia casi todo, una navegación, se arma entero)
+					const plan = instant ? { skip: true } : stepPlan(k === 0 ? null : prev);
+					if (!plan.skip) {
+						// modo HTML: los cursores arman la reconstrucción y al final se funde a la página real
+						const real = current.html;
+						if (real) { stage.classList.remove("html-mode"); stage.classList.add("html-build"); }
+						if (plan.only) { showAll(); hideSome(plan.only); } else hideAll();
+						await construct(id, plan.only);
+						counted();
+						if (real) await revealReal(id);
+					} else { showAll(); counted(); }
+					lastPlan = plan;
 					if (p.kind === "fail") { markFailure(instant); renderSteps(k, true); break; }
 					if (!testCursor) testCursor = makeCursor("#0f1b2b", "test", "test");
 					say(p.label || t("Paso {n}", { n: k + 1 }), null);
-					if (!instant) await tween(1400, id);
+					if (!instant) await tween(lastPlan.same ? 350 : 1400, id); // un paso sin cambios no hace esperar
 				}
 			} catch (e) { if (e !== CANCEL) throw e; }
+		}
+		let lastPlan = {};
+		/** Qué armar en una página: todo (sin la anterior), nada (igual a la anterior) o solo lo nuevo y lo que
+		 * cambió; si cambió más del 60 % de lo que se dibuja, todo. */
+		function stepPlan(prevNodes) {
+			if (!prevNodes) return {};
+			const d = diffSnapshots(prevNodes, current.nodes);
+			const only = new Set([...d.added, ...d.changed.map((c) => c.i)].filter((i) => els[i]));
+			if (!only.size) return { skip: true, same: true };
+			return only.size > drawable().length * 0.6 ? {} : { only };
+		}
+		function hideSome(set) {
+			for (const i of set) { const el = els[i], n = current.nodes[i]; if (!el || !n) continue; el.style.clipPath = "inset(0 100% 100% 0)"; el.style.backgroundColor = ""; el.firstChild.textContent = ""; }
+		}
+		/** Después de armar en modo HTML: la página real aparece encima de la reconstrucción (~400 ms) y
+		 * después queda debajo de sus cajas, ya transparentes, como siempre en ese modo. */
+		async function revealReal(id) {
+			await current.frameReady;
+			if (id !== runId) return;
+			const fr = stage.querySelector(".insp-frame");
+			if (fr) await tween(400, id, (p) => { fr.style.opacity = String(ease(p)); });
+			stage.classList.remove("html-build"); stage.classList.add("html-mode");
+			if (fr) fr.style.opacity = "";
 		}
 		/** Los elementos de la página que se está viendo (cambia con cada paso). */
 		function counted() { $(".insp-status").textContent = t("{n} elementos reconstruidos", { n: drawable().length }); }
@@ -773,6 +1151,7 @@
 			if (a?.dataset.insp === "play") { try { localStorage.setItem(PREF, "0"); } catch { /* */ } playAll(false); }
 			if (a?.dataset.insp === "instant") { try { localStorage.setItem(PREF, "1"); } catch { /* */ } playAll(true); }
 			if (a?.dataset.insp === "pause") setPaused(!paused);
+			if (a?.dataset.insp === "view" && current) { viewHTML = !viewHTML; jump(curPage); }
 			if (a?.dataset.insp === "diff") {
 				diffOn = !diffOn;
 				a.setAttribute("aria-pressed", String(diffOn));
@@ -798,5 +1177,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, nearestShot, fidelity, dominantShare, failedRaster, htmlExtraCSS, htmlSrcdoc, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
 })();

@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/josemiguellopez/tracereports/internal/errtext"
+	"github.com/josemiguellopez/tracereports/internal/locator"
 	"image"
 	_ "image/gif"  // capturas: los formatos que acepta el servidor
 	_ "image/jpeg" //
@@ -51,6 +53,8 @@ type Escalation struct {
 	// Timing is how long an AI summary took, split between the provider and TraceReports (shown
 	// under the card in the UI, not shared). Nil for the template.
 	Timing *AITiming `json:"timing,omitempty"`
+	// loadingEvidence: the template's line of evidence about the loading page (kept on an AI answer).
+	loadingEvidence string
 }
 
 // AITiming splits how long an AI answer took: waiting for the provider (every call, retries
@@ -87,38 +91,44 @@ func (t *AITiming) Finish(total time.Duration) {
 
 // Facts is the evidence an escalation is built from (also what the summary card shows).
 type Facts struct {
-	RunName     string   `json:"run_name"`
-	Env         string   `json:"env"`
-	RunStatus   string   `json:"run_status"`
-	StartedAt   int64    `json:"started_at"`
-	DurationMs  int64    `json:"duration_ms"`
-	Total       int      `json:"total"`
-	Passed      int      `json:"passed"`
-	Failed      int      `json:"failed"`
-	Skipped     int      `json:"skipped"`
-	Warning     int      `json:"warning,omitempty"`    // tests que terminaron con advertencia
-	Running     int      `json:"running,omitempty"`    // tests que todavía no terminaron
-	Incomplete  bool     `json:"incomplete,omitempty"` // se cerró sin que terminaran todos sus tests
-	TestName    string   `json:"test_name,omitempty"`
-	TestTags    string   `json:"test_tags,omitempty"`
-	TestDesc    string   `json:"test_desc,omitempty"`
-	Error       string   `json:"error,omitempty"`
-	Category    string   `json:"category,omitempty"`
-	AISummary   string   `json:"ai_summary,omitempty"`
-	AISuggest   string   `json:"ai_suggestion,omitempty"`
-	LocatorPick string   `json:"locator_pick,omitempty"`
-	NoRule      bool     `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
+	RunName     string `json:"run_name"`
+	Env         string `json:"env"`
+	RunStatus   string `json:"run_status"`
+	StartedAt   int64  `json:"started_at"`
+	DurationMs  int64  `json:"duration_ms"`
+	Total       int    `json:"total"`
+	Passed      int    `json:"passed"`
+	Failed      int    `json:"failed"`
+	Skipped     int    `json:"skipped"`
+	Warning     int    `json:"warning,omitempty"`    // tests que terminaron con advertencia
+	Running     int    `json:"running,omitempty"`    // tests que todavía no terminaron
+	Incomplete  bool   `json:"incomplete,omitempty"` // se cerró sin que terminaran todos sus tests
+	TestName    string `json:"test_name,omitempty"`
+	TestTags    string `json:"test_tags,omitempty"`
+	TestDesc    string `json:"test_desc,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Category    string `json:"category,omitempty"`
+	AISummary   string `json:"ai_summary,omitempty"`
+	AISuggest   string `json:"ai_suggestion,omitempty"`
+	LocatorPick string `json:"locator_pick,omitempty"`
+	NoRule      bool   `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
 	// TriageRule: the local engine's rule that wrote the test's triage ("" when an LLM or nothing did).
 	// Its text is in the language the engine chose then; LocalizedFacts writes it again in the escalation's.
-	TriageRule string `json:"-"`
+	TriageRule  string   `json:"-"`
 	Steps       []string `json:"steps,omitempty"`
 	Screenshot  string   `json:"screenshot,omitempty"` // URL relativa de la captura del fallo
 	ShotCaption string   `json:"shot_caption,omitempty"`
 	// ShotBlank: every screenshot of the test is blank (the page never rendered). The screenshot is
 	// still the evidence, but shown as a notice: a big white box looks like an image that failed to load.
-	ShotBlank   bool          `json:"shot_blank,omitempty"`
-	Network     []NetFact     `json:"network,omitempty"`
-	FailedTests []FailedFact  `json:"failed_tests,omitempty"`
+	ShotBlank   bool         `json:"shot_blank,omitempty"`
+	Network     []NetFact    `json:"network,omitempty"`
+	FailedTests []FailedFact `json:"failed_tests,omitempty"`
+	// Where: where the (first) failure happened, from the data (never from the model): for QA.
+	Where *WhereFailed `json:"where,omitempty"`
+	// Loading: what said the page was still loading when the (first) failed test failed, in the
+	// escalation's language (loadingBy has both; newEscalation picks one).
+	Loading     []string `json:"loading,omitempty"`
+	loadingBy   map[string][]string
 	Incidents   []db.Incident `json:"incidents,omitempty"`
 	RunHeadline string        `json:"run_headline,omitempty"`
 	RunSummary  string        `json:"run_summary,omitempty"`
@@ -157,6 +167,89 @@ type NetFact struct {
 }
 
 // FailedFact is one failed test of the run.
+// WhereFailed is where a test failed: the test, the step it was on, its error (the useful part) and
+// the selector it could not find.
+type WhereFailed struct {
+	Test     string `json:"test"`
+	Step     string `json:"step,omitempty"`
+	LastOK   string `json:"last_ok,omitempty"` // sin un paso que falló propio: el último que pasó (rotulado así)
+	Error    string `json:"error,omitempty"`
+	Selector string `json:"selector,omitempty"`
+}
+
+// fullError is the test's error as complete as the report has it: a client may store the error message
+// cut (~300 characters, in the middle of the selector), while the FAIL step carries it whole.
+func fullError(t *db.Test) string {
+	best := t.ErrorMessage
+	head := []rune(errtext.Useful(t.ErrorMessage))
+	if len(head) > 60 {
+		head = head[:60]
+	}
+	for _, l := range t.Logs {
+		if l.Status != "FAIL" || len(head) == 0 {
+			continue
+		}
+		if u := errtext.Useful(l.Message); len(u) > len(errtext.Useful(best)) && strings.HasPrefix(u, string(head)) {
+			best = l.Message
+		}
+	}
+	return best
+}
+
+// shownError: the useful part of an error to show, at most n letters. An error that came cut (its
+// selector does not close) ends in "…" too: it is not the whole text.
+func shownError(msg string, n int) string {
+	s := errtext.Short(msg, n)
+	if s != "" && !strings.HasSuffix(s, "…") && locator.Truncated(locator.ExtractSelector(s)) {
+		s += "…"
+	}
+	return s
+}
+
+// whereFailed: the error (whole, from the FAIL step when the stored message was cut), the step that
+// failed when it says something else than the error, and otherwise the last step that passed, named as
+// such (a step that passed shown as "the step" reads as if it had failed).
+func whereFailed(t *db.Test) *WhereFailed {
+	full := fullError(t)
+	w := &WhereFailed{Test: t.Name, Error: shownError(full, 600)}
+	same := func(msg string) bool {
+		u, e := errtext.Useful(msg), errtext.Useful(full)
+		return u == "" || strings.HasPrefix(e, u) || strings.HasPrefix(u, e)
+	}
+	firstFail := -1
+	for i, l := range t.Logs {
+		if l.Status != "FAIL" {
+			continue
+		}
+		if firstFail < 0 {
+			firstFail = i
+		}
+		// la captura del fallo ("Captura al fallar") no es un paso; uno que repite el error tampoco suma
+		if same(l.Message) || l.Screenshot != "" && len([]rune(l.Message)) < 40 {
+			continue
+		}
+		w.Step = errtext.Short(l.Message, 300)
+		break
+	}
+	if w.Step == "" && firstFail > 0 {
+		for i := firstFail - 1; i >= 0; i-- {
+			if l := t.Logs[i]; l.Status != "FAIL" && strings.TrimSpace(l.Message) != "" {
+				w.LastOK = errtext.Short(l.Message, 300)
+				break
+			}
+		}
+	}
+	// el selector completo: del error sin su envoltorio, o completado con los pasos si vino cortado
+	w.Selector = locator.ExtractSelector(errtext.Useful(full), t.ErrorTrace)
+	if w.Selector == "" || locator.Truncated(w.Selector) {
+		if sel, _ := failedSelector(t); sel != "" && (w.Selector == "" || len(sel) > len(w.Selector)) {
+			w.Selector = sel
+		}
+	}
+	w.Selector = errtext.Cut(w.Selector, 600)
+	return w
+}
+
 type FailedFact struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
@@ -164,21 +257,11 @@ type FailedFact struct {
 	Error    string `json:"error,omitempty"`
 }
 
-func clip(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
-}
+// clip cuts on a word, by letters (never in the middle of one).
+func clip(s string, n int) string { return errtext.Cut(s, n) }
 
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	return clip(s, 300)
-}
+// firstLine is the informative line of an error, without the framework's wrapper (file name and list).
+func firstLine(s string) string { return errtext.Short(s, 300) }
 
 // blankImage reports a screenshot that is a single flat color (e.g. the empty page a browser shows
 // when the backend is down): useless as evidence on an escalation card.
@@ -225,7 +308,7 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 		if t.Status != "FAIL" {
 			continue
 		}
-		ff := FailedFact{ID: t.ID, Name: t.Name, Error: firstLine(t.ErrorMessage)}
+		ff := FailedFact{ID: t.ID, Name: t.Name, Error: firstLine(t.ErrorMessage)} // run.Tests no trae los pasos
 		if t.Triage != nil && t.Triage.State == "DONE" {
 			ff.Category = t.Triage.Category
 		}
@@ -256,8 +339,31 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 	if t.RunID != runID {
 		return nil, db.ErrNotFound
 	}
+	if t.Status == "FAIL" {
+		f.Where = whereFailed(t)
+	}
+	if t.Status == "FAIL" {
+		// ¿seguía cargando la página? Entonces "cambió el selector" sería falso (también en la IA)
+		conns, err := store.NetworkTimeline(t.ID)
+		if err != nil {
+			return nil, err
+		}
+		sel := locator.ExtractSelector(errtext.Useful(t.ErrorMessage), t.ErrorTrace)
+		f.loadingBy = map[string][]string{}
+		for _, lang := range []string{"es", "en"} {
+			l := loadingSignals(store, t, conns, lang)
+			if s := selectorBefore(store, t, sel, lang); s != "" {
+				l = append(l, s)
+			}
+			f.loadingBy[lang] = l
+		}
+	}
+	if testID == 0 && f.Failed == 1 && t.Status == "FAIL" {
+		// la ejecución completa con un solo fallo: la ficha nombra el test y la evidencia trae su error
+		f.TestName, f.Error = t.Name, clip(fullError(t), 1500)
+	}
 	if testID != 0 {
-		f.TestName, f.TestTags, f.TestDesc, f.Error = t.Name, t.Category, t.Description, clip(t.ErrorMessage, 1500)
+		f.TestName, f.TestTags, f.TestDesc, f.Error = t.Name, t.Category, t.Description, clip(fullError(t), 1500)
 		f.ReportPath = fmt.Sprintf("#run=%d&view=tests&test=%d", runID, t.ID)
 		if t.Triage != nil && t.Triage.State == "DONE" {
 			f.Category, f.AISummary, f.AISuggest, f.LocatorPick = t.Triage.Category, t.Triage.Summary, t.Triage.Suggestion, t.Triage.LocatorPick
@@ -372,6 +478,15 @@ var audienceGuide = map[string]string{
 - "next_steps": concrete debugging or fix steps (logs to check, request to replay, code area).`,
 }
 
+// loadingFacts: the loading signals in the escalation's language, or in English for a prompt built
+// straight from BuildFacts (the chat).
+func (f *Facts) loadingFacts() []string {
+	if len(f.Loading) > 0 {
+		return f.Loading
+	}
+	return f.loadingBy["en"]
+}
+
 func (f *Facts) promptBlock(scope string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Run: %s · environment: %s · status: %s · %d tests: %d passed, %d failed, %d skipped.\n",
@@ -413,6 +528,11 @@ func (f *Facts) promptBlock(scope string) string {
 			fmt.Fprintf(&b, "- %s %s%s -> %s after %d ms. Body: %s\n", n.Method, n.Host, n.Path, n.Outcome, n.DurationMs, n.Body)
 		}
 	}
+	if l := f.loadingFacts(); len(l) > 0 {
+		b.WriteString("Loading signals at the moment of the failure (from the page and its network): " + strings.Join(l, "; ") + ". " +
+			"The element did not show up in time because the page was still loading: the cause is a wait in the test (TIMING). " +
+			"Do not say that the selector or the UI changed; the next step is to wait for the load to finish.\n")
+	}
 	if f.ShotBlank {
 		b.WriteString("Every screenshot of the test is blank: the page never rendered (it did not finish loading). Do not " +
 			"conclude that the UI changed or that a selector broke: the element could never appear on a blank page.\n")
@@ -436,6 +556,11 @@ func EscalateTemplate(f *Facts, runID, testID int64, audience, lang string) *Esc
 // the facts are not changed).
 func newEscalation(f *Facts, runID, testID int64, audience, lang string) *Escalation {
 	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
+	if l, ok := f.loadingBy[lang]; ok {
+		e.Facts.Loading = l
+	} else if l, ok := f.loadingBy["es"]; ok {
+		e.Facts.Loading = l
+	}
 	if as := f.Assessment; as != nil {
 		cp := *as
 		cp.Signals = append([]Signal(nil), as.Signals...)
@@ -764,6 +889,23 @@ func usable(s string) bool {
 	return t != "" && !schemaWords[t] && len([]rune(t)) >= 3
 }
 
+// selectorBlameRe: a text that says the selector or the screen changed (or that it must be updated).
+var selectorBlameRe = regexp.MustCompile(`(?i)(selector|locator|xpath|localizador)[^.]{0,80}(cambi|chang|actualiz|updat|ya no coincide|no longer match|roto|broken)|(cambi|chang)[^.]{0,60}(interfaz|\bui\b|pantalla|screen|selector|locator)|problema con (el )?selector|selector problem`)
+
+var sentenceRe = regexp.MustCompile(`[.;|\n]`)
+
+// selectorDeniedRe: the sentences that say the opposite (the template's own: "el selector no cambió").
+var selectorDeniedRe = regexp.MustCompile(`(?i)(el|the) selector (no|did not|didn't) (cambió|cambio|change)d?|no cambiar el selector|do not change the selector|no (es )?(un )?cambio de la interfaz|not a UI change|no es un selector roto|not a broken selector`)
+
+func blamesSelector(s string) bool {
+	for _, part := range sentenceRe.Split(s, -1) { // frase por frase: una negación no tapa otra frase
+		if !selectorDeniedRe.MatchString(part) && selectorBlameRe.MatchString(part) {
+			return true
+		}
+	}
+	return false
+}
+
 func usableList(xs []string) []string {
 	var out []string
 	for _, x := range xs {
@@ -796,8 +938,26 @@ func fillFromTemplate(e *Escalation) {
 			*f.got = f.tpl
 		}
 	}
-	if e.Evidence = usableList(e.Evidence); len(e.Evidence) == 0 {
+	if e.Evidence = usefulEvidence(usableList(e.Evidence)); len(e.Evidence) == 0 {
 		e.Evidence = tpl.Evidence
+	}
+	// el titular del diagnóstico de la ejecución copiado tal cual no resume nada: el de la plantilla dice la causa
+	if e.TestID == 0 && e.Facts.Failed == 1 && e.Facts.RunHeadline != "" && same(e.Headline, e.Facts.RunHeadline) {
+		e.Headline = tpl.Headline
+	}
+	// la página seguía cargando y el modelo igual culpa al selector o a la interfaz: gana la plantilla,
+	// que sale de la evidencia (un modelo chico repite la categoría del error aunque se le diga)
+	if len(e.Facts.Loading) > 0 {
+		if blamesSelector(e.Headline) {
+			e.Headline = tpl.Headline
+		}
+		if blamesSelector(e.WhatHappened) || blamesSelector(e.RootCause) || blamesSelector(strings.Join(e.NextSteps, " ")) {
+			e.WhatHappened, e.RootCause, e.NextSteps = tpl.WhatHappened, tpl.RootCause, tpl.NextSteps
+			e.Severity, e.Owner, e.Impact = tpl.Severity, tpl.Owner, tpl.Impact
+		}
+		if tpl.loadingEvidence != "" && !strings.Contains(strings.Join(e.Evidence, "\n"), tpl.loadingEvidence) {
+			e.Evidence = append(e.Evidence, tpl.loadingEvidence) // un hecho, no una opinión del modelo
+		}
 	}
 	if e.NextSteps = usableList(e.NextSteps); len(e.NextSteps) == 0 {
 		e.NextSteps = tpl.NextSteps
@@ -808,3 +968,22 @@ func fillFromTemplate(e *Escalation) {
 		e.Severity = tpl.Severity
 	}
 }
+
+// usefulEvidence: a line the model copied from a wrapped error ("Errores … para el file_name:x.py: [")
+// shows its useful part, and goes away when it had none (only the wrapper, cut at "[").
+func usefulEvidence(xs []string) []string {
+	out := xs[:0]
+	for _, x := range xs {
+		if !wrappedLineRe.MatchString(x) {
+			out = append(out, x)
+			continue
+		}
+		if u := errtext.Short(x, 300); usable(u) { // solo el envoltorio cortado en "[": no queda nada
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// wrappedLineRe: a framework's wrapper around a list of errors, or a line cut right after it.
+var wrappedLineRe = regexp.MustCompile(`(?i)file_name\s*:|\.(?:py|js|ts|java|cs|rb)\s*:\s*\[|:\s*\[\s*$`)

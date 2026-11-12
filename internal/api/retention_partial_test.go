@@ -15,10 +15,10 @@ func TestRetentionCutHalfwayRecordsWhatItDeleted(t *testing.T) {
 	srv, _ := newTestServer(t)
 	dbPath := filepath.Join(srv.ScreenshotsDir, "t.db")
 	srv.ScreenshotsDir = t.TempDir()
-	for i := 0; i < 25; i++ { // la primera tanda (purgeBatch = 25) se borra entera
+	for i := 0; i < 20; i++ { // las dos primeras tandas (de 10) se borran enteras
 		storageRun(t, srv, "p", 40, 10)
 	}
-	storageRun(t, srv, "boom", 40, 10) // la segunda tanda falla
+	storageRun(t, srv, "boom", 40, 10) // la tercera tanda falla
 	raw, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		t.Fatal(err)
@@ -30,11 +30,11 @@ func TestRetentionCutHalfwayRecordsWhatItDeleted(t *testing.T) {
 	}
 
 	run, err := srv.PurgeOld(30, "auto", "")
-	if err == nil || run.Runs != 25 {
-		t.Fatalf("purge: runs=%d err=%v, want 25 and an error", run.Runs, err)
+	if err == nil || run.Runs != 20 {
+		t.Fatalf("purge: runs=%d err=%v, want 20 and an error", run.Runs, err)
 	}
 	last := srv.lastRetention()
-	if last == nil || last.Runs != 25 || last.Files != 25 || last.Error == "" {
-		t.Fatalf("last cleanup = %+v, want the 25 runs it deleted and the error", last)
+	if last == nil || last.Runs != 20 || last.Files != 20 || last.Error == "" {
+		t.Fatalf("last cleanup = %+v, want the 20 runs it deleted and the error", last)
 	}
 }

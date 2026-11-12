@@ -784,6 +784,11 @@ body[data-theme="pixel"] .ai-hint { font-size: 18px; }
 .esc-doc .esc-foot { align-items: flex-end; }
 .esc-doc .esc-foot div { display: flex; flex-direction: column; gap: 2px; }
 .esc-tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.esc-sev, .esc-aud { white-space: nowrap; } /* una insignia es una sola línea, también en el PNG */
+.esc-where { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.esc-where dt { font-weight: 600; color: var(--color-text-muted, #5b6b7b); }
+.esc-where dd { margin: 0; overflow-wrap: anywhere; }
+.esc-foot a { white-space: nowrap; } /* «Ver reporte completo ↗»: la flecha no baja sola a otra línea */
 .esc-sev { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #fff; background: var(--sev); padding: 3px 9px; border-radius: 999px; }
 .esc-aud { font-size: 11.5px; font-weight: 700; color: #455a64; background: #eef1f4; padding: 3px 9px; border-radius: 999px; }
 .esc-brand { display: inline-flex; align-items: center; gap: 7px; font: 600 12.5px "JetBrains Mono", ui-monospace, Consolas, monospace; color: #18200d; letter-spacing: -.01em; }
@@ -1458,6 +1463,8 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .insp .seg button { font: 600 12.5px var(--font-ui); border: 0; background: var(--color-surface); color: var(--color-text); padding: 5px 10px; cursor: pointer; }
 .insp .seg button[aria-pressed="true"] { background: var(--color-primary); color: var(--color-on-primary); }
 .insp-ovl { display: inline-flex; align-items: center; gap: 6px; color: var(--color-text-muted); font-size: 13px; }
+.insp-fid { font-size: 12.5px; font-weight: 600; padding: 2px 8px; border-radius: 10px; background: color-mix(in srgb, #1b7a43 16%, transparent); color: var(--color-text); font-variant-numeric: tabular-nums; }
+.insp-fid.low { background: color-mix(in srgb, #e3a008 26%, transparent); }
 .insp-status { margin-left: auto; color: var(--color-text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
 .insp-main { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 14px; align-items: start; }
 @media (max-width: 1100px) { .insp-main { grid-template-columns: minmax(0, 1fr); } }
@@ -1467,7 +1474,15 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .insp-layer, .insp-cursors { position: absolute; inset: 0; }
 .insp-cursors { pointer-events: none; z-index: 9000; }
 .insp-overlay { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; z-index: 8000; transition: opacity .2s; }
-.insp-n { position: absolute; display: flex; align-items: flex-start; overflow: hidden; white-space: nowrap; transition: background-color .25s, box-shadow .2s; cursor: default; }
+.insp-n { position: absolute; display: flex; align-items: flex-start; overflow: hidden; white-space: nowrap; transition: background-color .25s, box-shadow .2s; cursor: default; box-shadow: var(--pg-shadow, none); }
+.insp-n.ctl { padding: 0 8px; }
+.insp-n .t.ph { color: #757575; }
+/* modo HTML: el iframe dibuja la página; las cajas del Inspector quedan encima, transparentes, para marcar y elegir */
+.insp-frame { position: absolute; left: 0; top: 0; border: 0; background: #fff; pointer-events: none; }
+.insp-stage.html-build .insp-frame { z-index: 7999; opacity: 0; } /* modo HTML mientras se arma: encima de las cajas, invisible hasta el fundido */
+.insp-stage.html-mode .insp-n { background: transparent !important; background-image: none !important; border-color: transparent !important; --pg-shadow: none; }
+.insp-stage.html-mode .insp-n .t, .insp-stage.html-mode .insp-n img { visibility: hidden; }
+.insp-n .t.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 100%; }
 .insp-n.mid { align-items: center; }
 .insp-n.wrap { white-space: pre-line; }
 .insp-notice { margin: 0; padding: 8px 12px; border-radius: 6px; font-size: 13px; color: var(--color-text); background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface)); border: 1px solid color-mix(in srgb, var(--color-warning) 40%, transparent); }

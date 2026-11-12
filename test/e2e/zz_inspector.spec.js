@@ -371,3 +371,438 @@ test("el Inspector dibuja los íconos de la página (fuentes de íconos, ligadur
 	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");
 	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
 });
+
+// Un skeleton de carga como lo dibujan las librerías tipo content-loader: un <rect> del tamaño
+// completo, recortado a las barras (clipPath) y pintado con un gradiente. Antes el servidor quitaba
+// los <defs> y el Inspector mostraba un bloque negro donde la página mostraba barras grises.
+test("el Inspector dibuja un skeleton SVG con sus gradientes y recortes, no un bloque negro", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector skeleton", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "lista cargando" } })).json()).test_id;
+	const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 95" preserveAspectRatio="none" fill="rgb(0, 0, 0)" width="400" height="95">' +
+		'<rect x="0" y="0" width="400" height="95" clip-path="url(#clipA)" style="fill: url(#gradA)" fill="url(&quot;#gradA&quot;)"/>' +
+		'<defs fill="rgb(0, 0, 0)"><clipPath id="clipA"><rect x="0" y="10" rx="3" width="300" height="12"/><rect x="0" y="40" width="300" height="8"/></clipPath>' +
+		'<linearGradient id="gradA"><stop offset="0%" stop-color="#f3f3f3"><animate attributeName="offset" values="-2; 1" dur="2s" repeatCount="indefinite"/></stop>' +
+		'<stop offset="100%" stop-color="#ecebeb"/></linearGradient></defs>' +
+		'<rect x="0" y="60" width="50" height="10" fill="url(https://evil.example/p.svg#otro)"/></svg>';
+	const snap = page("Lista", { pay: false, extra: [
+		{ p: 2, tag: "svg", attrs: {}, text: "", x: 60, y: 180, w: 400, h: 95, visible: true, depth: 2, style: style("rgba(0, 0, 0, 0)"), svg },
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "no aparece el registro" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const img = insp.locator(".insp-svg");
+	await expect(img).toHaveCount(1);
+	const src = await img.getAttribute("src");
+	expect(decodeURIComponent(src.split(",")[1])).not.toMatch(/evil|animate|style=/);
+	// se dibuja la imagen tal como la ve el visor y se leen sus píxeles
+	const px = await p.evaluate(async (s) => {
+		const im = new Image(); im.src = s; await im.decode();
+		const c = document.createElement("canvas"); c.width = 400; c.height = 95;
+		const g = c.getContext("2d"); g.drawImage(im, 0, 0, 400, 95);
+		const at = (x, y) => [...g.getImageData(x, y, 1, 1).data];
+		return { bar: at(100, 15), gap: at(100, 30), lost: at(20, 65) };
+	}, src);
+	expect(px.bar[3], "la barra se ve").toBe(255);
+	expect(Math.min(...px.bar.slice(0, 3)), "la barra es gris claro, no negra").toBeGreaterThan(200);
+	expect(px.gap[3], "entre barras no hay nada").toBe(0);
+	expect(px.lost[3], "una pintura externa quitada deja un hueco, no negro").toBe(0);
+});
+
+// Pestañas verticales: con writing-mode el texto va de arriba abajo en su caja alta; con rotate la caja
+// se dibuja con su tamaño de layout y girada, ocupando lo mismo que en la página.
+test("el Inspector dibuja las pestañas verticales como en la página (writing-mode y rotate)", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector pestañas", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "pestañas verticales" } })).json()).test_id;
+	const snap = page("Ficha", { pay: false, extra: [
+		{ p: 0, tag: "div", attrs: { class: "tab-wm" }, text: "Historia", x: 900, y: 100, w: 47, h: 105, visible: true, depth: 1, tx: 14, ty: 10,
+			style: { ...style("rgb(255, 255, 255)"), writingMode: "vertical-rl" } },
+		{ p: 0, tag: "div", attrs: { class: "tab-rot" }, text: "Formularios", x: 900, y: 220, w: 24, h: 90, visible: true, depth: 1,
+			tf: "matrix(0, 1, -1, 0, 0, 0)", lw: 90, lh: 24, style: style("rgb(255, 255, 255)") },
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "no se abrió la pestaña" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const wm = insp.locator(".insp-n", { hasText: "Historia" });
+	await expect(wm).toHaveCSS("writing-mode", "vertical-rl");
+	const text = await wm.locator(".t").boundingBox();
+	expect(text.height, "el texto va de arriba abajo").toBeGreaterThan(text.width);
+	const rot = insp.locator(".insp-n", { hasText: "Formularios" });
+	await expect(rot).toHaveCSS("transform", "matrix(0, 1, -1, 0, 0, 0)");
+	const [box, ref] = await Promise.all([rot.boundingBox(), insp.locator(".insp-n", { hasText: "Historia" }).boundingBox()]);
+	expect(box.height, "girada: alta y angosta, como en la página").toBeGreaterThan(box.width * 3);
+	expect(Math.abs(box.x - ref.x), "en el mismo lugar que en la página").toBeLessThan(3);
+});
+
+// La línea bajo un encabezado (solo abajo), la sombra de una tarjeta, un fondo degradado y un texto
+// cortado con «…». Un snapshot anterior (solo el borde de arriba) sigue dibujando los cuatro lados.
+test("el Inspector dibuja bordes por lado, sombras, degradados y textos cortados con «…»", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector cajas", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "cajas" } })).json()).test_id;
+	const snap = page("Ficha", { pay: false, extra: [
+		{ p: 0, tag: "div", attrs: { class: "head" }, text: "Encabezado", x: 40, y: 420, w: 400, h: 40, visible: true, depth: 1,
+			style: { ...style("rgb(255, 255, 255)"), borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "2px", borderBottomColor: "rgb(51, 117, 194)", borderLeftWidth: "0px",
+				boxShadow: "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px", backgroundImage: "linear-gradient(90deg, rgb(243, 243, 243) 0%, rgb(236, 235, 235) 100%)" } },
+		{ p: 0, tag: "span", attrs: { class: "cut" }, text: "Atención no completada por el profesional", x: 40, y: 480, w: 80, h: 18, visible: true, depth: 1,
+			style: { ...style("rgba(0, 0, 0, 0)"), textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+		{ p: 0, tag: "div", attrs: { class: "old" }, text: "Viejo", x: 500, y: 420, w: 100, h: 40, visible: true, depth: 1,
+			style: { ...style("rgb(255, 255, 255)"), borderTopWidth: "1px", borderTopColor: "rgb(200, 0, 0)" } },
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const head = insp.locator(".insp-n", { hasText: "Encabezado" });
+	await expect(head).toHaveCSS("border-bottom-width", "2px");
+	await expect(head).toHaveCSS("border-bottom-color", "rgb(51, 117, 194)");
+	await expect(head).toHaveCSS("border-top-width", "0px");
+	await expect(head).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px");
+	await expect(head).toHaveCSS("background-image", /linear-gradient/);
+	const cut = insp.locator(".insp-n", { hasText: "Atención no completada" }).locator(".t");
+	await expect(cut).toHaveCSS("text-overflow", "ellipsis");
+	expect(await cut.evaluate((e) => e.scrollWidth > e.clientWidth), "el texto no cabe y se corta").toBe(true);
+	const old = insp.locator(".insp-n", { hasText: "Viejo" });
+	await expect(old).toHaveCSS("border-left-width", "1px");
+	await expect(old).toHaveCSS("border-bottom-color", "rgb(200, 0, 0)");
+	// la sombra de la página no tapa el marcado del Inspector
+	await head.hover();
+	await expect(head).toHaveCSS("box-shadow", /rgb\(31, 111, 235\)/);
+});
+
+// Un select muestra su opción elegida, un campo vacío su placeholder atenuado y uno escrito «•••». El
+// texto de la página reconstruida (para XPath) sigue siendo el de siempre.
+test("el Inspector muestra la opción del select, el placeholder y ••• en un campo escrito", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector controles", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "controles" } })).json()).test_id;
+	const ctl = (o) => ({ p: 2, x: 60, w: 200, h: 32, visible: true, depth: 2, text: "", ...o });
+	const snap = page("Filtros", { pay: false, extra: [
+		ctl({ tag: "select", attrs: { class: "per" }, y: 170, shown: "12 Meses", style: style("rgb(255, 255, 255)") }),
+		ctl({ tag: "input", attrs: { class: "dx", placeholder: "Diagnóstico" }, y: 210, style: { ...style("rgb(255, 255, 255)"), placeholderColor: "rgb(108, 117, 125)" } }),
+		ctl({ tag: "input", attrs: { class: "nm", placeholder: "Nombre" }, y: 250, filled: true, style: style("rgb(255, 255, 255)") }),
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-n.ctl", { hasText: "12 Meses" })).toHaveCount(1);
+	const ph = insp.locator(".insp-n.ctl .t.ph", { hasText: "Diagnóstico" });
+	await expect(ph).toHaveCSS("color", "rgb(108, 117, 125)");
+	await expect(insp.locator(".insp-n.ctl", { hasText: "•••" })).toHaveCount(1);
+	await expect(insp.locator(".insp-n", { hasText: "Nombre" })).toHaveCount(0);
+	// el select no tiene texto propio en la página reconstruida: un XPath por su texto no lo encuentra
+	await insp.locator(".insp-probe").fill("//select[normalize-space(.)='12 Meses']");
+	await expect(insp.locator(".insp-probeout")).toContainText("Ninguna coincidencia");
+});
+
+// Fidelidad: el Inspector compara la página reconstruida con la captura del fallo y dice cuánto se
+// parecen. Una reconstrucción fiel da una cifra alta; un bloque negro donde la página tenía barras
+// grises (el SVG recortado de antes) la baja y el Inspector avisa que se use la superposición.
+test("el Inspector mide su fidelidad contra la captura y avisa si la reconstrucción difiere", async ({ page: p, request, browser }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector fidelidad", environment: "qa" } })).json()).run_id;
+	const bars = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 95" preserveAspectRatio="none" width="560" height="280"><rect width="400" height="95" fill="url(#g)" clip-path="url(#c)"/>' +
+		'<defs><clipPath id="c"><rect y="10" width="300" height="12"/><rect y="40" width="300" height="8"/><rect y="60" width="300" height="8"/></clipPath><linearGradient id="g"><stop offset="0" stop-color="#e6e6e6"/><stop offset="1" stop-color="#dcdcdc"/></linearGradient></defs></svg>';
+	const black = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 95" preserveAspectRatio="none" fill="rgb(0, 0, 0)" width="560" height="280"><rect width="400" height="95"/></svg>';
+	// la página real, y su captura como la del momento del fallo
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">
+		<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff">Demo Shop</div>
+		<div style="position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff"></div>
+		<div style="position:absolute;left:60px;top:120px;width:560px;height:280px">${bars}</div></body>`);
+	const png = await real.screenshot();
+	await real.close();
+	const make = async (name, svg) => {
+		const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name } })).json()).test_id;
+		const snap = page("", { pay: false, extra: [{ p: 2, tag: "svg", attrs: {}, text: "", x: 60, y: 120, w: 560, h: 280, visible: true, depth: 2, style: style("rgba(0, 0, 0, 0)"), svg }] });
+		snap.nodes[1].text = ""; // la cabecera sin texto: la comparación es de colores
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+		expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura al fallar", status: "FAIL" } })).ok()).toBeTruthy();
+		await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "no aparece el registro" } });
+		return id;
+	};
+	const good = await make("fiel", bars), bad = await make("bloque negro", black);
+	const open = async (id) => {
+		await p.goto(`/#run=${run}&view=tests&test=${id}`);
+		await p.locator('#test-detail [data-tab="inspector"]').click();
+		const insp = p.locator("#inspector-panel .insp");
+		await insp.locator('[data-insp="instant"]').click();
+		await expect(insp.locator(".insp-fid")).toBeVisible();
+		return { insp, pct: parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10) };
+	};
+	const g = await open(good);
+	expect(g.pct, "la reconstrucción fiel se parece a la captura").toBeGreaterThanOrEqual(95);
+	await expect(g.insp.locator(".insp-fidwarn")).toBeHidden();
+	const b = await open(bad);
+	expect(b.pct, "el bloque negro baja la fidelidad").toBeLessThan(85);
+	await expect(b.insp.locator(".insp-fid")).toHaveClass(/low/);
+	await expect(b.insp.locator(".insp-fidwarn")).toContainText("Superponer captura");
+	// queda guardada por test y se resume por run y modo
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(2);
+	const sum = (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes[0];
+	expect(sum.mode).toBe("structure");
+	expect(Math.round(sum.min * 100)).toBe(b.pct);
+});
+
+// Modo HTML (TRACEREPORTS_DOM_MODE=html): el Inspector deja que el navegador dibuje la página con su
+// CSS en un iframe aislado (sin scripts ni red), marca y prueba XPath sobre ese mismo HTML, avisa las
+// hojas que faltan y mide su fidelidad contra la captura. El botón vuelve a la reconstrucción.
+test("modo HTML: la página real con su CSS, aislada, con XPath sobre el HTML y fidelidad", async ({ page: p, request, browser }, info) => {
+	const crypto = require("node:crypto");
+	const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
+	const css = ".top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}" +
+		".card{position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff;box-shadow:rgba(0, 0, 0, 0.2) 0px 1px 3px 0px}" +
+		".btn{position:absolute;left:60px;top:300px;width:180px;height:44px;background:rgb(31, 111, 235);color:#fff;border:0}" +
+		"body{margin:0;background:rgb(246, 244, 239);font:14px Arial}";
+	const body = `<div class="top" data-tr-i="1">Demo Shop</div><div class="card" id="ficha" data-tr-i="2"><h1 data-tr-i="3" style="margin:0;position:absolute;left:20px;top:20px;font-size:20px">Zapatilla Trail</h1>` +
+		`<button class="btn" data-testid="pay" data-tr-i="4">Pagar ahora</button></div>`;
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<html><head><style>${css}</style></head><body>${body}</body></html>`);
+	const png = await real.screenshot();
+	await real.close();
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "compra modo html" } })).json()).test_id;
+	const snap = page("Zapatilla Trail");
+	snap.html = { doc: `<html><head></head><body data-tr-i="0">${body}<script>parent.__pwned=1</script><img src=x onerror="parent.__pwned=1"></body></html>`,
+		css: [sha(css), sha("x{}"), sha("")], sheets: { [sha(css)]: css, [sha("")]: "" }, missing: ["https://cdn.example/other.css"], dpr: 1 };
+	const r = await request.post(`/api/v1/tests/${id}/dom`, { data: snap });
+	expect((await r.json()).mode).toBe("html");
+	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura al fallar", status: "FAIL" } })).ok()).toBeTruthy();
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const frame = insp.locator(".insp-frame");
+	await expect(frame).toHaveAttribute("sandbox", "");
+	expect(await frame.getAttribute("srcdoc")).toContain("default-src 'none'");
+	// el navegador dibuja la página con su CSS; nada de la página corre
+	const card = p.frameLocator("#inspector-panel .insp-frame").locator("#ficha");
+	await expect(card).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px");
+	await expect(p.frameLocator("#inspector-panel .insp-frame").locator(".btn")).toHaveText("Pagar ahora");
+	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
+	await expect(insp.locator(".insp-cssnote")).toContainText("Faltan 2 hojas de estilo"); // la vacía (<style></style>) no cuenta
+	// XPath y CSS sobre el HTML real, y el elemento marcado con su caja
+	await insp.locator(".insp-probe").fill("//div[@id='ficha']//button[normalize-space(.)='Pagar ahora']");
+	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");
+	await expect(insp.locator(".insp-n.match")).toHaveCount(1);
+	await insp.locator(".insp-probe").fill("#ficha > h1");
+	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia");
+	// la fidelidad del modo HTML se mide y se guarda con su modo
+	await expect(insp.locator(".insp-fid")).toBeVisible();
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct, "la página real se parece a su captura").toBeGreaterThanOrEqual(90);
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes.map((m) => m.mode).join()).toBe("html");
+	// el botón vuelve a la reconstrucción (sin iframe) y su fidelidad también se guarda
+	await insp.locator('[data-insp="view"]').click();
+	await expect(insp.locator(".insp-frame")).toHaveCount(0);
+	await expect(insp.locator('[data-insp="view"]')).toContainText("Reconstrucción");
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes.map((m) => m.mode).join()).toBe("html,structure");
+	// Playwright entra al iframe con su propio script y el sandbox lo bloquea: es lo que se espera
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
+});
+
+// Modo HTML con la animación: los cursores arman la reconstrucción como en el modo normal y al terminar
+// se funde a la página real (el iframe visible y las cajas transparentes, como siempre en ese modo).
+test("modo HTML: los cursores arman la página y termina en la página real", async ({ page: p, request }, info) => {
+	const crypto = require("node:crypto");
+	const css = ".top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}body{margin:0;background:rgb(246, 244, 239)}";
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML animado", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "animación modo html" } })).json()).test_id;
+	const snap = page("Zapatilla Trail");
+	const h = crypto.createHash("sha256").update(css).digest("hex");
+	snap.html = { doc: `<html><head></head><body data-tr-i="0"><div class="top" data-tr-i="1">Demo Shop</div><div id="ficha" data-tr-i="2">Zapatilla Trail</div></body></html>`, css: [h], sheets: { [h]: css }, dpr: 1 };
+	expect((await (await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).json()).mode).toBe("html");
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	const state = () => insp.evaluate((el) => {
+		const st = el.querySelector(".insp-stage"), fr = st.querySelector(".insp-frame"), top = st.querySelector(".insp-n");
+		return { build: st.classList.contains("html-build"), html: st.classList.contains("html-mode"), cursors: st.querySelectorAll(".insp-cur").length,
+			frame: fr ? getComputedStyle(fr).opacity : null, box: top ? getComputedStyle(top).backgroundColor : null };
+	});
+	// mientras se arma: cursores, las cajas de la reconstrucción con su color y la página real oculta
+	await expect.poll(async () => { const s = await state(); return s.build && s.cursors > 0; }, { timeout: 10000 }).toBe(true);
+	const building = await state();
+	expect(building.html).toBe(false);
+	expect(building.frame === null || building.frame === "0").toBe(true);
+	// al terminar: la página real, visible, con su CSS
+	await expect.poll(async () => { const s = await state(); return `${s.build}|${s.html}|${s.frame}`; }, { timeout: 30000 }).toBe("false|true|1");
+	await expect.poll(async () => (await state()).box).toBe("rgba(0, 0, 0, 0)"); // al final de su transición
+	await expect(p.frameLocator("#inspector-panel .insp-frame").locator(".top")).toHaveCSS("background-color", "rgb(31, 95, 69)");
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+});
+
+// La fidelidad del modo HTML se mide cuando la página real ya tiene sus hojas: con la descarga de las
+// hojas lenta (2 s, como 450 KB por la red interna) la cifra sale igual de alta, no la de una página vacía.
+test("modo HTML: la fidelidad espera las hojas de estilo aunque tarden", async ({ page: p, request, browser }, info) => {
+	const crypto = require("node:crypto");
+	const css = "body{margin:0;background:rgb(60, 70, 90);font:14px Arial}.top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}" +
+		".modal{position:absolute;left:250px;top:180px;width:500px;height:234px;background:#fff}";
+	const body = `<div class="top" data-tr-i="1">Demo Shop</div><div class="modal" id="ficha" data-tr-i="2">¿Está seguro(a)?</div>`;
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<html><head><style>${css}</style></head><body>${body}</body></html>`);
+	const png = await real.screenshot();
+	await real.close();
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML hojas lentas", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "fidelidad con hojas lentas" } })).json()).test_id;
+	const h = crypto.createHash("sha256").update(css).digest("hex");
+	const snap = page("¿Está seguro(a)?");
+	snap.nodes[0].style.backgroundColor = "rgb(60, 70, 90)"; // el fondo del body, como lo mide el cliente
+	snap.html = { doc: `<html><head></head><body data-tr-i="0">${body}</body></html>`, css: [h], sheets: { [h]: css }, dpr: 1 };
+	expect((await (await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).json()).mode).toBe("html");
+	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura al fallar", status: "FAIL" } })).ok()).toBeTruthy();
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.route("**/api/v1/dom/css/**", async (route) => { await new Promise((r) => setTimeout(r, 2000)); await route.continue(); });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-fid")).toBeVisible({ timeout: 15000 });
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct, "medida con las hojas ya cargadas, no sobre una página vacía").toBeGreaterThanOrEqual(90);
+	await expect.poll(async () => Math.round(((await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes[0]?.min || 0) * 100)).toBe(pct);
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+});
+
+// Un test que terminó en WARNING no tiene página del fallo: sus páginas llegan como pasos, el último con
+// kind "warning". La fidelidad se mide sobre ese último warning con su captura (antes no había cifra para
+// 20 de los 22 tests con problemas de una suite real).
+test("un test WARNING mide la fidelidad sobre la página de su último warning", async ({ page: p, request, browser }) => {
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">
+		<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69)"></div>
+		<div style="position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff"></div></body>`);
+	const png = await real.screenshot();
+	await real.close();
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector fidelidad warning", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "termina en warning" } })).json()).test_id;
+	const snap = page("", { pay: false });
+	snap.nodes[1].text = ""; snap.nodes[3].text = "";
+	for (const [kind, label] of [["step", "Abrir la ficha"], ["warning", "La lista tardó más de 5 s"]]) {
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...snap, kind, label } })).status()).toBeLessThan(300);
+	}
+	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura del warning", status: "WARNING" } })).ok()).toBeTruthy();
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "WARNING", error_message: "La lista tardó más de 5 s" } });
+	expect((await (await request.get(`/api/v1/tests/${id}/dom`)).status())).toBe(204); // sin página del fallo
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-fid")).toBeVisible();
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct).toBeGreaterThanOrEqual(85);
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(1);
+	// en otro paso se puede superponer su captura, pero la fidelidad es solo de la página principal
+	await insp.locator('.insp-steps [data-page="0"]').click();
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(1);
+});
+
+// Modo HTML: el servidor no guarda los estilos de los nodos (los da la página real). El visor los calcula
+// del HTML con su CSS, y la reconstrucción (y la animación) se dibujan con los colores de la página.
+test("modo HTML: la reconstrucción toma los estilos de la página real, que no se guardan dos veces", async ({ page: p, request }, info) => {
+	const crypto = require("node:crypto");
+	const css = "body{margin:0;background:rgb(246, 244, 239)}.top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}";
+	const h = crypto.createHash("sha256").update(css).digest("hex");
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML estilos", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "estilos desde el html" } })).json()).test_id;
+	const snap = page("Zapatilla Trail");
+	snap.nodes[1].style = style("rgb(255, 0, 0)"); // lo que mande el cliente no se guarda: manda la página
+	snap.html = { doc: `<html><head></head><body data-tr-i="0"><div class="top" data-tr-i="1">Demo Shop</div><div id="ficha" data-tr-i="2">Zapatilla</div></body></html>`, css: [h], sheets: { [h]: css }, dpr: 1 };
+	expect((await (await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).json()).mode).toBe("html");
+	const stored = await (await request.get(`/api/v1/tests/${id}/dom`)).json();
+	expect(stored.styles_from).toBe("html");
+	expect(stored.nodes.some((n) => n.style || n.s !== undefined)).toBe(false);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await insp.locator('[data-insp="view"]').click(); // a la reconstrucción
+	await expect(insp.locator(".insp-frame")).toHaveCount(0);
+	await expect(insp.locator('.insp-n[data-i="1"]')).toHaveCSS("background-color", "rgb(31, 95, 69)");
+	await expect(insp.locator('.insp-n[data-i="1"] .t')).toHaveText("Demo Shop");
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+});
+
+// Los pasos siguientes también se animan, pero solo con lo que cambió desde el anterior: un paso igual
+// pasa rápido y en la página del fallo los cursores dibujan solo el botón que apareció.
+test("los cursores arman en cada paso solo lo que cambió desde el anterior", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector pasos animados", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "tres paginas" } })).json()).test_id;
+	const base = page("Zapatilla Trail", { pay: false });
+	for (const label of ["Abrir la ficha", "Elegir la talla"]) {
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...base, kind: "step", label } })).status()).toBeLessThan(300);
+	}
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: page("Zapatilla Trail") })).status()).toBeLessThan(300); // + el botón Pagar
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.addInitScript(() => {
+		window.__status = [];
+		new MutationObserver(() => {
+			const s = document.querySelector(".insp-status")?.textContent;
+			if (s && window.__status[window.__status.length - 1] !== s) window.__status.push(s);
+		}).observe(document, { subtree: true, childList: true, characterData: true });
+	});
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await expect(insp.locator(".insp-steps li.failed")).toHaveCount(1, { timeout: 30_000 });
+	const seen = await p.evaluate(() => window.__status);
+	const builds = seen.filter((s) => /^Reconstruyendo 0 de \d+$/.test(s));
+	expect(builds[0]).toBe("Reconstruyendo 0 de 3"); // la primera página, entera
+	expect(builds).toContain("Reconstruyendo 0 de 1"); // la del fallo: solo el botón nuevo
+	expect(builds.length, "el paso igual al anterior no se vuelve a armar").toBe(2);
+	await expect(insp.locator('.insp-n[data-i="4"] .t')).toHaveText("Pagar ahora");
+});
+
+// Un WARNING se compara con SU captura, no con la última del test: en un caso real, la página del warning era
+// un modal y la última captura (38 s después) la agenda sin el modal, y la fidelidad daba 20 %.
+test("un WARNING usa la captura de su warning para superponer y medir, no la última del test", async ({ page: p, request, browser }) => {
+	const shot = async (html) => {
+		const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+		await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">${html}</body>`);
+		const png = await real.screenshot();
+		await real.close();
+		return png;
+	};
+	const modal = await shot(`<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69)"></div>
+		<div style="position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff"></div>`);
+	const agenda = await shot(`<div style="position:absolute;inset:0;background:rgb(20, 20, 120)"></div>`);
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector captura del warning", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "warning con su captura" } })).json()).test_id;
+	const T = Date.now() - 120_000;
+	const snap = page("", { pay: false });
+	snap.nodes[1].text = ""; snap.nodes[3].text = "";
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...snap, kind: "warning", label: "Alerta guardando cita", at: T } })).status()).toBeLessThan(300);
+	const up = (png, status, at, message) => request.post(`/api/v1/tests/${id}/screenshot`, { headers: { "X-TraceReports-Timestamp": String(at) },
+		multipart: { file: { name: "s.png", mimeType: "image/png", buffer: png }, message, status } });
+	expect((await up(modal, "WARNING", T + 3_000, "Alerta guardando cita")).ok()).toBeTruthy();
+	expect((await up(agenda, "INFO", T + 41_000, "Agenda")).ok()).toBeTruthy(); // la última del test: otra pantalla
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "WARNING", error_message: "El paciente ya tiene una cita" } });
+	const logs = (await (await request.get(`/api/v1/tests/${id}`)).json()).logs.filter((l) => l.screenshot);
+	const warnShot = logs.find((l) => l.status === "WARNING").screenshot;
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-overlay")).toHaveAttribute("src", warnShot);
+	await expect(insp.locator(".insp-fid")).toBeVisible();
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct, "comparada con la captura del warning (con la última daría muy bajo)").toBeGreaterThanOrEqual(85);
+});

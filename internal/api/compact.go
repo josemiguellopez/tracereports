@@ -122,6 +122,12 @@ func (s *Server) CompactNow(trigger, by string) (CompactRun, error) {
 		return CompactRun{}, err
 	}
 	t0 := time.Now()
+	// las páginas del Inspector guardadas antes de empaquetarlas: comprimidas, el VACUUM devuelve el espacio
+	if n, err := s.Store.PackDOM(0); err != nil {
+		slog.Warn("compact: pack the Inspector's pages", "err", err, "packed", n)
+	} else if n > 0 {
+		slog.Info("compact: Inspector's pages packed", "pages", n)
+	}
 	if err := s.Store.Compact(); err != nil {
 		return CompactRun{}, err
 	}

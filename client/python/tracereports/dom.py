@@ -76,10 +76,12 @@ DOM_SCRIPT = """(mask) => {""" + _SHOWN + """
 }"""
 
 # El snapshot estructural. Recibe el selector de lo que se tapa (mask.py). Máximo 5000 nodos.
-STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
+STRUCT_SCRIPT = r"""(arg) => {
+  // arg: el selector de lo que se tapa, o {mask, html} (TRACEREPORTS_DOM_MODE=html: también el HTML y el CSS)
+  const mask = arg && typeof arg === 'object' ? arg.mask : arg, wantHTML = !!(arg && typeof arg === 'object' && arg.html);""" + _SHOWN + r"""
   const KEEP = ['id', 'class', 'name', 'role', 'type', 'placeholder', 'href', 'title', 'for', 'alt', 'data-testid', 'data-test', 'data-test-id'];
   const STYLE = ['display', 'position', 'backgroundColor', 'color', 'fontSize', 'fontWeight', 'fontFamily', 'borderTopWidth',
-    'borderTopColor', 'borderRadius', 'opacity', 'textAlign', 'lineHeight', 'zIndex', 'overflowX', 'overflowY'];
+    'borderTopColor', 'borderRadius', 'opacity', 'textAlign', 'lineHeight', 'zIndex', 'overflowX', 'overflowY', 'writingMode'];
   const SEL = 'a,button,input,select,textarea,label,summary,[role],[data-testid],[data-test-id],[data-test],[id],[name],[aria-label],[placeholder],h1,h2,h3,h4,h5,h6';
   const SKIP = new Set(['script', 'style', 'noscript', 'template', 'link', 'meta', 'head']);
   const nodes = [], elements = [];
@@ -115,12 +117,17 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
   const unq = (v) => { const m = /^["']([\s\S]*)["']$/.exec(v || ''); return m ? m[1].replace(/\\([0-9a-fA-F]{1,6})\s?/g, (x, hx) => String.fromCodePoint(parseInt(hx, 16))) : null; };
   const ICON_FONT = /material (icons|symbols)/i;
   const PAINT = ['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'fill-rule', 'stroke-linecap', 'stroke-linejoin'];
-  // un <svg> en línea, con sus colores resueltos (el CSS de la página no viaja) y sus <use href="#…"> adentro
+  // lo que no se pinta: definiciones, paradas de un gradiente y animaciones (en <animate>, fill es freeze/remove)
+  const NO_PAINT = /^(defs|clippath|mask|lineargradient|radialgradient|stop|pattern|symbol|title|desc|metadata|animate|animatetransform|animatemotion|set|mpath)$/i;
+  const REFS = ['fill', 'stroke', 'clip-path', 'mask', 'filter', 'marker-start', 'marker-mid', 'marker-end'];
+  const URL_REF = /url\(\s*["']?[^"'()\s#]*#([^"'()\s]+)["']?\s*\)/g;
+  // un <svg> en línea, con sus colores resueltos (el CSS de la página no viaja), sus <use href="#…"> adentro
+  // y los gradientes, recortes y máscaras a los que apunta, como url(#id) dentro del mismo <svg>
   const svgOf = (el, r) => {
     const all = [el, ...el.querySelectorAll('*')];
     if (all.length > 250) return '';
     const clone = el.cloneNode(true), copy = [clone, ...clone.querySelectorAll('*')];
-    all.forEach((o, i) => { const k = copy[i], s = getComputedStyle(o); if (k) for (const p of PAINT) { const v = s.getPropertyValue(p); if (v) k.setAttribute(p, v); } });
+    all.forEach((o, i) => { const k = copy[i], s = getComputedStyle(o); if (k && !NO_PAINT.test(o.localName)) for (const p of PAINT) { const v = s.getPropertyValue(p); if (v) k.setAttribute(p, v); } });
     for (const u of clone.querySelectorAll('use')) {
       const ref = u.getAttribute('href') || u.getAttribute('xlink:href') || '';
       const src = ref.startsWith('#') ? document.getElementById(ref.slice(1)) : null;
@@ -131,12 +138,40 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
       for (const c of src.childNodes) g.appendChild(c.cloneNode(true));
       u.replaceWith(g);
     }
+    clone.querySelectorAll('animate,animateTransform,animateMotion,set,script,foreignObject').forEach((a) => a.remove());
+    // url("https://host/página#grad") (algunas librerías la arman así por <base href>) → url(#grad), y lo que
+    // vive en otro <svg> de la página (un sprite oculto con los gradientes) se copia a un <defs> propio
+    const has = (id) => { try { return !!clone.querySelector('#' + CSS.escape(id)); } catch (e) { return false; } };
+    let defs = null, pulled = 0;
+    const pull = (id) => {
+      if (has(id)) return true;
+      const src = document.getElementById(id);
+      if (!src || !(src instanceof SVGElement) || src.contains(el) || ++pulled > 20) return false;
+      if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs'); clone.insertBefore(defs, clone.firstChild); }
+      defs.appendChild(src.cloneNode(true));
+      return true;
+    };
+    for (const k of [clone, ...clone.querySelectorAll('*')]) {
+      for (const a of REFS) {
+        const v = k.getAttribute(a);
+        if (v && v.includes('url(')) k.setAttribute(a, v.replace(URL_REF, (m, id) => (pull(id) ? 'url(#' + id + ')' : m)));
+      }
+      for (const a of ['href', 'xlink:href']) {
+        const v = k.getAttribute(a);
+        if (v && /^[^#]+#./.test(v) && v.split('#')[0] === location.href.split('#')[0]) k.setAttribute(a, '#' + v.split('#')[1]);
+      }
+    }
     clone.setAttribute('width', Math.round(r.width)); clone.setAttribute('height', Math.round(r.height));
     // como imagen, "currentColor" sería negro: el color que tiene el <svg> en la página
     const s = new XMLSerializer().serializeToString(clone).replace(/currentColor/g, getComputedStyle(el).color);
     return s.length <= 12000 ? s : '';
   };
-  const walk = (el, parent, depth) => {
+  // giro o inclinación acumulados (rotate, skew, scale; sin traslaciones, que la caja ya incluye): el
+  // Inspector dibuja la caja sin girar, del tamaño de su layout, y le aplica esta matriz en su centro
+  const turned = (m) => Math.abs(m.a - 1) > 0.01 || Math.abs(m.b) > 0.01 || Math.abs(m.c) > 0.01 || Math.abs(m.d - 1) > 0.01;
+  const linear = (m) => new DOMMatrix([m.a, m.b, m.c, m.d, 0, 0]);
+  const idx = new Map(), imgSrc = new Map(); // modo HTML: cada elemento con su nodo, y las imágenes chicas ya copiadas
+  const walk = (el, parent, depth, acc) => {
     if (nodes.length >= 5000 || depth > 60) return;
     const tag = el.tagName.toLowerCase();
     if (SKIP.has(tag)) return;
@@ -161,9 +196,31 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
     if (covered) { text = text ? '•••' : ''; delete attrs.placeholder; delete attrs.title; delete attrs['aria-label']; }
     const style = {};
     for (const k of STYLE) style[k] = st[k];
+    // bordes de cada lado (el ancho siempre: dice que el snapshot los trae; el color solo si se ven), sombras,
+    // fondos degradados (nunca una url()) y el corte de los textos largos; lo que vale lo de siempre no viaja
+    for (const side of ['Right', 'Bottom', 'Left']) {
+      style['border' + side + 'Width'] = st['border' + side + 'Width'];
+      if (parseFloat(st['border' + side + 'Width']) > 0) style['border' + side + 'Color'] = st['border' + side + 'Color'];
+    }
+    if (/gradient\(/.test(st.backgroundImage) && !/url\(/i.test(st.backgroundImage)) style.backgroundImage = st.backgroundImage;
+    if (st.boxShadow && st.boxShadow !== 'none') style.boxShadow = st.boxShadow;
+    if (st.textOverflow && st.textOverflow !== 'clip') style.textOverflow = st.textOverflow;
+    if (st.whiteSpace && st.whiteSpace !== 'normal') style.whiteSpace = st.whiteSpace;
     const node = { i: nodes.length, p: parent, tag, attrs, text, x: Math.round(r.x + sx), y: Math.round(r.y + sy),
       w: Math.round(r.width), h: Math.round(r.height), visible, depth, style };
-    if (tb) { node.tx = Math.round(tb.x - r.x); node.ty = Math.round(tb.y - r.y); }
+    if (st.transform && st.transform !== 'none') { try { acc = (acc || new DOMMatrix()).multiply(linear(new DOMMatrix(st.transform))); } catch (e) { /* sin giro */ } }
+    if (acc && turned(acc) && el.offsetWidth !== undefined) {
+      const f = (v) => Math.round(v * 10000) / 10000;
+      node.tf = 'matrix(' + [acc.a, acc.b, acc.c, acc.d].map(f).join(', ') + ', 0, 0)';
+      node.lw = el.offsetWidth; node.lh = el.offsetHeight;
+    } else if (tb) { node.tx = Math.round(tb.x - r.x); node.ty = Math.round(tb.y - r.y); }
+    // lo que muestra un control sin que nadie lo haya escrito: la opción elegida de un <select> (las
+    // opciones ya viajan) y el rótulo de un botón <input>. De un campo con algo escrito viaja solo que
+    // no está vacío (se dibuja •••), y su placeholder con el color que le da la página.
+    if (!covered && tag === 'select' && el.selectedIndex >= 0 && el.options[el.selectedIndex]) node.shown = el.options[el.selectedIndex].text.replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!covered && tag === 'input' && /^(button|submit|reset)$/.test(el.type)) node.shown = String(el.value || '').slice(0, 300);
+    if ((tag === 'textarea' || (tag === 'input' && !/^(button|submit|reset|checkbox|radio|hidden|file|image|range|color)$/.test(el.type))) && el.value) node.filled = true;
+    if (attrs.placeholder) { try { style.placeholderColor = getComputedStyle(el, '::placeholder').color; } catch (e) { /* sin color propio */ } }
     if (visible && !covered) {
       const icons = [];
       // ::before / ::after con uno a tres caracteres: el ícono de fuente (o una marca como "*")
@@ -187,6 +244,11 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
       if (tag === 'svg') { try { const s = svgOf(el, r); if (s) node.svg = s; } catch (e) { /* queda la caja */ } }
     }
     nodes.push(node);
+    if (wantHTML) {
+      idx.set(el, node.i);
+      const ig = (node.icons || []).find((ic) => ic.pos === 'img');
+      if (ig) imgSrc.set(el, glyphs[ig.g]);
+    }
     if (elements.length < 1500 && el.matches(SEL)) {
       const testAttr = ['data-testid', 'data-test-id', 'data-test'].find((a) => el.hasAttribute(a)) || '';
       const label = covered ? '' : (el.getAttribute('aria-label') || (el.labels && el.labels[0] ? shown(el.labels[0], mask) : '') || '');
@@ -198,16 +260,146 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
         x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), visible });
     }
     if (tag === 'svg') return; // el dibujo viaja en node.svg; sus partes no son nodos
-    for (const c of el.children) walk(c, node.i, depth + 1);
-    if (el.shadowRoot) for (const c of el.shadowRoot.children) walk(c, node.i, depth + 1);
+    for (const c of el.children) walk(c, node.i, depth + 1, acc);
+    if (el.shadowRoot) for (const c of el.shadowRoot.children) walk(c, node.i, depth + 1, acc);
   };
-  walk(document.body, -1, 0);
+  walk(document.body, -1, 0, null);
+  // Modo HTML: la página misma para que el navegador del Inspector la dibuje con su CSS. Cada elemento
+  // lleva data-tr-i (su nodo). Lo que se tapa sale con •••; lo escrito no viaja (•••), de los select y
+  // casillas viaja lo elegido; lo que ejecuta o carga otra cosa no viaja, y las imágenes que piden la
+  // sesión de la aplicación quedan como su lugar del mismo tamaño. Las hojas de estilo van aparte.
+  const pageHTML = () => {
+    const VOID = new Set(['area', 'br', 'col', 'hr', 'img', 'input', 'source', 'track', 'wbr']);
+    const DROP = new Set(['script', 'noscript', 'template', 'link', 'meta', 'base', 'style', 'title', 'head', 'slot']);
+    const PLACE = new Set(['iframe', 'object', 'embed', 'video', 'audio', 'frame', 'portal']);
+    const ea = (v) => String(v).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+    const et = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const ecss = (v) => String(v).replace(/</g, '\\3c ');// dentro de <style> no hay entidades: un < nunca lo cierra
+    const out = [];
+    let bytes = 0;
+    const put = (v) => { out.push(v); bytes += v.length; };
+    const size = (el) => { const r = el.getBoundingClientRect(); return 'width:' + Math.round(r.width) + 'px;height:' + Math.round(r.height) + 'px'; };
+    const attrs = (el, skip, extra) => {
+      let a = '';
+      for (const at of el.attributes) {
+        const k = at.name.toLowerCase();
+        if (k.startsWith('on') || (skip && skip.has(k)) || k.startsWith('data-tr-')) continue;
+        a += ' ' + at.name + '="' + ea(at.value) + '"';
+      }
+      if (idx.has(el)) a += ' data-tr-i="' + idx.get(el) + '"';
+      if ((el.scrollTop || el.scrollLeft) && el !== document.scrollingElement) a += ' data-tr-scroll="' + Math.round(el.scrollLeft) + ',' + Math.round(el.scrollTop) + '"';
+      return a + (extra || '');
+    };
+    const kids = (n) => { for (const c of n.childNodes) node(c); };
+    const node = (n) => {
+      if (bytes > 3000000) throw new Error('html too big');
+      if (n.nodeType === 3) { put(et(n.data)); return; }
+      if (n.nodeType !== 1) return;
+      const el = n, tag = el.localName;
+      if (DROP.has(tag)) return;
+      if (hidden(el)) { // tapado: la caja con su clase, sin su contenido
+        put('<' + tag + attrs(el, new Set(['value', 'placeholder', 'title', 'aria-label', 'alt'])) + '>');
+        if (!VOID.has(tag)) put((el.textContent || '').trim() ? '•••</' + tag + '>' : '</' + tag + '>');
+        return;
+      }
+      if (tag === 'svg') {
+        const c = el.cloneNode(true);
+        c.querySelectorAll('script,foreignObject').forEach((x) => x.remove());
+        if (idx.has(el)) c.setAttribute('data-tr-i', idx.get(el));
+        put(new XMLSerializer().serializeToString(c).replace(/ xmlns="http:\/\/www\.w3\.org\/2000\/svg"/, ''));
+        return;
+      }
+      if (PLACE.has(tag)) { put('<div data-tr-ph="' + tag + '"' + (idx.has(el) ? ' data-tr-i="' + idx.get(el) + '"' : '') + ' style="display:inline-block;' + size(el) + '"></div>'); return; }
+      if (tag === 'canvas') {
+        let src = '';
+        try { src = el.toDataURL('image/png'); } catch (e) { src = ''; } // de otro origen: queda su lugar
+        put(src && src.length < 400000 ? '<img src="' + src + '"' + attrs(el, new Set(['width', 'height'])) + ' style="' + size(el) + '">'
+          : '<div data-tr-ph="canvas"' + attrs(el) + ' style="display:inline-block;' + size(el) + '"></div>');
+        return;
+      }
+      if (tag === 'img') {
+        const src = imgSrc.get(el);
+        const st = (el.getAttribute('style') || '') + ';' + size(el);
+        put('<img' + attrs(el, new Set(['src', 'srcset', 'style', 'sizes'])) + (src ? ' src="' + src + '"' : ' data-tr-ph="img"') + ' style="' + ea(st) + '">');
+        return;
+      }
+      if (tag === 'input') {
+        const t = (el.type || 'text').toLowerCase();
+        let extra = '';
+        if (/^(button|submit|reset)$/.test(t)) extra = ' value="' + ea(el.value) + '"';
+        else if (/^(checkbox|radio)$/.test(t)) extra = (el.getAttribute('value') !== null ? ' value="' + ea(el.getAttribute('value')) + '"' : '') + (el.checked ? ' checked' : '');
+        else if (t !== 'hidden' && t !== 'password' && t !== 'file' && el.value) extra = ' value="•••"';
+        put('<input' + attrs(el, new Set(['value', 'checked'])) + extra + '>');
+        return;
+      }
+      if (tag === 'textarea') { put('<textarea' + attrs(el) + '>' + (el.value ? '•••' : '') + '</textarea>'); return; }
+      if (tag === 'option') { put('<option' + attrs(el, new Set(['selected'])) + (el.selected ? ' selected' : '') + '>' + et(el.text) + '</option>'); return; }
+      put('<' + tag + attrs(el) + '>');
+      if (el.shadowRoot) { // shadow DOM abierto: como lo declara el HTML, con sus estilos propios
+        put('<template shadowrootmode="open">');
+        for (const sh of el.shadowRoot.adoptedStyleSheets || []) { try { put('<style>' + ecss([...sh.cssRules].map((x) => x.cssText).join('\n')) + '</style>'); } catch (e) { /* ilegible */ } }
+        for (const c of el.shadowRoot.childNodes) {
+          if (c.nodeType === 1 && c.localName === 'style') put('<style>' + ecss(c.textContent) + '</style>'); else node(c);
+        }
+        put('</template>');
+      }
+      if (!VOID.has(tag)) { kids(el); put('</' + tag + '>'); }
+    };
+    const root = document.documentElement;
+    put('<html' + attrs(root) + '><head></head>');
+    node(document.body);
+    put('</html>');
+    // las hojas de estilo en el orden del documento; las de otro origen sin CORS no se pueden leer
+    const sheets = [], missing = [];
+    const take = (sh) => {
+      try {
+        let css = [...sh.cssRules].map((x) => x.cssText).join('\n');
+        const media = sh.media && sh.media.mediaText;
+        if (media && media !== 'all') css = '@media ' + media + ' {\n' + css + '\n}';
+        sheets.push(css);
+      } catch (e) { if (sh.href) missing.push(sh.href); }
+    };
+    for (const sh of document.styleSheets) if (!sh.disabled) take(sh);
+    for (const sh of document.adoptedStyleSheets || []) take(sh);
+    return { doc: out.join(''), sheets, missing, dpr: window.devicePixelRatio || 1 };
+  };
   const doc = document.documentElement;
   const out = { url: location.href, title: document.title, viewport: { w: innerWidth, h: innerHeight },
     page: { w: Math.max(doc.scrollWidth, innerWidth), h: Math.max(doc.scrollHeight, innerHeight) }, nodes, elements };
   if (gkeys.size) out.glyphs = glyphs;
+  if (sx || sy) out.scroll = { x: Math.round(sx), y: Math.round(sy) }; // la captura muestra esta parte de la página
+  if (wantHTML) { try { out.html = pageHTML(); } catch (e) { /* sin HTML: el Inspector dibuja la estructura */ } }
   return out;
 }"""
+
+
+def dom_mode() -> str:
+    """TRACEREPORTS_DOM_MODE: ``structure`` (por defecto) o ``html`` (experimental: además manda el HTML
+    de la página y sus hojas de estilo, y el Inspector la dibuja con su CSS real)."""
+    return "html" if (env("DOM_MODE") or "").strip().lower() == "html" else "structure"
+
+
+def struct_arg():
+    """El argumento de STRUCT_SCRIPT: el selector de lo que se tapa y si se pide el HTML."""
+    return {"mask": mask_selector(), "html": dom_mode() == "html"}
+
+
+def _finish_html(snap):
+    """Las hojas de estilo del modo HTML por su SHA-256 (el servidor guarda cada una una vez) y los
+    secretos del HTML tapados como el resto del snapshot."""
+    html = snap.get("html") if isinstance(snap, dict) else None
+    if not isinstance(html, dict):
+        return snap
+    # un <style> vacío no es una hoja: el visor no tiene nada que pedir ni que avisar
+    texts = [t for t in html.pop("sheets", None) or [] if isinstance(t, str) and t.strip()]
+    hashes, sheets = [], {}
+    for t in texts:
+        h = hashlib.sha256(t.encode("utf-8")).hexdigest()
+        hashes.append(h)
+        sheets[h] = t
+    html["css"], html["sheets"] = hashes, sheets
+    html["doc"] = _mask_sensitive(html.get("doc") or "")
+    return snap
 
 
 def dom_level() -> str:
@@ -260,10 +452,10 @@ def capturar_dom(page, kind: str = "fail", label: str = ""):
         if dom_level() == "basic":
             snap = page.evaluate(DOM_SCRIPT, mask_selector())
         else:
-            snap = page.evaluate(STRUCT_SCRIPT, mask_selector())
+            snap = page.evaluate(STRUCT_SCRIPT, struct_arg())
     except Exception:
         return None
-    return _tag(_mask_dom(snap), kind, label)
+    return _tag(_finish_html(_mask_dom(snap)), kind, label)
 
 
 def _mask_dom(snap):

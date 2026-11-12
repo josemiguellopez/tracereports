@@ -42,7 +42,7 @@ func Summarize(lang string, total, failed int, incidents []Incident) (headline, 
 		counts[cat]++
 	}
 	var parts []string
-	for _, cat := range []string{CategoryBackend, CategoryInfra, CategoryLocator, CategoryLogic, "none"} {
+	for _, cat := range []string{CategoryBackend, CategoryInfra, CategoryTiming, CategoryLocator, CategoryLogic, "none"} {
 		if n := counts[cat]; n > 0 {
 			parts = append(parts, fill(t["cat_"+cat].Summary, map[string]string{"n": strconv.Itoa(n)}))
 		}

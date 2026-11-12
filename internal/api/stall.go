@@ -123,8 +123,12 @@ func (s *Server) checkStalls(now time.Time, dump func(header string) string) {
 		for _, r := range stuck {
 			fmt.Fprintf(&b, "  %6.1fs  %s %s\n", now.Sub(r.start).Seconds(), r.method, r.path)
 		}
-		fmt.Fprintf(&b, "database connection: open=%d in_use=%d idle=%d wait_count=%d wait_duration=%s\n\n",
+		fmt.Fprintf(&b, "database connection: open=%d in_use=%d idle=%d wait_count=%d wait_duration=%s\n",
 			st.OpenConnections, st.InUse, st.Idle, st.WaitCount, st.WaitDuration)
+		// las lecturas largas (En vivo, Almacenamiento) van por estas: si están todas tomadas, esperan ahí
+		ro := s.Store.ReaderStats()
+		fmt.Fprintf(&b, "read-only connections: open=%d/%d in_use=%d idle=%d wait_count=%d wait_duration=%s\n\n",
+			ro.OpenConnections, ro.MaxOpenConnections, ro.InUse, ro.Idle, ro.WaitCount, ro.WaitDuration)
 		w.mu.Unlock()
 		name := dump(b.String())
 		w.mu.Lock()
@@ -132,7 +136,8 @@ func (s *Server) checkStalls(now time.Time, dump func(header string) string) {
 			w.current.Dump = name
 		}
 		slog.Warn("server stalled: requests are waiting", "stuck", len(stuck), "oldest_s", int(now.Sub(stuck[0].start).Seconds()),
-			"db_in_use", st.InUse, "db_waiting", st.WaitCount, "dump", name)
+			// wait_count son las esperas acumuladas desde el arranque, no las de ahora
+			"db_in_use", st.InUse, "db_waits_total", st.WaitCount, "readers_in_use", ro.InUse, "readers_waits_total", ro.WaitCount, "dump", name)
 	}
 	if w.current == nil {
 		return

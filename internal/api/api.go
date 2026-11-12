@@ -50,6 +50,8 @@ var (
 
 // Server bundles the dependencies of the HTTP handlers.
 type Server struct {
+	// sessions: the UI sessions read lately (session_cache.go)
+	sessions sessionCache
 	// Demo is set by `tracereports demo`: the UI explains how to turn the AI on there.
 	Demo           bool
 	Store          *db.Store
@@ -155,6 +157,9 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/ai/probe", s.aiProbe)
 		r.Post("/ui/ai/chat", s.aiChat)
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
+		r.Put("/ui/tests/{test_id}/dom/fidelity", s.putDOMFidelity)
+		r.Get("/runs/{run_id}/dom/fidelity", s.runDOMFidelity)
+		r.Get("/runs/{run_id}/dom/size", s.runDOMSize)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/runs/{run_id}/close", s.closeRunByHand)
 		r.Post("/ui/live/cancel", s.cancelExecution)
@@ -220,6 +225,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/tests/{test_id}/dom/steps", s.domSteps)
 		r.Get("/tests/{test_id}/dom/steps/{seq}", s.domStep)
 		r.Get("/tests/{test_id}/dom/baseline", s.domBaseline)
+		r.Get("/dom/css/{hash}", s.getDOMCSS)
 		r.Post("/tests/{test_id}/dom", s.addDOM)
 		r.Get("/tests/{test_id}/drift", s.testDrift)
 		r.Get("/tests/{test_id}/network", s.listNetwork)

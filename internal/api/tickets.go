@@ -218,7 +218,7 @@ func (s *Server) issueFrom(e *ai.Escalation) *tracker.Issue {
 		is.Link = base + "/" + strings.TrimPrefix(f.ReportPath, "/")
 	}
 	for _, d := range f.Dev {
-		devIssue(is, d, tl, s.publicURL(), len(f.Dev) > 1 || f.TestName == "")
+		devIssue(is, d, tl, s.publicURL(), len(f.Dev) > 1 || f.TestName == "" || e.TestID == 0) // la ejecución completa nombra el test de cada bloque
 	}
 	if name := filepath.Base(f.Screenshot); strings.HasPrefix(f.Screenshot, "/screenshots/") && name != "." && !f.ShotBlank {
 		if img, err := s.shots().ReadFile(name); err == nil && len(img) <= maxScreenshotBody {

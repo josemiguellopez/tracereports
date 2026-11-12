@@ -1,6 +1,7 @@
 package api
 
 import (
+	"github.com/josemiguellopez/tracereports/internal/db"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -192,5 +193,32 @@ func TestLoginPageIsPublicAndSafe(t *testing.T) {
 	}
 	if rec := c.do("GET", "/api/v1/auth/session", ""); !strings.Contains(rec.Body.String(), `"login_required":false`) {
 		t.Fatalf("estado sin login configurado: %s", rec.Body)
+	}
+}
+
+// La sesión no usa la conexión que escribe: con esa conexión tomada por una escritura larga (medir páginas,
+// compactar, la retención), un archivo de la interfaz y «En vivo» con sesión responden igual, al instante.
+func TestSessionDoesNotWaitForTheWriter(t *testing.T) {
+	srv, c := sessionServer(t)
+	if rec := c.do("POST", "/api/v1/auth/login", `{"user":"qa","password":"pw"}`); rec.Code != 200 {
+		t.Fatalf("login: %d", rec.Code)
+	}
+	held, released := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(released)
+		srv.Store.Atomic(func(tx *db.Store) (*db.Idem, error) { // la conexión que escribe, tomada 3 s
+			close(held)
+			time.Sleep(3 * time.Second)
+			return nil, nil
+		})
+	}()
+	defer func() { <-released }()
+	<-held
+	for _, path := range []string{"/style.css", "/api/v1/live", "/app.js"} {
+		start := time.Now()
+		rec := c.do("GET", path, "")
+		if d := time.Since(start); d > 200*time.Millisecond || rec.Code == http.StatusUnauthorized {
+			t.Fatalf("%s with a session waited %s (%d)", path, d, rec.Code)
+		}
 	}
 }

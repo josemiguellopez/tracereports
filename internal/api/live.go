@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	maxDOMBody     = 4 << 20 // tamaño máximo del snapshot de la página
+	maxDOMBody     = 12 << 20 // tamaño máximo del snapshot de la página (con el modo HTML: el HTML y las hojas nuevas)
 	maxDOMElements = 2000
 )
 
@@ -47,12 +47,22 @@ func (s *Server) addDOM(w http.ResponseWriter, r *http.Request) {
 	}
 	cleanSnapshot(s.redactor(), &snap)
 	cleanNodes(s.redactor(), &snap)
+	sheets := cleanHTMLSnapshot(s.redactor(), &snap)
 	if snap.Kind != "step" && snap.Kind != "warning" {
 		snap.Kind = "fail"
 	}
 	raw, _ := json.Marshal(snap)
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
-		out := map[string]any{"elements": len(snap.Elements), "nodes": len(snap.Nodes), "kind": snap.Kind}
+		out := map[string]any{"elements": len(snap.Elements), "nodes": len(snap.Nodes), "kind": snap.Kind, "mode": snap.Mode}
+		if snap.HTML != nil || len(sheets) > 0 {
+			var used []string
+			if snap.HTML != nil {
+				used = snap.HTML.CSS
+			}
+			if err := tx.SaveDOMCSS(id, sheets, used); err != nil {
+				return 0, nil, err
+			}
+		}
 		if snap.Kind != "fail" { // una página por la que pasó el test (TRACEREPORTS_DOM_STEPS) o la de un WARNING
 			seq, err := tx.SaveDOMStepKind(id, snap.Kind, snap.Label, snap.At, string(raw))
 			out["seq"] = seq

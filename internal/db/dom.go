@@ -65,12 +65,12 @@ func (s *Store) SaveDOMStepKind(testID int64, kind, label string, at int64, snap
 		return 0, nil
 	}
 	seq := n + 1
-	if s.vault.Encrypting() { // el snapshot y también la etiqueta del paso: dice qué hacía el test
-		sealed, err := s.vault.Seal(domStepName(testID, seq), snapshotJSON)
-		if err != nil {
-			return 0, err
-		}
-		snapshotJSON = sealed
+	// empaquetada (íconos compartidos, comprimida) y sellada si hay cifrado
+	stored, err := s.packDOM(testID, domStepName(testID, seq), snapshotJSON)
+	if err != nil {
+		return 0, err
+	}
+	if s.vault.Encrypting() { // la etiqueta del paso también: dice qué hacía el test
 		if label != "" {
 			if label, err = s.vault.Seal(domStepName(testID, seq)+":label", label); err != nil {
 				return 0, err
@@ -80,9 +80,12 @@ func (s *Store) SaveDOMStepKind(testID int64, kind, label string, at int64, snap
 	if at <= 0 {
 		at = NowMs()
 	}
-	_, err := s.db.Exec(`INSERT INTO test_dom_steps(test_id, seq, label, at, snapshot, created_at, kind) VALUES(?,?,?,?,?,?,?)`,
-		testID, seq, label, at, snapshotJSON, NowMs(), kind)
-	return seq, err
+	_, err = s.db.Exec(`INSERT INTO test_dom_steps(test_id, seq, label, at, snapshot, created_at, kind) VALUES(?,?,?,?,?,?,?)`,
+		testID, seq, label, at, stored, NowMs(), kind)
+	if err != nil {
+		return seq, err
+	}
+	return seq, s.noteDOMSize(testID, seq, stored)
 }
 
 // ListDOMSteps lists the step snapshots of a test, in order.
@@ -123,11 +126,17 @@ func (s *Store) GetDOMStep(testID int64, seq int) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.vault.Open(domStepName(testID, seq), snap)
+	opened, err := s.vault.Open(domStepName(testID, seq), snap)
+	if err != nil {
+		return "", err
+	}
+	return s.unpackDOM(opened)
 }
 
 // domStepName binds a sealed step snapshot to its test and position.
-func domStepName(testID int64, seq int) string { return fmt.Sprintf("test_dom_step:%d:%d", testID, seq) }
+func domStepName(testID int64, seq int) string {
+	return fmt.Sprintf("test_dom_step:%d:%d", testID, seq)
+}
 
 // SaveDOM stores the page snapshot taken when the test failed (one per test, last wins).
 func (s *Store) SaveDOM(testID int64, snapshotJSON string) error {
@@ -138,17 +147,22 @@ func (s *Store) SaveDOM(testID int64, snapshotJSON string) error {
 	if exists == 0 {
 		return ErrNotFound
 	}
-	// el DOM muestra lo que había en la pantalla: se sella como las capturas
-	if s.vault.Encrypting() {
-		sealed, err := s.vault.Seal(domName(testID), snapshotJSON)
-		if err != nil {
-			return err
-		}
-		snapshotJSON = sealed
+	// el DOM muestra lo que había en la pantalla: se sella como las capturas (empaquetado antes)
+	stored, err := s.packDOM(testID, domName(testID), snapshotJSON)
+	if err != nil {
+		return err
 	}
-	_, err := s.db.Exec(`INSERT INTO test_dom(test_id, snapshot, created_at) VALUES(?,?,?)
+	_, err = s.db.Exec(`INSERT INTO test_dom(test_id, snapshot, created_at) VALUES(?,?,?)
 		ON CONFLICT(test_id) DO UPDATE SET snapshot=excluded.snapshot, created_at=excluded.created_at`,
-		testID, snapshotJSON, NowMs())
+		testID, stored, NowMs())
+	if err != nil {
+		return err
+	}
+	if err := s.noteDOMSize(testID, 0, stored); err != nil {
+		return err
+	}
+	// la medida era de la página anterior
+	_, err = s.db.Exec(`DELETE FROM dom_fidelity WHERE test_id=?`, testID)
 	return err
 }
 
@@ -162,7 +176,11 @@ func (s *Store) GetDOM(testID int64) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return s.vault.Open(domName(testID), snap)
+	opened, err := s.vault.Open(domName(testID), snap)
+	if err != nil {
+		return "", err
+	}
+	return s.unpackDOM(opened)
 }
 
 // domName binds a sealed snapshot to its test: it cannot be moved to another row.

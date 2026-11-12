@@ -53,7 +53,7 @@ func TestStallWatchCatchesARealDatabaseHold(t *testing.T) {
 		t.Fatal(err)
 	}
 	dump := string(raw)
-	for _, want := range []string{"requests running for more than", "POST /api/v1/runs", "database connection: open=1 in_use=1", "goroutine "} {
+	for _, want := range []string{"requests running for more than", "POST /api/v1/runs", "database connection: open=1 in_use=1", "read-only connections: open=", "goroutine "} {
 		if !strings.Contains(dump, want) {
 			t.Fatalf("the dump lacks %q:\n%.600s", want, dump)
 		}

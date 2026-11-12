@@ -50,7 +50,8 @@ func (s *Store) CreateSession(tokenHash string, u UISession) error {
 // Session returns the session of a token hash (ok=false if there is none; expiry is the caller's call).
 func (s *Store) Session(tokenHash string) (UISession, bool, error) {
 	var u UISession
-	err := s.db.QueryRow(`SELECT user, role, created_at, last_seen, expires_at, idle_ms, remember, cred FROM ui_sessions WHERE token_hash = ?`, tokenHash).
+	// por las conexiones de lectura: cada pedido con sesión la lee, y no debe esperar a una escritura larga
+	err := s.reader().QueryRow(`SELECT user, role, created_at, last_seen, expires_at, idle_ms, remember, cred FROM ui_sessions WHERE token_hash = ?`, tokenHash).
 		Scan(&u.User, &u.Role, &u.CreatedAt, &u.LastSeen, &u.ExpiresAt, &u.IdleMs, &u.Remember, &u.Cred)
 	if err == sql.ErrNoRows {
 		return u, false, nil

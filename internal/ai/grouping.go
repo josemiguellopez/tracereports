@@ -3,6 +3,7 @@ package ai
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/josemiguellopez/tracereports/internal/errtext"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -233,12 +234,10 @@ func (a *Analyzer) incidentFor(t *db.Test) (db.Incident, error) {
 		in.Evidence = append(in.Evidence, db.Evidence{TestID: t.ID, Kind: "network", Ref: conn.ID, Text: fact})
 	} else {
 		sig, exc, loc := errorSignature(t.ErrorMessage, t.ErrorTrace)
-		title := errorLine(t.ErrorMessage)
+		// sin el envoltorio del framework ("…archivo.py: [") y cortado en una palabra, nunca en una letra
+		title := errtext.Short(t.ErrorMessage, 110)
 		if title == "" {
 			title = "Fallo sin mensaje de error"
-		}
-		if len(title) > 110 {
-			title = title[:110] + "…"
 		}
 		in = db.Incident{Key: "error:" + sig, Kind: "error", Title: title, Exception: exc, Location: loc}
 		in.Evidence = append(in.Evidence, db.Evidence{TestID: t.ID, Kind: "error", Text: title})

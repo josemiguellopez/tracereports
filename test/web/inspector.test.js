@@ -205,3 +205,65 @@ test("íconos: el de fuente va a la izquierda del texto (::before) o a la derech
 	assert.equal(I.shownText(btn), "Agregar");
 	assert.deepEqual(plain(I.iconBox(lig, lig.icons[0])), { x: 0, y: 0 });
 });
+
+test("expandStyles: cada nodo recupera su estilo de la tabla; un snapshot anterior queda igual", () => {
+	const snap = { styles: [{ color: "rgb(1, 2, 3)" }, { color: "rgb(4, 5, 6)" }],
+		nodes: [{ i: 0, s: 1 }, { i: 1, s: 0 }, { i: 2 }, { i: 3, s: 9 }, { i: 4, style: { color: "red" }, s: 0 }] };
+	I.expandStyles(snap);
+	assert.deepEqual(plain(snap.nodes.map((n) => n.style?.color ?? null)), ["rgb(4, 5, 6)", "rgb(1, 2, 3)", null, null, "red"]);
+	const old = { nodes: [{ i: 0, style: { color: "x" } }] };
+	assert.equal(I.expandStyles(old).nodes[0].style.color, "x");
+});
+
+test("fidelity: la parte de los píxeles que se parecen, con tolerancia", () => {
+	const img = (...px) => ({ data: Uint8ClampedArray.from(px.flatMap((c) => [...c, 255])) });
+	const white = [255, 255, 255], grey = [236, 235, 235], black = [0, 0, 0];
+	assert.equal(I.fidelity(img(white, grey), img(white, grey)), 1);
+	assert.equal(I.fidelity(img(white, grey, grey, grey), img(white, [240, 238, 230], black, black)), 0.5, "un gris parecido cuenta, el negro no");
+	assert.equal(I.fidelity({ data: new Uint8ClampedArray(0) }, { data: new Uint8ClampedArray(0) }), 0);
+});
+
+test("nearestShot: la captura de un paso es la más cercana a su página, del mismo tipo, y nunca una lejana", () => {
+	// el caso del test 5657: la página del warning a T, su captura 3 s después y la última del test 38 s después
+	const T = 1794508980691;
+	const shots = [{ at: T - 20_000, src: "abrir.png", status: "INFO" }, { at: T + 2_998, src: "warning.png", status: "WARNING" },
+		{ at: T + 2_500, src: "info-cerca.png", status: "INFO" }, { at: T + 41_511, src: "ultima.png", status: "INFO" }];
+	assert.equal(I.nearestShot(shots, T, "warning"), "warning.png", "la del WARNING, aunque otra esté un poco más cerca");
+	assert.equal(I.nearestShot(shots, T, "step"), "info-cerca.png", "un paso: la más cercana");
+	assert.equal(I.nearestShot(shots, T + 60_000, "warning"), "", "ninguna a menos de 10 s: no hay con qué comparar");
+	assert.equal(I.nearestShot([], T, "warning"), "");
+	assert.equal(I.nearestShot(shots, 0, "warning"), "", "una página sin hora no adivina");
+});
+
+test("failedRaster: una página rasterizada en blanco contra una captura con contenido no es una cifra", () => {
+	const img = (n, ...parts) => ({ data: Uint8ClampedArray.from(parts.flatMap(([c, k]) => Array.from({ length: Math.round(n * k) }, () => [...c, 255])).flat()) });
+	const white = [255, 255, 255], dim = [120, 120, 120], panel = [60, 70, 90], blue = [31, 111, 235];
+	// el caso del run con un modal: la captura con la página oscurecida detrás y el modal blanco (~9 %)
+	const shot = img(100, [dim, 0.6], [panel, 0.31], [white, 0.09]);
+	assert.equal(I.failedRaster(img(100, [white, 1]), shot), true, "rasterizada en blanco: dibujo fallido (era el 7 %)");
+	assert.equal(I.failedRaster(img(100, [dim, 0.6], [panel, 0.3], [white, 0.1]), shot), false, "la página real como la captura");
+	assert.equal(I.failedRaster(img(100, [white, 1]), img(100, [white, 0.95], [blue, 0.05])), false, "una página casi en blanco también en la captura sí cuenta");
+	assert.ok(Math.abs(I.dominantShare(shot) - 0.6) < 1e-9);
+});
+
+test("htmlSrcdoc: la página con su CSS, una CSP sin red y el CSS del Inspector (íconos, scroll, fijos, animaciones)", () => {
+	const PNG = "data:image/png;base64,iVBORw0KGgo=";
+	const snap = { scroll: { x: 0, y: 200 }, glyphs: { g0: PNG, g1: "javascript:alert(1)" },
+		nodes: [{ i: 0, p: -1, tag: "body" }, { i: 1, p: 0, tag: "i", icons: [{ g: "g0", pos: "before", w: 16, h: 16 }, { g: "g1", pos: "after", w: 9, h: 9 }] },
+			{ i: 2, p: 0, tag: "span", icons: [{ g: "g0", pos: "text", w: 24, h: 24 }] },
+			{ i: 3, p: 0, tag: "nav", style: { position: "fixed" } }, { i: 4, p: 3, tag: "div", style: { position: "fixed" } }],
+		html: { doc: '<html><head></head><body data-tr-i="0"><div data-tr-i="5" data-tr-scroll="0,120"></div></body></html>' } };
+	const css = I.htmlExtraCSS(snap, { querySelectorAll: () => [{ getAttribute: (k) => ({ "data-tr-scroll": "0,120", "data-tr-i": "5" })[k] }] });
+	assert.match(css, /animation:none!important/);
+	assert.match(css, /\[data-tr-i="1"\]::before\{color:transparent!important;background:url\("data:image\/png/);
+	assert.doesNotMatch(css, /::before\{[^}]*(content|width|height|display):/, "the icon keeps its own box: the row does not change height");
+	assert.doesNotMatch(css, /javascript/);
+	assert.match(css, /\[data-tr-i="2"\]\{color:transparent!important;background:url\("data:image\/png/);
+	assert.match(css, /\[data-tr-i="5"\]>\*\{translate:0px -120px\}/);
+	assert.match(css, /\[data-tr-i="3"\]\{translate:0px 200px\}/);
+	assert.doesNotMatch(css, /data-tr-i="4"\]\{translate/, "inside a fixed box, the box already moves");
+	const doc = I.htmlSrcdoc(snap, [".a{color:red}</style><script>x</script>", null], null);
+	assert.match(doc, /^<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'/);
+	assert.doesNotMatch(doc, /<\/style><script>/, "a sheet never closes its <style>");
+	assert.match(doc, /<\/head><body data-tr-i="0">/);
+});

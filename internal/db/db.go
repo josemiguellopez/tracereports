@@ -99,7 +99,7 @@ func Open(path string) (*Store, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema + deliveriesSchema + aiUsageSchema + labSchema + similarSchema + liveSchema + sessionsSchema); err != nil {
+	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + domCSSSchema + domGlyphSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema + deliveriesSchema + aiUsageSchema + labSchema + similarSchema + liveSchema + sessionsSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
@@ -1126,4 +1126,23 @@ func (s *Store) PendingWork() (tests, runs []int64, err error) {
 func (s *Store) SaveTriageError(testID int64, msg string) error {
 	_, err := s.db.Exec(`UPDATE ai_triage SET state='ERROR', error=?, updated_at=? WHERE test_id=?`, msg, NowMs(), testID)
 	return err
+}
+
+// TriagedSince lists the failed tests whose saved diagnosis has this category and ended after since (ms).
+func (s *Store) TriagedSince(category string, since int64) ([]int64, error) {
+	return int64s(s.db, `SELECT a.test_id FROM ai_triage a JOIN tests t ON t.id = a.test_id
+		WHERE a.state='DONE' AND a.category=? AND t.status='FAIL' AND COALESCE(t.ended_at, t.started_at) >= ? ORDER BY a.test_id`, category, since)
+}
+
+// ReclassifyTriage rewrites a saved diagnosis that still has the category from (a re-analysis in between
+// wins), and reports whether it did.
+func (s *Store) ReclassifyTriage(testID int64, from, category, summary, suggestion, provider, rule string) (bool, error) {
+	res, err := s.db.Exec(`UPDATE ai_triage SET category=?, summary=?, suggestion=?, locator_pick='', locator_reason='',
+		provider=?, rule=?, updated_at=? WHERE test_id=? AND state='DONE' AND category=?`,
+		category, summary, suggestion, provider, rule, NowMs(), testID, from)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }

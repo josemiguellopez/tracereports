@@ -54,6 +54,7 @@ func TestStructuralSnapshotIsStoredClean(t *testing.T) {
 	}
 	var snap locator.Snapshot
 	json.Unmarshal(rec.Body.Bytes(), &snap)
+	snap.ExpandStyles()
 	b := snap.Nodes[2]
 	if b.Attrs["data-testid"] != "add-to-cart" || b.Style["color"] != "rgb(255, 255, 255)" || b.Style["fontFamily"] == "" || b.TX == nil || *b.TX != 12 {
 		t.Fatalf("kept what is needed to draw it and select it: %+v", b)
@@ -245,5 +246,232 @@ func TestDOMPersonalDataMaskCanBeTurnedOff(t *testing.T) {
 	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"td","text":"RUN 13.905.701-5","x":0,"y":0,"w":1,"h":1,"visible":true,"depth":1}`))
 	if body := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.String(); !strings.Contains(body, "13.905.701-5") {
 		t.Fatal("con off el RUT queda")
+	}
+}
+
+// Pestañas verticales: writing-mode, y el giro de una caja (rotate) como matriz sin traslación con su
+// tamaño de layout. Lo que no es una matriz de números se descarta, y la caja queda como estaba.
+func TestTurnedBoxesAreKept(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"div","text":"Historia","x":0,"y":0,"w":47,"h":105,"visible":true,"depth":1,"style":{"writingMode":"vertical-rl"}},`+
+		`{"i":4,"p":0,"tag":"div","text":"Formularios","x":0,"y":0,"w":24,"h":90,"visible":true,"depth":1,"tf":"matrix(0, 1, -1, 0, 0, 0)","lw":90,"lh":24},`+
+		`{"i":5,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"tf":"matrix(1, 0, 0, 1, 0, 0); background:url(x)","lw":10,"lh":10},`+
+		`{"i":6,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"tf":"matrix(0, 1, -1, 0, 0, 0)","lw":0,"lh":10},`+
+		`{"i":7,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"tf":"matrix(0, 1, -1, 0, 500, 500)","lw":10,"lh":10}`))
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.ExpandStyles()
+	if snap.Nodes[3].Style["writingMode"] != "vertical-rl" {
+		t.Errorf("writing-mode: %+v", snap.Nodes[3].Style)
+	}
+	if n := snap.Nodes[4]; n.TF != "matrix(0, 1, -1, 0, 0, 0)" || n.LW != 90 || n.LH != 24 {
+		t.Errorf("turned box: %+v", n)
+	}
+	for _, i := range []int{5, 6, 7} {
+		if n := snap.Nodes[i]; n.TF != "" || n.LW != 0 || n.LH != 0 {
+			t.Errorf("node %d: not a plain matrix with a size, dropped: %+v", i, n)
+		}
+	}
+}
+
+// Bordes de cada lado, sombras, degradados y el corte de los textos largos viajan; una imagen de fondo
+// (url()) no, ni algo que no sea un degradado.
+func TestBoxStylesAreKept(t *testing.T) {
+	srv, testID := newTestServer(t)
+	shadow := "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px, rgba(0, 0, 0, 0.14) 0px 1px 1px 0px, rgba(0, 0, 0, 0.12) 0px 2px 1px -1px"
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"style":{`+
+		`"borderBottomWidth":"2px","borderBottomColor":"rgb(51, 117, 194)","borderLeftWidth":"0px","borderRightWidth":"0px",`+
+		`"boxShadow":"`+shadow+`","backgroundImage":"linear-gradient(90deg, rgb(243, 243, 243) 0%, rgb(236, 235, 235) 100%)",`+
+		`"textOverflow":"ellipsis","whiteSpace":"nowrap"}},`+
+		`{"i":4,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"style":{"backgroundImage":"linear-gradient(red, blue), url(https://evil.example/x.png)"}},`+
+		`{"i":5,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"style":{"backgroundImage":"image-set(x 1x)"}}`))
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.ExpandStyles()
+	st := snap.Nodes[3].Style
+	for k, want := range map[string]string{"borderBottomWidth": "2px", "borderBottomColor": "rgb(51, 117, 194)", "borderLeftWidth": "0px",
+		"boxShadow": shadow, "backgroundImage": "linear-gradient(90deg, rgb(243, 243, 243) 0%, rgb(236, 235, 235) 100%)",
+		"textOverflow": "ellipsis", "whiteSpace": "nowrap"} {
+		if st[k] != want {
+			t.Errorf("%s = %q, want %q", k, st[k], want)
+		}
+	}
+	for _, i := range []int{4, 5} {
+		if v, ok := snap.Nodes[i].Style["backgroundImage"]; ok {
+			t.Errorf("node %d: only a gradient without url() is kept, got %q", i, v)
+		}
+	}
+}
+
+// Lo que muestra un control sin que nadie lo haya escrito (la opción elegida de un select) viaja con
+// los datos personales enmascarados como el resto del texto; de un campo escrito, solo que no está vacío.
+func TestControlShownTextIsCleaned(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"select","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"shown":"12 Meses"},`+
+		`{"i":4,"p":0,"tag":"select","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"shown":"RUN 13.905.701-5"},`+
+		`{"i":5,"p":0,"tag":"input","attrs":{"placeholder":"Diagnóstico"},"x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"filled":true,"style":{"placeholderColor":"rgb(108, 117, 125)"}}`))
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	snap.ExpandStyles()
+	if snap.Nodes[3].Shown != "12 Meses" {
+		t.Errorf("shown: %q", snap.Nodes[3].Shown)
+	}
+	if strings.Contains(snap.Nodes[4].Shown, "13.905.701") {
+		t.Errorf("personal data in shown: %q", snap.Nodes[4].Shown)
+	}
+	if n := snap.Nodes[5]; !n.Filled || n.Style["placeholderColor"] != "rgb(108, 117, 125)" {
+		t.Errorf("filled and placeholder color: %+v", n)
+	}
+}
+
+// Cada estilo distinto se guarda una sola vez (styles) y cada nodo apunta al suyo (s): una página
+// repite unas pocas combinaciones cientos de veces. Un cliente que ya manda la tabla pasa por la misma
+// limpieza, nodo por nodo, y un índice fuera de la tabla no rompe nada.
+func TestStylesAreStoredOnce(t *testing.T) {
+	srv, testID := newTestServer(t)
+	var extra strings.Builder
+	same := `"style":{"color":"rgb(21, 27, 30)","fontSize":"16px","fontFamily":"Roboto, sans-serif","display":"block"}`
+	for i := 3; i < 203; i++ {
+		fmt.Fprintf(&extra, `,{"i":%d,"p":0,"tag":"div","text":"fila %d","x":0,"y":%d,"w":10,"h":10,"visible":true,"depth":1,%s}`, i, i, i, same)
+	}
+	body := strings.Replace(structSnap("fail", "", extra.String()+
+		`,{"i":203,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"s":0},`+
+		`{"i":204,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"s":7}`),
+		`"nodes":`, `"styles":[{"color":"rgb(1, 2, 3)","backgroundImage":"url(https://evil.example/t.png)","onclick":"x"}],"nodes":`, 1)
+	postDOM(t, srv, testID, body)
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	raw := rec.Body.String()
+	if c := strings.Count(raw, `"fontFamily":"Roboto, sans-serif"`); c != 1 {
+		t.Fatalf("a repeated style is stored once, found %d", c)
+	}
+	if strings.Contains(raw, "evil.example") || strings.Contains(raw, "onclick") {
+		t.Fatalf("a style from the client's table is cleaned like any other: %s", raw)
+	}
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Styles) != 4 { // body, button, las filas y el del cliente
+		t.Fatalf("distinct styles: %d %v", len(snap.Styles), snap.Styles)
+	}
+	snap.ExpandStyles()
+	if snap.Nodes[150].Style["fontFamily"] != "Roboto, sans-serif" || snap.Nodes[150].S == nil {
+		t.Fatalf("node points to its style: %+v", snap.Nodes[150])
+	}
+	if st := snap.Nodes[203].Style; st["color"] != "rgb(1, 2, 3)" || len(st) != 1 {
+		t.Fatalf("client table entry, cleaned: %v", st)
+	}
+	if snap.Nodes[204].S != nil || snap.Nodes[204].Style != nil {
+		t.Fatalf("an index outside the table is no style: %+v", snap.Nodes[204])
+	}
+}
+
+// La fidelidad que mide el Inspector queda por test y se resume por run y modo; un valor fuera de
+// 0..1 o un modo desconocido no se guarda, y un snapshot nuevo del mismo test la borra.
+func TestDOMFidelityIsStoredByRunAndMode(t *testing.T) {
+	srv, testID := newTestServer(t)
+	put := func(body string) int {
+		return call(t, srv, http.MethodPut, fmt.Sprintf("/api/v1/ui/tests/%d/dom/fidelity", testID), body).Code
+	}
+	if c := put(`{"fidelity":0.9}`); c != http.StatusNotFound {
+		t.Fatalf("without a failure page: %d", c)
+	}
+	postDOM(t, srv, testID, structSnap("fail", "", ""))
+	for _, bad := range []string{`{"fidelity":1.5}`, `{"fidelity":-0.1}`, `{"mode":"structure"}`, `{"fidelity":0.9,"mode":"pdf"}`} {
+		if c := put(bad); c != http.StatusBadRequest {
+			t.Errorf("%s: %d", bad, c)
+		}
+	}
+	if c := put(`{"fidelity":0.91234,"mode":"structure"}`); c != http.StatusNoContent {
+		t.Fatalf("put: %d", c)
+	}
+	runID, err := srv.Store.TestRunID(testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func() string {
+		return do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/runs/%d/dom/fidelity", runID), "").Body.String()
+	}
+	if body := get(); !strings.Contains(body, `"mode":"structure","tests":1,"avg":0.912,"min":0.912`) {
+		t.Fatalf("summary: %s", body)
+	}
+	postDOM(t, srv, testID, structSnap("fail", "", ""))
+	if body := get(); !strings.Contains(body, `"modes":[]`) {
+		t.Fatalf("a new snapshot clears the old measure: %s", body)
+	}
+}
+
+// El scroll de la ventana viaja para alinear la captura; uno imposible se descarta.
+func TestScrollIsKeptWhenSane(t *testing.T) {
+	for body, want := range map[string]string{`"scroll":{"x":0,"y":300},`: `"scroll":{"x":0,"y":300}`, `"scroll":{"x":-5,"y":300},`: ""} {
+		srv, testID := newTestServer(t)
+		postDOM(t, srv, testID, strings.Replace(structSnap("fail", "", ""), `"nodes":`, body+`"nodes":`, 1))
+		got := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.String()
+		if want != "" && !strings.Contains(got, want) || want == "" && strings.Contains(got, `"scroll"`) {
+			t.Errorf("%s → %s", body, got)
+		}
+	}
+}
+
+// Un skeleton de carga (react-content-loader) es un SVG animado: la animación no se guarda (el snapshot
+// es un momento), pero sí que estaba animado, porque dice que la página seguía cargando al fallar. Lo
+// marca el servidor; un "anim" que manda el cliente no cuenta.
+func TestAnimatedSVGIsMarkedAtIngest(t *testing.T) {
+	srv, testID := newTestServer(t)
+	extra := `,{"i":3,"p":0,"tag":"svg","x":0,"y":60,"w":400,"h":95,"visible":true,"depth":1,"svg":"<svg viewBox=\"0 0 400 95\"><rect width=\"400\" height=\"95\" fill=\"url(#g)\"/><defs><linearGradient id=\"g\"><stop offset=\"0\"><animate attributeName=\"offset\" values=\"-2; 1\" dur=\"2s\" repeatCount=\"indefinite\"/></stop></linearGradient></defs></svg>"}` +
+		`,{"i":4,"p":0,"tag":"svg","x":0,"y":160,"w":16,"h":16,"visible":true,"depth":1,"anim":true,"svg":"<svg viewBox=\"0 0 16 16\"><path d=\"M0 0h16\"/></svg>"}`
+	postDOM(t, srv, testID, structSnap("fail", "", extra))
+	var snap locator.Snapshot
+	json.Unmarshal(do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.Bytes(), &snap)
+	if len(snap.Nodes) != 5 || !snap.Nodes[3].Anim || snap.Nodes[4].Anim {
+		t.Fatalf("anim: %+v", snap.Nodes)
+	}
+	if strings.Contains(snap.Nodes[3].SVG, "animate") {
+		t.Fatalf("the animation itself is not stored: %s", snap.Nodes[3].SVG)
+	}
+}
+
+// Lo que ocupan las páginas del Inspector de un run (para medir antes y después) y en Almacenamiento.
+func TestDOMSizeOfARunAndInStorage(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", ""))
+	postDOM(t, srv, testID, structSnap("step", "paso 1", ""))
+	runID, err := srv.Store.TestRunID(testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var size struct {
+		RunID int64 `json:"run_id"`
+		Pages int   `json:"pages"`
+		Bytes int64 `json:"bytes"`
+	}
+	json.Unmarshal(do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/runs/%d/dom/size", runID), "").Body.Bytes(), &size)
+	if size.RunID != runID || size.Pages != 2 || size.Bytes <= 0 || size.Bytes > 2000 {
+		t.Fatalf("size: %+v", size)
+	}
+	if c := do(t, srv, http.MethodGet, "/api/v1/runs/99999/dom/size", "").Code; c != http.StatusNotFound {
+		t.Fatalf("missing run: %d", c)
+	}
+	var st struct {
+		DOM struct {
+			Bytes int64 `json:"bytes"`
+			Pages int   `json:"pages"`
+			Runs  []struct {
+				RunID int64 `json:"run_id"`
+			} `json:"runs"`
+		} `json:"dom"`
+	}
+	json.Unmarshal(do(t, srv, http.MethodGet, "/api/v1/maintenance/storage", "").Body.Bytes(), &st)
+	if st.DOM.Pages != 2 || st.DOM.Bytes != size.Bytes || len(st.DOM.Runs) != 1 || st.DOM.Runs[0].RunID != runID {
+		t.Fatalf("storage: %+v", st.DOM)
 	}
 }

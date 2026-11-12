@@ -352,6 +352,9 @@ func runServer(parent context.Context) error {
 	logEgress(analyzer.Config())
 	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
+	// con reglas nuevas, los diagnósticos guardados de los últimos 30 días ven lo que ellas ven (sin «Reanalizar»)
+	go analyzer.RetriageOnUpgrade()
+	go measureDOMSizes(store)
 
 	srv := &http.Server{
 		Handler:           apiServer.Router(),
@@ -427,4 +430,31 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// measureDOMSizes records, in short batches with proportional pauses, the size of the Inspector's pages
+// stored by a version that did not note it: from then on Storage and /runs/{id}/dom/size never read the
+// pages. TRACEREPORTS_REMEASURE_PAGES=1 forgets the sizes and measures them all again (to check it).
+func measureDOMSizes(store *db.Store) {
+	if strings.TrimSpace(env.Get("REMEASURE_PAGES")) == "1" {
+		if err := store.ForgetDOMSizes(); err != nil {
+			slog.Warn("storage: forget the Inspector's page sizes", "err", err)
+			return
+		}
+		slog.Info("storage: measuring every Inspector page again (TRACEREPORTS_REMEASURE_PAGES=1)")
+	}
+	last := time.Now()
+	total, err := store.MeasureAllDOMSizes(200, 200*time.Millisecond, func(done int) {
+		if time.Since(last) >= 30*time.Second {
+			last = time.Now()
+			slog.Info("storage: measuring the Inspector's pages", "done", done)
+		}
+	})
+	if err != nil {
+		slog.Warn("storage: measure the Inspector's pages", "err", err, "measured", total)
+		return
+	}
+	if total > 0 {
+		slog.Info("storage: Inspector's pages measured", "pages", total)
+	}
 }
