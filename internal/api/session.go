@@ -109,17 +109,17 @@ func (s *Server) sessionAuth(next http.Handler) http.Handler {
 		}
 		h := hashToken(c.Value)
 		si := sessionInfo{expired: true}
-		if sess, ok, err := s.Store.Session(h); err == nil && ok {
+		if sess, ok, err := s.session(h); err == nil && ok {
 			now := db.NowMs()
 			if sess.Valid(now) && subtle.ConstantTimeCompare([]byte(sess.Cred), []byte(s.Auth.currentCred(sess.Role))) == 1 {
 				si = sessionInfo{role: sess.Role, user: sess.User, s: sess}
 				// el pulso de la vista (sesión, eventos) no cuenta como uso: si no, nunca vencería por inactividad
 				if !passive(r) && now-sess.LastSeen > 15_000 {
-					_ = s.Store.TouchSession(h, now)
+					s.touchSession(h, now)
 					si.s.LastSeen = now
 				}
 			} else {
-				_ = s.Store.DeleteSession(h)
+				s.dropSession(h)
 			}
 		}
 		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), sessionKey{}, si)))
@@ -253,7 +253,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 	s.authFailures().reset(ip)
 	// una sesión anterior de este navegador se cierra (no quedan dos)
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
-		_ = s.Store.DeleteSession(hashToken(c.Value))
+		s.dropSession(hashToken(c.Value))
 	}
 	tok, err := newSessionToken()
 	if err != nil {
@@ -283,7 +283,7 @@ func (s *Server) postLogin(w http.ResponseWriter, r *http.Request) {
 // postLogout ends the session of this browser.
 func (s *Server) postLogout(w http.ResponseWriter, r *http.Request) {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
-		_ = s.Store.DeleteSession(hashToken(c.Value))
+		s.dropSession(hashToken(c.Value))
 	}
 	setSessionCookie(w, r, "", -1)
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})

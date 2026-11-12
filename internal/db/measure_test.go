@@ -156,6 +156,7 @@ func TestMeasuringDoesNotHoldTheWriter(t *testing.T) {
 	}
 	s := openTestStore(t)
 	oldPages(t, s, 200, 9, 400_000)
+	s.CreateSession("h1", UISession{User: "qa", Role: "admin", CreatedAt: NowMs(), LastSeen: NowMs(), ExpiresAt: NowMs() + 3_600_000, IdleMs: 3_600_000, Cred: "c"})
 	run, _ := s.CreateRun("ingesta", "qa")
 	test, _ := s.CreateTest(run, "t", "", "")
 	var wg sync.WaitGroup
@@ -168,7 +169,7 @@ func TestMeasuringDoesNotHoldTheWriter(t *testing.T) {
 			t.Error(err)
 		}
 	}()
-	var lat []time.Duration
+	var lat, slat []time.Duration
 	for {
 		select {
 		case <-done:
@@ -178,9 +179,14 @@ func TestMeasuringDoesNotHoldTheWriter(t *testing.T) {
 			}
 			sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
 			p99 := lat[len(lat)*99/100]
-			t.Logf("%d writes during the measuring, p99 %s", len(lat), p99)
+			sort.Slice(slat, func(i, j int) bool { return slat[i] < slat[j] })
+			sp99 := slat[len(slat)*99/100]
+			t.Logf("%d writes during the measuring, p99 %s; session p99 %s", len(lat), p99, sp99)
 			if p99 > 200*time.Millisecond {
 				t.Fatalf("an ingestion write waited %s (p99)", p99)
+			}
+			if sp99 > 50*time.Millisecond {
+				t.Fatalf("reading a session waited %s (p99)", sp99)
 			}
 			return
 		default:
@@ -190,6 +196,11 @@ func TestMeasuringDoesNotHoldTheWriter(t *testing.T) {
 			t.Fatal(err)
 		}
 		lat = append(lat, time.Since(t0))
+		t1 := time.Now()
+		if _, ok, err := s.Session("h1"); err != nil || !ok {
+			t.Fatal(ok, err)
+		}
+		slat = append(slat, time.Since(t1))
 		time.Sleep(10 * time.Millisecond)
 	}
 }

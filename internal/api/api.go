@@ -50,6 +50,8 @@ var (
 
 // Server bundles the dependencies of the HTTP handlers.
 type Server struct {
+	// sessions: the UI sessions read lately (session_cache.go)
+	sessions sessionCache
 	// Demo is set by `tracereports demo`: the UI explains how to turn the AI on there.
 	Demo           bool
 	Store          *db.Store
