@@ -185,3 +185,34 @@ func TestExportCarriesHTMLSheetsOnce(t *testing.T) {
 		t.Fatalf("css files: %d %q", n, js)
 	}
 }
+
+// En modo HTML los estilos de cada nodo los da la página real: no se guardan dos veces (el visor los
+// calcula del HTML con su CSS). Si faltó una hoja (otro dominio sin CORS), se quedan.
+func TestHTMLSnapshotDropsNodeStylesUnlessASheetIsMissing(t *testing.T) {
+	srv, testID := newTestServer(t)
+	sheet := `.card{color:rgb(1, 2, 3)}`
+	h := sheetHash(sheet)
+	for _, missing := range []bool{false, true} {
+		html := map[string]any{"doc": `<html><head></head><body data-tr-i="0"><div class="card" data-tr-i="1">x</div></body></html>`, "css": []string{h}, "sheets": map[string]string{h: sheet}}
+		if missing {
+			html["missing"] = []string{"https://cdn.example/x.css"}
+		}
+		doc, _ := json.Marshal(html)
+		body := strings.Replace(structSnap("fail", "", ""), `"nodes":`, `"styles_from":"client","html":`+string(doc)+`,"nodes":`, 1)
+		postDOM(t, srv, testID, body)
+		var snap locator.Snapshot
+		json.Unmarshal(do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.Bytes(), &snap)
+		styled := 0
+		for _, n := range snap.Nodes {
+			if len(n.Style) > 0 || n.S != nil {
+				styled++
+			}
+		}
+		if missing && (styled == 0 || snap.StylesFrom != "") {
+			t.Fatalf("a missing sheet keeps the node styles: %d %q", styled, snap.StylesFrom)
+		}
+		if !missing && (styled != 0 || len(snap.Styles) != 0 || snap.StylesFrom != "html") {
+			t.Fatalf("the HTML gives the styles: %d %d %q", styled, len(snap.Styles), snap.StylesFrom)
+		}
+	}
+}

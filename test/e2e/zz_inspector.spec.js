@@ -710,3 +710,31 @@ test("un test WARNING mide la fidelidad sobre la página de su último warning",
 	await insp.locator('.insp-steps [data-page="0"]').click();
 	await expect(insp.locator(".insp-overlay")).toBeHidden();
 });
+
+// Modo HTML: el servidor no guarda los estilos de los nodos (los da la página real). El visor los calcula
+// del HTML con su CSS, y la reconstrucción (y la animación) se dibujan con los colores de la página.
+test("modo HTML: la reconstrucción toma los estilos de la página real, que no se guardan dos veces", async ({ page: p, request }, info) => {
+	const crypto = require("node:crypto");
+	const css = "body{margin:0;background:rgb(246, 244, 239)}.top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}";
+	const h = crypto.createHash("sha256").update(css).digest("hex");
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML estilos", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "estilos desde el html" } })).json()).test_id;
+	const snap = page("Zapatilla Trail");
+	snap.nodes[1].style = style("rgb(255, 0, 0)"); // lo que mande el cliente no se guarda: manda la página
+	snap.html = { doc: `<html><head></head><body data-tr-i="0"><div class="top" data-tr-i="1">Demo Shop</div><div id="ficha" data-tr-i="2">Zapatilla</div></body></html>`, css: [h], sheets: { [h]: css }, dpr: 1 };
+	expect((await (await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).json()).mode).toBe("html");
+	const stored = await (await request.get(`/api/v1/tests/${id}/dom`)).json();
+	expect(stored.styles_from).toBe("html");
+	expect(stored.nodes.some((n) => n.style || n.s !== undefined)).toBe(false);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await insp.locator('[data-insp="view"]').click(); // a la reconstrucción
+	await expect(insp.locator(".insp-frame")).toHaveCount(0);
+	await expect(insp.locator('.insp-n[data-i="1"]')).toHaveCSS("background-color", "rgb(31, 95, 69)");
+	await expect(insp.locator('.insp-n[data-i="1"] .t')).toHaveText("Demo Shop");
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+});

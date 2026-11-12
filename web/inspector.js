@@ -165,6 +165,24 @@
 		const body = String(snap.html?.doc || "");
 		return "<!doctype html>" + (body.includes("<head></head>") ? body.replace("<head></head>", `<head>${head}</head>`) : `<html><head>${head}</head>${body}</html>`);
 	}
+	/** Las propiedades de estilo que manda el cliente por nodo (dom.py: STYLE y los extras). */
+	const NODE_STYLE = ["display", "position", "backgroundColor", "color", "fontSize", "fontWeight", "fontFamily", "borderTopWidth",
+		"borderTopColor", "borderRadius", "opacity", "textAlign", "lineHeight", "zIndex", "overflowX", "overflowY", "writingMode"];
+	/** El estilo de un nodo como lo arma el cliente, calculado por el navegador sobre la página real (modo HTML). */
+	function computedStyle(win, el, n) {
+		const st = win.getComputedStyle(el), style = {};
+		for (const k of NODE_STYLE) style[k] = st[k];
+		for (const side of ["Right", "Bottom", "Left"]) {
+			style[`border${side}Width`] = st[`border${side}Width`];
+			if (parseFloat(st[`border${side}Width`]) > 0) style[`border${side}Color`] = st[`border${side}Color`];
+		}
+		if (/gradient\(/.test(st.backgroundImage) && !/url\(/i.test(st.backgroundImage)) style.backgroundImage = st.backgroundImage;
+		if (st.boxShadow && st.boxShadow !== "none") style.boxShadow = st.boxShadow;
+		if (st.textOverflow && st.textOverflow !== "clip") style.textOverflow = st.textOverflow;
+		if (st.whiteSpace && st.whiteSpace !== "normal") style.whiteSpace = st.whiteSpace;
+		if (n.attrs?.placeholder) { try { style.placeholderColor = win.getComputedStyle(el, "::placeholder").color; } catch { /* sin color propio */ } }
+		return style;
+	}
 	/** Fidelidad: la parte de los píxeles de dos imágenes del mismo tamaño (RGBA, ya reducidas) cuyo color
 	 * se parece (ningún canal difiere más de `tol`). A esa escala un texto es una mancha gris: lo que baja
 	 * la cifra es lo que se ve distinto, como un bloque negro donde había barras grises.
@@ -480,9 +498,49 @@
 		let viewHTML = true; // con un snapshot HTML se ve la página real; el botón cambia a la reconstrucción
 		const htmlOn = (s) => !!(s?.html?.doc && viewHTML);
 		function parseHTMLDoc(s) { try { return new DOMParser().parseFromString(s.html.doc, "text/html"); } catch { return null; } }
+		// las hojas de la página, una vez por hash (las piden el iframe y el cálculo de estilos)
+		const cssCache = new Map();
+		const sheet = (h) => {
+			if (h === EMPTY_SHEET) return Promise.resolve(""); // un <style> vacío está, sin nada que pedir
+			if (!cssCache.has(h)) cssCache.set(h, opts.loadCSS ? opts.loadCSS(h).catch(() => null) : Promise.resolve(null));
+			return cssCache.get(h);
+		};
+		const sheetsOf = (s) => Promise.all((s.html.css || []).map(sheet));
+		/** Modo HTML sin estilos en los nodos (el servidor no los guarda dos veces): se calculan de la página
+		 * real, su HTML con su CSS, en un iframe oculto sin scripts (sandbox sin allow-scripts y la misma CSP
+		 * sin red). Así la animación y la reconstrucción se dibujan como siempre. */
+		async function hydrateStyles(s) {
+			if (!s || s.styles_from !== "html" || !s.html?.doc || s.hydrated || !s.nodes?.length) return s;
+			s.hydrated = true;
+			const doc = parseHTMLDoc(s);
+			if (!doc) return s;
+			const sheets = await sheetsOf(s);
+			const fr = document.createElement("iframe");
+			fr.setAttribute("sandbox", "allow-same-origin"); // sin allow-scripts: nada de la página corre
+			fr.setAttribute("aria-hidden", "true"); fr.tabIndex = -1;
+			Object.assign(fr.style, { position: "fixed", left: "-100000px", top: "0", border: "0", width: (s.viewport?.w || 1280) + "px", height: (s.viewport?.h || 800) + "px" });
+			const loaded = new Promise((res) => { fr.addEventListener("load", res, { once: true }); setTimeout(res, 4000); });
+			fr.srcdoc = htmlSrcdoc(s, sheets, doc);
+			document.body.appendChild(fr);
+			try {
+				await loaded;
+				const d = fr.contentDocument, win = fr.contentWindow;
+				if (!d || !win) return s;
+				const byI = new Map();
+				const walk = (root) => {
+					for (const el of root.querySelectorAll("[data-tr-i]")) byI.set(+el.getAttribute("data-tr-i"), el);
+					for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot);
+				};
+				walk(d);
+				for (const n of s.nodes) {
+					const el = byI.get(n.i);
+					if (el && !n.style) n.style = computedStyle(win, el, n);
+				}
+			} catch { /* sin estilos: la página real se ve igual, la reconstrucción sin colores */ } finally { fr.remove(); }
+			return s;
+		}
 		async function mountFrame(s, doc, req) {
-			// la de un <style> vacío (SHA-256 de "") está, sin nada que pedir: no es una hoja que falta
-			const sheets = await Promise.all((s.html.css || []).map((h) => (h === EMPTY_SHEET ? "" : opts.loadCSS ? opts.loadCSS(h).catch(() => null) : null)));
+			const sheets = await sheetsOf(s);
 			if (req !== frameReq) return;
 			const lost = sheets.filter((c) => typeof c !== "string").length + (s.html.missing || []).length;
 			const note = $(".insp-cssnote");
@@ -841,7 +899,7 @@
 		}
 		/** La página que se muestra es la principal: la del fallo, o la del último warning si no hay fallo. */
 		function isMain(snap) { return opts.snapshot ? snap === opts.snapshot : mainPage >= 0 && curPage === mainPage; }
-		async function pageSnap(p) { return p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq); }
+		async function pageSnap(p) { return hydrateStyles(p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq)); }
 		function markFailure(instant) {
 			cursors.querySelectorAll(".insp-ghost, .insp-simlabel").forEach((g) => g.remove());
 			layer.querySelectorAll(".similar, .failed-el").forEach((e) => e.classList.remove("similar", "failed-el"));

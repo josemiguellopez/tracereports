@@ -258,7 +258,7 @@ func cleanCSS(s string) string {
 // que hay que guardar aparte. Sin un HTML usable el snapshot queda en el modo estructura.
 func cleanHTMLSnapshot(p *redact.Policy, snap *locator.Snapshot) map[string]string {
 	h := snap.HTML
-	snap.Mode = ""
+	snap.Mode, snap.StylesFrom = "", "" // los decide el servidor
 	if h == nil {
 		return nil
 	}
@@ -298,6 +298,15 @@ func cleanHTMLSnapshot(p *redact.Policy, snap *locator.Snapshot) map[string]stri
 		return sheets
 	}
 	snap.Mode = "html"
+	// los estilos de cada nodo los da la página real (su HTML con su CSS): el visor los calcula de ahí y no
+	// se guardan dos veces. Si faltó alguna hoja (de otro dominio, sin CORS), se quedan: el CSS no basta
+	if len(h.Missing) == 0 {
+		snap.Styles = nil
+		for i := range snap.Nodes {
+			snap.Nodes[i].Style, snap.Nodes[i].S = nil, nil
+		}
+		snap.StylesFrom = "html"
+	}
 	return sheets
 }
 
