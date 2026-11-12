@@ -4246,7 +4246,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			</header>
 			<h2 class="esc-title">${esc(e.title)}</h2>
 			<table class="esc-facts">${facts.reduce((rows, x, i) => (i % 2 ? rows[rows.length - 1].push(x) : rows.push([x]), rows), [])
-				.map((row) => `<tr>${row.map(([k, v]) => `<th scope="row">${esc(k)}</th><td>${v}</td>`).join("")}${row.length === 1 ? "<th></th><td></td>" : ""}</tr>`).join("")}</table>
+				.map((row) => `<tr>${row.map(([k, v]) => `<th scope="row">${esc(k)}</th><td${row.length === 1 ? ' colspan="3"' : ""}>${v}</td>`).join("")}</tr>`).join("")}</table>
 			<section class="esc-summary"><h3>${esc(L.summary)}</h3><p class="esc-headline">${esc(e.headline)}</p></section>
 			${escVerdictHTML(e, L)}
 			${escShotHTML(e, L)}

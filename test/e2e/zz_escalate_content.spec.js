@@ -76,3 +76,14 @@ test("Negocio no recibe la sección técnica de dónde falló", async ({ page })
 	const card = await generate(page, 0, { audience: "business" });
 	await expect(card.locator(".esc-where")).toHaveCount(0);
 });
+
+test("la ejecución completa con un solo fallo nombra el test en la ficha, sin celdas vacías", async ({ page }) => {
+	const card = await generate(page, 0);
+	const facts = card.locator(".esc-facts");
+	await expect(facts.locator("tr", { hasText: "Test" }).locator("td").filter({ hasText: "test_002_agregar_inmunizacion" })).toHaveCount(1);
+	const cells = await facts.locator("th, td").evaluateAll((els) => els.map((e) => e.textContent.trim()));
+	expect(cells.filter((c) => c === ""), "la ficha no deja celdas vacías").toEqual([]);
+	// una cantidad impar de datos: el último ocupa la fila entera
+	const odd = await facts.evaluate((t) => [...t.rows].filter((r) => r.cells.length === 2).map((r) => r.cells[1].colSpan));
+	expect(odd.every((c) => c === 3)).toBe(true);
+});

@@ -288,6 +288,10 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 	if t.Status == "FAIL" {
 		f.Where = whereFailed(t)
 	}
+	if testID == 0 && f.Failed == 1 && t.Status == "FAIL" {
+		// la ejecución completa con un solo fallo: la ficha nombra el test y la evidencia trae su error
+		f.TestName, f.Error = t.Name, clip(t.ErrorMessage, 1500)
+	}
 	if testID != 0 {
 		f.TestName, f.TestTags, f.TestDesc, f.Error = t.Name, t.Category, t.Description, clip(t.ErrorMessage, 1500)
 		f.ReportPath = fmt.Sprintf("#run=%d&view=tests&test=%d", runID, t.ID)
