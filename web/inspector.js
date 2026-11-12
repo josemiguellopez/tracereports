@@ -165,6 +165,17 @@
 		const body = String(snap.html?.doc || "");
 		return "<!doctype html>" + (body.includes("<head></head>") ? body.replace("<head></head>", `<head>${head}</head>`) : `<html><head>${head}</head>${body}</html>`);
 	}
+	/** Cuánto puede separarse una captura de la página de su paso para ser la misma pantalla. */
+	const SHOT_WINDOW_MS = 10_000;
+	/** La captura de un paso: la más cercana en el tiempo a la página (at), dentro de SHOT_WINDOW_MS, y de
+	 * su mismo tipo si la hay (la de un WARNING para la página de un warning). "" si ninguna está cerca. */
+	function nearestShot(shots, at, kind) {
+		if (!at || !shots?.length) return "";
+		const near = shots.filter((s) => s.src && Math.abs((s.at || 0) - at) <= SHOT_WINDOW_MS);
+		const same = kind === "warning" ? near.filter((s) => s.status === "WARNING") : [];
+		const pool = same.length ? same : near;
+		return pool.reduce((best, s) => (!best || Math.abs(s.at - at) < Math.abs(best.at - at) ? s : best), null)?.src || "";
+	}
 	/** Las propiedades de estilo que manda el cliente por nodo (dom.py: STYLE y los extras). */
 	const NODE_STYLE = ["display", "position", "backgroundColor", "color", "fontSize", "fontWeight", "fontFamily", "borderTopWidth",
 		"borderTopColor", "borderRadius", "opacity", "textAlign", "lineHeight", "zIndex", "overflowX", "overflowY", "writingMode"];
@@ -415,7 +426,7 @@
 		const t = opts.t || ((s, v) => (v ? s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m)) : s));
 		let speed = 1, paused = false, runId = 0, current = null, mirror = null, els = [], testCursor = null, ctx = null;
 		let curPage = -1, diffOn = false, diffReq = 0;
-		const pages = [...(opts.steps || []).map((s) => ({ kind: s.kind === "warning" ? "warning" : "step", seq: s.seq, label: s.label })),
+		const pages = [...(opts.steps || []).map((s) => ({ kind: s.kind === "warning" ? "warning" : "step", seq: s.seq, label: s.label, at: s.at })),
 			...(opts.snapshot ? [{ kind: "fail", label: opts.failed?.selector ? t("Momento del fallo: {s}", { s: opts.failed.selector }) : t("Momento del fallo") }] : [])];
 		// la página principal (la que se compara con la captura): la del fallo, o en un test que terminó en
 		// WARNING (sin página del fallo) la de su último warning
@@ -432,7 +443,7 @@
 				<button class="cf-btn cf-btn-sm" data-insp="instant" type="button">${esc(t("Ver al instante"))}</button>
 				${opts.loadBaseline ? `<button class="cf-btn cf-btn-sm" data-insp="diff" type="button" aria-pressed="false">⇄ ${esc(t("Comparar con el último PASS"))}</button>`
 					: opts.compareUnavailable ? `<button class="cf-btn cf-btn-sm" type="button" disabled title="${esc(opts.compareUnavailable)}" aria-describedby="insp-nocompare">⇄ ${esc(t("Comparar con el último PASS"))}</button><span class="m-hint insp-nocompare" id="insp-nocompare">${esc(opts.compareUnavailable)}</span>` : ""}
-				${opts.screenshot ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
+				${opts.screenshot || opts.shots?.length ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
 				<button class="cf-btn cf-btn-sm" data-insp="view" type="button" hidden aria-pressed="true" title="${esc(t("Página real: el HTML y el CSS de la página dibujados por el navegador. Reconstrucción: la página redibujada por el Inspector."))}"></button>
 				<span class="insp-status" aria-live="polite"></span>
 				<span class="insp-fid" hidden title="${esc(t("Cuánto se parece la página reconstruida a la captura del momento del fallo"))}"></span>
@@ -441,7 +452,7 @@
 			${!pages.length ? `<p class="insp-notice" role="note">${esc(t("Este reporte no trae las páginas de este test."))}</p>` : ""}
 			<div class="insp-main">
 				<div class="insp-left">
-					<div class="insp-viewport"><div class="insp-stage"><div class="insp-layer"></div>${opts.screenshot ? `<img class="insp-overlay" alt="${esc(t("Captura del momento del fallo"))}">` : ""}<div class="insp-cursors"></div></div></div>
+					<div class="insp-viewport"><div class="insp-stage"><div class="insp-layer"></div>${opts.screenshot || opts.shots?.length ? `<img class="insp-overlay" alt="${esc(t("Captura del momento del fallo"))}">` : ""}<div class="insp-cursors"></div></div></div>
 					<p class="insp-notice insp-fidwarn" hidden></p>
 					<p class="insp-notice insp-cssnote" hidden></p>
 					<p class="insp-basic m-hint" hidden>${esc(t("Snapshot básico (solo los elementos interactivos): con el cliente actualizado se ve la página completa."))}</p>
@@ -562,7 +573,7 @@
 		// ---------- escenario ----------
 		function show(snap) {
 			const s = snap.nodes?.length ? expandStyles(snap) : fromElements(snap);
-			current = { snap: s, nodes: s.nodes, W: s.page?.w || s.viewport?.w || 1280, H: s.page?.h || s.viewport?.h || 800 };
+			current = { snap: s, nodes: s.nodes, W: s.page?.w || s.viewport?.w || 1280, H: s.page?.h || s.viewport?.h || 800, shot: shotOf(curPage) };
 			$(".insp-basic").hidden = !s.basic;
 			// modo HTML: XPath y CSS sobre la página real (la misma que ve Selenium), el iframe la dibuja
 			current.html = htmlOn(s);
@@ -632,10 +643,13 @@
 			}
 			const ov = $(".insp-overlay");
 			if (ov) {
-				ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = !isMain(snap);
+				// la captura de esta página: la del fallo, o la de su propio paso (un WARNING: la de ese warning, no la
+				// última del test, que puede ser de otra pantalla); sin una cercana, no hay qué superponer
+				if (current.shot) ov.src = current.shot;
+				ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = !current.shot;
 				Object.assign(ov.style, { left: (current.snap.scroll?.x || 0) + "px", top: (current.snap.scroll?.y || 0) + "px" }); // la parte de la página que muestra
 			}
-			if (isMain(snap) && opts.screenshot && s.nodes?.length && !s.basic) measureSoon();
+			if (isMain(snap) && current.shot && s.nodes?.length && !s.basic) measureSoon(); // sin su captura, no se mide
 			fit();
 			if (diffOn) applyDiff();
 		}
@@ -773,7 +787,7 @@
 				const g = c.getContext("2d", { willReadFrequently: true }); g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
 				return g;
 			};
-			const shot = await loadImg(opts.screenshot), k = shot.naturalWidth / vw;
+			const shot = await loadImg(current.shot), k = shot.naturalWidth / vw;
 			const ga = canvas();
 			if (shot.naturalHeight / k > vh * 1.15) ga.drawImage(shot, sx * k, sy * k, vw * k, Math.min(vh * k, shot.naturalHeight - sy * k), 0, 0, W, H); // captura de la página entera
 			else ga.drawImage(shot, 0, 0, W, H);
@@ -899,6 +913,12 @@
 			}).join("");
 		}
 		/** La página que se muestra es la principal: la del fallo, o la del último warning si no hay fallo. */
+		/** La captura de la página k: la del fallo, o la del paso más cercano a cuando se tomó la página. */
+		function shotOf(k) {
+			const p = pages[k];
+			if (!p) return "";
+			return p.kind === "fail" ? opts.screenshot || "" : nearestShot(opts.shots, p.at, p.kind);
+		}
 		function isMain(snap) { return opts.snapshot ? snap === opts.snapshot : mainPage >= 0 && curPage === mainPage; }
 		async function pageSnap(p) { return hydrateStyles(p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq)); }
 		function markFailure(instant) {
@@ -1157,5 +1177,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, fidelity, dominantShare, failedRaster, htmlExtraCSS, htmlSrcdoc, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, nearestShot, fidelity, dominantShare, failedRaster, htmlExtraCSS, htmlSrcdoc, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
 })();

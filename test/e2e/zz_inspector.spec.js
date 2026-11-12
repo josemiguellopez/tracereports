@@ -706,9 +706,9 @@ test("un test WARNING mide la fidelidad sobre la página de su último warning",
 	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
 	expect(pct).toBeGreaterThanOrEqual(85);
 	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(1);
-	// en otro paso no se mide ni se muestra la superposición
+	// en otro paso se puede superponer su captura, pero la fidelidad es solo de la página principal
 	await insp.locator('.insp-steps [data-page="0"]').click();
-	await expect(insp.locator(".insp-overlay")).toBeHidden();
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(1);
 });
 
 // Modo HTML: el servidor no guarda los estilos de los nodos (los da la página real). El visor los calcula
@@ -768,4 +768,41 @@ test("los cursores arman en cada paso solo lo que cambió desde el anterior", as
 	expect(builds).toContain("Reconstruyendo 0 de 1"); // la del fallo: solo el botón nuevo
 	expect(builds.length, "el paso igual al anterior no se vuelve a armar").toBe(2);
 	await expect(insp.locator('.insp-n[data-i="4"] .t')).toHaveText("Pagar ahora");
+});
+
+// Un WARNING se compara con SU captura, no con la última del test: en un caso real, la página del warning era
+// un modal y la última captura (38 s después) la agenda sin el modal, y la fidelidad daba 20 %.
+test("un WARNING usa la captura de su warning para superponer y medir, no la última del test", async ({ page: p, request, browser }) => {
+	const shot = async (html) => {
+		const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+		await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">${html}</body>`);
+		const png = await real.screenshot();
+		await real.close();
+		return png;
+	};
+	const modal = await shot(`<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69)"></div>
+		<div style="position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff"></div>`);
+	const agenda = await shot(`<div style="position:absolute;inset:0;background:rgb(20, 20, 120)"></div>`);
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector captura del warning", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "warning con su captura" } })).json()).test_id;
+	const T = Date.now() - 120_000;
+	const snap = page("", { pay: false });
+	snap.nodes[1].text = ""; snap.nodes[3].text = "";
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...snap, kind: "warning", label: "Alerta guardando cita", at: T } })).status()).toBeLessThan(300);
+	const up = (png, status, at, message) => request.post(`/api/v1/tests/${id}/screenshot`, { headers: { "X-TraceReports-Timestamp": String(at) },
+		multipart: { file: { name: "s.png", mimeType: "image/png", buffer: png }, message, status } });
+	expect((await up(modal, "WARNING", T + 3_000, "Alerta guardando cita")).ok()).toBeTruthy();
+	expect((await up(agenda, "INFO", T + 41_000, "Agenda")).ok()).toBeTruthy(); // la última del test: otra pantalla
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "WARNING", error_message: "El paciente ya tiene una cita" } });
+	const logs = (await (await request.get(`/api/v1/tests/${id}`)).json()).logs.filter((l) => l.screenshot);
+	const warnShot = logs.find((l) => l.status === "WARNING").screenshot;
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-overlay")).toHaveAttribute("src", warnShot);
+	await expect(insp.locator(".insp-fid")).toBeVisible();
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct, "comparada con la captura del warning (con la última daría muy bajo)").toBeGreaterThanOrEqual(85);
 });
