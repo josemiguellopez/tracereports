@@ -797,8 +797,18 @@ test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no
 		const lone = heads.find(({ it, p }) => it.state === state && inView(p) && near.every((o) => o.it === it || Math.hypot(o.p.x - p.x, o.p.y - p.y) > 20));
 		return lone && { x: r.left + lone.p.x, y: r.top + lone.p.y, name: lone.it.name };
 	}, [state, onlySame]);
-	let fail = await where("FAIL"), pass = await where("PASS");
-	expect(fail && pass).toBeTruthy();
+	// el campo gira hasta que el mouse lo detiene: según el ángulo de ese instante puede no haber un punto
+	// solo; se busca de nuevo hasta encontrarlo (antes, una sola vez: fallaba al azar en la CI)
+	let fail, pass;
+	await expect.poll(async () => {
+		fail = await where("FAIL"); pass = await where("PASS");
+		if (fail && pass) return true;
+		// quieto en un ángulo sin un punto solo: se lo deja girar un momento y se lo vuelve a detener
+		await page.mouse.move(box.x - 40, box.y - 40);
+		await page.waitForTimeout(400);
+		await page.mouse.move(box.x + 6, box.y + 6);
+		return false;
+	}, { timeout: 20_000 }).toBe(true);
 	const tip = view.locator(".lf-tip");
 	await page.mouse.move(fail.x, fail.y);
 	await expect(tip).toHaveClass(/lf-card st-fail/);
