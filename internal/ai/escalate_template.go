@@ -15,6 +15,10 @@ var tpl = map[string]map[string]string{
 		"headline_test":  "El test \"%s\" falló en %s.",
 		"what_backend":   "El sistema no pudo completar la operación porque un servicio del backend respondió con error o no respondió.",
 		"what_locator":   "La pantalla cambió y la automatización ya no encuentra un elemento: es mantenimiento del test, no un error del producto.",
+		"what_timing":    "El elemento no alcanzó a aparecer: la página seguía cargando cuando el test lo buscó. Es una espera del test, no un cambio de la interfaz ni un error del producto.",
+		"cause_timing":   "El test buscó el elemento antes de que terminara la carga de la página (%s). El selector no cambió.",
+		"ev_loading":     "Al fallar, la página seguía cargando: %s.",
+		"step_timing":    "Esperar a que termine la carga (que desaparezca el indicador de carga o llegue la respuesta del backend) antes de buscar el elemento; no cambiar el selector.",
 		"what_logic":     "La aplicación respondió, pero con un resultado distinto del esperado.",
 		"what_infra":     "Falló el entorno de pruebas (navegador, red o datos de prueba), no necesariamente la aplicación.",
 		"what_blank":     "La página no llegó a cargar: el navegador quedó en blanco y el test no pudo continuar. No es un cambio de la interfaz ni un selector roto.",
@@ -91,6 +95,10 @@ var tpl = map[string]map[string]string{
 		"headline_test":  "The test \"%s\" failed in %s.",
 		"what_backend":   "The system could not complete the operation because a backend service returned an error or did not answer.",
 		"what_locator":   "The screen changed and the automation no longer finds an element: it is test maintenance, not a product bug.",
+		"what_timing":    "The element did not show up in time: the page was still loading when the test looked for it. It is a wait in the test, not a UI change nor a product bug.",
+		"cause_timing":   "The test looked for the element before the page finished loading (%s). The selector did not change.",
+		"ev_loading":     "When the test failed, the page was still loading: %s.",
+		"step_timing":    "Wait for the load to finish (the loading indicator gone or the backend's answer in) before looking for the element; do not change the selector.",
 		"what_logic":     "The application answered, but with a different result than expected.",
 		"what_infra":     "The test environment failed (browser, network or test data), not necessarily the application.",
 		"what_blank":     "The page never loaded: the browser stayed blank and the test could not go on. It is not a UI change nor a broken selector.",
@@ -301,11 +309,21 @@ func templateEscalation(e *Escalation) {
 	if blank {
 		cat = "INFRA_ERROR"
 	}
+	// la página seguía cargando al fallar (skeleton, spinner, red en curso) o el mismo selector encontró el
+	// elemento en el último PASS: no cambió la interfaz, el test no esperó. Gana sobre el diagnóstico guardado
+	// del test (que pudo hacerse antes de mirar estas señales) y sobre una causa sin categoría.
+	staleTriage := false
+	if !blank && len(f.Loading) > 0 && (cat == "LOCATOR_CHANGED" || cat == "TIMING" || cat == "") {
+		staleTriage = cat != "TIMING"
+		cat = "TIMING"
+	}
 	switch cat {
 	case "BACKEND_TIMEOUT":
 		e.WhatHappened, e.Severity, e.Owner = t["what_backend"], "high", t["owner_backend"]
 	case "LOCATOR_CHANGED":
 		e.WhatHappened, e.Severity, e.Owner = t["what_locator"], "low", t["owner_qa"]
+	case "TIMING":
+		e.WhatHappened, e.Severity, e.Owner = t["what_timing"], "low", t["owner_qa"]
 	case "LOGIC_BUG":
 		e.WhatHappened, e.Severity, e.Owner = t["what_logic"], "high", t["owner_dev"]
 	case "INFRA_ERROR":
@@ -316,10 +334,10 @@ func templateEscalation(e *Escalation) {
 	if blank {
 		e.WhatHappened = t["what_blank"]
 	}
-	if e.TestID == 0 && f.Total > 0 && f.Failed*2 >= f.Total && cat != "LOCATOR_CHANGED" {
+	if e.TestID == 0 && f.Total > 0 && f.Failed*2 >= f.Total && cat != "LOCATOR_CHANGED" && cat != "TIMING" {
 		e.Severity = "critical"
 	}
-	if e.Audience == "dev" && f.AISummary != "" && !blank {
+	if e.Audience == "dev" && f.AISummary != "" && !blank && !staleTriage {
 		e.WhatHappened = f.AISummary
 	}
 	// ejecución completa sin causa clara: los incidentes agrupados dicen más que "no pudo completar su flujo"
@@ -344,7 +362,7 @@ func templateEscalation(e *Escalation) {
 		flow = f.RunName
 	}
 	switch {
-	case cat == "LOCATOR_CHANGED":
+	case cat == "LOCATOR_CHANGED" || cat == "TIMING":
 		e.Impact = t["impact_maint"]
 	case e.Audience == "business":
 		e.Impact = fmt.Sprintf(t["impact_biz"], flow)
@@ -355,6 +373,10 @@ func templateEscalation(e *Escalation) {
 	e.Evidence = []string{fmt.Sprintf(t["ev_run"], f.RunName, env, f.Passed, f.Failed, f.Skipped)}
 	if e.Audience != "business" && f.Error != "" {
 		e.Evidence = append(e.Evidence, fmt.Sprintf(t["ev_error"], firstLine(f.Error)))
+	}
+	if cat == "TIMING" && len(f.Loading) > 0 {
+		e.loadingEvidence = fmt.Sprintf(t["ev_loading"], strings.Join(f.Loading, "; "))
+		e.Evidence = append(e.Evidence, e.loadingEvidence)
 	}
 	if e.Audience != "business" {
 		for i, n := range f.Network {
@@ -389,6 +411,8 @@ func templateEscalation(e *Escalation) {
 	switch {
 	case blank: // el diagnóstico del test (selector roto) no vio que la página estaba en blanco
 		e.RootCause = t["cause_blank"]
+	case cat == "TIMING" && len(f.Loading) > 0 && (staleTriage || f.AISummary == ""):
+		e.RootCause = fmt.Sprintf(t["cause_timing"], strings.Join(f.Loading, "; "))
 	case f.AISummary != "":
 		e.RootCause = f.AISummary
 	case len(f.Incidents) > 0 && f.Incidents[0].Cause != "":
@@ -413,6 +437,8 @@ func templateEscalation(e *Escalation) {
 			hint = ": " + f.LocatorPick
 		}
 		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["step_locator"], hint))
+	case "TIMING":
+		e.NextSteps = append(e.NextSteps, t["step_timing"])
 	case "LOGIC_BUG":
 		e.NextSteps = append(e.NextSteps, t["step_bug"])
 	case "INFRA_ERROR":
@@ -425,7 +451,7 @@ func templateEscalation(e *Escalation) {
 	if incidents {
 		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["step_incident"], clip(f.Incidents[0].Title, 140)))
 	}
-	if f.AISuggest != "" && e.Audience != "business" && !blank { // con página en blanco sugeriría tocar un selector
+	if f.AISuggest != "" && e.Audience != "business" && !blank && !staleTriage { // un consejo de "cambia el selector" ya no vale // con página en blanco sugeriría tocar un selector
 		e.NextSteps = append([]string{f.AISuggest}, e.NextSteps...)
 	}
 	e.NextSteps = append(e.NextSteps, t["step_report"])

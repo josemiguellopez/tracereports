@@ -87,3 +87,47 @@ test("la ejecución completa con un solo fallo nombra el test en la ficha, sin c
 	const odd = await facts.evaluate((t) => [...t.rows].filter((r) => r.cells.length === 2).map((r) => r.cells[1].colSpan));
 	expect(odd.every((c) => c === 3)).toBe(true);
 });
+
+// El test buscó la fila mientras la lista seguía cargando (cinco SVG de skeleton en el panel): no cambió
+// el selector, el test no esperó. El triage del test y el escalamiento lo dicen, y no piden cambiar el selector.
+test("la lista seguía cargando: TIMING en el triage y en el escalamiento, sin culpar al selector", async ({ page, request }) => {
+	const loadRun = (await (await request.post("/api/v1/runs", { data: { name: `esccarga-${Date.now()} inmunizaciones`, environment: "preproduccion" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${loadRun}/tests`, { data: { name: "test_002_agregar_inmunizacion" } })).json()).test_id;
+	const nodes = [
+		{ i: 0, p: -1, tag: "body", x: 0, y: 0, w: 1382, h: 928, visible: true, depth: 0 },
+		{ i: 1, p: 0, tag: "div", attrs: { class: "card" }, x: 8, y: 98, w: 545, h: 788, visible: true, depth: 1 },
+		{ i: 2, p: 1, tag: "h5", text: "Inmunizaciones", x: 81, y: 111, w: 411, h: 24, visible: true, depth: 2 },
+		{ i: 3, p: 1, tag: "div", attrs: { class: "mt-1 col-sm-12" }, x: 66, y: 153, w: 497, h: 731, visible: true, depth: 2 },
+	];
+	for (let k = 0; k < 5; k++) nodes.push({ i: 4 + k, p: 3, tag: "svg", attrs: { role: "img" }, x: 81, y: 153 + 111 * k, w: 467, h: 111, visible: true, depth: 3,
+		svg: '<svg viewBox="0 0 400 95"><rect width="400" height="95" fill="url(#g)"/><defs><linearGradient id="g"><stop offset="0" stop-color="#f3f3f3"><animate attributeName="offset" values="-2; 1" dur="2s" repeatCount="indefinite"/></stop></linearGradient></defs></svg>' });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { url: "https://app/ficha", viewport: { w: 1382, h: 928 }, page: { w: 1382, h: 928 }, nodes, elements: [] } })).ok()).toBeTruthy();
+	await request.post(`/api/v1/tests/${id}/logs`, { data: { status: "FAIL", message: WRAPPED } });
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: WRAPPED } });
+	await request.patch(`/api/v1/runs/${loadRun}/finish`, { data: {} });
+
+	// el triage del test (motor local): espera, no locator
+	await expect.poll(async () => (await (await request.get(`/api/v1/tests/${id}`)).json()).triage?.category, { timeout: 20_000 }).toBe("TIMING");
+	const tri = (await (await request.get(`/api/v1/tests/${id}`)).json()).triage;
+	expect(tri.summary).toMatch(/5 (bloques de carga|loading blocks)/); // el idioma del motor sale de los nombres de los tests
+	expect(tri.summary).not.toMatch(/cambió la interfaz|the UI changed/);
+
+	await page.goto(`/#run=${loadRun}&view=escalate`);
+	const view = page.locator("#view-escalate");
+	await view.locator("#esc-scope").selectOption("0");
+	await view.locator('input[name="esc-aud"][value="qa"]').check({ force: true });
+	await view.locator('[data-esc-lang="es"]').click();
+	const noAI = view.locator('[data-esc-ai="0"]');
+	if (await noAI.count()) await noAI.click();
+	const card = view.locator("#esc-card");
+	await expect(async () => {
+		await view.locator("[data-esc-gen]").click();
+		await expect(card).toBeVisible({ timeout: 3000 });
+	}).toPass({ timeout: 20_000 });
+	await expect(card).toContainText("la página seguía cargando cuando el test lo buscó");
+	await expect(card.locator(".esc-sec", { hasText: "Evidencia" })).toContainText("5 bloques de carga (skeleton) visibles");
+	await expect(card.locator(".esc-sec", { hasText: "Próximos pasos" })).toContainText("Esperar a que termine la carga");
+	await expect(card).not.toContainText("Actualizar el selector");
+	await expect(card).not.toContainText("La pantalla cambió");
+	await expect(card.locator(".esc-sev")).toHaveText("Baja");
+});

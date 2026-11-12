@@ -10,6 +10,7 @@
 		BACKEND_TIMEOUT: "Timeout de backend",
 		LOGIC_BUG: "Bug de lógica",
 		INFRA_ERROR: "Error de infraestructura",
+		TIMING: "Espera insuficiente",
 	};
 
 	const S = {

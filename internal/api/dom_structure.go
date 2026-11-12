@@ -53,6 +53,7 @@ var longStyles = map[string]int{"boxShadow": 400, "backgroundImage": 400}
 var (
 	tagRe        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 	ariaAttrRe   = regexp.MustCompile(`^aria-[a-z]{1,30}$`)
+	svgAnimRe    = regexp.MustCompile(`(?i)<animate(?:Transform|Motion)?[\s/>]`)
 	styleValueRe = regexp.MustCompile(`^[a-zA-Z0-9 #%.,()'"_-]*$`)
 	matrixRe     = regexp.MustCompile(`^matrix\((-?\d{1,4}(\.\d{1,6})?(e-?\d{1,2})?, ){4}0, 0\)$`)
 )
@@ -109,6 +110,7 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 		}
 		n.Style = style
 		n.Icons = cleanIcons(n.Icons, snap.Glyphs)
+		n.Anim = svgAnimRe.MatchString(n.SVG) // un skeleton de carga se anima: es una señal del fallo (la animación no se guarda)
 		if n.SVG != "" {
 			n.SVG = cleanSVG(n.SVG)
 		}

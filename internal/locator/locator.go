@@ -105,6 +105,9 @@ type Node struct {
 	// Icons drawn on it and, for an inline <svg>, its markup (sanitized by the server).
 	Icons []NodeIcon `json:"icons,omitempty"`
 	SVG   string     `json:"svg,omitempty"`
+	// Anim: the inline <svg> was animated (<animate>, as a loading skeleton): set by the server before it
+	// drops the animation, never taken from the client.
+	Anim bool `json:"anim,omitempty"`
 }
 
 // Point is a position in CSS pixels.

@@ -31,6 +31,8 @@ const (
 	CategoryBackend = "BACKEND_TIMEOUT"
 	CategoryLogic   = "LOGIC_BUG"
 	CategoryInfra   = "INFRA_ERROR"
+	// CategoryTiming: the element did not show up in time (the page was still loading); not a UI change.
+	CategoryTiming = "TIMING"
 )
 
 // Confidence of a rule: how directly the evidence supports its conclusion.
@@ -68,6 +70,11 @@ type Input struct {
 	// BlankPage: the page was blank when the test failed (the DOM snapshot had nothing visible, or
 	// the screenshot was a single color), with the observed fact.
 	BlankPage string
+	// Loading: what said the page was still loading at the failure (skeletons, spinners, aria-busy,
+	// backend calls in flight), as facts in Lang.
+	Loading []string
+	// SelectorBefore: the same selector found the element the last time the test passed (a fact in Lang).
+	SelectorBefore string
 }
 
 // Diagnosis is the conclusion of the engine for one failed test.
@@ -115,6 +122,7 @@ var Catalog = []Rule{
 	{"network_error", 78, ruleNetworkInMessage},
 	{"blank_page", 76, ruleBlankPage},
 	{"js_error", 75, ruleJSError},
+	{"still_loading", 74, ruleStillLoading},
 	{"backend_client_error", 72, ruleClientError},
 	{"locator_not_found", 70, ruleLocator},
 	{"assertion", 60, ruleAssertion},
@@ -380,6 +388,33 @@ func ruleJSError(in *Input) *match {
 	js := clip(strings.Join(strings.Fields(in.PageErrors[0]), " "), 160)
 	return &match{category: CategoryLogic, confidence: Medium, evidence: []string{js, firstLine(in.Error, in.FailedStep, in.Lang)},
 		vars: map[string]string{"console": js}}
+}
+
+// ruleStillLoading: an element that "was not found" while the page was still loading (or that the same
+// selector found the last time the test passed) is a wait the test did not make, not a broken selector.
+// It goes before locator_not_found.
+func ruleStillLoading(in *Input) *match {
+	if len(in.Loading) == 0 && in.SelectorBefore == "" {
+		return nil
+	}
+	ok, sel := locatorFailure(in)
+	if !ok {
+		return nil
+	}
+	target := texts[in.Lang]["the_element"].Summary
+	if sel != "" {
+		target = clip(sel, 120)
+	}
+	why := append(append([]string{}, in.Loading...), in.SelectorBefore)
+	if in.SelectorBefore == "" {
+		why = in.Loading
+	}
+	conf := Medium
+	if len(in.Loading) > 0 && in.SelectorBefore != "" {
+		conf = High
+	}
+	return &match{category: CategoryTiming, confidence: conf, evidence: append(append([]string{}, why...), firstLine(in.Error, in.FailedStep, in.Lang)),
+		vars: map[string]string{"selector": target, "why": strings.Join(why, "; ")}}
 }
 
 func ruleLocator(in *Input) *match {

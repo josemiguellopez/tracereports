@@ -53,6 +53,8 @@ type Escalation struct {
 	// Timing is how long an AI summary took, split between the provider and TraceReports (shown
 	// under the card in the UI, not shared). Nil for the template.
 	Timing *AITiming `json:"timing,omitempty"`
+	// loadingEvidence: the template's line of evidence about the loading page (kept on an AI answer).
+	loadingEvidence string
 }
 
 // AITiming splits how long an AI answer took: waiting for the provider (every call, retries
@@ -122,7 +124,11 @@ type Facts struct {
 	Network     []NetFact    `json:"network,omitempty"`
 	FailedTests []FailedFact `json:"failed_tests,omitempty"`
 	// Where: where the (first) failure happened, from the data (never from the model): for QA.
-	Where       *WhereFailed  `json:"where,omitempty"`
+	Where *WhereFailed `json:"where,omitempty"`
+	// Loading: what said the page was still loading when the (first) failed test failed, in the
+	// escalation's language (loadingBy has both; newEscalation picks one).
+	Loading     []string `json:"loading,omitempty"`
+	loadingBy   map[string][]string
 	Incidents   []db.Incident `json:"incidents,omitempty"`
 	RunHeadline string        `json:"run_headline,omitempty"`
 	RunSummary  string        `json:"run_summary,omitempty"`
@@ -288,6 +294,22 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 	if t.Status == "FAIL" {
 		f.Where = whereFailed(t)
 	}
+	if t.Status == "FAIL" {
+		// ¿seguía cargando la página? Entonces "cambió el selector" sería falso (también en la IA)
+		conns, err := store.NetworkTimeline(t.ID)
+		if err != nil {
+			return nil, err
+		}
+		sel := locator.ExtractSelector(errtext.Useful(t.ErrorMessage), t.ErrorTrace)
+		f.loadingBy = map[string][]string{}
+		for _, lang := range []string{"es", "en"} {
+			l := loadingSignals(store, t, conns, lang)
+			if s := selectorBefore(store, t, sel, lang); s != "" {
+				l = append(l, s)
+			}
+			f.loadingBy[lang] = l
+		}
+	}
 	if testID == 0 && f.Failed == 1 && t.Status == "FAIL" {
 		// la ejecución completa con un solo fallo: la ficha nombra el test y la evidencia trae su error
 		f.TestName, f.Error = t.Name, clip(t.ErrorMessage, 1500)
@@ -408,6 +430,15 @@ var audienceGuide = map[string]string{
 - "next_steps": concrete debugging or fix steps (logs to check, request to replay, code area).`,
 }
 
+// loadingFacts: the loading signals in the escalation's language, or in English for a prompt built
+// straight from BuildFacts (the chat).
+func (f *Facts) loadingFacts() []string {
+	if len(f.Loading) > 0 {
+		return f.Loading
+	}
+	return f.loadingBy["en"]
+}
+
 func (f *Facts) promptBlock(scope string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Run: %s · environment: %s · status: %s · %d tests: %d passed, %d failed, %d skipped.\n",
@@ -449,6 +480,11 @@ func (f *Facts) promptBlock(scope string) string {
 			fmt.Fprintf(&b, "- %s %s%s -> %s after %d ms. Body: %s\n", n.Method, n.Host, n.Path, n.Outcome, n.DurationMs, n.Body)
 		}
 	}
+	if l := f.loadingFacts(); len(l) > 0 {
+		b.WriteString("Loading signals at the moment of the failure (from the page and its network): " + strings.Join(l, "; ") + ". " +
+			"The element did not show up in time because the page was still loading: the cause is a wait in the test (TIMING). " +
+			"Do not say that the selector or the UI changed; the next step is to wait for the load to finish.\n")
+	}
 	if f.ShotBlank {
 		b.WriteString("Every screenshot of the test is blank: the page never rendered (it did not finish loading). Do not " +
 			"conclude that the UI changed or that a selector broke: the element could never appear on a blank page.\n")
@@ -472,6 +508,11 @@ func EscalateTemplate(f *Facts, runID, testID int64, audience, lang string) *Esc
 // the facts are not changed).
 func newEscalation(f *Facts, runID, testID int64, audience, lang string) *Escalation {
 	e := &Escalation{RunID: runID, TestID: testID, Audience: audience, Lang: lang, Facts: *f, CreatedAt: db.NowMs()}
+	if l, ok := f.loadingBy[lang]; ok {
+		e.Facts.Loading = l
+	} else if l, ok := f.loadingBy["es"]; ok {
+		e.Facts.Loading = l
+	}
 	if as := f.Assessment; as != nil {
 		cp := *as
 		cp.Signals = append([]Signal(nil), as.Signals...)
@@ -800,6 +841,23 @@ func usable(s string) bool {
 	return t != "" && !schemaWords[t] && len([]rune(t)) >= 3
 }
 
+// selectorBlameRe: a text that says the selector or the screen changed (or that it must be updated).
+var selectorBlameRe = regexp.MustCompile(`(?i)(selector|locator|xpath|localizador)[^.]{0,80}(cambi|chang|actualiz|updat|ya no coincide|no longer match|roto|broken)|(cambi|chang)[^.]{0,60}(interfaz|\bui\b|pantalla|screen|selector|locator)|problema con (el )?selector|selector problem`)
+
+var sentenceRe = regexp.MustCompile(`[.;|\n]`)
+
+// selectorDeniedRe: the sentences that say the opposite (the template's own: "el selector no cambió").
+var selectorDeniedRe = regexp.MustCompile(`(?i)(el|the) selector (no|did not|didn't) (cambió|cambio|change)d?|no cambiar el selector|do not change the selector|no (es )?(un )?cambio de la interfaz|not a UI change|no es un selector roto|not a broken selector`)
+
+func blamesSelector(s string) bool {
+	for _, part := range sentenceRe.Split(s, -1) { // frase por frase: una negación no tapa otra frase
+		if !selectorDeniedRe.MatchString(part) && selectorBlameRe.MatchString(part) {
+			return true
+		}
+	}
+	return false
+}
+
 func usableList(xs []string) []string {
 	var out []string
 	for _, x := range xs {
@@ -834,6 +892,20 @@ func fillFromTemplate(e *Escalation) {
 	}
 	if e.Evidence = usableList(e.Evidence); len(e.Evidence) == 0 {
 		e.Evidence = tpl.Evidence
+	}
+	// la página seguía cargando y el modelo igual culpa al selector o a la interfaz: gana la plantilla,
+	// que sale de la evidencia (un modelo chico repite la categoría del error aunque se le diga)
+	if len(e.Facts.Loading) > 0 {
+		if blamesSelector(e.Headline) {
+			e.Headline = tpl.Headline
+		}
+		if blamesSelector(e.WhatHappened) || blamesSelector(e.RootCause) || blamesSelector(strings.Join(e.NextSteps, " ")) {
+			e.WhatHappened, e.RootCause, e.NextSteps = tpl.WhatHappened, tpl.RootCause, tpl.NextSteps
+			e.Severity, e.Owner, e.Impact = tpl.Severity, tpl.Owner, tpl.Impact
+		}
+		if tpl.loadingEvidence != "" && !strings.Contains(strings.Join(e.Evidence, "\n"), tpl.loadingEvidence) {
+			e.Evidence = append(e.Evidence, tpl.loadingEvidence) // un hecho, no una opinión del modelo
+		}
 	}
 	if e.NextSteps = usableList(e.NextSteps); len(e.NextSteps) == 0 {
 		e.NextSteps = tpl.NextSteps

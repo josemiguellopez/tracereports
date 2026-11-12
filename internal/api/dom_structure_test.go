@@ -421,3 +421,21 @@ func TestScrollIsKeptWhenSane(t *testing.T) {
 		}
 	}
 }
+
+// Un skeleton de carga (react-content-loader) es un SVG animado: la animación no se guarda (el snapshot
+// es un momento), pero sí que estaba animado, porque dice que la página seguía cargando al fallar. Lo
+// marca el servidor; un "anim" que manda el cliente no cuenta.
+func TestAnimatedSVGIsMarkedAtIngest(t *testing.T) {
+	srv, testID := newTestServer(t)
+	extra := `,{"i":3,"p":0,"tag":"svg","x":0,"y":60,"w":400,"h":95,"visible":true,"depth":1,"svg":"<svg viewBox=\"0 0 400 95\"><rect width=\"400\" height=\"95\" fill=\"url(#g)\"/><defs><linearGradient id=\"g\"><stop offset=\"0\"><animate attributeName=\"offset\" values=\"-2; 1\" dur=\"2s\" repeatCount=\"indefinite\"/></stop></linearGradient></defs></svg>"}` +
+		`,{"i":4,"p":0,"tag":"svg","x":0,"y":160,"w":16,"h":16,"visible":true,"depth":1,"anim":true,"svg":"<svg viewBox=\"0 0 16 16\"><path d=\"M0 0h16\"/></svg>"}`
+	postDOM(t, srv, testID, structSnap("fail", "", extra))
+	var snap locator.Snapshot
+	json.Unmarshal(do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.Bytes(), &snap)
+	if len(snap.Nodes) != 5 || !snap.Nodes[3].Anim || snap.Nodes[4].Anim {
+		t.Fatalf("anim: %+v", snap.Nodes)
+	}
+	if strings.Contains(snap.Nodes[3].SVG, "animate") {
+		t.Fatalf("the animation itself is not stored: %s", snap.Nodes[3].SVG)
+	}
+}

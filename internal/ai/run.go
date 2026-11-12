@@ -25,6 +25,7 @@ var categoryLabel = map[string]string{
 	"BACKEND_TIMEOUT": "Backend lento o caído",
 	"LOGIC_BUG":       "Bug de lógica",
 	"INFRA_ERROR":     "Error de infraestructura",
+	"TIMING":          "Espera insuficiente",
 }
 
 // AnalyzeRunAsync builds the diagnosis of a finished run in the background and then calls
