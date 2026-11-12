@@ -190,7 +190,7 @@ func (s *Server) putDOMFidelity(w http.ResponseWriter, r *http.Request) {
 	}
 	err := s.Store.SetDOMFidelity(id, math.Round(*in.Fidelity*1000)/1000, in.Mode)
 	if errors.Is(err, db.ErrNotFound) {
-		writeError(w, http.StatusNotFound, "test without a failure page")
+		writeError(w, http.StatusNotFound, "test without a failure or warning page")
 		return
 	}
 	if err != nil {

@@ -676,3 +676,37 @@ test("modo HTML: la fidelidad espera las hojas de estilo aunque tarden", async (
 	await expect.poll(async () => Math.round(((await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes[0]?.min || 0) * 100)).toBe(pct);
 	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
 });
+
+// Un test que terminó en WARNING no tiene página del fallo: sus páginas llegan como pasos, el último con
+// kind "warning". La fidelidad se mide sobre ese último warning con su captura (antes no había cifra para
+// 20 de los 22 tests con problemas de una suite real).
+test("un test WARNING mide la fidelidad sobre la página de su último warning", async ({ page: p, request, browser }) => {
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">
+		<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69)"></div>
+		<div style="position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff"></div></body>`);
+	const png = await real.screenshot();
+	await real.close();
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector fidelidad warning", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "termina en warning" } })).json()).test_id;
+	const snap = page("", { pay: false });
+	snap.nodes[1].text = ""; snap.nodes[3].text = "";
+	for (const [kind, label] of [["step", "Abrir la ficha"], ["warning", "La lista tardó más de 5 s"]]) {
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...snap, kind, label } })).status()).toBeLessThan(300);
+	}
+	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura del warning", status: "WARNING" } })).ok()).toBeTruthy();
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "WARNING", error_message: "La lista tardó más de 5 s" } });
+	expect((await (await request.get(`/api/v1/tests/${id}/dom`)).status())).toBe(204); // sin página del fallo
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-fid")).toBeVisible();
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct).toBeGreaterThanOrEqual(85);
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(1);
+	// en otro paso no se mide ni se muestra la superposición
+	await insp.locator('.insp-steps [data-page="0"]').click();
+	await expect(insp.locator(".insp-overlay")).toBeHidden();
+});

@@ -399,6 +399,9 @@
 		let curPage = -1, diffOn = false, diffReq = 0;
 		const pages = [...(opts.steps || []).map((s) => ({ kind: s.kind === "warning" ? "warning" : "step", seq: s.seq, label: s.label })),
 			...(opts.snapshot ? [{ kind: "fail", label: opts.failed?.selector ? t("Momento del fallo: {s}", { s: opts.failed.selector }) : t("Momento del fallo") }] : [])];
+		// la página principal (la que se compara con la captura): la del fallo, o en un test que terminó en
+		// WARNING (sin página del fallo) la de su último warning
+		const mainPage = opts.snapshot ? pages.length - 1 : pages.map((p) => p.kind).lastIndexOf("warning");
 		let prefInstant = false;
 		try { prefInstant = localStorage.getItem(PREF) === "1"; } catch { /* sin almacenamiento */ }
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches) prefInstant = true;
@@ -571,10 +574,10 @@
 			}
 			const ov = $(".insp-overlay");
 			if (ov) {
-				ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = snap !== opts.snapshot;
+				ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = !isMain(snap);
 				Object.assign(ov.style, { left: (current.snap.scroll?.x || 0) + "px", top: (current.snap.scroll?.y || 0) + "px" }); // la parte de la página que muestra
 			}
-			if (snap === opts.snapshot && opts.screenshot && s.nodes?.length && !s.basic) measureSoon();
+			if (isMain(snap) && opts.screenshot && s.nodes?.length && !s.basic) measureSoon();
 			fit();
 			if (diffOn) applyDiff();
 		}
@@ -836,6 +839,8 @@
 				return `<li class="${cls}" data-page="${k}" tabindex="0"><span class="num">${k + 1}</span><span>${esc(p.label || t("Paso {n}", { n: k + 1 }))}</span><small>${tag}</small></li>`;
 			}).join("");
 		}
+		/** La página que se muestra es la principal: la del fallo, o la del último warning si no hay fallo. */
+		function isMain(snap) { return opts.snapshot ? snap === opts.snapshot : mainPage >= 0 && curPage === mainPage; }
 		async function pageSnap(p) { return p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq); }
 		function markFailure(instant) {
 			cursors.querySelectorAll(".insp-ghost, .insp-simlabel").forEach((g) => g.remove());
