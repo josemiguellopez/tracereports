@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -60,11 +61,19 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 		snap.Nodes = snap.Nodes[:maxDOMNodes]
 	}
 	snap.Glyphs = cleanGlyphs(snap.Glyphs)
+	table := snap.Styles
+	snap.Styles = nil
 	for i := range snap.Nodes {
 		n := &snap.Nodes[i]
 		if n.I != i || n.P >= i || n.P < -1 || !tagRe.MatchString(n.Tag) {
 			snap.Nodes = nil
 			return
+		}
+		if n.S != nil { // un cliente que ya manda la tabla: cada nodo se limpia con su estilo, como siempre
+			if *n.S >= 0 && *n.S < len(table) && n.Style == nil {
+				n.Style = table[*n.S]
+			}
+			n.S = nil
 		}
 		n.Text = personal(redactThenCut(p, n.Text, maxNodeText))
 		n.Shown = personal(redactThenCut(p, n.Shown, maxNodeText))
@@ -113,6 +122,37 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 		snap.Page = nil
 	}
 	snap.Label = redactThenCut(p, snap.Label, 300)
+	tableStyles(snap)
+}
+
+// tableStyles stores each distinct node style once (Snapshot.Styles) and has every node point to its
+// own (Node.S): the same page goes from ~475 KB to ~250 KB uncompressed, which is how it is stored.
+func tableStyles(snap *locator.Snapshot) {
+	seen := map[string]int{}
+	var keys []string
+	for i := range snap.Nodes {
+		n := &snap.Nodes[i]
+		if len(n.Style) == 0 {
+			n.Style = nil
+			continue
+		}
+		keys = keys[:0]
+		for k := range n.Style {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		var b strings.Builder
+		for _, k := range keys {
+			b.WriteString(k + "\x00" + n.Style[k] + "\x00")
+		}
+		idx, ok := seen[b.String()]
+		if !ok {
+			idx = len(snap.Styles)
+			seen[b.String()] = idx
+			snap.Styles = append(snap.Styles, n.Style)
+		}
+		n.S, n.Style = &idx, nil
+	}
 }
 
 // getDOM returns the snapshot of the moment of the failure (GET /tests/{id}/dom; 204 without one).

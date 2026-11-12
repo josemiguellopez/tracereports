@@ -205,3 +205,12 @@ test("íconos: el de fuente va a la izquierda del texto (::before) o a la derech
 	assert.equal(I.shownText(btn), "Agregar");
 	assert.deepEqual(plain(I.iconBox(lig, lig.icons[0])), { x: 0, y: 0 });
 });
+
+test("expandStyles: cada nodo recupera su estilo de la tabla; un snapshot anterior queda igual", () => {
+	const snap = { styles: [{ color: "rgb(1, 2, 3)" }, { color: "rgb(4, 5, 6)" }],
+		nodes: [{ i: 0, s: 1 }, { i: 1, s: 0 }, { i: 2 }, { i: 3, s: 9 }, { i: 4, style: { color: "red" }, s: 0 }] };
+	I.expandStyles(snap);
+	assert.deepEqual(plain(snap.nodes.map((n) => n.style?.color ?? null)), ["rgb(4, 5, 6)", "rgb(1, 2, 3)", null, null, "red"]);
+	const old = { nodes: [{ i: 0, style: { color: "x" } }] };
+	assert.equal(I.expandStyles(old).nodes[0].style.color, "x");
+});

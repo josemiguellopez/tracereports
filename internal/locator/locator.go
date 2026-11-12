@@ -31,6 +31,19 @@ type Snapshot struct {
 	// Glyphs: the icons as the page drew them (an icon-font character, a Material ligature or a small
 	// image), rendered by the client into small PNG data URLs and referenced by id from Node.Icons.
 	Glyphs map[string]string `json:"glyphs,omitempty"`
+	// Styles: the distinct node styles, once each; a node points to its own with Node.S instead of
+	// carrying Node.Style (a page repeats a few combinations hundreds of times). Older snapshots
+	// have Node.Style on every node: readers take either.
+	Styles []map[string]string `json:"styles,omitempty"`
+}
+
+// ExpandStyles gives every node its Style back from the Styles table (a no-op on older snapshots).
+func (s *Snapshot) ExpandStyles() {
+	for i := range s.Nodes {
+		if n := &s.Nodes[i]; n.S != nil && *n.S >= 0 && *n.S < len(s.Styles) && n.Style == nil {
+			n.Style = s.Styles[*n.S]
+		}
+	}
 }
 
 // NodeIcon is an icon drawn on a node: G is its glyph id; Pos says where it goes ("before", "after",
@@ -60,6 +73,7 @@ type Node struct {
 	TX      *int              `json:"tx,omitempty"`
 	TY      *int              `json:"ty,omitempty"`
 	Style   map[string]string `json:"style,omitempty"`
+	S       *int              `json:"s,omitempty"` // index in Snapshot.Styles
 	// TF: the rotation/skew the page applied to the box, as matrix(a, b, c, d, 0, 0) (its own and its
 	// ancestors'); LW and LH: the box's layout size before it. X/Y/W/H stay the turned box on screen.
 	TF string `json:"tf,omitempty"`

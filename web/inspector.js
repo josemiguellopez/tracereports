@@ -115,6 +115,15 @@
 		}
 		return bestScore >= 1 ? bestNode : null;
 	}
+	/**
+	 * Cada nodo con su estilo: el servidor guarda cada estilo distinto una vez (styles) y el nodo apunta al
+	 * suyo (s). Un snapshot anterior trae el estilo en cada nodo y queda igual. Devuelve el mismo snapshot.
+	 */
+	function expandStyles(snap) {
+		const table = Array.isArray(snap?.styles) ? snap.styles : null;
+		if (table) for (const n of snap.nodes || []) if (!n.style && Number.isInteger(n.s) && table[n.s]) n.style = table[n.s];
+		return snap;
+	}
 	/** Un snapshot básico (solo elements, clientes anteriores) como nodos planos: el Inspector lo dibuja igual. */
 	function fromElements(snap) {
 		const vw = snap.viewport?.w || 1280, vh = snap.viewport?.h || 800;
@@ -390,7 +399,7 @@
 
 		// ---------- escenario ----------
 		function show(snap) {
-			const s = snap.nodes?.length ? snap : fromElements(snap);
+			const s = snap.nodes?.length ? expandStyles(snap) : fromElements(snap);
 			current = { snap: s, nodes: s.nodes, W: s.page?.w || s.viewport?.w || 1280, H: s.page?.h || s.viewport?.h || 800 };
 			$(".insp-basic").hidden = !s.basic;
 			mirror = buildMirror(current.nodes);
@@ -478,7 +487,7 @@
 				body.textContent = t("No hay un PASS anterior de este test con sus páginas guardadas. Con TRACEREPORTS_DOM_STEPS=1 cada ejecución guarda las páginas de sus pasos y se puede comparar.");
 				return;
 			}
-			const bs = base.snapshot.nodes?.length ? base.snapshot : fromElements(base.snapshot);
+			const bs = base.snapshot.nodes?.length ? expandStyles(base.snapshot) : fromElements(base.snapshot);
 			const d = diffSnapshots(bs.nodes, current.nodes);
 			d.added.forEach((i) => els[i]?.classList.add("diff-added"));
 			d.changed.forEach((c) => els[c.i]?.classList.add("diff-changed"));
@@ -821,5 +830,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
 })();

@@ -54,6 +54,7 @@ func TestStructuralSnapshotIsStoredClean(t *testing.T) {
 	}
 	var snap locator.Snapshot
 	json.Unmarshal(rec.Body.Bytes(), &snap)
+	snap.ExpandStyles()
 	b := snap.Nodes[2]
 	if b.Attrs["data-testid"] != "add-to-cart" || b.Style["color"] != "rgb(255, 255, 255)" || b.Style["fontFamily"] == "" || b.TX == nil || *b.TX != 12 {
 		t.Fatalf("kept what is needed to draw it and select it: %+v", b)
@@ -262,6 +263,7 @@ func TestTurnedBoxesAreKept(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
+	snap.ExpandStyles()
 	if snap.Nodes[3].Style["writingMode"] != "vertical-rl" {
 		t.Errorf("writing-mode: %+v", snap.Nodes[3].Style)
 	}
@@ -291,6 +293,7 @@ func TestBoxStylesAreKept(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
+	snap.ExpandStyles()
 	st := snap.Nodes[3].Style
 	for k, want := range map[string]string{"borderBottomWidth": "2px", "borderBottomColor": "rgb(51, 117, 194)", "borderLeftWidth": "0px",
 		"boxShadow": shadow, "backgroundImage": "linear-gradient(90deg, rgb(243, 243, 243) 0%, rgb(236, 235, 235) 100%)",
@@ -318,6 +321,7 @@ func TestControlShownTextIsCleaned(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
 		t.Fatal(err)
 	}
+	snap.ExpandStyles()
 	if snap.Nodes[3].Shown != "12 Meses" {
 		t.Errorf("shown: %q", snap.Nodes[3].Shown)
 	}
@@ -326,5 +330,47 @@ func TestControlShownTextIsCleaned(t *testing.T) {
 	}
 	if n := snap.Nodes[5]; !n.Filled || n.Style["placeholderColor"] != "rgb(108, 117, 125)" {
 		t.Errorf("filled and placeholder color: %+v", n)
+	}
+}
+
+// Cada estilo distinto se guarda una sola vez (styles) y cada nodo apunta al suyo (s): una página
+// repite unas pocas combinaciones cientos de veces. Un cliente que ya manda la tabla pasa por la misma
+// limpieza, nodo por nodo, y un índice fuera de la tabla no rompe nada.
+func TestStylesAreStoredOnce(t *testing.T) {
+	srv, testID := newTestServer(t)
+	var extra strings.Builder
+	same := `"style":{"color":"rgb(21, 27, 30)","fontSize":"16px","fontFamily":"Roboto, sans-serif","display":"block"}`
+	for i := 3; i < 203; i++ {
+		fmt.Fprintf(&extra, `,{"i":%d,"p":0,"tag":"div","text":"fila %d","x":0,"y":%d,"w":10,"h":10,"visible":true,"depth":1,%s}`, i, i, i, same)
+	}
+	body := strings.Replace(structSnap("fail", "", extra.String()+
+		`,{"i":203,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"s":0},`+
+		`{"i":204,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"s":7}`),
+		`"nodes":`, `"styles":[{"color":"rgb(1, 2, 3)","backgroundImage":"url(https://evil.example/t.png)","onclick":"x"}],"nodes":`, 1)
+	postDOM(t, srv, testID, body)
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	raw := rec.Body.String()
+	if c := strings.Count(raw, `"fontFamily":"Roboto, sans-serif"`); c != 1 {
+		t.Fatalf("a repeated style is stored once, found %d", c)
+	}
+	if strings.Contains(raw, "evil.example") || strings.Contains(raw, "onclick") {
+		t.Fatalf("a style from the client's table is cleaned like any other: %s", raw)
+	}
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Styles) != 4 { // body, button, las filas y el del cliente
+		t.Fatalf("distinct styles: %d %v", len(snap.Styles), snap.Styles)
+	}
+	snap.ExpandStyles()
+	if snap.Nodes[150].Style["fontFamily"] != "Roboto, sans-serif" || snap.Nodes[150].S == nil {
+		t.Fatalf("node points to its style: %+v", snap.Nodes[150])
+	}
+	if st := snap.Nodes[203].Style; st["color"] != "rgb(1, 2, 3)" || len(st) != 1 {
+		t.Fatalf("client table entry, cleaned: %v", st)
+	}
+	if snap.Nodes[204].S != nil || snap.Nodes[204].Style != nil {
+		t.Fatalf("an index outside the table is no style: %+v", snap.Nodes[204])
 	}
 }
