@@ -305,3 +305,26 @@ func TestBoxStylesAreKept(t *testing.T) {
 		}
 	}
 }
+
+// Lo que muestra un control sin que nadie lo haya escrito (la opción elegida de un select) viaja con
+// los datos personales enmascarados como el resto del texto; de un campo escrito, solo que no está vacío.
+func TestControlShownTextIsCleaned(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"select","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"shown":"12 Meses"},`+
+		`{"i":4,"p":0,"tag":"select","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"shown":"RUN 13.905.701-5"},`+
+		`{"i":5,"p":0,"tag":"input","attrs":{"placeholder":"Diagnóstico"},"x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"filled":true,"style":{"placeholderColor":"rgb(108, 117, 125)"}}`))
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if snap.Nodes[3].Shown != "12 Meses" {
+		t.Errorf("shown: %q", snap.Nodes[3].Shown)
+	}
+	if strings.Contains(snap.Nodes[4].Shown, "13.905.701") {
+		t.Errorf("personal data in shown: %q", snap.Nodes[4].Shown)
+	}
+	if n := snap.Nodes[5]; !n.Filled || n.Style["placeholderColor"] != "rgb(108, 117, 125)" {
+		t.Errorf("filled and placeholder color: %+v", n)
+	}
+}

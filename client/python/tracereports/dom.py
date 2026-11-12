@@ -211,6 +211,13 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
       node.tf = 'matrix(' + [acc.a, acc.b, acc.c, acc.d].map(f).join(', ') + ', 0, 0)';
       node.lw = el.offsetWidth; node.lh = el.offsetHeight;
     } else if (tb) { node.tx = Math.round(tb.x - r.x); node.ty = Math.round(tb.y - r.y); }
+    // lo que muestra un control sin que nadie lo haya escrito: la opción elegida de un <select> (las
+    // opciones ya viajan) y el rótulo de un botón <input>. De un campo con algo escrito viaja solo que
+    // no está vacío (se dibuja •••), y su placeholder con el color que le da la página.
+    if (!covered && tag === 'select' && el.selectedIndex >= 0 && el.options[el.selectedIndex]) node.shown = el.options[el.selectedIndex].text.replace(/\s+/g, ' ').trim().slice(0, 300);
+    if (!covered && tag === 'input' && /^(button|submit|reset)$/.test(el.type)) node.shown = String(el.value || '').slice(0, 300);
+    if ((tag === 'textarea' || (tag === 'input' && !/^(button|submit|reset|checkbox|radio|hidden|file|image|range|color)$/.test(el.type))) && el.value) node.filled = true;
+    if (attrs.placeholder) { try { style.placeholderColor = getComputedStyle(el, '::placeholder').color; } catch (e) { /* sin color propio */ } }
     if (visible && !covered) {
       const icons = [];
       // ::before / ::after con uno a tres caracteres: el ícono de fuente (o una marca como "*")

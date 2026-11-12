@@ -65,6 +65,10 @@ type Node struct {
 	TF string `json:"tf,omitempty"`
 	LW int    `json:"lw,omitempty"`
 	LH int    `json:"lh,omitempty"`
+	// Shown: what a control shows that nobody typed (the chosen option of a <select>, the label of an
+	// <input type=button>); Filled: a field has something typed (never what).
+	Shown  string `json:"shown,omitempty"`
+	Filled bool   `json:"filled,omitempty"`
 	// Icons drawn on it and, for an inline <svg>, its markup (sanitized by the server).
 	Icons []NodeIcon `json:"icons,omitempty"`
 	SVG   string     `json:"svg,omitempty"`

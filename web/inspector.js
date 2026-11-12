@@ -277,7 +277,9 @@
 	 * loadStep(seq) → Promise<snapshot>, failed ({selector, error}), screenshot (url), t (traducción) }.
 	 */
 	/** El texto que se ve: una ligadura de Material ("home") la dibuja su ícono, no la palabra. */
-	const shownText = (n) => (n.icons || []).some((ic) => ic.pos === "text") ? "" : n.text || "";
+	const shownText = (n) => (n.icons || []).some((ic) => ic.pos === "text") ? "" : n.text || n.shown || (n.filled ? "•••" : "") || placeholderOf(n);
+	/** El placeholder de un campo vacío: se ve en la página, en su color atenuado. Nunca lo escrito. */
+	const placeholderOf = (n) => (n.tag === "input" || n.tag === "textarea") && !n.text && !n.shown && !n.filled ? n.attrs?.placeholder || "" : "";
 
 	/**
 	 * Dónde va cada ícono dentro de su caja (en px desde la esquina): solo el ícono (un <i class="fa">,
@@ -435,6 +437,8 @@
 				if (n.tag === "button" || (!transparent(st.backgroundColor) && n.text && n.w < 220)) el.classList.add("center");
 				const tx = document.createElement("span"); tx.className = "t";
 				if (n.tx !== undefined && n.tx !== null) Object.assign(tx.style, { position: "absolute", left: n.tx + "px", top: (n.ty || 0) + "px" });
+				if (["input", "select", "textarea"].includes(n.tag)) el.classList.add("ctl");
+				if (placeholderOf(n)) { tx.classList.add("ph"); tx.style.color = n.style?.placeholderColor || ""; }
 				if (st.textOverflow === "ellipsis") { // un texto largo cortado con «…» como en la página
 					tx.classList.add("ellipsis");
 					if (tx.style.position === "absolute") tx.style.maxWidth = Math.max(0, n.w - n.tx) + "px";

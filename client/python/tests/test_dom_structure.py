@@ -319,3 +319,27 @@ def test_borders_shadows_gradients_and_ellipsis_travel(page):
         assert "backgroundImage" not in by("pic"), "an image never travels"
     finally:
         page.set_content(PAGE)
+
+
+def test_controls_show_their_option_and_placeholder_never_what_was_typed(page):
+    # El select muestra la opción elegida (las opciones ya viajan); un botón <input>, su rótulo; un campo
+    # vacío, su placeholder con su color; uno escrito, solo que no está vacío. Lo tapado no muestra nada.
+    page.set_content(
+        '<style>.dx::placeholder{color:rgb(108, 117, 125)}</style>'
+        '<select class="per"><option>6 Meses</option><option selected>12 Meses</option></select>'
+        '<input type="submit" class="go" value="Buscar">'
+        '<input class="dx" placeholder="Diagnóstico">'
+        '<input class="typed" placeholder="Nombre" value="secreto-escrito">'
+        '<select class="hid" data-tracereports-mask><option selected>Dato tapado</option></select>')
+    try:
+        nodes = capturar_dom(page)["nodes"]
+        by = lambda cls: next(n for n in nodes if n["attrs"].get("class") == cls)  # noqa: E731
+        assert by("per")["shown"] == "12 Meses" and by("per")["text"] == ""
+        assert by("go")["shown"] == "Buscar"
+        dx = by("dx")
+        assert "filled" not in dx and dx["style"]["placeholderColor"] == "rgb(108, 117, 125)"
+        typed = by("typed")
+        assert typed["filled"] is True and "secreto-escrito" not in json.dumps(nodes)
+        assert "shown" not in by("hid")
+    finally:
+        page.set_content(PAGE)

@@ -1468,6 +1468,8 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .insp-cursors { pointer-events: none; z-index: 9000; }
 .insp-overlay { position: absolute; left: 0; top: 0; opacity: 0; pointer-events: none; z-index: 8000; transition: opacity .2s; }
 .insp-n { position: absolute; display: flex; align-items: flex-start; overflow: hidden; white-space: nowrap; transition: background-color .25s, box-shadow .2s; cursor: default; box-shadow: var(--pg-shadow, none); }
+.insp-n.ctl { padding: 0 8px; }
+.insp-n .t.ph { color: #757575; }
 .insp-n .t.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 100%; }
 .insp-n.mid { align-items: center; }
 .insp-n.wrap { white-space: pre-line; }

@@ -41,7 +41,7 @@ var nodeStyles = map[string]bool{"display": true, "position": true, "backgroundC
 	// bordes de cada lado, sombras, fondos degradados (sin url()) y el corte de los textos largos
 	"borderRightWidth": true, "borderRightColor": true, "borderBottomWidth": true, "borderBottomColor": true,
 	"borderLeftWidth": true, "borderLeftColor": true, "boxShadow": true, "backgroundImage": true,
-	"textOverflow": true, "whiteSpace": true}
+	"textOverflow": true, "whiteSpace": true, "placeholderColor": true}
 
 // longStyles: los valores que pueden ser largos (varias sombras, un degradado con varias paradas).
 var longStyles = map[string]int{"boxShadow": 400, "backgroundImage": 400}
@@ -67,6 +67,7 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 			return
 		}
 		n.Text = personal(redactThenCut(p, n.Text, maxNodeText))
+		n.Shown = personal(redactThenCut(p, n.Shown, maxNodeText))
 		attrs := map[string]string{}
 		for k, v := range n.Attrs {
 			if nodeAttrs[k] || ariaAttrRe.MatchString(k) {

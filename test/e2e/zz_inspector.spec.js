@@ -475,3 +475,30 @@ test("el Inspector dibuja bordes por lado, sombras, degradados y textos cortados
 	await head.hover();
 	await expect(head).toHaveCSS("box-shadow", /rgb\(31, 111, 235\)/);
 });
+
+// Un select muestra su opción elegida, un campo vacío su placeholder atenuado y uno escrito «•••». El
+// texto de la página reconstruida (para XPath) sigue siendo el de siempre.
+test("el Inspector muestra la opción del select, el placeholder y ••• en un campo escrito", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector controles", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "controles" } })).json()).test_id;
+	const ctl = (o) => ({ p: 2, x: 60, w: 200, h: 32, visible: true, depth: 2, text: "", ...o });
+	const snap = page("Filtros", { pay: false, extra: [
+		ctl({ tag: "select", attrs: { class: "per" }, y: 170, shown: "12 Meses", style: style("rgb(255, 255, 255)") }),
+		ctl({ tag: "input", attrs: { class: "dx", placeholder: "Diagnóstico" }, y: 210, style: { ...style("rgb(255, 255, 255)"), placeholderColor: "rgb(108, 117, 125)" } }),
+		ctl({ tag: "input", attrs: { class: "nm", placeholder: "Nombre" }, y: 250, filled: true, style: style("rgb(255, 255, 255)") }),
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-n.ctl", { hasText: "12 Meses" })).toHaveCount(1);
+	const ph = insp.locator(".insp-n.ctl .t.ph", { hasText: "Diagnóstico" });
+	await expect(ph).toHaveCSS("color", "rgb(108, 117, 125)");
+	await expect(insp.locator(".insp-n.ctl", { hasText: "•••" })).toHaveCount(1);
+	await expect(insp.locator(".insp-n", { hasText: "Nombre" })).toHaveCount(0);
+	// el select no tiene texto propio en la página reconstruida: un XPath por su texto no lo encuentra
+	await insp.locator(".insp-probe").fill("//select[normalize-space(.)='12 Meses']");
+	await expect(insp.locator(".insp-probeout")).toContainText("Ninguna coincidencia");
+});
