@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"strings"
+	"time"
 )
 
 // PurgeRunsBefore deletes the finished runs that started before cutoff (Unix ms) with all their
@@ -27,7 +28,11 @@ func (s *Store) PurgeRunsBefore(cutoff int64) (int, []string, error) {
 // varios GB en una sola transacción tenía tomada la única conexión que escribe por minutos (los clientes
 // esperaban) y hacía crecer la WAL con todo lo borrado de una vez (secure_delete reescribe cada página):
 // con el disco justo, fallaba. De a tandas, entre una y otra escriben los clientes y la WAL se recicla.
-const purgeBatch = 25
+const purgeBatch = 10
+
+// purgeMinPause: the least rest between batches; each rest is max(purgeMinPause, what the batch took),
+// so cleaning never holds the connection that writes more than half the time.
+const purgeMinPause = 50 * time.Millisecond
 
 // deleteInBatches deletes the runs among ids that still match cond (re-checked inside each batch's
 // transaction) and returns how many it deleted and their files. On an error it returns what the
@@ -36,6 +41,7 @@ func (s *Store) deleteInBatches(ids []int64, cond string, condArgs ...any) (int,
 	deleted := 0
 	var files []string
 	for start := 0; start < len(ids); start += purgeBatch {
+		t0 := time.Now()
 		n, f, err := s.deleteBatch(ids[start:min(start+purgeBatch, len(ids))], cond, condArgs...)
 		deleted += n
 		files = append(files, f...)
@@ -45,6 +51,7 @@ func (s *Store) deleteInBatches(ids []int64, cond string, condArgs ...any) (int,
 		if start+purgeBatch < len(ids) {
 			// lo borrado ya está en el archivo: la WAL se reutiliza en vez de crecer (sin esperar a nadie)
 			_, _ = s.db.Exec(`PRAGMA wal_checkpoint(PASSIVE)`)
+			time.Sleep(max(purgeMinPause, time.Since(t0))) // la ingesta y la interfaz pasan entre tanda y tanda
 		}
 	}
 	_ = s.pruneDOMCSS()    // las hojas del modo HTML que ya no usa ningún test

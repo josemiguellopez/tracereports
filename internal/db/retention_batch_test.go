@@ -1,6 +1,7 @@
 package db
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -61,5 +62,52 @@ func TestPurgeGoesInBatchesAndLetsWritersIn(t *testing.T) {
 	}
 	if at := <-wrote; !at.Before(end) {
 		t.Fatal("a client write waited for the whole cleanup")
+	}
+}
+
+// La retención borra con secure_delete (reescribe con ceros cada página): con páginas pesadas, una tanda
+// grande tenía tomada la conexión que escribe. En tandas chicas con pausa, una escritura de la ingesta
+// mientras se limpia responde en menos de 300 ms (p99).
+func TestPurgeOfHeavyRunsLetsIngestionIn(t *testing.T) {
+	s := openTestStore(t)
+	oldPages(t, s, 80, 4, 600_000) // 80 ejecuciones con 5 páginas de 600 KB (240 MB)
+	s.db.Exec(`UPDATE runs SET started_at = 1000, status = 'PASS'`)
+	run, _ := s.CreateRun("ingesta", "qa")
+	test, _ := s.CreateTest(run, "t", "", "")
+	done := make(chan error, 1)
+	go func() {
+		_, _, err := s.PurgeRunsBefore(time.Now().Add(-time.Hour).UnixMilli())
+		done <- err
+	}()
+	var lat []time.Duration
+	for {
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(lat) < 3 {
+				t.Fatalf("only %d writes during the purge", len(lat))
+			}
+			sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
+			p99 := lat[len(lat)*99/100]
+			t.Logf("%d writes during the purge, p99 %s", len(lat), p99)
+			if p99 > 300*time.Millisecond {
+				t.Fatalf("an ingestion write waited %s (p99)", p99)
+			}
+			var left int
+			s.db.QueryRow(`SELECT COUNT(*) FROM test_dom_steps`).Scan(&left)
+			if left != 0 {
+				t.Fatalf("%d pages left", left)
+			}
+			return
+		default:
+		}
+		t0 := time.Now()
+		if _, err := s.AddLog(test, "INFO", "paso", 0, ""); err != nil {
+			t.Fatal(err)
+		}
+		lat = append(lat, time.Since(t0))
+		time.Sleep(5 * time.Millisecond)
 	}
 }
