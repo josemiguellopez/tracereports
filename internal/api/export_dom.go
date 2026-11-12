@@ -118,8 +118,8 @@ func (s *Server) exportDOM(runID int64, tests []db.Test, add func(string, []byte
 	}
 	sort.Strings(hashes)
 	for _, h := range hashes {
-		css, err := s.Store.GetDOMCSS(h)
-		if err != nil || css == "" || !sheetHashRe.MatchString(h) {
+		css, ok, err := s.Store.GetDOMCSS(h)
+		if err != nil || !ok || !sheetHashRe.MatchString(h) {
 			continue
 		}
 		if used+len(css) > maxExportDOM {

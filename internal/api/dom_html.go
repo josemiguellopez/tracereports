@@ -301,6 +301,9 @@ func cleanHTMLSnapshot(p *redact.Policy, snap *locator.Snapshot) map[string]stri
 	return sheets
 }
 
+// emptySheetHash is the SHA-256 of "": an empty <style> of the page is a sheet that is there, not a lost one.
+const emptySheetHash = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+
 // getDOMCSS returns one shared style sheet of the HTML mode (GET /dom/css/{hash}), already cleaned.
 func (s *Server) getDOMCSS(w http.ResponseWriter, r *http.Request) {
 	hash := chi.URLParam(r, "hash")
@@ -308,12 +311,12 @@ func (s *Server) getDOMCSS(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "not a sheet hash")
 		return
 	}
-	css, err := s.Store.GetDOMCSS(hash)
+	css, ok, err := s.Store.GetDOMCSS(hash)
 	if err != nil {
 		serverError(w, err)
 		return
 	}
-	if css == "" {
+	if !ok && hash != emptySheetHash {
 		w.WriteHeader(http.StatusNoContent) // como GET /dom sin snapshot: el visor avisa la hoja que falta
 		return
 	}

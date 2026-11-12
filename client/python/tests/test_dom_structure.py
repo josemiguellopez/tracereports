@@ -357,7 +357,7 @@ def test_scroll_travels_so_the_screenshot_lines_up(page):
         page.set_content(PAGE)
 
 
-HTML_PAGE = """<html lang="es"><head><style>.card{box-shadow:0 1px 3px rgba(0,0,0,.2)}</style>
+HTML_PAGE = """<html lang="es"><head><style>.card{box-shadow:0 1px 3px rgba(0,0,0,.2)}</style><style></style>
 <style media="print">.card{display:none}</style><script>window.x = 1</script></head><body class="app">
 <div class="card" id="ficha" onclick="steal()"><h5>Vacunas</h5>
  <input id="dx" placeholder="Diagnóstico" value="escrito-por-alguien"><input type="password" value="clave-secreta">
@@ -395,7 +395,7 @@ def test_html_mode_sends_the_page_and_its_sheets(page, monkeypatch):
         # cada elemento de la página apunta a su nodo de la estructura
         ficha = next(n for n in nodes if n["attrs"].get("id") == "ficha")
         assert 'id="ficha" data-tr-i="%d"' % ficha["i"] in doc
-        # las hojas por su hash, en el orden del documento; la de impresión con su @media
+        # las hojas por su hash, en el orden del documento; la de impresión con su @media; el <style> vacío no
         assert len(html["css"]) == 2 and set(html["css"]) == set(html["sheets"])
         assert "box-shadow" in html["sheets"][html["css"][0]] and html["sheets"][html["css"][1]].startswith("@media print")
         assert html["dpr"] >= 1

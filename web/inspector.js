@@ -458,11 +458,13 @@
 		const matches = (e) => query(e).list || [];
 
 		// ---------- modo HTML: el navegador dibuja la página con su CSS ----------
+		const EMPTY_SHEET = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
 		let viewHTML = true; // con un snapshot HTML se ve la página real; el botón cambia a la reconstrucción
 		const htmlOn = (s) => !!(s?.html?.doc && viewHTML);
 		function parseHTMLDoc(s) { try { return new DOMParser().parseFromString(s.html.doc, "text/html"); } catch { return null; } }
 		async function mountFrame(s, doc, req) {
-			const sheets = await Promise.all((s.html.css || []).map((h) => (opts.loadCSS ? opts.loadCSS(h).catch(() => null) : null)));
+			// la de un <style> vacío (SHA-256 de "") está, sin nada que pedir: no es una hoja que falta
+			const sheets = await Promise.all((s.html.css || []).map((h) => (h === EMPTY_SHEET ? "" : opts.loadCSS ? opts.loadCSS(h).catch(() => null) : null)));
 			if (req !== frameReq) return;
 			const lost = sheets.filter((c) => typeof c !== "string").length + (s.html.missing || []).length;
 			const note = $(".insp-cssnote");

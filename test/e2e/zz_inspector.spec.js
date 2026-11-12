@@ -571,7 +571,7 @@ test("modo HTML: la página real con su CSS, aislada, con XPath sobre el HTML y 
 	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "compra modo html" } })).json()).test_id;
 	const snap = page("Zapatilla Trail");
 	snap.html = { doc: `<html><head></head><body data-tr-i="0">${body}<script>parent.__pwned=1</script><img src=x onerror="parent.__pwned=1"></body></html>`,
-		css: [sha(css), sha("x{}")], sheets: { [sha(css)]: css }, missing: ["https://cdn.example/other.css"], dpr: 1 };
+		css: [sha(css), sha("x{}"), sha("")], sheets: { [sha(css)]: css, [sha("")]: "" }, missing: ["https://cdn.example/other.css"], dpr: 1 };
 	const r = await request.post(`/api/v1/tests/${id}/dom`, { data: snap });
 	expect((await r.json()).mode).toBe("html");
 	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura al fallar", status: "FAIL" } })).ok()).toBeTruthy();
@@ -589,7 +589,7 @@ test("modo HTML: la página real con su CSS, aislada, con XPath sobre el HTML y 
 	await expect(card).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px");
 	await expect(p.frameLocator("#inspector-panel .insp-frame").locator(".btn")).toHaveText("Pagar ahora");
 	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
-	await expect(insp.locator(".insp-cssnote")).toContainText("Faltan 2 hojas de estilo");
+	await expect(insp.locator(".insp-cssnote")).toContainText("Faltan 2 hojas de estilo"); // la vacía (<style></style>) no cuenta
 	// XPath y CSS sobre el HTML real, y el elemento marcado con su caja
 	await insp.locator(".insp-probe").fill("//div[@id='ficha']//button[normalize-space(.)='Pagar ahora']");
 	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");

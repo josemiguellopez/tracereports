@@ -94,7 +94,8 @@ func TestHTMLSnapshotStoresSheetsOnce(t *testing.T) {
 		doc, _ := json.Marshal(map[string]any{"doc": html, "css": []string{h, fake, "../../etc"}, "sheets": sheets, "missing": []string{"https://cdn.example/x.css"}, "dpr": 2})
 		return strings.Replace(structSnap("fail", "", ""), `"nodes":`, `"html":`+string(doc)+`,"nodes":`, 1)
 	}
-	out := postDOM(t, srv, testID, mk(map[string]string{h: sheet, fake: "body{}"}))
+	onlyImport := `@import url("https://evil.example/x.css");`
+	out := postDOM(t, srv, testID, mk(map[string]string{h: sheet, fake: "body{}", sheetHash(onlyImport): onlyImport}))
 	if out["mode"] != "html" {
 		t.Fatalf("mode: %+v", out)
 	}
@@ -118,6 +119,13 @@ func TestHTMLSnapshotStoresSheetsOnce(t *testing.T) {
 	}
 	if c := do(t, srv, http.MethodGet, "/api/v1/dom/css/"+fake, "").Code; c != http.StatusNoContent {
 		t.Fatalf("a sheet that is not its hash is not stored: %d", c)
+	}
+	// un <style> vacío de la página: la hoja está (vacía), no es una que falta
+	if e := do(t, srv, http.MethodGet, "/api/v1/dom/css/"+sheetHash(onlyImport), ""); e.Code != http.StatusOK || strings.Contains(e.Body.String(), "evil") {
+		t.Fatalf("a sheet left empty by the cleaning is stored, not lost: %d %q", e.Code, e.Body.String())
+	}
+	if e := do(t, srv, http.MethodGet, "/api/v1/dom/css/"+sheetHash(""), ""); e.Code != http.StatusOK || e.Body.Len() != 0 {
+		t.Fatalf("the empty sheet is there: %d %q", e.Code, e.Body.String())
 	}
 	if c := do(t, srv, http.MethodGet, "/api/v1/dom/css/xyz", "").Code; c != http.StatusBadRequest {
 		t.Fatalf("bad hash: %d", c)

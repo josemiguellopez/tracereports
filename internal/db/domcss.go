@@ -50,14 +50,15 @@ func (s *Store) SaveDOMCSS(testID int64, sheets map[string]string, used []string
 	return nil
 }
 
-// GetDOMCSS returns a stored sheet ("" when it is not there).
-func (s *Store) GetDOMCSS(hash string) (string, error) {
+// GetDOMCSS returns a stored sheet and whether it is there (an empty <style> is a stored sheet too: its
+// text is "").
+func (s *Store) GetDOMCSS(hash string) (string, bool, error) {
 	var css string
 	err := s.db.QueryRow(`SELECT css FROM dom_css WHERE hash=?`, hash).Scan(&css)
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", nil
+		return "", false, nil
 	}
-	return css, err
+	return css, err == nil, err
 }
 
 // pruneDOMCSS deletes the sheets no test uses any more (after deleting runs).

@@ -390,7 +390,8 @@ def _finish_html(snap):
     html = snap.get("html") if isinstance(snap, dict) else None
     if not isinstance(html, dict):
         return snap
-    texts = [t for t in html.pop("sheets", None) or [] if isinstance(t, str)]
+    # un <style> vacío no es una hoja: el visor no tiene nada que pedir ni que avisar
+    texts = [t for t in html.pop("sheets", None) or [] if isinstance(t, str) and t.strip()]
     hashes, sheets = [], {}
     for t in texts:
         h = hashlib.sha256(t.encode("utf-8")).hexdigest()
