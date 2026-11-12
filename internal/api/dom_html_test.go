@@ -115,7 +115,7 @@ func TestHTMLSnapshotStoresSheetsOnce(t *testing.T) {
 	if css.Code != 200 || !strings.Contains(css.Body.String(), "box-shadow") || strings.Contains(css.Body.String(), "evil") || css.Header().Get("Content-Type") != "text/css; charset=utf-8" {
 		t.Fatalf("sheet: %d %s", css.Code, css.Body.String())
 	}
-	if c := do(t, srv, http.MethodGet, "/api/v1/dom/css/"+fake, "").Code; c != http.StatusNotFound {
+	if c := do(t, srv, http.MethodGet, "/api/v1/dom/css/"+fake, "").Code; c != http.StatusNoContent {
 		t.Fatalf("a sheet that is not its hash is not stored: %d", c)
 	}
 	if c := do(t, srv, http.MethodGet, "/api/v1/dom/css/xyz", "").Code; c != http.StatusBadRequest {
@@ -148,5 +148,31 @@ func TestHTMLShapeLimits(t *testing.T) {
 	}
 	if !htmlShapeOK(strings.Repeat("<div><img><br></div>", 5000)) {
 		t.Error("a wide page is fine")
+	}
+}
+
+// El ZIP exportado trae cada hoja del modo HTML una sola vez (css/<hash>.js, se carga desde file://).
+func TestExportCarriesHTMLSheetsOnce(t *testing.T) {
+	srv, testID := newTestServer(t)
+	sheet := `.card{color:rgb(1, 2, 3)}`
+	h := sheetHash(sheet)
+	doc, _ := json.Marshal(map[string]any{"doc": `<html><head></head><body><div class="card">x</div></body></html>`, "css": []string{h}, "sheets": map[string]string{h: sheet}})
+	body := strings.Replace(structSnap("fail", "", ""), `"nodes":`, `"html":`+string(doc)+`,"nodes":`, 1)
+	postDOM(t, srv, testID, body)
+	postDOM(t, srv, testID, strings.Replace(body, `"kind":"fail"`, `"kind":"step"`, 1))
+	runID, err := srv.Store.TestRunID(testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := exportFiles(t, srv, runID)
+	n := 0
+	for name := range files {
+		if strings.HasPrefix(name, "css/") {
+			n++
+		}
+	}
+	js := files["css/"+h+".js"]
+	if n != 1 || !strings.Contains(js, `window.TRACEREPORTS_CSS`) || !strings.Contains(js, `rgb(1, 2, 3)`) {
+		t.Fatalf("css files: %d %q", n, js)
 	}
 }

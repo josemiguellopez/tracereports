@@ -125,7 +125,46 @@
 		return snap;
 	}
 	/**
-	 * Fidelidad: la parte de los píxeles de dos imágenes del mismo tamaño (RGBA, ya reducidas) cuyo color
+	 * Modo HTML: el CSS que el Inspector agrega a la página para dibujarla quieta y sin red. Animaciones
+	 * apagadas (el snapshot es un instante), las imágenes que pedían la sesión como su lugar, los íconos de
+	 * fuente como los PNG que dibujó el cliente (la fuente no viaja), los paneles con scroll corridos como
+	 * estaban y lo fijo (position: fixed) donde se veía con la ventana corrida.
+	 */
+	function htmlExtraCSS(snap, doc) {
+		const rules = ["*,*::before,*::after{animation:none!important;transition:none!important;caret-color:transparent!important}",
+			"html{overflow:hidden!important}",
+			"[data-tr-ph]{background:repeating-linear-gradient(135deg,#e9ecef 0 8px,#f6f7f8 8px 16px)!important;outline:1px dashed #adb5bd;outline-offset:-1px}"];
+		const glyphs = snap.glyphs || {}, ok = (src) => /^data:image\/png;base64,[A-Za-z0-9+/]+=*$/.test(src || "");
+		for (const n of snap.nodes || []) {
+			for (const ic of n.icons || []) {
+				const src = glyphs[ic.g];
+				if (!ok(src)) continue;
+				const bg = `background:url("${src}") center/contain no-repeat!important`;
+				if (ic.pos === "before" || ic.pos === "after") rules.push(`[data-tr-i="${n.i}"]::${ic.pos}{content:""!important;display:inline-block!important;width:${+ic.w}px!important;height:${+ic.h}px!important;${bg};vertical-align:middle;font-size:0!important}`);
+				else if (ic.pos === "text") rules.push(`[data-tr-i="${n.i}"]{color:transparent!important;${bg}}`);
+			}
+		}
+		for (const el of doc ? doc.querySelectorAll("[data-tr-scroll][data-tr-i]") : []) {
+			const [x, y] = (el.getAttribute("data-tr-scroll") || "").split(",").map((v) => +v || 0);
+			if (x || y) rules.push(`[data-tr-i="${+el.getAttribute("data-tr-i")}"]>*{translate:${-x}px ${-y}px}`);
+		}
+		const sx = snap.scroll?.x || 0, sy = snap.scroll?.y || 0, nodes = snap.nodes || [];
+		if (sx || sy) {
+			const fixed = (n) => n?.style?.position === "fixed";
+			for (const n of nodes) if (fixed(n) && !(n.p >= 0 && (() => { for (let p = nodes[n.p]; p; p = p.p >= 0 ? nodes[p.p] : null) if (fixed(p)) return true; return false; })())) rules.push(`[data-tr-i="${n.i}"]{translate:${sx}px ${sy}px}`);
+		}
+		return rules.join("\n");
+	}
+	/** El documento que dibuja el iframe: el HTML del snapshot con su CSS, una CSP sin red y el CSS de arriba. */
+	function htmlSrcdoc(snap, sheets, doc) {
+		const csp = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:";
+		const safe = (css) => String(css).replace(/<\/style/gi, "<\\/style");
+		const head = `<meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${csp}">` +
+			sheets.filter((c) => typeof c === "string").map((c) => `<style>${safe(c)}</style>`).join("") + `<style>${safe(htmlExtraCSS(snap, doc))}</style>`;
+		const body = String(snap.html?.doc || "");
+		return "<!doctype html>" + (body.includes("<head></head>") ? body.replace("<head></head>", `<head>${head}</head>`) : `<html><head>${head}</head>${body}</html>`);
+	}
+	/** Fidelidad: la parte de los píxeles de dos imágenes del mismo tamaño (RGBA, ya reducidas) cuyo color
 	 * se parece (ningún canal difiere más de `tol`). A esa escala un texto es una mancha gris: lo que baja
 	 * la cifra es lo que se ve distinto, como un bloque negro donde había barras grises.
 	 */
@@ -357,6 +396,7 @@
 				${opts.loadBaseline ? `<button class="cf-btn cf-btn-sm" data-insp="diff" type="button" aria-pressed="false">⇄ ${esc(t("Comparar con el último PASS"))}</button>`
 					: opts.compareUnavailable ? `<button class="cf-btn cf-btn-sm" type="button" disabled title="${esc(opts.compareUnavailable)}" aria-describedby="insp-nocompare">⇄ ${esc(t("Comparar con el último PASS"))}</button><span class="m-hint insp-nocompare" id="insp-nocompare">${esc(opts.compareUnavailable)}</span>` : ""}
 				${opts.screenshot ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
+				<button class="cf-btn cf-btn-sm" data-insp="view" type="button" hidden aria-pressed="true" title="${esc(t("Página real: el HTML y el CSS de la página dibujados por el navegador. Reconstrucción: la página redibujada por el Inspector."))}"></button>
 				<span class="insp-status" aria-live="polite"></span>
 				<span class="insp-fid" hidden title="${esc(t("Cuánto se parece la página reconstruida a la captura del momento del fallo"))}"></span>
 			</div>
@@ -366,6 +406,7 @@
 				<div class="insp-left">
 					<div class="insp-viewport"><div class="insp-stage"><div class="insp-layer"></div>${opts.screenshot ? `<img class="insp-overlay" alt="${esc(t("Captura del momento del fallo"))}">` : ""}<div class="insp-cursors"></div></div></div>
 					<p class="insp-notice insp-fidwarn" hidden></p>
+					<p class="insp-notice insp-cssnote" hidden></p>
 					<p class="insp-basic m-hint" hidden>${esc(t("Snapshot básico (solo los elementos interactivos): con el cliente actualizado se ve la página completa."))}</p>
 					<ol class="insp-steps" aria-label="${esc(t("Páginas del test"))}"></ol>
 				</div>
@@ -415,12 +456,43 @@
 		const count = (e) => query(e).list?.length ?? 0;
 		const matches = (e) => query(e).list || [];
 
+		// ---------- modo HTML: el navegador dibuja la página con su CSS ----------
+		let viewHTML = true; // con un snapshot HTML se ve la página real; el botón cambia a la reconstrucción
+		const htmlOn = (s) => !!(s?.html?.doc && viewHTML);
+		function parseHTMLDoc(s) { try { return new DOMParser().parseFromString(s.html.doc, "text/html"); } catch { return null; } }
+		async function mountFrame(s, doc, req) {
+			const sheets = await Promise.all((s.html.css || []).map((h) => (opts.loadCSS ? opts.loadCSS(h).catch(() => null) : null)));
+			if (req !== frameReq) return;
+			const lost = sheets.filter((c) => typeof c !== "string").length + (s.html.missing || []).length;
+			const note = $(".insp-cssnote");
+			note.hidden = !lost; note.textContent = lost ? t("Faltan {n} hojas de estilo de la página: se ve sin parte de su diseño.", { n: lost }) : "";
+			const fr = document.createElement("iframe");
+			fr.className = "insp-frame"; fr.setAttribute("sandbox", ""); fr.setAttribute("referrerpolicy", "no-referrer");
+			fr.setAttribute("scrolling", "no"); fr.setAttribute("aria-hidden", "true"); fr.tabIndex = -1; fr.title = t("Página real del momento del fallo");
+			Object.assign(fr.style, { width: (s.viewport?.w || current.W) + "px", height: current.H + "px" });
+			current.srcdoc = htmlSrcdoc(s, sheets, doc);
+			fr.srcdoc = current.srcdoc;
+			stage.querySelector(".insp-frame")?.remove();
+			stage.insertBefore(fr, layer);
+		}
+		let frameReq = 0;
+
 		// ---------- escenario ----------
 		function show(snap) {
 			const s = snap.nodes?.length ? expandStyles(snap) : fromElements(snap);
 			current = { snap: s, nodes: s.nodes, W: s.page?.w || s.viewport?.w || 1280, H: s.page?.h || s.viewport?.h || 800 };
 			$(".insp-basic").hidden = !s.basic;
-			mirror = buildMirror(current.nodes);
+			// modo HTML: XPath y CSS sobre la página real (la misma que ve Selenium), el iframe la dibuja
+			current.html = htmlOn(s);
+			const vb = $('[data-insp="view"]');
+			vb.hidden = !s.html?.doc; vb.setAttribute("aria-pressed", String(current.html));
+			vb.textContent = current.html ? `◧ ${t("Página real")}` : `◨ ${t("Reconstrucción")}`;
+			stage.classList.toggle("html-mode", current.html);
+			stage.querySelector(".insp-frame")?.remove(); frameReq++;
+			$(".insp-cssnote").hidden = true;
+			const doc = current.html ? parseHTMLDoc(s) : null;
+			mirror = doc || buildMirror(current.nodes);
+			if (doc) mountFrame(s, doc, frameReq);
 			layer.innerHTML = ""; cursors.innerHTML = ""; testCursor = null; els = [];
 			stage.style.width = current.W + "px"; stage.style.height = current.H + "px";
 			stage.style.background = current.nodes[0]?.style?.backgroundColor || "#fff";
@@ -570,15 +642,17 @@
 		}
 
 		// ---------- fidelidad: la página reconstruida contra la captura ----------
-		let fidReq = 0, fidDone = null;
+		let fidReq = 0;
+		const fidDone = {};
 		function measureSoon() {
-			const req = ++fidReq;
-			if (fidDone !== null) return showFidelity(fidDone);
-			setTimeout(() => measure().then((f) => {
+			const req = ++fidReq, mode = current.html ? "html" : "structure";
+			if (fidDone[mode] !== undefined) return showFidelity(fidDone[mode]);
+			$(".insp-fid").hidden = true; $(".insp-fidwarn").hidden = true;
+			setTimeout(() => (mode === "html" ? measureHTML() : measure()).then((f) => {
 				if (req !== fidReq || f === null) return;
-				fidDone = f; showFidelity(f);
-				opts.onFidelity?.(f, current.snap.mode || "structure");
-			}).catch(() => { /* sin cifra: la captura no se pudo leer */ }), 60);
+				fidDone[mode] = f; showFidelity(f);
+				opts.onFidelity?.(f, mode);
+			}).catch(() => { /* sin cifra: la captura no se pudo leer */ }), mode === "html" ? 400 : 60);
 		}
 		function showFidelity(f) {
 			const pct = Math.round(f * 100), badge = $(".insp-fid"), warn = $(".insp-fidwarn");
@@ -601,8 +675,8 @@
 			}
 			return css;
 		}
-		/** Dibuja la parte de la página que muestra la captura y la compara con ella, a 240 px de ancho. */
-		async function measure() {
+		/** La captura y un lienzo vacío del mismo tamaño (240 px de ancho) para comparar con ella. */
+		async function shotAndCanvas() {
 			const s = current.snap, vw = s.viewport?.w || current.W, vh = s.viewport?.h || current.H, sx = s.scroll?.x || 0, sy = s.scroll?.y || 0;
 			const W = 240, H = Math.max(1, Math.round((W * vh) / vw));
 			const canvas = () => {
@@ -614,6 +688,21 @@
 			const ga = canvas();
 			if (shot.naturalHeight / k > vh * 1.15) ga.drawImage(shot, sx * k, sy * k, vw * k, Math.min(vh * k, shot.naturalHeight - sy * k), 0, 0, W, H); // captura de la página entera
 			else ga.drawImage(shot, 0, 0, W, H);
+			return { s, vw, vh, sx, sy, W, H, ga, gb: canvas() };
+		}
+		/** Modo HTML: la página real (el mismo documento del iframe) rasterizada y comparada con la captura. */
+		async function measureHTML() {
+			const { vw, vh, sx, sy, W, H, ga, gb } = await shotAndCanvas();
+			if (!current.srcdoc) return null;
+			const doc = new DOMParser().parseFromString(current.srcdoc, "text/html");
+			doc.querySelectorAll("meta").forEach((m) => m.remove());
+			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${vw}" height="${vh}"><foreignObject x="${-sx}" y="${-sy}" width="${vw + sx}" height="${current.H}">${new XMLSerializer().serializeToString(doc.documentElement)}</foreignObject></svg>`;
+			gb.drawImage(await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)), 0, 0, W, H);
+			return fidelity(ga.getImageData(0, 0, W, H), gb.getImageData(0, 0, W, H));
+		}
+		/** Dibuja la parte de la página que muestra la captura y la compara con ella, a 240 px de ancho. */
+		async function measure() {
+			const { s, vw, vh, sx, sy, W, H, ga, gb } = await shotAndCanvas();
 			// la reconstrucción como queda al terminar de armarse, sin la animación ni las marcas del Inspector
 			const copy = layer.cloneNode(true);
 			for (const el of copy.querySelectorAll(".insp-n")) {
@@ -633,7 +722,6 @@
 			page.setAttribute("style", `position:absolute;left:${-sx}px;top:${-sy}px;width:${current.W}px;height:${current.H}px`);
 			page.appendChild(copy); wrap.append(style, page);
 			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${vw}" height="${vh}"><foreignObject width="100%" height="100%">${new XMLSerializer().serializeToString(wrap)}</foreignObject></svg>`;
-			const gb = canvas();
 			gb.drawImage(await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)), 0, 0, W, H);
 			// los íconos y los SVG son imágenes: dentro del foreignObject no se cargan, se dibujan encima
 			const f = W / vw;
@@ -770,7 +858,7 @@
 					if (!snap) continue;
 					curPage = k;
 					show(snap);
-					if (k === 0 && !instant) { hideAll(); await construct(id); } else { showAll(); counted(); }
+					if (k === 0 && !instant && !current.html) { hideAll(); await construct(id); } else { showAll(); counted(); }
 					if (p.kind === "fail") { markFailure(instant); renderSteps(k, true); break; }
 					if (!testCursor) testCursor = makeCursor("#0f1b2b", "test", "test");
 					say(p.label || t("Paso {n}", { n: k + 1 }), null);
@@ -905,6 +993,7 @@
 			if (a?.dataset.insp === "play") { try { localStorage.setItem(PREF, "0"); } catch { /* */ } playAll(false); }
 			if (a?.dataset.insp === "instant") { try { localStorage.setItem(PREF, "1"); } catch { /* */ } playAll(true); }
 			if (a?.dataset.insp === "pause") setPaused(!paused);
+			if (a?.dataset.insp === "view" && current) { viewHTML = !viewHTML; jump(curPage); }
 			if (a?.dataset.insp === "diff") {
 				diffOn = !diffOn;
 				a.setAttribute("aria-pressed", String(diffOn));
@@ -930,5 +1019,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, fidelity, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, fidelity, htmlExtraCSS, htmlSrcdoc, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
 })();

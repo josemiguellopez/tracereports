@@ -2403,6 +2403,8 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			snapshot, steps: steps || [], t: tr,
 			loadStep: (seq) => get(`/api/v1/tests/${t.id}/dom/steps/${seq}`),
 			loadBaseline: (label) => get(`/api/v1/tests/${t.id}/dom/baseline?label=${encodeURIComponent(label || "")}`),
+			// modo HTML: las hojas de estilo de la página, guardadas una vez por su hash
+			loadCSS: (h) => fetch(`/api/v1/dom/css/${h}`).then((r) => (r.status === 200 ? r.text() : Promise.reject(new Error(String(r.status))))),
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
 			screenshot: loc?.screenshot || lastShot(t),
@@ -2431,6 +2433,12 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			snapshot: idx.fail?.included ? await page(`${t.id}/fail`) : null,
 			steps: idx.steps.filter((s) => s.included),
 			loadStep: (seq) => page(`${t.id}/${seq}`),
+			loadCSS: async (h) => { // css/<hash>.js del ZIP, una vez por hoja
+				if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("hash");
+				if (window.TRACEREPORTS_CSS?.[h] === undefined) await loadScript(`css/${h}.js`).catch(() => {});
+				if (typeof window.TRACEREPORTS_CSS?.[h] !== "string") throw new Error("missing");
+				return window.TRACEREPORTS_CSS[h];
+			},
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
 			screenshot: loc?.screenshot || lastShot(t),

@@ -550,3 +550,63 @@ test("el Inspector mide su fidelidad contra la captura y avisa si la reconstrucc
 	expect(sum.mode).toBe("structure");
 	expect(Math.round(sum.min * 100)).toBe(b.pct);
 });
+
+// Modo HTML (TRACEREPORTS_DOM_MODE=html): el Inspector deja que el navegador dibuje la página con su
+// CSS en un iframe aislado (sin scripts ni red), marca y prueba XPath sobre ese mismo HTML, avisa las
+// hojas que faltan y mide su fidelidad contra la captura. El botón vuelve a la reconstrucción.
+test("modo HTML: la página real con su CSS, aislada, con XPath sobre el HTML y fidelidad", async ({ page: p, request, browser }, info) => {
+	const crypto = require("node:crypto");
+	const sha = (s) => crypto.createHash("sha256").update(s).digest("hex");
+	const css = ".top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}" +
+		".card{position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff;box-shadow:rgba(0, 0, 0, 0.2) 0px 1px 3px 0px}" +
+		".btn{position:absolute;left:60px;top:300px;width:180px;height:44px;background:rgb(31, 111, 235);color:#fff;border:0}" +
+		"body{margin:0;background:rgb(246, 244, 239);font:14px Arial}";
+	const body = `<div class="top" data-tr-i="1">Demo Shop</div><div class="card" id="ficha" data-tr-i="2"><h1 data-tr-i="3" style="margin:0;position:absolute;left:20px;top:20px;font-size:20px">Zapatilla Trail</h1>` +
+		`<button class="btn" data-testid="pay" data-tr-i="4">Pagar ahora</button></div>`;
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<html><head><style>${css}</style></head><body>${body}</body></html>`);
+	const png = await real.screenshot();
+	await real.close();
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "compra modo html" } })).json()).test_id;
+	const snap = page("Zapatilla Trail");
+	snap.html = { doc: `<html><head></head><body data-tr-i="0">${body}<script>parent.__pwned=1</script><img src=x onerror="parent.__pwned=1"></body></html>`,
+		css: [sha(css), sha("x{}")], sheets: { [sha(css)]: css }, missing: ["https://cdn.example/other.css"], dpr: 1 };
+	const r = await request.post(`/api/v1/tests/${id}/dom`, { data: snap });
+	expect((await r.json()).mode).toBe("html");
+	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura al fallar", status: "FAIL" } })).ok()).toBeTruthy();
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const frame = insp.locator(".insp-frame");
+	await expect(frame).toHaveAttribute("sandbox", "");
+	expect(await frame.getAttribute("srcdoc")).toContain("default-src 'none'");
+	// el navegador dibuja la página con su CSS; nada de la página corre
+	const card = p.frameLocator("#inspector-panel .insp-frame").locator("#ficha");
+	await expect(card).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px");
+	await expect(p.frameLocator("#inspector-panel .insp-frame").locator(".btn")).toHaveText("Pagar ahora");
+	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
+	await expect(insp.locator(".insp-cssnote")).toContainText("Faltan 2 hojas de estilo");
+	// XPath y CSS sobre el HTML real, y el elemento marcado con su caja
+	await insp.locator(".insp-probe").fill("//div[@id='ficha']//button[normalize-space(.)='Pagar ahora']");
+	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");
+	await expect(insp.locator(".insp-n.match")).toHaveCount(1);
+	await insp.locator(".insp-probe").fill("#ficha > h1");
+	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia");
+	// la fidelidad del modo HTML se mide y se guarda con su modo
+	await expect(insp.locator(".insp-fid")).toBeVisible();
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct, "la página real se parece a su captura").toBeGreaterThanOrEqual(90);
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes.map((m) => m.mode).join()).toBe("html");
+	// el botón vuelve a la reconstrucción (sin iframe) y su fidelidad también se guarda
+	await insp.locator('[data-insp="view"]').click();
+	await expect(insp.locator(".insp-frame")).toHaveCount(0);
+	await expect(insp.locator('[data-insp="view"]')).toContainText("Reconstrucción");
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes.map((m) => m.mode).join()).toBe("html,structure");
+	// Playwright entra al iframe con su propio script y el sandbox lo bloquea: es lo que se espera
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
+});

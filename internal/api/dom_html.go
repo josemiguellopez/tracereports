@@ -310,7 +310,7 @@ func (s *Server) getDOMCSS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if css == "" {
-		writeError(w, http.StatusNotFound, "sheet not found")
+		w.WriteHeader(http.StatusNoContent) // como GET /dom sin snapshot: el visor avisa la hoja que falta
 		return
 	}
 	w.Header().Set("Content-Type", "text/css; charset=utf-8")

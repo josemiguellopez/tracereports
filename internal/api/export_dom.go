@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
 )
@@ -72,6 +73,7 @@ func (s *Server) exportDOM(runID int64, tests []db.Test, add func(string, []byte
 		return
 	}
 	used := 0
+	sheets := map[string]bool{} // modo HTML: las hojas que usan las páginas incluidas, una vez por ZIP
 	for _, list := range byPriority {
 		for _, p := range list {
 			var raw string
@@ -98,7 +100,34 @@ func (s *Server) exportDOM(runID int64, tests []db.Test, add func(string, []byte
 			used += len(raw)
 			p.ref.Included = true
 			add(name, []byte(fmt.Sprintf("(window.TRACEREPORTS_DOM = window.TRACEREPORTS_DOM || {})[%q] = %s;\n", key, clean)), zip.Deflate)
+			var refs struct {
+				HTML *struct {
+					CSS []string `json:"css"`
+				} `json:"html"`
+			}
+			if json.Unmarshal([]byte(raw), &refs) == nil && refs.HTML != nil {
+				for _, h := range refs.HTML.CSS {
+					sheets[h] = true
+				}
+			}
 		}
+	}
+	hashes := make([]string, 0, len(sheets))
+	for h := range sheets {
+		hashes = append(hashes, h)
+	}
+	sort.Strings(hashes)
+	for _, h := range hashes {
+		css, err := s.Store.GetDOMCSS(h)
+		if err != nil || css == "" || !sheetHashRe.MatchString(h) {
+			continue
+		}
+		if used+len(css) > maxExportDOM {
+			break
+		}
+		used += len(css)
+		js, _ := json.Marshal(css)
+		add("css/"+h+".js", []byte(fmt.Sprintf("(window.TRACEREPORTS_CSS = window.TRACEREPORTS_CSS || {})[%q] = %s;\n", h, js)), zip.Deflate)
 	}
 	js, err := json.Marshal(index)
 	if err != nil {

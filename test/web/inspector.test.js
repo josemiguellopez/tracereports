@@ -222,3 +222,24 @@ test("fidelity: la parte de los píxeles que se parecen, con tolerancia", () => 
 	assert.equal(I.fidelity(img(white, grey, grey, grey), img(white, [240, 238, 230], black, black)), 0.5, "un gris parecido cuenta, el negro no");
 	assert.equal(I.fidelity({ data: new Uint8ClampedArray(0) }, { data: new Uint8ClampedArray(0) }), 0);
 });
+
+test("htmlSrcdoc: la página con su CSS, una CSP sin red y el CSS del Inspector (íconos, scroll, fijos, animaciones)", () => {
+	const PNG = "data:image/png;base64,iVBORw0KGgo=";
+	const snap = { scroll: { x: 0, y: 200 }, glyphs: { g0: PNG, g1: "javascript:alert(1)" },
+		nodes: [{ i: 0, p: -1, tag: "body" }, { i: 1, p: 0, tag: "i", icons: [{ g: "g0", pos: "before", w: 16, h: 16 }, { g: "g1", pos: "after", w: 9, h: 9 }] },
+			{ i: 2, p: 0, tag: "span", icons: [{ g: "g0", pos: "text", w: 24, h: 24 }] },
+			{ i: 3, p: 0, tag: "nav", style: { position: "fixed" } }, { i: 4, p: 3, tag: "div", style: { position: "fixed" } }],
+		html: { doc: '<html><head></head><body data-tr-i="0"><div data-tr-i="5" data-tr-scroll="0,120"></div></body></html>' } };
+	const css = I.htmlExtraCSS(snap, { querySelectorAll: () => [{ getAttribute: (k) => ({ "data-tr-scroll": "0,120", "data-tr-i": "5" })[k] }] });
+	assert.match(css, /animation:none!important/);
+	assert.match(css, /\[data-tr-i="1"\]::before\{content:""!important;display:inline-block!important;width:16px/);
+	assert.doesNotMatch(css, /javascript/);
+	assert.match(css, /\[data-tr-i="2"\]\{color:transparent!important;background:url\("data:image\/png/);
+	assert.match(css, /\[data-tr-i="5"\]>\*\{translate:0px -120px\}/);
+	assert.match(css, /\[data-tr-i="3"\]\{translate:0px 200px\}/);
+	assert.doesNotMatch(css, /data-tr-i="4"\]\{translate/, "inside a fixed box, the box already moves");
+	const doc = I.htmlSrcdoc(snap, [".a{color:red}</style><script>x</script>", null], null);
+	assert.match(doc, /^<!doctype html><html><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'/);
+	assert.doesNotMatch(doc, /<\/style><script>/, "a sheet never closes its <style>");
+	assert.match(doc, /<\/head><body data-tr-i="0">/);
+});
