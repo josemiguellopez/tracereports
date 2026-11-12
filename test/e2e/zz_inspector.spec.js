@@ -371,3 +371,42 @@ test("el Inspector dibuja los íconos de la página (fuentes de íconos, ligadur
 	await expect(insp.locator(".insp-probeout")).toContainText("1 coincidencia: único");
 	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
 });
+
+// Un skeleton de carga como lo dibujan las librerías tipo content-loader: un <rect> del tamaño
+// completo, recortado a las barras (clipPath) y pintado con un gradiente. Antes el servidor quitaba
+// los <defs> y el Inspector mostraba un bloque negro donde la página mostraba barras grises.
+test("el Inspector dibuja un skeleton SVG con sus gradientes y recortes, no un bloque negro", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector skeleton", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "lista cargando" } })).json()).test_id;
+	const svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 95" preserveAspectRatio="none" fill="rgb(0, 0, 0)" width="400" height="95">' +
+		'<rect x="0" y="0" width="400" height="95" clip-path="url(#clipA)" style="fill: url(#gradA)" fill="url(&quot;#gradA&quot;)"/>' +
+		'<defs fill="rgb(0, 0, 0)"><clipPath id="clipA"><rect x="0" y="10" rx="3" width="300" height="12"/><rect x="0" y="40" width="300" height="8"/></clipPath>' +
+		'<linearGradient id="gradA"><stop offset="0%" stop-color="#f3f3f3"><animate attributeName="offset" values="-2; 1" dur="2s" repeatCount="indefinite"/></stop>' +
+		'<stop offset="100%" stop-color="#ecebeb"/></linearGradient></defs>' +
+		'<rect x="0" y="60" width="50" height="10" fill="url(https://evil.example/p.svg#otro)"/></svg>';
+	const snap = page("Lista", { pay: false, extra: [
+		{ p: 2, tag: "svg", attrs: {}, text: "", x: 60, y: 180, w: 400, h: 95, visible: true, depth: 2, style: style("rgba(0, 0, 0, 0)"), svg },
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "no aparece el registro" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const img = insp.locator(".insp-svg");
+	await expect(img).toHaveCount(1);
+	const src = await img.getAttribute("src");
+	expect(decodeURIComponent(src.split(",")[1])).not.toMatch(/evil|animate|style=/);
+	// se dibuja la imagen tal como la ve el visor y se leen sus píxeles
+	const px = await p.evaluate(async (s) => {
+		const im = new Image(); im.src = s; await im.decode();
+		const c = document.createElement("canvas"); c.width = 400; c.height = 95;
+		const g = c.getContext("2d"); g.drawImage(im, 0, 0, 400, 95);
+		const at = (x, y) => [...g.getImageData(x, y, 1, 1).data];
+		return { bar: at(100, 15), gap: at(100, 30), lost: at(20, 65) };
+	}, src);
+	expect(px.bar[3], "la barra se ve").toBe(255);
+	expect(Math.min(...px.bar.slice(0, 3)), "la barra es gris claro, no negra").toBeGreaterThan(200);
+	expect(px.gap[3], "entre barras no hay nada").toBe(0);
+	expect(px.lost[3], "una pintura externa quitada deja un hueco, no negro").toBe(0);
+});
