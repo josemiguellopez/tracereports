@@ -169,6 +169,7 @@ func TestLoadingFailureTriageAndEscalation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	f.RunHeadline = "Test fallido: problema con selector de elemento en página" // el diagnóstico de la ejecución que escribió la IA
 	for _, lang := range []string{"es", "en"} {
 		e := newEscalation(f, runID, 0, "qa", lang)
 		templateEscalation(e)

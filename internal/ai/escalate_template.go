@@ -295,7 +295,8 @@ func templateEscalation(e *Escalation) {
 		e.Title = fmt.Sprintf(t["run_ok"], clip(f.RunName, 50))
 		e.Headline = e.Title
 	}
-	if e.TestID == 0 && f.RunHeadline != "" {
+	// el titular del diagnóstico de la ejecución (de la IA), salvo que culpe al selector con la página cargando
+	if e.TestID == 0 && f.RunHeadline != "" && !(len(f.Loading) > 0 && blamesSelector(f.RunHeadline)) {
 		e.Headline = f.RunHeadline
 	}
 	if e.TestID == 0 && f.Failed == 0 && f.Total > 0 {
