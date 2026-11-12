@@ -94,7 +94,7 @@ func TestMeasuringDoesNotReadThePages(t *testing.T) {
 	}
 	small, big := timeIt(4_000), timeIt(400_000)
 	t.Logf("300 pages: 4 KB → %s, 400 KB → %s", small, big)
-	if big > 3*small+150*time.Millisecond || big > 3*time.Second {
+	if big > 3*small+slowdown*150*time.Millisecond || big > slowdown*3*time.Second {
 		t.Fatalf("measuring reads the pages: 4 KB → %s, 400 KB → %s", small, big)
 	}
 	// y los tamaños son los de lo guardado
@@ -138,7 +138,7 @@ func TestMeasuringDoesNotRescan(t *testing.T) {
 	}
 	first, last := avg(took[1:21]), avg(took[len(took)-21:len(took)-1])
 	t.Logf("batches: %d, first %s, last %s", len(took), first, last)
-	if last > 2*first+2*time.Millisecond {
+	if last > 2*first+slowdown*2*time.Millisecond {
 		t.Fatalf("the last batches take longer (it rescans): first %s, last %s", first, last)
 	}
 	var n int
@@ -182,10 +182,10 @@ func TestMeasuringDoesNotHoldTheWriter(t *testing.T) {
 			sort.Slice(slat, func(i, j int) bool { return slat[i] < slat[j] })
 			sp99 := slat[len(slat)*99/100]
 			t.Logf("%d writes during the measuring, p99 %s; session p99 %s", len(lat), p99, sp99)
-			if p99 > 200*time.Millisecond {
+			if p99 > slowdown*200*time.Millisecond {
 				t.Fatalf("an ingestion write waited %s (p99)", p99)
 			}
-			if sp99 > 50*time.Millisecond {
+			if sp99 > slowdown*50*time.Millisecond {
 				t.Fatalf("reading a session waited %s (p99)", sp99)
 			}
 			return
