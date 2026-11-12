@@ -610,3 +610,36 @@ test("modo HTML: la página real con su CSS, aislada, con XPath sobre el HTML y 
 	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
 	expect(await p.evaluate(() => window.__pwned)).toBeUndefined();
 });
+
+// Modo HTML con la animación: los cursores arman la reconstrucción como en el modo normal y al terminar
+// se funde a la página real (el iframe visible y las cajas transparentes, como siempre en ese modo).
+test("modo HTML: los cursores arman la página y termina en la página real", async ({ page: p, request }, info) => {
+	const crypto = require("node:crypto");
+	const css = ".top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}body{margin:0;background:rgb(246, 244, 239)}";
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML animado", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "animación modo html" } })).json()).test_id;
+	const snap = page("Zapatilla Trail");
+	const h = crypto.createHash("sha256").update(css).digest("hex");
+	snap.html = { doc: `<html><head></head><body data-tr-i="0"><div class="top" data-tr-i="1">Demo Shop</div><div id="ficha" data-tr-i="2">Zapatilla Trail</div></body></html>`, css: [h], sheets: { [h]: css }, dpr: 1 };
+	expect((await (await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).json()).mode).toBe("html");
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	const state = () => insp.evaluate((el) => {
+		const st = el.querySelector(".insp-stage"), fr = st.querySelector(".insp-frame"), top = st.querySelector(".insp-n");
+		return { build: st.classList.contains("html-build"), html: st.classList.contains("html-mode"), cursors: st.querySelectorAll(".insp-cur").length,
+			frame: fr ? getComputedStyle(fr).opacity : null, box: top ? getComputedStyle(top).backgroundColor : null };
+	});
+	// mientras se arma: cursores, las cajas de la reconstrucción con su color y la página real oculta
+	await expect.poll(async () => { const s = await state(); return s.build && s.cursors > 0; }, { timeout: 10000 }).toBe(true);
+	const building = await state();
+	expect(building.html).toBe(false);
+	expect(building.frame === null || building.frame === "0").toBe(true);
+	// al terminar: la página real, visible, con su CSS
+	await expect.poll(async () => { const s = await state(); return `${s.build}|${s.html}|${s.frame}`; }, { timeout: 30000 }).toBe("false|true|1");
+	expect((await state()).box).toBe("rgba(0, 0, 0, 0)");
+	await expect(p.frameLocator("#inspector-panel .insp-frame").locator(".top")).toHaveCSS("background-color", "rgb(31, 95, 69)");
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+});

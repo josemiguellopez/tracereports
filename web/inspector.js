@@ -474,9 +474,12 @@
 			fr.setAttribute("scrolling", "no"); fr.setAttribute("aria-hidden", "true"); fr.tabIndex = -1; fr.title = t("Página real del momento del fallo");
 			Object.assign(fr.style, { width: (s.viewport?.w || current.W) + "px", height: current.H + "px" });
 			current.srcdoc = htmlSrcdoc(s, sheets, doc);
+			const loaded = new Promise((res) => { fr.addEventListener("load", res, { once: true }); setTimeout(res, 4000); });
 			fr.srcdoc = current.srcdoc;
 			stage.querySelector(".insp-frame")?.remove();
 			stage.insertBefore(fr, layer);
+			await loaded;
+			return req === frameReq;
 		}
 		let frameReq = 0;
 
@@ -490,12 +493,13 @@
 			const vb = $('[data-insp="view"]');
 			vb.hidden = !s.html?.doc; vb.setAttribute("aria-pressed", String(current.html));
 			vb.textContent = current.html ? `◧ ${t("Página real")}` : `◨ ${t("Reconstrucción")}`;
-			stage.classList.toggle("html-mode", current.html);
+			stage.classList.toggle("html-mode", current.html); stage.classList.remove("html-build");
 			stage.querySelector(".insp-frame")?.remove(); frameReq++;
 			$(".insp-cssnote").hidden = true;
 			const doc = current.html ? parseHTMLDoc(s) : null;
 			mirror = doc || buildMirror(current.nodes);
-			if (doc) mountFrame(s, doc, frameReq);
+			// la página real lista (sus hojas cargadas y el iframe dibujado): la esperan el fundido y la fidelidad
+			current.frameReady = doc ? mountFrame(s, doc, frameReq).catch(() => false) : Promise.resolve(false);
 			layer.innerHTML = ""; cursors.innerHTML = ""; testCursor = null; els = [];
 			stage.style.width = current.W + "px"; stage.style.height = current.H + "px";
 			stage.style.background = current.nodes[0]?.style?.backgroundColor || "#fff";
@@ -861,13 +865,29 @@
 					if (!snap) continue;
 					curPage = k;
 					show(snap);
-					if (k === 0 && !instant && !current.html) { hideAll(); await construct(id); } else { showAll(); counted(); }
+					if (k === 0 && !instant) {
+						// modo HTML: los cursores arman la reconstrucción y al final se funde a la página real
+						const real = current.html;
+						if (real) { stage.classList.remove("html-mode"); stage.classList.add("html-build"); }
+						hideAll(); await construct(id);
+						if (real) await revealReal(id);
+					} else { showAll(); counted(); }
 					if (p.kind === "fail") { markFailure(instant); renderSteps(k, true); break; }
 					if (!testCursor) testCursor = makeCursor("#0f1b2b", "test", "test");
 					say(p.label || t("Paso {n}", { n: k + 1 }), null);
 					if (!instant) await tween(1400, id);
 				}
 			} catch (e) { if (e !== CANCEL) throw e; }
+		}
+		/** Después de armar en modo HTML: la página real aparece encima de la reconstrucción (~400 ms) y
+		 * después queda debajo de sus cajas, ya transparentes, como siempre en ese modo. */
+		async function revealReal(id) {
+			await current.frameReady;
+			if (id !== runId) return;
+			const fr = stage.querySelector(".insp-frame");
+			if (fr) await tween(400, id, (p) => { fr.style.opacity = String(ease(p)); });
+			stage.classList.remove("html-build"); stage.classList.add("html-mode");
+			if (fr) fr.style.opacity = "";
 		}
 		/** Los elementos de la página que se está viendo (cambia con cada paso). */
 		function counted() { $(".insp-status").textContent = t("{n} elementos reconstruidos", { n: drawable().length }); }

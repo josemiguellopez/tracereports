@@ -1475,6 +1475,7 @@ body[data-theme="trace"] .topbar { box-shadow: 0 1px 0 #d2d9e1, 0 2px 8px rgba(2
 .insp-n .t.ph { color: #757575; }
 /* modo HTML: el iframe dibuja la página; las cajas del Inspector quedan encima, transparentes, para marcar y elegir */
 .insp-frame { position: absolute; left: 0; top: 0; border: 0; background: #fff; pointer-events: none; }
+.insp-stage.html-build .insp-frame { z-index: 7999; opacity: 0; } /* modo HTML mientras se arma: encima de las cajas, invisible hasta el fundido */
 .insp-stage.html-mode .insp-n { background: transparent !important; background-image: none !important; border-color: transparent !important; --pg-shadow: none; }
 .insp-stage.html-mode .insp-n .t, .insp-stage.html-mode .insp-n img { visibility: hidden; }
 .insp-n .t.ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; max-width: 100%; }
