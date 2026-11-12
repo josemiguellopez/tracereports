@@ -193,6 +193,16 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
     if (covered) { text = text ? '•••' : ''; delete attrs.placeholder; delete attrs.title; delete attrs['aria-label']; }
     const style = {};
     for (const k of STYLE) style[k] = st[k];
+    // bordes de cada lado (el ancho siempre: dice que el snapshot los trae; el color solo si se ven), sombras,
+    // fondos degradados (nunca una url()) y el corte de los textos largos; lo que vale lo de siempre no viaja
+    for (const side of ['Right', 'Bottom', 'Left']) {
+      style['border' + side + 'Width'] = st['border' + side + 'Width'];
+      if (parseFloat(st['border' + side + 'Width']) > 0) style['border' + side + 'Color'] = st['border' + side + 'Color'];
+    }
+    if (/gradient\(/.test(st.backgroundImage) && !/url\(/i.test(st.backgroundImage)) style.backgroundImage = st.backgroundImage;
+    if (st.boxShadow && st.boxShadow !== 'none') style.boxShadow = st.boxShadow;
+    if (st.textOverflow && st.textOverflow !== 'clip') style.textOverflow = st.textOverflow;
+    if (st.whiteSpace && st.whiteSpace !== 'normal') style.whiteSpace = st.whiteSpace;
     const node = { i: nodes.length, p: parent, tag, attrs, text, x: Math.round(r.x + sx), y: Math.round(r.y + sy),
       w: Math.round(r.width), h: Math.round(r.height), visible, depth, style };
     if (st.transform && st.transform !== 'none') { try { acc = (acc || new DOMMatrix()).multiply(linear(new DOMMatrix(st.transform))); } catch (e) { /* sin giro */ } }

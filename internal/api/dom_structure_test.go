@@ -274,3 +274,34 @@ func TestTurnedBoxesAreKept(t *testing.T) {
 		}
 	}
 }
+
+// Bordes de cada lado, sombras, degradados y el corte de los textos largos viajan; una imagen de fondo
+// (url()) no, ni algo que no sea un degradado.
+func TestBoxStylesAreKept(t *testing.T) {
+	srv, testID := newTestServer(t)
+	shadow := "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px, rgba(0, 0, 0, 0.14) 0px 1px 1px 0px, rgba(0, 0, 0, 0.12) 0px 2px 1px -1px"
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"style":{`+
+		`"borderBottomWidth":"2px","borderBottomColor":"rgb(51, 117, 194)","borderLeftWidth":"0px","borderRightWidth":"0px",`+
+		`"boxShadow":"`+shadow+`","backgroundImage":"linear-gradient(90deg, rgb(243, 243, 243) 0%, rgb(236, 235, 235) 100%)",`+
+		`"textOverflow":"ellipsis","whiteSpace":"nowrap"}},`+
+		`{"i":4,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"style":{"backgroundImage":"linear-gradient(red, blue), url(https://evil.example/x.png)"}},`+
+		`{"i":5,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"style":{"backgroundImage":"image-set(x 1x)"}}`))
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	st := snap.Nodes[3].Style
+	for k, want := range map[string]string{"borderBottomWidth": "2px", "borderBottomColor": "rgb(51, 117, 194)", "borderLeftWidth": "0px",
+		"boxShadow": shadow, "backgroundImage": "linear-gradient(90deg, rgb(243, 243, 243) 0%, rgb(236, 235, 235) 100%)",
+		"textOverflow": "ellipsis", "whiteSpace": "nowrap"} {
+		if st[k] != want {
+			t.Errorf("%s = %q, want %q", k, st[k], want)
+		}
+	}
+	for _, i := range []int{4, 5} {
+		if v, ok := snap.Nodes[i].Style["backgroundImage"]; ok {
+			t.Errorf("node %d: only a gradient without url() is kept, got %q", i, v)
+		}
+	}
+}

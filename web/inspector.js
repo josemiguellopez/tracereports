@@ -418,15 +418,27 @@
 				// el alto de una línea se mide a lo ancho si el texto va de arriba abajo, y sin el giro de la caja
 				const vertical = /^(vertical|sideways)/.test(st.writingMode || "");
 				const across = n.tf ? (vertical ? n.lw : n.lh) : (vertical ? n.w : n.h);
-				if ((n.text || "").includes("\n") || across > lh * 1.8) el.classList.add("wrap");
+				const oneLine = /^(nowrap|pre)$/.test(st.whiteSpace || "") || st.textOverflow === "ellipsis";
+				if ((n.text || "").includes("\n") || (across > lh * 1.8 && !oneLine)) el.classList.add("wrap");
 				if (clipped && !n.tf) el.style.clipPath = clipped; // el recorte va en coordenadas de la página
-				if (parseFloat(st.borderTopWidth) > 0) el.style.border = `${st.borderTopWidth} solid ${st.borderTopColor || "#999"}`;
+				if (!("borderBottomWidth" in st)) { // snapshot anterior: solo el borde de arriba, para los cuatro lados
+					if (parseFloat(st.borderTopWidth) > 0) el.style.border = `${st.borderTopWidth} solid ${st.borderTopColor || "#999"}`;
+				} else for (const side of ["Top", "Right", "Bottom", "Left"]) {
+					const w = st[`border${side}Width`];
+					if (parseFloat(w) > 0) el.style[`border${side}`] = `${w} solid ${st[`border${side}Color`] || "#999"}`;
+				}
+				if (/gradient\(/.test(st.backgroundImage || "")) el.style.backgroundImage = st.backgroundImage;
+				if (st.boxShadow && st.boxShadow !== "none") el.style.setProperty("--pg-shadow", st.boxShadow);
 				el.dataset.bg = transparent(st.backgroundColor) ? "" : st.backgroundColor;
 				if (n.tag === "svg" || n.tag === "img" || n.tag === "canvas") el.classList.add("img");
 				if (across <= fs * 2.4 || ["button", "a"].includes(n.tag)) el.classList.add("mid");
 				if (n.tag === "button" || (!transparent(st.backgroundColor) && n.text && n.w < 220)) el.classList.add("center");
 				const tx = document.createElement("span"); tx.className = "t";
 				if (n.tx !== undefined && n.tx !== null) Object.assign(tx.style, { position: "absolute", left: n.tx + "px", top: (n.ty || 0) + "px" });
+				if (st.textOverflow === "ellipsis") { // un texto largo cortado con «…» como en la página
+					tx.classList.add("ellipsis");
+					if (tx.style.position === "absolute") tx.style.maxWidth = Math.max(0, n.w - n.tx) + "px";
+				}
 				el.appendChild(tx);
 				drawIcons(el, n, current.snap.glyphs || {});
 				layer.appendChild(el);

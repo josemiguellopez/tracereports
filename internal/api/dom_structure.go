@@ -37,7 +37,14 @@ var nodeStyles = map[string]bool{"display": true, "position": true, "backgroundC
 	// el orden de las capas (un modal encima de la página) y el recorte de los paneles con scroll
 	"zIndex": true, "overflowX": true, "overflowY": true,
 	// pestañas verticales: el texto va de arriba abajo en una caja alta
-	"writingMode": true}
+	"writingMode": true,
+	// bordes de cada lado, sombras, fondos degradados (sin url()) y el corte de los textos largos
+	"borderRightWidth": true, "borderRightColor": true, "borderBottomWidth": true, "borderBottomColor": true,
+	"borderLeftWidth": true, "borderLeftColor": true, "boxShadow": true, "backgroundImage": true,
+	"textOverflow": true, "whiteSpace": true}
+
+// longStyles: los valores que pueden ser largos (varias sombras, un degradado con varias paradas).
+var longStyles = map[string]int{"boxShadow": 400, "backgroundImage": 400}
 
 var (
 	tagRe        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
@@ -76,7 +83,14 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 		n.Attrs = attrs
 		style := map[string]string{}
 		for k, v := range n.Style {
-			if nodeStyles[k] && len(v) <= maxStyleValue && styleValueRe.MatchString(v) && !strings.Contains(strings.ToLower(v), "url(") {
+			limit := maxStyleValue
+			if l, ok := longStyles[k]; ok {
+				limit = l
+			}
+			if k == "backgroundImage" && !strings.Contains(v, "gradient(") {
+				continue // solo degradados: una imagen de fondo no se puede cargar (ni se debe)
+			}
+			if nodeStyles[k] && len(v) <= limit && styleValueRe.MatchString(v) && !strings.Contains(strings.ToLower(v), "url(") {
 				style[k] = v
 			}
 		}

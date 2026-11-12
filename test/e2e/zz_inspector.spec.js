@@ -438,3 +438,40 @@ test("el Inspector dibuja las pestañas verticales como en la página (writing-m
 	expect(box.height, "girada: alta y angosta, como en la página").toBeGreaterThan(box.width * 3);
 	expect(Math.abs(box.x - ref.x), "en el mismo lugar que en la página").toBeLessThan(3);
 });
+
+// La línea bajo un encabezado (solo abajo), la sombra de una tarjeta, un fondo degradado y un texto
+// cortado con «…». Un snapshot anterior (solo el borde de arriba) sigue dibujando los cuatro lados.
+test("el Inspector dibuja bordes por lado, sombras, degradados y textos cortados con «…»", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector cajas", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "cajas" } })).json()).test_id;
+	const snap = page("Ficha", { pay: false, extra: [
+		{ p: 0, tag: "div", attrs: { class: "head" }, text: "Encabezado", x: 40, y: 420, w: 400, h: 40, visible: true, depth: 1,
+			style: { ...style("rgb(255, 255, 255)"), borderTopWidth: "0px", borderRightWidth: "0px", borderBottomWidth: "2px", borderBottomColor: "rgb(51, 117, 194)", borderLeftWidth: "0px",
+				boxShadow: "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px", backgroundImage: "linear-gradient(90deg, rgb(243, 243, 243) 0%, rgb(236, 235, 235) 100%)" } },
+		{ p: 0, tag: "span", attrs: { class: "cut" }, text: "Atención no completada por el profesional", x: 40, y: 480, w: 80, h: 18, visible: true, depth: 1,
+			style: { ...style("rgba(0, 0, 0, 0)"), textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+		{ p: 0, tag: "div", attrs: { class: "old" }, text: "Viejo", x: 500, y: 420, w: 100, h: 40, visible: true, depth: 1,
+			style: { ...style("rgb(255, 255, 255)"), borderTopWidth: "1px", borderTopColor: "rgb(200, 0, 0)" } },
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const head = insp.locator(".insp-n", { hasText: "Encabezado" });
+	await expect(head).toHaveCSS("border-bottom-width", "2px");
+	await expect(head).toHaveCSS("border-bottom-color", "rgb(51, 117, 194)");
+	await expect(head).toHaveCSS("border-top-width", "0px");
+	await expect(head).toHaveCSS("box-shadow", "rgba(0, 0, 0, 0.2) 0px 1px 3px 0px");
+	await expect(head).toHaveCSS("background-image", /linear-gradient/);
+	const cut = insp.locator(".insp-n", { hasText: "Atención no completada" }).locator(".t");
+	await expect(cut).toHaveCSS("text-overflow", "ellipsis");
+	expect(await cut.evaluate((e) => e.scrollWidth > e.clientWidth), "el texto no cabe y se corta").toBe(true);
+	const old = insp.locator(".insp-n", { hasText: "Viejo" });
+	await expect(old).toHaveCSS("border-left-width", "1px");
+	await expect(old).toHaveCSS("border-bottom-color", "rgb(200, 0, 0)");
+	// la sombra de la página no tapa el marcado del Inspector
+	await head.hover();
+	await expect(head).toHaveCSS("box-shadow", /rgb\(31, 111, 235\)/);
+});

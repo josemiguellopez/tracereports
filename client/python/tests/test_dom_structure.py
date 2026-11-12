@@ -296,3 +296,26 @@ def test_vertical_tabs_travel_with_writing_mode_and_turn(page):
         assert "tf" not in by("mv"), "a translate is already in the box"
     finally:
         page.set_content(PAGE)
+
+
+def test_borders_shadows_gradients_and_ellipsis_travel(page):
+    # La línea bajo un encabezado, la sombra de una tarjeta, un fondo degradado y un texto cortado con «…».
+    # Lo que vale lo de siempre no viaja (sin sombra, sin corte); una imagen de fondo nunca.
+    page.set_content(
+        '<div class="head" style="border-bottom:2px solid rgb(51, 117, 194);box-shadow:0 1px 3px rgba(0,0,0,.2);'
+        'background-image:linear-gradient(90deg, rgb(243, 243, 243), rgb(236, 235, 235))">Encabezado</div>'
+        '<span class="cut" style="display:block;width:60px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">Atención no completada</span>'
+        '<div class="pic" style="background-image:url(data:image/png;base64,iVBORw0KGgo=)">x</div>')
+    try:
+        nodes = capturar_dom(page)["nodes"]
+        by = lambda cls: next(n for n in nodes if n["attrs"].get("class") == cls)["style"]  # noqa: E731
+        head = by("head")
+        assert head["borderBottomWidth"] == "2px" and head["borderBottomColor"] == "rgb(51, 117, 194)"
+        assert head["borderLeftWidth"] == "0px" and "borderLeftColor" not in head
+        assert head["boxShadow"].startswith("rgba(0, 0, 0, 0.2) 0px 1px 3px") and head["backgroundImage"].startswith("linear-gradient(90deg")
+        assert "textOverflow" not in head and "whiteSpace" not in head
+        cut = by("cut")
+        assert cut["textOverflow"] == "ellipsis" and cut["whiteSpace"] == "nowrap"
+        assert "backgroundImage" not in by("pic"), "an image never travels"
+    finally:
+        page.set_content(PAGE)
