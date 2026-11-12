@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/josemiguellopez/tracereports/internal/errtext"
 	"image"
 	_ "image/gif"  // capturas: los formatos que acepta el servidor
 	_ "image/jpeg" //
@@ -87,30 +88,30 @@ func (t *AITiming) Finish(total time.Duration) {
 
 // Facts is the evidence an escalation is built from (also what the summary card shows).
 type Facts struct {
-	RunName     string   `json:"run_name"`
-	Env         string   `json:"env"`
-	RunStatus   string   `json:"run_status"`
-	StartedAt   int64    `json:"started_at"`
-	DurationMs  int64    `json:"duration_ms"`
-	Total       int      `json:"total"`
-	Passed      int      `json:"passed"`
-	Failed      int      `json:"failed"`
-	Skipped     int      `json:"skipped"`
-	Warning     int      `json:"warning,omitempty"`    // tests que terminaron con advertencia
-	Running     int      `json:"running,omitempty"`    // tests que todavía no terminaron
-	Incomplete  bool     `json:"incomplete,omitempty"` // se cerró sin que terminaran todos sus tests
-	TestName    string   `json:"test_name,omitempty"`
-	TestTags    string   `json:"test_tags,omitempty"`
-	TestDesc    string   `json:"test_desc,omitempty"`
-	Error       string   `json:"error,omitempty"`
-	Category    string   `json:"category,omitempty"`
-	AISummary   string   `json:"ai_summary,omitempty"`
-	AISuggest   string   `json:"ai_suggestion,omitempty"`
-	LocatorPick string   `json:"locator_pick,omitempty"`
-	NoRule      bool     `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
+	RunName     string `json:"run_name"`
+	Env         string `json:"env"`
+	RunStatus   string `json:"run_status"`
+	StartedAt   int64  `json:"started_at"`
+	DurationMs  int64  `json:"duration_ms"`
+	Total       int    `json:"total"`
+	Passed      int    `json:"passed"`
+	Failed      int    `json:"failed"`
+	Skipped     int    `json:"skipped"`
+	Warning     int    `json:"warning,omitempty"`    // tests que terminaron con advertencia
+	Running     int    `json:"running,omitempty"`    // tests que todavía no terminaron
+	Incomplete  bool   `json:"incomplete,omitempty"` // se cerró sin que terminaran todos sus tests
+	TestName    string `json:"test_name,omitempty"`
+	TestTags    string `json:"test_tags,omitempty"`
+	TestDesc    string `json:"test_desc,omitempty"`
+	Error       string `json:"error,omitempty"`
+	Category    string `json:"category,omitempty"`
+	AISummary   string `json:"ai_summary,omitempty"`
+	AISuggest   string `json:"ai_suggestion,omitempty"`
+	LocatorPick string `json:"locator_pick,omitempty"`
+	NoRule      bool   `json:"-"` // triage del motor local sin regla que concluya: el LLM diagnostica solo
 	// TriageRule: the local engine's rule that wrote the test's triage ("" when an LLM or nothing did).
 	// Its text is in the language the engine chose then; LocalizedFacts writes it again in the escalation's.
-	TriageRule string `json:"-"`
+	TriageRule  string   `json:"-"`
 	Steps       []string `json:"steps,omitempty"`
 	Screenshot  string   `json:"screenshot,omitempty"` // URL relativa de la captura del fallo
 	ShotCaption string   `json:"shot_caption,omitempty"`
@@ -164,21 +165,11 @@ type FailedFact struct {
 	Error    string `json:"error,omitempty"`
 }
 
-func clip(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) > n {
-		return s[:n] + "…"
-	}
-	return s
-}
+// clip cuts on a word, by letters (never in the middle of one).
+func clip(s string, n int) string { return errtext.Cut(s, n) }
 
-func firstLine(s string) string {
-	s = strings.TrimSpace(s)
-	if i := strings.IndexByte(s, '\n'); i >= 0 {
-		s = s[:i]
-	}
-	return clip(s, 300)
-}
+// firstLine is the informative line of an error, without the framework's wrapper (file name and list).
+func firstLine(s string) string { return errtext.Short(s, 300) }
 
 // blankImage reports a screenshot that is a single flat color (e.g. the empty page a browser shows
 // when the backend is down): useless as evidence on an escalation card.

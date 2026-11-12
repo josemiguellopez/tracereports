@@ -12,6 +12,7 @@ package builtin
 
 import (
 	"fmt"
+	"github.com/josemiguellopez/tracereports/internal/errtext"
 	"regexp"
 	"sort"
 	"strconv"
@@ -476,18 +477,11 @@ func ruleFlaky(in *Input) *match {
 // firstLine is the first non-empty line of the error (or of the failed step), clipped.
 func firstLine(msg, step, lang string) string {
 	for _, s := range []string{msg, step} {
-		for _, l := range strings.Split(s, "\n") {
-			if l = strings.Join(strings.Fields(l), " "); l != "" {
-				return clip(l, 160)
-			}
+		if l := errtext.Short(s, 160); l != "" {
+			return l
 		}
 	}
 	return texts[lang]["no_message"].Summary
 }
 
-func clip(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n]) + "…"
-	}
-	return s
-}
+func clip(s string, n int) string { return errtext.Cut(s, n) }
