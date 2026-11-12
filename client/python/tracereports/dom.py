@@ -115,12 +115,17 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
   const unq = (v) => { const m = /^["']([\s\S]*)["']$/.exec(v || ''); return m ? m[1].replace(/\\([0-9a-fA-F]{1,6})\s?/g, (x, hx) => String.fromCodePoint(parseInt(hx, 16))) : null; };
   const ICON_FONT = /material (icons|symbols)/i;
   const PAINT = ['fill', 'stroke', 'stroke-width', 'opacity', 'fill-opacity', 'stroke-opacity', 'fill-rule', 'stroke-linecap', 'stroke-linejoin'];
-  // un <svg> en línea, con sus colores resueltos (el CSS de la página no viaja) y sus <use href="#…"> adentro
+  // lo que no se pinta: definiciones, paradas de un gradiente y animaciones (en <animate>, fill es freeze/remove)
+  const NO_PAINT = /^(defs|clippath|mask|lineargradient|radialgradient|stop|pattern|symbol|title|desc|metadata|animate|animatetransform|animatemotion|set|mpath)$/i;
+  const REFS = ['fill', 'stroke', 'clip-path', 'mask', 'filter', 'marker-start', 'marker-mid', 'marker-end'];
+  const URL_REF = /url\(\s*["']?[^"'()\s#]*#([^"'()\s]+)["']?\s*\)/g;
+  // un <svg> en línea, con sus colores resueltos (el CSS de la página no viaja), sus <use href="#…"> adentro
+  // y los gradientes, recortes y máscaras a los que apunta, como url(#id) dentro del mismo <svg>
   const svgOf = (el, r) => {
     const all = [el, ...el.querySelectorAll('*')];
     if (all.length > 250) return '';
     const clone = el.cloneNode(true), copy = [clone, ...clone.querySelectorAll('*')];
-    all.forEach((o, i) => { const k = copy[i], s = getComputedStyle(o); if (k) for (const p of PAINT) { const v = s.getPropertyValue(p); if (v) k.setAttribute(p, v); } });
+    all.forEach((o, i) => { const k = copy[i], s = getComputedStyle(o); if (k && !NO_PAINT.test(o.localName)) for (const p of PAINT) { const v = s.getPropertyValue(p); if (v) k.setAttribute(p, v); } });
     for (const u of clone.querySelectorAll('use')) {
       const ref = u.getAttribute('href') || u.getAttribute('xlink:href') || '';
       const src = ref.startsWith('#') ? document.getElementById(ref.slice(1)) : null;
@@ -130,6 +135,29 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
       for (const p of PAINT) if (u.getAttribute(p)) g.setAttribute(p, u.getAttribute(p));
       for (const c of src.childNodes) g.appendChild(c.cloneNode(true));
       u.replaceWith(g);
+    }
+    clone.querySelectorAll('animate,animateTransform,animateMotion,set,script,foreignObject').forEach((a) => a.remove());
+    // url("https://host/página#grad") (algunas librerías la arman así por <base href>) → url(#grad), y lo que
+    // vive en otro <svg> de la página (un sprite oculto con los gradientes) se copia a un <defs> propio
+    const has = (id) => { try { return !!clone.querySelector('#' + CSS.escape(id)); } catch (e) { return false; } };
+    let defs = null, pulled = 0;
+    const pull = (id) => {
+      if (has(id)) return true;
+      const src = document.getElementById(id);
+      if (!src || !(src instanceof SVGElement) || src.contains(el) || ++pulled > 20) return false;
+      if (!defs) { defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs'); clone.insertBefore(defs, clone.firstChild); }
+      defs.appendChild(src.cloneNode(true));
+      return true;
+    };
+    for (const k of [clone, ...clone.querySelectorAll('*')]) {
+      for (const a of REFS) {
+        const v = k.getAttribute(a);
+        if (v && v.includes('url(')) k.setAttribute(a, v.replace(URL_REF, (m, id) => (pull(id) ? 'url(#' + id + ')' : m)));
+      }
+      for (const a of ['href', 'xlink:href']) {
+        const v = k.getAttribute(a);
+        if (v && /^[^#]+#./.test(v) && v.split('#')[0] === location.href.split('#')[0]) k.setAttribute(a, '#' + v.split('#')[1]);
+      }
     }
     clone.setAttribute('width', Math.round(r.width)); clone.setAttribute('height', Math.round(r.height));
     // como imagen, "currentColor" sería negro: el color que tiene el <svg> en la página

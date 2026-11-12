@@ -4,6 +4,7 @@
 """
 
 import json
+import re
 
 import pytest
 
@@ -239,5 +240,38 @@ def test_icons_travel_as_the_page_drew_them(page, monkeypatch):
         assert by(lambda n: n["tag"] == "img")["icons"][0]["pos"] == "img"
         assert "icons" not in by(lambda n: n["attrs"].get("class") == "secreto"), "what is masked keeps no icon either"
         assert len({g for n in nodes for g in [i["g"] for i in n.get("icons", [])]}) == len(glyphs), "one glyph per distinct icon"
+    finally:
+        page.set_content(PAGE)
+
+
+def test_svg_keeps_its_gradients_clips_and_masks(page):
+    # Un skeleton de carga tipo content-loader: un <rect> completo recortado a las barras (clipPath) y
+    # pintado con un gradiente animado. Viaja con sus <defs> y referencias url(#id); sin pintura copiada
+    # en <stop>/<animate> (ahí fill significa freeze/remove) y sin animaciones. La forma absoluta
+    # url("https://host/página#id") pasa a url(#id), y un gradiente que vive en otro <svg> de la página
+    # (un sprite oculto) se copia adentro.
+    page.set_content(
+        '<svg width="0" height="0" style="position:absolute"><defs><linearGradient id="shared"><stop offset="0" stop-color="#123456"/></linearGradient></defs></svg>'
+        '<svg class="sk" viewBox="0 0 400 95" preserveAspectRatio="none" style="width:400px;height:95px">'
+        '<rect x="0" y="0" width="400" height="95" clip-path="url(#clipA)" style="fill: url(#gradA)"></rect>'
+        '<defs><clipPath id="clipA"><rect x="0" y="10" rx="3" width="300" height="12"></rect></clipPath>'
+        '<linearGradient id="gradA"><stop offset="0%" stop-color="#f3f3f3"><animate attributeName="offset" values="-2; 1" dur="2s" repeatCount="indefinite"/></stop>'
+        '<stop offset="100%" stop-color="#ecebeb"/></linearGradient></defs></svg>'
+        '<svg class="abs" viewBox="0 0 10 10" style="width:10px;height:10px"><rect width="10" height="10" id="r"></rect></svg>'
+        '<svg class="sprite" viewBox="0 0 10 10" style="width:10px;height:10px"><rect width="10" height="10" fill="url(#shared)"></rect></svg>')
+    page.evaluate("""() => document.querySelector('.abs rect').setAttribute('fill', 'url("' + location.href + '#r2")')""")
+    page.evaluate("""() => { const g = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient'); g.id = 'r2';
+        document.querySelector('.abs').appendChild(g); }""")
+    try:
+        nodes = capturar_dom(page)["nodes"]
+        by = lambda cls: next(n for n in nodes if n["tag"] == "svg" and n["attrs"].get("class") == cls)["svg"]  # noqa: E731
+        sk = by("sk")
+        assert '<clipPath id="clipA"' in sk and '<linearGradient id="gradA"' in sk and 'clip-path="url(#clipA)"' in sk
+        assert 'url(&quot;#gradA&quot;)' in sk or 'url(#gradA)' in sk, sk
+        assert "animate" not in sk, "a snapshot is one moment"
+        assert not re.search(r'<(stop|defs|clipPath|linearGradient)[^>]* fill=', sk), "no paint copied to definitions"
+        assert 'fill="url(#r2)"' in by("abs"), "the absolute url to an element of the same svg becomes url(#id)"
+        sprite = by("sprite")
+        assert '<linearGradient id="shared"' in sprite and 'fill="url(#shared)"' in sprite, sprite
     finally:
         page.set_content(PAGE)
