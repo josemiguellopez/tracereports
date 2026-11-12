@@ -6,10 +6,69 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
-## [0.8.0] - 2026-11-11
+## [0.8.0] - 2026-11-12
 
 Python client 0.6.0, JavaScript client 0.5.0 and Java client 0.5.0; the Go client does not change. Validated
-with a team that runs TraceReports in Docker on Windows with suites of 16 workers.
+with a team that runs TraceReports in Docker on Windows with suites of 16 workers. The Inspector keeps drawing
+the page from its structure by default (`TRACEREPORTS_DOM_MODE=structure`); the new HTML mode is optional.
+
+### Added (Inspector: a page that looks like the application)
+
+- **Fidelity meter**: the Inspector compares the rebuilt page with the screenshot of the failure and shows
+  «Fidelity: NN %»; under 85 % it suggests «Overlay screenshot». A test that ended in WARNING is measured on the
+  page of its last warning, and every page is compared with **its own step's screenshot** (the closest in time,
+  a WARNING one for a warning page), never with the test's last one. The overlay lines up with a scrolled page and
+  works on every step.
+- **What the page draws**: inline SVGs keep their gradients, clips and masks (a loading skeleton is grey bars, no
+  longer black blocks), vertical tabs (`writing-mode` and `rotate`), borders per side, shadows, background
+  gradients, text cut with «…», the chosen option of a `select`, a placeholder, and «•••» for a typed field.
+- **HTML mode (optional)**: with `TRACEREPORTS_DOM_MODE=html` the Python client also sends the page's HTML and its
+  style sheets (each sheet once per process, by its hash). The server cleans them (nothing that runs, loads or
+  navigates; typed values, hidden and password fields and personal data never travel) and the Inspector draws the
+  real page with its CSS in an isolated iframe (sandbox without scripts, a CSP without network). «Try XPath / CSS»
+  runs on that HTML and «Real page / Reconstruction» switches views. The cursors still build the page and fade to
+  the real one. The nodes travel without their styles in this mode: the viewer computes them from the page.
+- **The cursors build every step**: after the first page, they draw only what changed from the previous step (a
+  step without changes goes by quickly; one that changes more than 60 % is built whole).
+
+### Added (Escalate: what QA needs, and the right cause)
+
+- **«Where it failed»** for the QA audience (card, PNG, shared text and email): the test, the step that failed (or
+  the last step that passed, named as such), the error and the selector that was not found, whole, from the
+  report's data (a client may store the error cut; the FAIL step carries it whole).
+- **A failure while the page was still loading is TIMING («Insufficient wait»), not LOCATOR_CHANGED**: before
+  calling a missing element a broken selector, the failure page and its network are checked for loading signals
+  (skeletons, animated SVGs, spinners, `aria-busy`, backend calls still in flight) and the last PASS pages for the
+  same selector. The local engine concludes TIMING («wait for the load to finish; do not change the selector»),
+  the AI is given the signals, and when a model still blames the selector the rule (triage) or the template
+  (escalation) wins. Saved diagnoses of the last 30 days are revised once when the rules change (`rules-v2`),
+  without Reanalyze and without AI.
+- Titles and evidence show the useful part of an error wrapped by the framework (no more «…file.py: [»), cut on a
+  word by letters; a whole run with a single failure names its test and its summary says the cause; an odd number
+  of facts no longer leaves empty cells.
+
+### Changed (storage: the Inspector's pages take about 14 times less)
+
+- Every page (failure and steps) is stored **compressed**, and its icons once by hash for the whole suite. Pages of
+  an earlier version are read the same and are compressed by **Compact now…**. **Maintenance > Storage** shows what
+  the pages take and the heaviest runs; `GET /api/v1/runs/{id}/dom/size` measures one run.
+- Each page's size is noted when it is stored. Pages stored by an earlier version are measured once in the
+  background, by key and without reading them (`TRACEREPORTS_REMEASURE_PAGES=1` measures them again).
+- **Upgrading**: a version before 0.8.0 cannot read the compressed pages; go back only before running new suites.
+
+### Fixed (a busy database no longer freezes the UI)
+
+- A request with a session (also a `.css` or a font) no longer waits for the connection that writes: the session is
+  read on the read-only connections and kept in memory 15 s. The live view reads its cancels there too, asks
+  `/api/v1/live` one request at a time with a 20 s limit and backs off after an error.
+- Retention deletes in batches of 10 runs with a proportional rest, and compressing old pages pauses between
+  batches. The stall dump shows the read-only connections.
+
+### Fixed (export)
+
+- Short paths inside the ZIP (`runN/`, `css/<16 characters of the hash>.js`): extracted with Windows' «Extract
+  all», the HTML mode's sheets went past the 260-character limit and did not load.
+- The severity badge comes out whole in the escalation PNG at any screen scale (at 125 % its last letter dropped to a hidden second line).
 
 ### Security
 

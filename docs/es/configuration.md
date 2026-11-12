@@ -52,6 +52,7 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días, cada 6 h; sin ella, los días elegidos en Mantenimiento (ver [Almacenamiento y retención](#almacenamiento-y-retención)) |
+| `TRACEREPORTS_REMEASURE_PAGES` | — | `1` olvida el peso anotado de las páginas del Inspector y las vuelve a medir al arrancar, en segundo plano y sin leerlas (para comprobar la medición; quitarla después) |
 | `TRACEREPORTS_SCREENSHOTS` | `all` | Qué capturas guarda el servidor: `all`, `failures` (solo de un paso o un test que falló) u `off` (ninguna, tampoco trace ni video). Ver [Capturas de pantalla](#capturas-de-pantalla) |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Un host interno de la lista se llama sin pedir confirmación. Ver [FixLab](fixlab.md#seguridad) |

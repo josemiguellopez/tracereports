@@ -232,6 +232,7 @@ hasta 64 px del mismo origen, también. La fuente misma nunca sale de la página
 | Variable | Efecto |
 |---|---|
 | `TRACEREPORTS_DOM=basic` | Solo los elementos interactivos, como antes (el Inspector dibuja solo esos). Por defecto: `structure` |
+| `TRACEREPORTS_DOM_MODE=html` | **Opcional.** Además de la estructura, manda el HTML de la página y sus hojas de estilo (cada hoja una vez por proceso, por su hash). El Inspector dibuja la página real con su CSS en un iframe aislado, sin scripts ni red, y «Probar XPath / CSS» corre sobre ese HTML. Lo escrito, lo tapado y los scripts no viajan. Por defecto: `structure` |
 | `TRACEREPORTS_DOM_STEPS=1` | Guarda también la página de cada paso con captura (una vez por página distinta, hasta 40 por test), para recorrer el test entero en el Inspector. **Es para todos los tests, también los PASS** (cada página pesa cientos de KB). Apagado por defecto |
 | `TRACEREPORTS_DOM_STEPS=on-problem` | Lo mismo, pero solo de los tests que terminan en FAIL o tienen un WARNING: las páginas esperan en memoria y se mandan al terminar el test. De un test que pasa se manda una base para "Comparar con el último PASS" solo si el servidor no tiene una de ese test de los últimos 7 días |
 

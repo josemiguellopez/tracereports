@@ -52,6 +52,7 @@ steps to apply it.
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | More headers and keys (JSON, query, form) to mask, comma separated |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Extra regular expressions, separated by `;` (e.g. a national id: `\b\d{7,8}-[\dkK]\b`) |
 | `TRACEREPORTS_RETENTION_DAYS` | — | Deletes the runs (and their screenshots) older than N days, every 6 h; without it, the days chosen in Maintenance (see [Storage and retention](#storage-and-retention)) |
+| `TRACEREPORTS_REMEASURE_PAGES` | — | `1` forgets the noted size of the Inspector's pages and measures them again on startup, in the background and without reading them (to check the measuring; remove it afterwards) |
 | `TRACEREPORTS_SCREENSHOTS` | `all` | Which screenshots the server keeps: `all`, `failures` (only of a failed step or test) or `off` (none, no trace or video either). See [Screenshots](#screenshots) |
 | `TRACEREPORTS_LAB` | on | `off` disables the Lab (resending captured calls from the report) |
 | `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). An internal host listed here is called without asking for confirmation. See [FixLab](fixlab.md#security) |
