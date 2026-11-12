@@ -536,7 +536,7 @@ func xpathLit(s string) string {
 		return `'` + s + `'`
 	}
 	parts := strings.Split(s, `"`)
-	out := make([]string, 0, 2*len(parts))
+	var out []string // sin capacidad calculada: un valor muy largo no desborda la cuenta
 	for i, p := range parts {
 		if i > 0 {
 			out = append(out, `'"'`)
