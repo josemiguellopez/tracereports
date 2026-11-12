@@ -67,14 +67,15 @@ func TestCleanCSS(t *testing.T) {
 @font-face{font-family:x;src:url(data:font/woff2;base64,d09GMgAB) format("woff2"),url(/fonts/x.woff)}
 .c{width:expression(alert(1));-moz-binding:url(x.xml#b);behavior:url(x.htc)}
 .d::after{content:"</style><script>alert(1)</script>"}
-.e{background:url(javascript:alert(1))}`
+.e{background:url(javascript:alert(1))}
+.f{fill:url(#grad);mask:url('#m1')}`
 	got := cleanCSS(in)
 	for _, bad := range []string{"@import", "evil.example", "/fonts/x.woff", "expression(", "-moz-binding", "behavior:", "</style", "<script", "javascript:"} {
 		if strings.Contains(got, bad) {
 			t.Errorf("%q must not survive: %s", bad, got)
 		}
 	}
-	for _, good := range []string{`url("data:image/png;base64,iVBORw0KGgo=")`, `url("data:font/woff2;base64,d09GMgAB") format("woff2")`, `background:none no-repeat`} {
+	for _, good := range []string{`url("data:image/png;base64,iVBORw0KGgo=")`, `url("data:font/woff2;base64,d09GMgAB") format("woff2")`, `background:none no-repeat`, `fill:url(#grad)`, `mask:url(#m1)`} {
 		if !strings.Contains(got, good) {
 			t.Errorf("missing %q: %s", good, got)
 		}

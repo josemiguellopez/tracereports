@@ -140,7 +140,8 @@
 				const src = glyphs[ic.g];
 				if (!ok(src)) continue;
 				const bg = `background:url("${src}") center/contain no-repeat!important`;
-				if (ic.pos === "before" || ic.pos === "after") rules.push(`[data-tr-i="${n.i}"]::${ic.pos}{content:""!important;display:inline-block!important;width:${+ic.w}px!important;height:${+ic.h}px!important;${bg};vertical-align:middle;font-size:0!important}`);
+				// el ícono conserva su caja (su carácter, con la fuente que haya): se pinta el PNG encima y la fila mide lo mismo
+				if (ic.pos === "before" || ic.pos === "after") rules.push(`[data-tr-i="${n.i}"]::${ic.pos}{color:transparent!important;${bg}}`);
 				else if (ic.pos === "text") rules.push(`[data-tr-i="${n.i}"]{color:transparent!important;${bg}}`);
 			}
 		}

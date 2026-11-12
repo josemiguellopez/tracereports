@@ -232,7 +232,8 @@ test("htmlSrcdoc: la página con su CSS, una CSP sin red y el CSS del Inspector 
 		html: { doc: '<html><head></head><body data-tr-i="0"><div data-tr-i="5" data-tr-scroll="0,120"></div></body></html>' } };
 	const css = I.htmlExtraCSS(snap, { querySelectorAll: () => [{ getAttribute: (k) => ({ "data-tr-scroll": "0,120", "data-tr-i": "5" })[k] }] });
 	assert.match(css, /animation:none!important/);
-	assert.match(css, /\[data-tr-i="1"\]::before\{content:""!important;display:inline-block!important;width:16px/);
+	assert.match(css, /\[data-tr-i="1"\]::before\{color:transparent!important;background:url\("data:image\/png/);
+	assert.doesNotMatch(css, /::before\{[^}]*(content|width|height|display):/, "the icon keeps its own box: the row does not change height");
 	assert.doesNotMatch(css, /javascript/);
 	assert.match(css, /\[data-tr-i="2"\]\{color:transparent!important;background:url\("data:image\/png/);
 	assert.match(css, /\[data-tr-i="5"\]>\*\{translate:0px -120px\}/);

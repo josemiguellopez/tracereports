@@ -36,6 +36,7 @@ var (
 	cssImportRe = regexp.MustCompile(`(?i)@import[^;]*;?`)
 	cssURLRe    = regexp.MustCompile(`(?i)url\(\s*("[^"]*"|'[^']*'|[^)]*)\s*\)`)
 	cssDataOK   = regexp.MustCompile(`(?i)^data:(image/(png|gif|jpeg|webp|svg\+xml)|font/[a-z0-9.+-]+|application/(x-)?font-[a-z0-9.+-]+|application/vnd\.ms-fontobject)[;,]`)
+	cssFragRe   = regexp.MustCompile(`^#[A-Za-z_][A-Za-z0-9_.:-]{0,80}$`)
 	cssEvilRe   = regexp.MustCompile(`(?i)expression\s*\(|-moz-binding|behavior\s*:|javascript:`)
 	imgDataOK   = regexp.MustCompile(`^data:image/(png|gif|jpeg|webp);base64,[A-Za-z0-9+/]+=*$`)
 )
@@ -243,6 +244,9 @@ func cleanCSS(s string) string {
 		}
 		if len(v) <= maxCSSDataURL && cssDataOK.MatchString(v) && !strings.ContainsAny(v, "\"\\\n") {
 			return `url("` + v + `")`
+		}
+		if cssFragRe.MatchString(v) { // un gradiente, recorte o máscara del mismo documento: no carga nada
+			return "url(" + v + ")"
 		}
 		return "none"
 	})
