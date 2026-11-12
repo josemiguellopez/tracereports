@@ -29,6 +29,9 @@ test.afterEach(async ({}, info) => {
 	expect(info.errors_, "la página no debe tener errores").toEqual([]);
 });
 
+/** Una sección de la tarjeta por su título («5. Evidencia»), no por un texto que también puede estar en otra. */
+const sec = (card, title) => card.locator(".esc-sec").filter({ has: card.page().locator("h3", { hasText: new RegExp("^\\s*\\d+\\.\\s*" + title + "\\s*$", "i") }) });
+
 /** El resumen sin IA (plantilla: inmediato y determinístico) de la ejecución completa (scope 0) o de un test. */
 async function generate(page, scope, { audience = "qa", lang = "es" } = {}) {
 	await page.goto(`/#run=${run}&view=escalate`);
@@ -48,7 +51,7 @@ async function generate(page, scope, { audience = "qa", lang = "es" } = {}) {
 
 test("la evidencia muestra la parte útil del error, no el envoltorio cortado en «[»", async ({ page }) => {
 	const card = await generate(page, failed);
-	const evidence = card.locator(".esc-sec", { hasText: "Evidencia" });
+	const evidence = sec(card, "Evidencia");
 	await expect(evidence).toContainText("Error Linea 3739 esperando elemento");
 	await expect(evidence).not.toContainText("file_name");
 	for (const li of await evidence.locator("li").allTextContents()) expect(li.trim().endsWith("[")).toBe(false);
@@ -91,6 +94,12 @@ test("la ejecución completa con un solo fallo nombra el test en la ficha, sin c
 // El test buscó la fila mientras la lista seguía cargando (cinco SVG de skeleton en el panel): no cambió
 // el selector, el test no esperó. El triage del test y el escalamiento lo dicen, y no piden cambiar el selector.
 test("la lista seguía cargando: TIMING en el triage y en el escalamiento, sin culpar al selector", async ({ page, request }) => {
+	// el motor local de reglas, aunque un spec anterior haya dejado otro proveedor configurado
+	expect((await request.put("/api/v1/settings", { data: { ai: { provider: "builtin" } } })).ok()).toBeTruthy();
+	try { await loadingCase(page, request); } finally { await request.delete("/api/v1/settings/ai"); }
+});
+
+async function loadingCase(page, request) {
 	const loadRun = (await (await request.post("/api/v1/runs", { data: { name: `esccarga-${Date.now()} inmunizaciones`, environment: "preproduccion" } })).json()).run_id;
 	const id = (await (await request.post(`/api/v1/runs/${loadRun}/tests`, { data: { name: "test_002_agregar_inmunizacion" } })).json()).test_id;
 	const nodes = [
@@ -107,7 +116,7 @@ test("la lista seguía cargando: TIMING en el triage y en el escalamiento, sin c
 	await request.patch(`/api/v1/runs/${loadRun}/finish`, { data: {} });
 
 	// el triage del test (motor local): espera, no locator
-	await expect.poll(async () => (await (await request.get(`/api/v1/tests/${id}`)).json()).triage?.category, { timeout: 20_000 }).toBe("TIMING");
+	await expect.poll(async () => (await (await request.get(`/api/v1/tests/${id}`)).json()).triage?.category, { timeout: 60_000 }).toBe("TIMING") // la cola del analizador puede venir cargada de otros specs;
 	const tri = (await (await request.get(`/api/v1/tests/${id}`)).json()).triage;
 	expect(tri.summary).toMatch(/5 (bloques de carga|loading blocks)/); // el idioma del motor sale de los nombres de los tests
 	expect(tri.summary).not.toMatch(/cambió la interfaz|the UI changed/);
@@ -125,9 +134,9 @@ test("la lista seguía cargando: TIMING en el triage y en el escalamiento, sin c
 		await expect(card).toBeVisible({ timeout: 3000 });
 	}).toPass({ timeout: 20_000 });
 	await expect(card).toContainText("la página seguía cargando cuando el test lo buscó");
-	await expect(card.locator(".esc-sec", { hasText: "Evidencia" })).toContainText("5 bloques de carga (skeleton) visibles");
-	await expect(card.locator(".esc-sec", { hasText: "Próximos pasos" })).toContainText("Esperar a que termine la carga");
+	await expect(sec(card, "Evidencia")).toContainText("5 bloques de carga (skeleton) visibles");
+	await expect(sec(card, "Próximos pasos")).toContainText("Esperar a que termine la carga");
 	await expect(card).not.toContainText("Actualizar el selector");
 	await expect(card).not.toContainText("La pantalla cambió");
 	await expect(card.locator(".esc-sev")).toHaveText("Baja");
-});
+}
