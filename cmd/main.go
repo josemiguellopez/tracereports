@@ -354,6 +354,7 @@ func runServer(parent context.Context) error {
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
 	// con reglas nuevas, los diagnósticos guardados de los últimos 30 días ven lo que ellas ven (sin «Reanalizar»)
 	go analyzer.RetriageOnUpgrade()
+	go measureDOMSizes(store)
 
 	srv := &http.Server{
 		Handler:           apiServer.Router(),
@@ -429,4 +430,25 @@ func envOr(key, def string) string {
 		return v
 	}
 	return def
+}
+
+// measureDOMSizes records, in short batches with pauses, the size of the Inspector's pages stored by a
+// version that did not note it: from then on Storage and /runs/{id}/dom/size never read the pages.
+func measureDOMSizes(store *db.Store) {
+	total := 0
+	for {
+		n, err := store.MeasureDOMSizes(100)
+		total += n
+		if err != nil {
+			slog.Warn("storage: measure the Inspector's pages", "err", err, "measured", total)
+			return
+		}
+		if n == 0 {
+			if total > 0 {
+				slog.Info("storage: Inspector's pages measured", "pages", total)
+			}
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
 }

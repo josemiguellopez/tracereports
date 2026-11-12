@@ -10,6 +10,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 )
 
 // Las páginas del Inspector (test_dom y test_dom_steps) se guardan empaquetadas:
@@ -35,6 +36,14 @@ CREATE TABLE IF NOT EXISTS dom_glyph_refs (
 	PRIMARY KEY (test_id, hash)
 );
 CREATE INDEX IF NOT EXISTS idx_dom_glyph_refs_hash ON dom_glyph_refs(hash);
+-- lo que ocupa cada página guardada (seq 0 = la del fallo), anotado al guardarla: medir un run o la base
+-- nunca vuelve a leer las páginas (sumar sobre ellas copiaba la base entera a una tabla temporal)
+CREATE TABLE IF NOT EXISTS dom_sizes (
+	test_id INTEGER NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+	seq     INTEGER NOT NULL,
+	bytes   INTEGER NOT NULL,
+	PRIMARY KEY (test_id, seq)
+);
 `
 
 // glyphRef replaces a stored icon in a page; minGlyph: smaller values stay in the page.
@@ -65,6 +74,45 @@ func (s *Store) packDOM(testID int64, name, snapshotJSON string) (any, error) {
 		return s.vault.Seal(name, buf.String())
 	}
 	return buf.Bytes(), nil
+}
+
+// storedLen is the size of a stored page value (packDOM returns bytes or a sealed string).
+func storedLen(v any) int {
+	switch x := v.(type) {
+	case []byte:
+		return len(x)
+	case string:
+		return len(x)
+	}
+	return 0
+}
+
+// noteDOMSize records what a stored page takes (seq 0: the failure page).
+func (s *Store) noteDOMSize(testID int64, seq int, v any) error {
+	_, err := s.db.Exec(`INSERT INTO dom_sizes(test_id, seq, bytes) VALUES(?,?,?) ON CONFLICT(test_id, seq) DO UPDATE SET bytes=excluded.bytes`,
+		testID, seq, storedLen(v))
+	return err
+}
+
+// MeasureDOMSizes records the size of up to batch pages stored before dom_sizes existed and returns how
+// many it measured (0: all are measured). Each call is one short write, so it can run in a loop with
+// pauses without holding the database.
+func (s *Store) MeasureDOMSizes(batch int) (int, error) {
+	n := 0
+	for _, q := range []string{
+		`INSERT OR IGNORE INTO dom_sizes(test_id, seq, bytes) SELECT d.test_id, 0, length(CAST(d.snapshot AS BLOB)) FROM test_dom d
+			WHERE NOT EXISTS (SELECT 1 FROM dom_sizes z WHERE z.test_id = d.test_id AND z.seq = 0) LIMIT ?`,
+		`INSERT OR IGNORE INTO dom_sizes(test_id, seq, bytes) SELECT d.test_id, d.seq, length(CAST(d.snapshot AS BLOB)) FROM test_dom_steps d
+			WHERE NOT EXISTS (SELECT 1 FROM dom_sizes z WHERE z.test_id = d.test_id AND z.seq = d.seq) LIMIT ?`,
+	} {
+		res, err := s.db.Exec(q, batch)
+		if err != nil {
+			return n, err
+		}
+		k, _ := res.RowsAffected()
+		n += int(k)
+	}
+	return n, nil
 }
 
 // unpackDOM is the inverse of packDOM for what the vault already opened: it decompresses a packed page
@@ -230,7 +278,13 @@ func (s *Store) PackDOM(limit int) (int, error) {
 		if _, err := s.db.Exec(`UPDATE `+r.table+` SET snapshot=? WHERE `+where, append([]any{value}, args...)...); err != nil {
 			return packed, err
 		}
+		if err := s.noteDOMSize(r.test, r.seq, value); err != nil {
+			return packed, err
+		}
 		packed++
+		if packed%packBatch == 0 {
+			time.Sleep(packPause) // cada página es una escritura corta; entre lotes, la ingesta y las lecturas pasan
+		}
 	}
 	return packed, nil
 }
@@ -246,9 +300,8 @@ type DOMRunSize struct {
 // DOMSizes returns what the Inspector's pages take: in total, the shared icons, and the heaviest
 // runs (at most top), as stored (packed or not).
 func (s *Store) DOMSizes(top int) (total, glyphs int64, pages int, runs []DOMRunSize, err error) {
-	q := `SELECT t.run_id, r.name, COUNT(*), COALESCE(SUM(LENGTH(CAST(d.snapshot AS BLOB))), 0) FROM (
-			SELECT test_id, snapshot FROM test_dom UNION ALL SELECT test_id, snapshot FROM test_dom_steps) d
-		JOIN tests t ON t.id = d.test_id JOIN runs r ON r.id = t.run_id GROUP BY t.run_id ORDER BY 4 DESC`
+	q := `SELECT t.run_id, r.name, COUNT(*), COALESCE(SUM(z.bytes), 0) FROM dom_sizes z
+		JOIN tests t ON t.id = z.test_id JOIN runs r ON r.id = t.run_id GROUP BY t.run_id ORDER BY 4 DESC`
 	rows, err := s.reader().Query(q)
 	if err != nil {
 		return 0, 0, 0, nil, err
@@ -273,13 +326,21 @@ func (s *Store) DOMSizes(top int) (total, glyphs int64, pages int, runs []DOMRun
 	return total, glyphs, pages, runs, err
 }
 
+// runDOMSizeQuery reads only dom_sizes (by the index of tests.run_id), never the pages.
+const runDOMSizeQuery = `SELECT r.name, COUNT(z.test_id), COALESCE(SUM(z.bytes), 0) FROM runs r
+	LEFT JOIN tests t ON t.run_id = r.id LEFT JOIN dom_sizes z ON z.test_id = t.id
+	WHERE r.id = ? GROUP BY r.id`
+
+// PackDOM pauses packPause every packBatch pages.
+const (
+	packBatch = 50
+	packPause = 25 * time.Millisecond
+)
+
 // RunDOMSize is what the Inspector's pages of one run take (pages and bytes as stored).
 func (s *Store) RunDOMSize(runID int64) (DOMRunSize, error) {
 	r := DOMRunSize{RunID: runID}
-	err := s.reader().QueryRow(`SELECT r.name, COUNT(d.test_id), COALESCE(SUM(LENGTH(CAST(d.snapshot AS BLOB))), 0) FROM runs r
-		LEFT JOIN tests t ON t.run_id = r.id
-		LEFT JOIN (SELECT test_id, snapshot FROM test_dom UNION ALL SELECT test_id, snapshot FROM test_dom_steps) d ON d.test_id = t.id
-		WHERE r.id = ? GROUP BY r.id`, runID).Scan(&r.Name, &r.Pages, &r.Bytes)
+	err := s.reader().QueryRow(runDOMSizeQuery, runID).Scan(&r.Name, &r.Pages, &r.Bytes)
 	if errors.Is(err, sql.ErrNoRows) {
 		return r, ErrNotFound
 	}

@@ -82,7 +82,10 @@ func (s *Store) SaveDOMStepKind(testID int64, kind, label string, at int64, snap
 	}
 	_, err = s.db.Exec(`INSERT INTO test_dom_steps(test_id, seq, label, at, snapshot, created_at, kind) VALUES(?,?,?,?,?,?,?)`,
 		testID, seq, label, at, stored, NowMs(), kind)
-	return seq, err
+	if err != nil {
+		return seq, err
+	}
+	return seq, s.noteDOMSize(testID, seq, stored)
 }
 
 // ListDOMSteps lists the step snapshots of a test, in order.
@@ -153,6 +156,9 @@ func (s *Store) SaveDOM(testID int64, snapshotJSON string) error {
 		ON CONFLICT(test_id) DO UPDATE SET snapshot=excluded.snapshot, created_at=excluded.created_at`,
 		testID, stored, NowMs())
 	if err != nil {
+		return err
+	}
+	if err := s.noteDOMSize(testID, 0, stored); err != nil {
 		return err
 	}
 	// la medida era de la página anterior
