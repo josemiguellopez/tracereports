@@ -643,3 +643,36 @@ test("modo HTML: los cursores arman la página y termina en la página real", as
 	await expect(p.frameLocator("#inspector-panel .insp-frame").locator(".top")).toHaveCSS("background-color", "rgb(31, 95, 69)");
 	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
 });
+
+// La fidelidad del modo HTML se mide cuando la página real ya tiene sus hojas: con la descarga de las
+// hojas lenta (2 s, como 450 KB por la red interna) la cifra sale igual de alta, no la de una página vacía.
+test("modo HTML: la fidelidad espera las hojas de estilo aunque tarden", async ({ page: p, request, browser }, info) => {
+	const crypto = require("node:crypto");
+	const css = "body{margin:0;background:rgb(60, 70, 90);font:14px Arial}.top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}" +
+		".modal{position:absolute;left:250px;top:180px;width:500px;height:234px;background:#fff}";
+	const body = `<div class="top" data-tr-i="1">Demo Shop</div><div class="modal" id="ficha" data-tr-i="2">¿Está seguro(a)?</div>`;
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<html><head><style>${css}</style></head><body>${body}</body></html>`);
+	const png = await real.screenshot();
+	await real.close();
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML hojas lentas", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "fidelidad con hojas lentas" } })).json()).test_id;
+	const h = crypto.createHash("sha256").update(css).digest("hex");
+	const snap = page("¿Está seguro(a)?");
+	snap.nodes[0].style.backgroundColor = "rgb(60, 70, 90)"; // el fondo del body, como lo mide el cliente
+	snap.html = { doc: `<html><head></head><body data-tr-i="0">${body}</body></html>`, css: [h], sheets: { [h]: css }, dpr: 1 };
+	expect((await (await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).json()).mode).toBe("html");
+	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura al fallar", status: "FAIL" } })).ok()).toBeTruthy();
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.route("**/api/v1/dom/css/**", async (route) => { await new Promise((r) => setTimeout(r, 2000)); await route.continue(); });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-fid")).toBeVisible({ timeout: 15000 });
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct, "medida con las hojas ya cargadas, no sobre una página vacía").toBeGreaterThanOrEqual(90);
+	await expect.poll(async () => Math.round(((await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes[0]?.min || 0) * 100)).toBe(pct);
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+});

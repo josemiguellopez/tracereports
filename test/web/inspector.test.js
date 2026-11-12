@@ -223,6 +223,17 @@ test("fidelity: la parte de los píxeles que se parecen, con tolerancia", () => 
 	assert.equal(I.fidelity({ data: new Uint8ClampedArray(0) }, { data: new Uint8ClampedArray(0) }), 0);
 });
 
+test("failedRaster: una página rasterizada en blanco contra una captura con contenido no es una cifra", () => {
+	const img = (n, ...parts) => ({ data: Uint8ClampedArray.from(parts.flatMap(([c, k]) => Array.from({ length: Math.round(n * k) }, () => [...c, 255])).flat()) });
+	const white = [255, 255, 255], dim = [120, 120, 120], panel = [60, 70, 90], blue = [31, 111, 235];
+	// el caso del run con un modal: la captura con la página oscurecida detrás y el modal blanco (~9 %)
+	const shot = img(100, [dim, 0.6], [panel, 0.31], [white, 0.09]);
+	assert.equal(I.failedRaster(img(100, [white, 1]), shot), true, "rasterizada en blanco: dibujo fallido (era el 7 %)");
+	assert.equal(I.failedRaster(img(100, [dim, 0.6], [panel, 0.3], [white, 0.1]), shot), false, "la página real como la captura");
+	assert.equal(I.failedRaster(img(100, [white, 1]), img(100, [white, 0.95], [blue, 0.05])), false, "una página casi en blanco también en la captura sí cuenta");
+	assert.ok(Math.abs(I.dominantShare(shot) - 0.6) < 1e-9);
+});
+
 test("htmlSrcdoc: la página con su CSS, una CSP sin red y el CSS del Inspector (íconos, scroll, fijos, animaciones)", () => {
 	const PNG = "data:image/png;base64,iVBORw0KGgo=";
 	const snap = { scroll: { x: 0, y: 200 }, glyphs: { g0: PNG, g1: "javascript:alert(1)" },

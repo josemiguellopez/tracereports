@@ -178,6 +178,21 @@
 		}
 		return len ? same / (len / 4) : 0;
 	}
+	/** La parte de los píxeles que tienen el color más repetido (cada canal agrupado de a 16). */
+	function dominantShare(img) {
+		const n = img.data.length / 4, seen = new Map();
+		let top = 0;
+		for (let i = 0; i < img.data.length; i += 4) {
+			const k = ((img.data[i] >> 4) << 8) | ((img.data[i + 1] >> 4) << 4) | (img.data[i + 2] >> 4);
+			const c = (seen.get(k) || 0) + 1;
+			seen.set(k, c);
+			if (c > top) top = c;
+		}
+		return n ? top / n : 0;
+	}
+	/** La página rasterizada salió casi de un solo color (en blanco, sin su CSS) y la captura no: es un
+	 * dibujo fallido, no una página distinta, y esa cifra no se muestra ni se guarda. */
+	const failedRaster = (raster, shot) => dominantShare(raster) > 0.97 && dominantShare(shot) < 0.9;
 	/** Bajo esta fidelidad el Inspector avisa que la reconstrucción no es fiable para ese caso. */
 	const FIDELITY_WARN = 0.85;
 	/** Un snapshot básico (solo elements, clientes anteriores) como nodos planos: el Inspector lo dibuja igual. */
@@ -655,11 +670,17 @@
 			const req = ++fidReq, mode = current.html ? "html" : "structure";
 			if (fidDone[mode] !== undefined) return showFidelity(fidDone[mode]);
 			$(".insp-fid").hidden = true; $(".insp-fidwarn").hidden = true;
-			setTimeout(() => (mode === "html" ? measureHTML() : measure()).then((f) => {
-				if (req !== fidReq || f === null) return;
+			const once = () => (mode === "html" ? measureHTML() : measure());
+			const run = async () => {
+				// modo HTML: se mide la página real cuando ya tiene sus hojas y el iframe la dibujó, no a ciegas
+				if (mode === "html" && !(await current.frameReady)) return;
+				let f = await once();
+				if (f === undefined && req === fidReq) { await new Promise((r) => setTimeout(r, 1000)); f = await once(); } // un dibujo fallido: otra vez
+				if (req !== fidReq || f === null || f === undefined) return;
 				fidDone[mode] = f; showFidelity(f);
 				opts.onFidelity?.(f, mode);
-			}).catch(() => { /* sin cifra: la captura no se pudo leer */ }), mode === "html" ? 400 : 60);
+			};
+			setTimeout(() => run().catch(() => { /* sin cifra: la captura no se pudo leer */ }), 60);
 		}
 		function showFidelity(f) {
 			const pct = Math.round(f * 100), badge = $(".insp-fid"), warn = $(".insp-fidwarn");
@@ -703,9 +724,19 @@
 			if (!current.srcdoc) return null;
 			const doc = new DOMParser().parseFromString(current.srcdoc, "text/html");
 			doc.querySelectorAll("meta").forEach((m) => m.remove());
+			// en un foreignObject no hay lienzo: el fondo del <body> no se extiende a toda la página como en el iframe
+			// (con todo en absoluto o fijo, el body no tiene alto y la página sale en blanco). <html> del tamaño de la
+			// página y con el fondo del body (el que midió el cliente), antes del CSS de la página, que manda si pinta <html>
+			const root = doc.documentElement, bodyBg = current.nodes.find((n) => n.tag === "body")?.style?.backgroundColor;
+			root.setAttribute("style", `${root.getAttribute("style") || ""};min-width:${vw + sx}px;min-height:${current.H}px`);
+			if (bodyBg && !transparent(bodyBg)) {
+				const st = doc.createElement("style"); st.textContent = `html{background-color:${bodyBg}}`;
+				doc.head.prepend(st);
+			}
 			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${vw}" height="${vh}"><foreignObject x="${-sx}" y="${-sy}" width="${vw + sx}" height="${current.H}">${new XMLSerializer().serializeToString(doc.documentElement)}</foreignObject></svg>`;
 			gb.drawImage(await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)), 0, 0, W, H);
-			return fidelity(ga.getImageData(0, 0, W, H), gb.getImageData(0, 0, W, H));
+			const shot = ga.getImageData(0, 0, W, H), raster = gb.getImageData(0, 0, W, H);
+			return failedRaster(raster, shot) ? undefined : fidelity(shot, raster);
 		}
 		/** Dibuja la parte de la página que muestra la captura y la compara con ella, a 240 px de ancho. */
 		async function measure() {
@@ -1042,5 +1073,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, fidelity, htmlExtraCSS, htmlSrcdoc, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, fidelity, dominantShare, failedRaster, htmlExtraCSS, htmlSrcdoc, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
 })();
