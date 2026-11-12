@@ -94,25 +94,89 @@ func (s *Store) noteDOMSize(testID int64, seq int, v any) error {
 	return err
 }
 
-// MeasureDOMSizes records the size of up to batch pages stored before dom_sizes existed and returns how
-// many it measured (0: all are measured). Each call is one short write, so it can run in a loop with
-// pauses without holding the database.
-func (s *Store) MeasureDOMSizes(batch int) (int, error) {
-	n := 0
-	for _, q := range []string{
-		`INSERT OR IGNORE INTO dom_sizes(test_id, seq, bytes) SELECT d.test_id, 0, length(CAST(d.snapshot AS BLOB)) FROM test_dom d
-			WHERE NOT EXISTS (SELECT 1 FROM dom_sizes z WHERE z.test_id = d.test_id AND z.seq = 0) LIMIT ?`,
-		`INSERT OR IGNORE INTO dom_sizes(test_id, seq, bytes) SELECT d.test_id, d.seq, length(CAST(d.snapshot AS BLOB)) FROM test_dom_steps d
-			WHERE NOT EXISTS (SELECT 1 FROM dom_sizes z WHERE z.test_id = d.test_id AND z.seq = d.seq) LIMIT ?`,
-	} {
-		res, err := s.db.Exec(q, batch)
-		if err != nil {
-			return n, err
-		}
-		k, _ := res.RowsAffected()
-		n += int(k)
+// MeasureCursor is where the measuring of the pages stored before dom_sizes existed goes on (by primary
+// key: no page is looked at twice).
+type MeasureCursor struct {
+	DOMTest  int64 // la última página del fallo medida (test_id)
+	StepTest int64 // la última página de paso medida (test_id, seq)
+	StepSeq  int
+	DOMDone  bool
+	StepDone bool
+}
+
+// Done says every page stored before is measured.
+func (c MeasureCursor) Done() bool { return c.DOMDone && c.StepDone }
+
+// MeasureDOMSizes measures the next batch of pages after cur and records their sizes. It reads on the
+// read-only connections, by primary key and with octet_length (the size kept in the record: the page
+// itself is never loaded), and writes the batch in one short transaction of values already computed:
+// the connection that writes is held for milliseconds. It returns the cursor to go on from and how many
+// pages it looked at.
+func (s *Store) MeasureDOMSizes(cur MeasureCursor, batch int) (MeasureCursor, int, error) {
+	type size struct {
+		test  int64
+		seq   int
+		bytes int64
 	}
-	return n, nil
+	var sizes []size
+	if !cur.DOMDone {
+		rows, err := s.reader().Query(`SELECT test_id, octet_length(snapshot) FROM test_dom WHERE test_id > ? ORDER BY test_id LIMIT ?`, cur.DOMTest, batch)
+		if err != nil {
+			return cur, 0, err
+		}
+		n := 0
+		for rows.Next() {
+			var z size
+			if err := rows.Scan(&z.test, &z.bytes); err != nil {
+				rows.Close()
+				return cur, 0, err
+			}
+			sizes = append(sizes, z)
+			cur.DOMTest = z.test
+			n++
+		}
+		rows.Close()
+		cur.DOMDone = n < batch
+	}
+	if !cur.StepDone && len(sizes) < batch {
+		rows, err := s.reader().Query(`SELECT test_id, seq, octet_length(snapshot) FROM test_dom_steps WHERE (test_id, seq) > (?, ?)
+			ORDER BY test_id, seq LIMIT ?`, cur.StepTest, cur.StepSeq, batch-len(sizes))
+		if err != nil {
+			return cur, 0, err
+		}
+		want, n := batch-len(sizes), 0
+		for rows.Next() {
+			var z size
+			if err := rows.Scan(&z.test, &z.seq, &z.bytes); err != nil {
+				rows.Close()
+				return cur, 0, err
+			}
+			sizes = append(sizes, z)
+			cur.StepTest, cur.StepSeq = z.test, z.seq
+			n++
+		}
+		rows.Close()
+		cur.StepDone = n < want
+	}
+	if len(sizes) == 0 {
+		return cur, 0, nil
+	}
+	q := `INSERT OR IGNORE INTO dom_sizes(test_id, seq, bytes) VALUES ` + strings.TrimSuffix(strings.Repeat("(?,?,?),", len(sizes)), ",")
+	args := make([]any, 0, 3*len(sizes))
+	for _, z := range sizes {
+		args = append(args, z.test, z.seq, z.bytes)
+	}
+	if _, err := s.db.Exec(q, args...); err != nil { // una sola escritura corta, sin leer nada
+		return cur, 0, err
+	}
+	return cur, len(sizes), nil
+}
+
+// ForgetDOMSizes deletes the recorded sizes of every page (TRACEREPORTS_REMEASURE_PAGES: measure them
+// all again on startup).
+func (s *Store) ForgetDOMSizes() error {
+	_, err := s.db.Exec(`DELETE FROM dom_sizes`)
+	return err
 }
 
 // unpackDOM is the inverse of packDOM for what the vault already opened: it decompresses a packed page
@@ -345,4 +409,28 @@ func (s *Store) RunDOMSize(runID int64) (DOMRunSize, error) {
 		return r, ErrNotFound
 	}
 	return r, err
+}
+
+// MeasureAllDOMSizes measures every page stored before dom_sizes existed, batch by batch, resting
+// between batches max(minPause, 3 × what the batch took): measuring never takes more than about a
+// quarter of the time, so ingestion and the UI go on. progress gets the pages looked at so far (every
+// batch); it returns the total.
+func (s *Store) MeasureAllDOMSizes(batch int, minPause time.Duration, progress func(done int)) (int, error) {
+	var cur MeasureCursor
+	total := 0
+	for !cur.Done() {
+		t0 := time.Now()
+		next, n, err := s.MeasureDOMSizes(cur, batch)
+		if err != nil {
+			return total, err
+		}
+		cur, total = next, total+n
+		if progress != nil {
+			progress(total)
+		}
+		if !cur.Done() {
+			time.Sleep(max(minPause, 3*time.Since(t0)))
+		}
+	}
+	return total, nil
 }

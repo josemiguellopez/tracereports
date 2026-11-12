@@ -74,16 +74,9 @@ func TestSizesAndLiveAreFastWithManyPages(t *testing.T) {
 	if err := tx.Commit(); err != nil {
 		t.Fatal(err)
 	}
-	measured := 0
-	for {
-		n, err := s.MeasureDOMSizes(100)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n == 0 {
-			break
-		}
-		measured += n
+	measured, err := s.MeasureAllDOMSizes(500, 0, nil)
+	if err != nil {
+		t.Fatal(err)
 	}
 	if measured != 50_000 {
 		t.Fatalf("measured %d pages", measured)
