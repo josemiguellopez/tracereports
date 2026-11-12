@@ -30,7 +30,7 @@ PAGE = """<html><body style="background:#f6f4ef">
 @pytest.fixture(autouse=True)
 def clean_env(monkeypatch, tmp_path):
     for var in ("TRACEREPORTS_DOM", "TRACEREPORTS_DOM_STEPS", "TRACEREPORTS_SCREENSHOT_MASK", "TRACEREPORTS_SCREENSHOT_MASK_DEFAULTS",
-                "TRACEREPORTS_SCREENSHOTS", "TRACEREPORTS_TOKEN", "TRACEREPORTS_SYNC"):
+                "TRACEREPORTS_SCREENSHOTS", "TRACEREPORTS_TOKEN", "TRACEREPORTS_SYNC", "TRACEREPORTS_DOM_MODE"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.chdir(tmp_path)
     reset_env_file()
@@ -116,7 +116,8 @@ def test_selenium_runs_the_structural_script_with_the_mask():
             return {"url": "https://app/?token=abc", "nodes": [{"i": 0, "p": -1, "tag": "body", "text": "", "attrs": {}}], "elements": []}
 
     snap = trs.capture_dom(Driver(), kind="step", label="Abrir ficha")
-    assert STRUCT_SCRIPT in calls[0][0] and "data-tracereports-mask" in calls[0][1][0]
+    assert STRUCT_SCRIPT in calls[0][0] and "data-tracereports-mask" in calls[0][1][0]["mask"]
+    assert calls[0][1][0]["html"] is False, "the HTML mode is off unless asked"
     assert snap["kind"] == "step" and snap["label"] == "Abrir ficha"
 
 
@@ -354,3 +355,74 @@ def test_scroll_travels_so_the_screenshot_lines_up(page):
         assert capturar_dom(page)["scroll"] == {"x": 0, "y": 300}
     finally:
         page.set_content(PAGE)
+
+
+HTML_PAGE = """<html lang="es"><head><style>.card{box-shadow:0 1px 3px rgba(0,0,0,.2)}</style>
+<style media="print">.card{display:none}</style><script>window.x = 1</script></head><body class="app">
+<div class="card" id="ficha" onclick="steal()"><h5>Vacunas</h5>
+ <input id="dx" placeholder="Diagnóstico" value="escrito-por-alguien"><input type="password" value="clave-secreta">
+ <input type="hidden" name="csrf" value="tok-123"><input type="checkbox" checked><input type="submit" value="Guardar">
+ <textarea>nota privada</textarea><select><option>6 Meses</option><option selected>12 Meses</option></select>
+ <span data-tracereports-mask>Juan Pérez</span>
+ <img src="https://app.example/logo.png" style="width:40px;height:20px">
+ <iframe src="about:blank" style="width:100px;height:50px"></iframe><canvas width="20" height="10"></canvas>
+ <svg viewBox="0 0 10 10" width="10" height="10"><defs><linearGradient id="g"><stop offset="0"/></linearGradient></defs><rect fill="url(#g)" width="10" height="10"/></svg>
+ <div class="list" style="height:40px;overflow:auto"><div style="height:400px">filas</div></div>
+ <my-tag></my-tag></div></body></html>"""
+
+
+def test_html_mode_sends_the_page_and_its_sheets(page, monkeypatch):
+    # TRACEREPORTS_DOM_MODE=html: además de la estructura, la página misma (cada elemento con su nodo) y
+    # sus hojas de estilo por hash. Lo escrito, lo tapado, los scripts y lo que pide la sesión no viajan.
+    monkeypatch.setenv("TRACEREPORTS_DOM_MODE", "html")
+    reset_env_file()
+    page.set_content(HTML_PAGE)
+    page.evaluate("""() => { const h = document.querySelector('my-tag').attachShadow({ mode: 'open' });
+        h.innerHTML = '<style>p > b{color:red}</style><b>sombra</b><style>a < b</style>'; document.querySelector('.list').scrollTop = 120; }""")
+    try:
+        snap = capturar_dom(page)
+        html, nodes = snap["html"], snap["nodes"]
+        doc = html["doc"]
+        assert doc.startswith('<html lang="es"><head></head><body class="app"')
+        for bad in ("<script", "steal()", "onclick", "escrito-por-alguien", "clave-secreta", "tok-123", "nota privada", "Juan Pérez", "app.example/logo.png", "<iframe"):
+            assert bad not in doc, bad
+        for good in ('placeholder="Diagnóstico"', 'value="•••"', 'value="Guardar"',
+                     "<textarea", "•••</textarea>", "selected>12 Meses</option>", 'data-tr-ph="img"', 'data-tr-ph="iframe"',
+                     '<linearGradient id="g">', 'data-tr-scroll="0,120"', '<template shadowrootmode="open"><style>p > b{color:red}</style><b', r'<style>a \3c  b</style>'):
+            assert good in doc, good
+        assert re.search(r'<input type="checkbox"[^>]* checked>', doc)
+        assert '<canvas' not in doc and ('src="data:image/png' in doc), "a canvas travels as its picture"
+        # cada elemento de la página apunta a su nodo de la estructura
+        ficha = next(n for n in nodes if n["attrs"].get("id") == "ficha")
+        assert 'id="ficha" data-tr-i="%d"' % ficha["i"] in doc
+        # las hojas por su hash, en el orden del documento; la de impresión con su @media
+        assert len(html["css"]) == 2 and set(html["css"]) == set(html["sheets"])
+        assert "box-shadow" in html["sheets"][html["css"][0]] and html["sheets"][html["css"][1]].startswith("@media print")
+        assert html["dpr"] >= 1
+    finally:
+        page.set_content(PAGE)
+
+
+def test_structure_mode_does_not_send_the_page(page):
+    page.set_content(HTML_PAGE)
+    try:
+        assert "html" not in capturar_dom(page)
+    finally:
+        page.set_content(PAGE)
+
+
+def test_each_sheet_travels_once_per_process(monkeypatch):
+    srv = FakeServer()
+    try:
+        cr = TraceReports(srv.url)
+        cr.run_id = 7
+        snap = lambda: {"url": "https://app/", "nodes": [], "elements": [], "html": {"doc": "<html></html>", "css": ["a" * 64, "b" * 64],  # noqa: E731
+                                                                                  "sheets": {"a" * 64: "x{}", "b" * 64: "y{}"}}}
+        cr.attach_dom(snap(), test_id=11)
+        cr.attach_dom(snap(), test_id=11)
+        assert cr.flush(10) == 0
+        doms = [json.loads(b) for m, p, k, b in srv.requests if p.endswith("/dom")]
+        assert [sorted(d["html"]["sheets"]) for d in doms] == [["a" * 64, "b" * 64], []]
+        assert all(d["html"]["css"] == ["a" * 64, "b" * 64] for d in doms), "the page still says which sheets it uses"
+    finally:
+        srv.close()

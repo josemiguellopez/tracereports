@@ -759,6 +759,12 @@ class TraceReports:
             snapshot["kind"] = kind
         if label:
             snapshot["label"] = str(label)[:300]
+        html = snapshot.get("html")
+        if isinstance(html, dict) and html.get("sheets"):
+            # cada hoja de estilo viaja una vez por proceso; después basta su hash
+            sent = self.__dict__.setdefault("_css_sent", set())
+            html["sheets"] = {h: t for h, t in html["sheets"].items() if h not in sent}
+            sent.update(html["sheets"])
         body = json.dumps(snapshot).encode()
         return self._emit_raw("POST", f"/api/v1/tests/{tid}/dom", body, "application/json", max(self.upload_timeout, 10.0))
 

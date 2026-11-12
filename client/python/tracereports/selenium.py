@@ -26,7 +26,7 @@ antes de que la página navegara puede no estar disponible ya; el resto de la ll
 import base64
 import json
 
-from .dom import DOM_SCRIPT, STRUCT_SCRIPT, _mask_dom, _tag, dom_level
+from .dom import DOM_SCRIPT, STRUCT_SCRIPT, _finish_html, _mask_dom, _tag, dom_level, struct_arg
 from .mask import mask_selector, selenium_screenshot
 from .network import _mask_headers, _mask_sensitive
 
@@ -214,10 +214,10 @@ def capture_dom(driver, kind="fail", label=""):
         if dom_level() == "basic":
             snap = driver.execute_script("return (" + DOM_SCRIPT + ")(arguments[0]);", mask_selector())
         else:
-            snap = driver.execute_script("return (" + STRUCT_SCRIPT + ")(arguments[0]);", mask_selector())
+            snap = driver.execute_script("return (" + STRUCT_SCRIPT + ")(arguments[0]);", struct_arg())
     except Exception:
         return None
-    return _tag(_mask_dom(snap), kind, label)
+    return _tag(_finish_html(_mask_dom(snap)), kind, label)
 
 
 def screenshot(driver):
