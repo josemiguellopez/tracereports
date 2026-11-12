@@ -3,6 +3,9 @@
 // filtran, "Solo con problemas" activo por ser grande, carriles reutilizados y colapsados, el zoom del
 // minimapa, agrupar, buscar sin perder el foco cuando la vista se refresca y el celular. No crea datos.
 const { test, expect } = require("@playwright/test");
+
+// todo simulado con page.route (no escribe en el servidor): sus tests corren en paralelo (run.js)
+test.describe.configure({ mode: "parallel" });
 const { liveSuite, liveSuiteEndpoints, liveSuiteTest } = require("./fixtures/live_suite.js");
 
 let served = 0;

@@ -13,7 +13,9 @@ const out = fs.mkdtempSync(path.join(os.tmpdir(), "tracereports-static-"));
 /** Arma un reporte con el binario (go run) y devuelve la URL file:// de su index.html. */
 function report(name, ...inputs) {
 	const dir = path.join(out, name);
-	execFileSync("go", ["run", "./cmd", "report", "-o", dir, ...inputs], { cwd: ROOT, stdio: "pipe", timeout: 180_000 });
+	const bin = process.env.E2E_SERVER_BIN; // run.js lo compila una vez para todas las tandas
+	if (bin) execFileSync(bin, ["report", "-o", dir, ...inputs], { cwd: ROOT, stdio: "pipe", timeout: 180_000 });
+	else execFileSync("go", ["run", "./cmd", "report", "-o", dir, ...inputs], { cwd: ROOT, stdio: "pipe", timeout: 180_000 });
 	return pathToFileURL(path.join(dir, "index.html")).href;
 }
 

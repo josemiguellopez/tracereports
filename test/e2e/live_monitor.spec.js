@@ -4,6 +4,9 @@
 // y Worker, el último paso en una línea (XPath corto, stack trace a pedido), Expandir/Colapsar todo y
 // el Gantt legible (gw3, texto solo si cabe, clic → su fila). No crea datos.
 const { test, expect } = require("@playwright/test");
+
+// todo simulado con page.route (no escribe en el servidor): sus tests corren en paralelo (run.js)
+test.describe.configure({ mode: "parallel" });
 const { liveWorkers, liveSuiteEndpoints, liveSuiteTest } = require("./fixtures/live_suite.js");
 
 let mutate = null;

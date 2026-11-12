@@ -150,7 +150,8 @@ const path = require("node:path");
 const { execFileSync } = require("node:child_process");
 const cli = (args, password) => {
 	try {
-		return { code: 0, out: execFileSync("go", ["run", "./cmd", ...args], { cwd: path.join(__dirname, "..", ".."), encoding: "utf8",
+		const bin = process.env.E2E_SERVER_BIN; // run.js lo compila una vez para todas las tandas
+		return { code: 0, out: execFileSync(bin || "go", bin ? args : ["run", "./cmd", ...args], { cwd: path.join(__dirname, "..", ".."), encoding: "utf8",
 			env: { ...process.env, TRACEREPORTS_LAB_PASSWORD: password }, timeout: 120_000, stdio: ["ignore", "pipe", "pipe"] }) };
 	} catch (e) { return { code: e.status, out: `${e.stdout}${e.stderr}` }; }
 };

@@ -3,6 +3,9 @@
 // y el reintento después, con espera. No crea datos.
 const { test, expect } = require("@playwright/test");
 
+// todo simulado con page.route (no escribe en el servidor): sus tests corren en paralelo (run.js)
+test.describe.configure({ mode: "parallel" });
+
 test("En vivo: con /live colgado hay un solo pedido a la vez, con tiempo límite y reintento", async ({ page }) => {
 	const errors = [];
 	page.on("pageerror", (e) => errors.push(e.message));
