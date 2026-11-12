@@ -57,3 +57,13 @@ func TestWrappedErrorReadsWellInIncidentEscalationAndTriage(t *testing.T) {
 	d := builtin.Diagnose(builtin.Input{Lang: "es", Error: wrappedErr})
 	usefulText(t, "triage evidence", strings.Join(d.Evidence, " "))
 }
+
+// El modelo (llama3.1:8b en el reporte) copió en la evidencia el título viejo del incidente: el
+// envoltorio cortado en "[". Esa línea se limpia (o se va, si no tenía nada más).
+func TestModelEvidenceWithAWrappedErrorIsCleaned(t *testing.T) {
+	got := usefulEvidence([]string{"Captura al fallar", "Errores acumulados para el file_name:test_x.py: [",
+		`Errores acumulados para el file_name:test_x.py: ["Error Linea 12 esperando elemento //div[@id='a']"]`})
+	if len(got) != 2 || got[0] != "Captura al fallar" || got[1] != "Error Linea 12 esperando elemento //div[@id='a']" {
+		t.Fatalf("%q", got)
+	}
+}

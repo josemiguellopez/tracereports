@@ -890,7 +890,7 @@ func fillFromTemplate(e *Escalation) {
 			*f.got = f.tpl
 		}
 	}
-	if e.Evidence = usableList(e.Evidence); len(e.Evidence) == 0 {
+	if e.Evidence = usefulEvidence(usableList(e.Evidence)); len(e.Evidence) == 0 {
 		e.Evidence = tpl.Evidence
 	}
 	// la página seguía cargando y el modelo igual culpa al selector o a la interfaz: gana la plantilla,
@@ -916,3 +916,22 @@ func fillFromTemplate(e *Escalation) {
 		e.Severity = tpl.Severity
 	}
 }
+
+// usefulEvidence: a line the model copied from a wrapped error ("Errores … para el file_name:x.py: [")
+// shows its useful part, and goes away when it had none (only the wrapper, cut at "[").
+func usefulEvidence(xs []string) []string {
+	out := xs[:0]
+	for _, x := range xs {
+		if !wrappedLineRe.MatchString(x) {
+			out = append(out, x)
+			continue
+		}
+		if u := errtext.Short(x, 300); usable(u) { // solo el envoltorio cortado en "[": no queda nada
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
+// wrappedLineRe: a framework's wrapper around a list of errors, or a line cut right after it.
+var wrappedLineRe = regexp.MustCompile(`(?i)file_name\s*:|\.(?:py|js|ts|java|cs|rb)\s*:\s*\[|:\s*\[\s*$`)
