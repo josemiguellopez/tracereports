@@ -835,8 +835,9 @@
 		}
 
 		// ---------- el enjambre arma la página ----------
-		async function construct(id) {
-			const order = drawable().sort((a, b) => a.depth - b.depth || a.y - b.y || a.x - b.x);
+		/** Los cursores arman la página; con `only`, solo esos nodos (lo que cambió desde el paso anterior). */
+		async function construct(id, only = null) {
+			const order = drawable().filter((n) => !only || only.has(n.i)).sort((a, b) => a.depth - b.depth || a.y - b.y || a.x - b.x);
 			const done = new Map(), total = order.length, status = $(".insp-status");
 			let built = 0;
 			order.forEach((n) => { let r; const pr = new Promise((res) => (r = res)); done.set(n.i, { pr, r }); });
@@ -958,20 +959,40 @@
 					if (id !== runId) return;
 					if (!snap) continue;
 					curPage = k;
+					const prev = current?.nodes;
 					show(snap);
-					if (k === 0 && !instant) {
+					// qué arman los cursores: la primera página entera; en las siguientes, solo lo que cambió desde la
+					// anterior (un paso sin cambios pasa rápido; uno que cambia casi todo, una navegación, se arma entero)
+					const plan = instant ? { skip: true } : stepPlan(k === 0 ? null : prev);
+					if (!plan.skip) {
 						// modo HTML: los cursores arman la reconstrucción y al final se funde a la página real
 						const real = current.html;
 						if (real) { stage.classList.remove("html-mode"); stage.classList.add("html-build"); }
-						hideAll(); await construct(id);
+						if (plan.only) { showAll(); hideSome(plan.only); } else hideAll();
+						await construct(id, plan.only);
+						counted();
 						if (real) await revealReal(id);
 					} else { showAll(); counted(); }
+					lastPlan = plan;
 					if (p.kind === "fail") { markFailure(instant); renderSteps(k, true); break; }
 					if (!testCursor) testCursor = makeCursor("#0f1b2b", "test", "test");
 					say(p.label || t("Paso {n}", { n: k + 1 }), null);
-					if (!instant) await tween(1400, id);
+					if (!instant) await tween(lastPlan.same ? 350 : 1400, id); // un paso sin cambios no hace esperar
 				}
 			} catch (e) { if (e !== CANCEL) throw e; }
+		}
+		let lastPlan = {};
+		/** Qué armar en una página: todo (sin la anterior), nada (igual a la anterior) o solo lo nuevo y lo que
+		 * cambió; si cambió más del 60 % de lo que se dibuja, todo. */
+		function stepPlan(prevNodes) {
+			if (!prevNodes) return {};
+			const d = diffSnapshots(prevNodes, current.nodes);
+			const only = new Set([...d.added, ...d.changed.map((c) => c.i)].filter((i) => els[i]));
+			if (!only.size) return { skip: true, same: true };
+			return only.size > drawable().length * 0.6 ? {} : { only };
+		}
+		function hideSome(set) {
+			for (const i of set) { const el = els[i], n = current.nodes[i]; if (!el || !n) continue; el.style.clipPath = "inset(0 100% 100% 0)"; el.style.backgroundColor = ""; el.firstChild.textContent = ""; }
 		}
 		/** Después de armar en modo HTML: la página real aparece encima de la reconstrucción (~400 ms) y
 		 * después queda debajo de sus cajas, ya transparentes, como siempre en ese modo. */

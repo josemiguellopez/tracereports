@@ -738,3 +738,34 @@ test("modo HTML: la reconstrucción toma los estilos de la página real, que no 
 	await expect(insp.locator('.insp-n[data-i="1"] .t')).toHaveText("Demo Shop");
 	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
 });
+
+// Los pasos siguientes también se animan, pero solo con lo que cambió desde el anterior: un paso igual
+// pasa rápido y en la página del fallo los cursores dibujan solo el botón que apareció.
+test("los cursores arman en cada paso solo lo que cambió desde el anterior", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector pasos animados", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "tres paginas" } })).json()).test_id;
+	const base = page("Zapatilla Trail", { pay: false });
+	for (const label of ["Abrir la ficha", "Elegir la talla"]) {
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...base, kind: "step", label } })).status()).toBeLessThan(300);
+	}
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: page("Zapatilla Trail") })).status()).toBeLessThan(300); // + el botón Pagar
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.addInitScript(() => {
+		window.__status = [];
+		new MutationObserver(() => {
+			const s = document.querySelector(".insp-status")?.textContent;
+			if (s && window.__status[window.__status.length - 1] !== s) window.__status.push(s);
+		}).observe(document, { subtree: true, childList: true, characterData: true });
+	});
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await expect(insp.locator(".insp-steps li.failed")).toHaveCount(1, { timeout: 30_000 });
+	const seen = await p.evaluate(() => window.__status);
+	const builds = seen.filter((s) => /^Reconstruyendo 0 de \d+$/.test(s));
+	expect(builds[0]).toBe("Reconstruyendo 0 de 3"); // la primera página, entera
+	expect(builds).toContain("Reconstruyendo 0 de 1"); // la del fallo: solo el botón nuevo
+	expect(builds.length, "el paso igual al anterior no se vuelve a armar").toBe(2);
+	await expect(insp.locator('.insp-n[data-i="4"] .t')).toHaveText("Pagar ahora");
+});
