@@ -67,7 +67,8 @@ for (const lang of ["es", "en"]) {
 			const fs = require("node:fs");
 			const png = fs.readFileSync(await dl.path());
 			const off = await pngVsScreen(page, card, png);
-			expect(off, `«${label}»: la ficha del PNG es la de la pantalla`).toBeLessThan(0.02);
+			// holgado: Linux y Windows dibujan el texto distinto (la causa se comprueba abajo, sin depender de la fuente)
+			expect(off, `«${label}»: la ficha del PNG es la de la pantalla`).toBeLessThan(0.08);
 			// la causa, sin depender de la fuente del equipo: la insignia no lleva un ancho fijo; las columnas sí
 			const styles = await page.evaluate(() => {
 				const d = new DOMParser().parseFromString(window.__escXHTML, "application/xhtml+xml");

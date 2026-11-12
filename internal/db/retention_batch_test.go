@@ -92,7 +92,12 @@ func TestPurgeOfHeavyRunsLetsIngestionIn(t *testing.T) {
 			sort.Slice(lat, func(i, j int) bool { return lat[i] < lat[j] })
 			p99 := lat[len(lat)*99/100]
 			t.Logf("%d writes during the purge, p99 %s", len(lat), p99)
-			if p99 > slowdown*300*time.Millisecond {
+			// lo que distingue: entre tanda y tanda la ingesta escribe (antes, 5 escrituras en toda la limpieza);
+			// el tiempo, holgado: depende del disco de cada máquina
+			if len(lat) < 30 {
+				t.Fatalf("only %d writes got through during the purge", len(lat))
+			}
+			if p99 > slowdown*time.Second {
 				t.Fatalf("an ingestion write waited %s (p99)", p99)
 			}
 			var left int

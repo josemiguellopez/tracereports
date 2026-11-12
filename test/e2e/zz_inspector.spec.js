@@ -639,7 +639,7 @@ test("modo HTML: los cursores arman la página y termina en la página real", as
 	expect(building.frame === null || building.frame === "0").toBe(true);
 	// al terminar: la página real, visible, con su CSS
 	await expect.poll(async () => { const s = await state(); return `${s.build}|${s.html}|${s.frame}`; }, { timeout: 30000 }).toBe("false|true|1");
-	expect((await state()).box).toBe("rgba(0, 0, 0, 0)");
+	await expect.poll(async () => (await state()).box).toBe("rgba(0, 0, 0, 0)"); // al final de su transición
 	await expect(p.frameLocator("#inspector-panel .insp-frame").locator(".top")).toHaveCSS("background-color", "rgb(31, 95, 69)");
 	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
 });
