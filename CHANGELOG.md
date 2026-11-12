@@ -72,6 +72,8 @@ the page from its structure by default (`TRACEREPORTS_DOM_MODE=structure`); the 
 
 ### Security
 
+- **`golang.org/x/net` 0.62.0**: the HTML mode parses pages with `golang.org/x/net/html`, and the version it
+  started with had known parsing vulnerabilities (infinite loops and quadratic cases in `html.Parse`).
 - **Sign-in page: no redirect to another site through `next`**: a `next` such as `/<tab>/evil.example` passed the
   check and the browser, which drops tabs and newlines from URLs, went to `//evil.example`. `next` is now
   resolved like the browser does and must be on the same origin.
