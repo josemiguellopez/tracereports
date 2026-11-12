@@ -374,3 +374,50 @@ func TestStylesAreStoredOnce(t *testing.T) {
 		t.Fatalf("an index outside the table is no style: %+v", snap.Nodes[204])
 	}
 }
+
+// La fidelidad que mide el Inspector queda por test y se resume por run y modo; un valor fuera de
+// 0..1 o un modo desconocido no se guarda, y un snapshot nuevo del mismo test la borra.
+func TestDOMFidelityIsStoredByRunAndMode(t *testing.T) {
+	srv, testID := newTestServer(t)
+	put := func(body string) int {
+		return call(t, srv, http.MethodPut, fmt.Sprintf("/api/v1/ui/tests/%d/dom/fidelity", testID), body).Code
+	}
+	if c := put(`{"fidelity":0.9}`); c != http.StatusNotFound {
+		t.Fatalf("without a failure page: %d", c)
+	}
+	postDOM(t, srv, testID, structSnap("fail", "", ""))
+	for _, bad := range []string{`{"fidelity":1.5}`, `{"fidelity":-0.1}`, `{"mode":"structure"}`, `{"fidelity":0.9,"mode":"pdf"}`} {
+		if c := put(bad); c != http.StatusBadRequest {
+			t.Errorf("%s: %d", bad, c)
+		}
+	}
+	if c := put(`{"fidelity":0.91234,"mode":"structure"}`); c != http.StatusNoContent {
+		t.Fatalf("put: %d", c)
+	}
+	runID, err := srv.Store.TestRunID(testID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	get := func() string {
+		return do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/runs/%d/dom/fidelity", runID), "").Body.String()
+	}
+	if body := get(); !strings.Contains(body, `"mode":"structure","tests":1,"avg":0.912,"min":0.912`) {
+		t.Fatalf("summary: %s", body)
+	}
+	postDOM(t, srv, testID, structSnap("fail", "", ""))
+	if body := get(); !strings.Contains(body, `"modes":[]`) {
+		t.Fatalf("a new snapshot clears the old measure: %s", body)
+	}
+}
+
+// El scroll de la ventana viaja para alinear la captura; uno imposible se descarta.
+func TestScrollIsKeptWhenSane(t *testing.T) {
+	for body, want := range map[string]string{`"scroll":{"x":0,"y":300},`: `"scroll":{"x":0,"y":300}`, `"scroll":{"x":-5,"y":300},`: ""} {
+		srv, testID := newTestServer(t)
+		postDOM(t, srv, testID, strings.Replace(structSnap("fail", "", ""), `"nodes":`, body+`"nodes":`, 1))
+		got := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "").Body.String()
+		if want != "" && !strings.Contains(got, want) || want == "" && strings.Contains(got, `"scroll"`) {
+			t.Errorf("%s → %s", body, got)
+		}
+	}
+}

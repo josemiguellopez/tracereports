@@ -147,9 +147,50 @@ func (s *Store) SaveDOM(testID int64, snapshotJSON string) error {
 		snapshotJSON = sealed
 	}
 	_, err := s.db.Exec(`INSERT INTO test_dom(test_id, snapshot, created_at) VALUES(?,?,?)
-		ON CONFLICT(test_id) DO UPDATE SET snapshot=excluded.snapshot, created_at=excluded.created_at`,
+		ON CONFLICT(test_id) DO UPDATE SET snapshot=excluded.snapshot, created_at=excluded.created_at, fidelity=NULL, fidelity_mode=''`,
 		testID, snapshotJSON, NowMs())
 	return err
+}
+
+// SetDOMFidelity stores how much the redrawn failure page matches its screenshot (0..1), as the
+// Inspector measured it, and the snapshot mode it was drawn from (ErrNotFound without a snapshot).
+func (s *Store) SetDOMFidelity(testID int64, fidelity float64, mode string) error {
+	res, err := s.db.Exec(`UPDATE test_dom SET fidelity=?, fidelity_mode=? WHERE test_id=?`, fidelity, mode, testID)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// DOMFidelity is the fidelity of a run's failure pages for one snapshot mode.
+type DOMFidelity struct {
+	Mode  string  `json:"mode"`
+	Tests int     `json:"tests"`
+	Avg   float64 `json:"avg"`
+	Min   float64 `json:"min"`
+}
+
+// RunDOMFidelity: the measured fidelity of a run's failure pages, by snapshot mode (to compare
+// structure with html on the same suite).
+func (s *Store) RunDOMFidelity(runID int64) ([]DOMFidelity, error) {
+	rows, err := s.db.Query(`SELECT d.fidelity_mode, COUNT(*), AVG(d.fidelity), MIN(d.fidelity) FROM test_dom d
+		JOIN tests t ON t.id = d.test_id WHERE t.run_id=? AND d.fidelity IS NOT NULL GROUP BY d.fidelity_mode ORDER BY d.fidelity_mode`, runID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []DOMFidelity{}
+	for rows.Next() {
+		var f DOMFidelity
+		if err := rows.Scan(&f.Mode, &f.Tests, &f.Avg, &f.Min); err != nil {
+			return nil, err
+		}
+		out = append(out, f)
+	}
+	return out, rows.Err()
 }
 
 // GetDOM returns the stored snapshot JSON ("" if none).

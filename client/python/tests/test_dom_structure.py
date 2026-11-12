@@ -343,3 +343,14 @@ def test_controls_show_their_option_and_placeholder_never_what_was_typed(page):
         assert "shown" not in by("hid")
     finally:
         page.set_content(PAGE)
+
+
+def test_scroll_travels_so_the_screenshot_lines_up(page):
+    # La captura muestra la página desde donde estaba la ventana: el Inspector superpone y compara esa parte.
+    page.set_content('<div style="height:3000px">alta</div>')
+    try:
+        assert "scroll" not in capturar_dom(page)
+        page.evaluate("window.scrollTo(0, 300)")
+        assert capturar_dom(page)["scroll"] == {"x": 0, "y": 300}
+    finally:
+        page.set_content(PAGE)

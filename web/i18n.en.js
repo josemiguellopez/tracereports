@@ -949,7 +949,7 @@
 		"Cargando la página del test…": "Loading the test's page…",
 		"Momento del fallo: {s}": "Moment of the failure: {s}", "Momento del fallo": "Moment of the failure",
 		"Reproducción": "Playback", "Reconstruir": "Rebuild", "Pausa": "Pause", "Seguir": "Resume", "Ver al instante": "Show instantly",
-		"Superponer captura": "Overlay screenshot", "Opacidad de la captura": "Screenshot opacity",
+		"Superponer captura": "Overlay screenshot", "Fidelidad: {n} %": "Fidelity: {n} %", "Cuánto se parece la página reconstruida a la captura del momento del fallo": "How much the rebuilt page looks like the screenshot of the moment of the failure", "La reconstrucción difiere de la captura ({n} %): usa «Superponer captura» para ver la página real.": "The rebuilt page differs from the screenshot ({n} %): use “Overlay screenshot” to see the real page.", "Opacidad de la captura": "Screenshot opacity",
 		"Snapshot básico (solo los elementos interactivos): con el cliente actualizado se ve la página completa.": "Basic snapshot (interactive elements only): with an updated client you get the whole page.",
 		"Páginas del test": "Pages of the test", "Selector que falló": "Selector that failed", "Se marca al terminar la reconstrucción.": "Marked when the rebuild ends.",
 		"Probar XPath / CSS": "Try XPath / CSS", "Expresión XPath o CSS": "XPath or CSS expression", "Se evalúa sobre la página reconstruida.": "Evaluated on the rebuilt page.",

@@ -21,8 +21,10 @@ type Snapshot struct {
 	// Structural snapshot (the Inspector): the whole page as a tree, to redraw it and evaluate
 	// selectors on it without reproducing the failure. Elements stays for the locator suggestions
 	// and older servers. Page is the document size (it can be taller than the viewport).
-	Page  *Size  `json:"page,omitempty"`
-	Nodes []Node `json:"nodes,omitempty"`
+	Page *Size `json:"page,omitempty"`
+	// Scroll: how far the window was scrolled (the screenshot shows the page from there).
+	Scroll *Point `json:"scroll,omitempty"`
+	Nodes  []Node `json:"nodes,omitempty"`
 	// Kind: "fail" (the moment of the failure, the default) or "step" (a page the test went through,
 	// TRACEREPORTS_DOM_STEPS); Label is the step it was taken at and At when (ms).
 	Kind  string `json:"kind,omitempty"`
@@ -86,6 +88,12 @@ type Node struct {
 	// Icons drawn on it and, for an inline <svg>, its markup (sanitized by the server).
 	Icons []NodeIcon `json:"icons,omitempty"`
 	SVG   string     `json:"svg,omitempty"`
+}
+
+// Point is a position in CSS pixels.
+type Point struct {
+	X int `json:"x"`
+	Y int `json:"y"`
 }
 
 // Size is a viewport in CSS pixels.

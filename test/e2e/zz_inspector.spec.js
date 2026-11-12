@@ -502,3 +502,51 @@ test("el Inspector muestra la opción del select, el placeholder y ••• en 
 	await insp.locator(".insp-probe").fill("//select[normalize-space(.)='12 Meses']");
 	await expect(insp.locator(".insp-probeout")).toContainText("Ninguna coincidencia");
 });
+
+// Fidelidad: el Inspector compara la página reconstruida con la captura del fallo y dice cuánto se
+// parecen. Una reconstrucción fiel da una cifra alta; un bloque negro donde la página tenía barras
+// grises (el SVG recortado de antes) la baja y el Inspector avisa que se use la superposición.
+test("el Inspector mide su fidelidad contra la captura y avisa si la reconstrucción difiere", async ({ page: p, request, browser }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector fidelidad", environment: "qa" } })).json()).run_id;
+	const bars = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 95" preserveAspectRatio="none" width="560" height="280"><rect width="400" height="95" fill="url(#g)" clip-path="url(#c)"/>' +
+		'<defs><clipPath id="c"><rect y="10" width="300" height="12"/><rect y="40" width="300" height="8"/><rect y="60" width="300" height="8"/></clipPath><linearGradient id="g"><stop offset="0" stop-color="#e6e6e6"/><stop offset="1" stop-color="#dcdcdc"/></linearGradient></defs></svg>';
+	const black = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 95" preserveAspectRatio="none" fill="rgb(0, 0, 0)" width="560" height="280"><rect width="400" height="95"/></svg>';
+	// la página real, y su captura como la del momento del fallo
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">
+		<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff">Demo Shop</div>
+		<div style="position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff"></div>
+		<div style="position:absolute;left:60px;top:120px;width:560px;height:280px">${bars}</div></body>`);
+	const png = await real.screenshot();
+	await real.close();
+	const make = async (name, svg) => {
+		const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name } })).json()).test_id;
+		const snap = page("", { pay: false, extra: [{ p: 2, tag: "svg", attrs: {}, text: "", x: 60, y: 120, w: 560, h: 280, visible: true, depth: 2, style: style("rgba(0, 0, 0, 0)"), svg }] });
+		snap.nodes[1].text = ""; // la cabecera sin texto: la comparación es de colores
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+		expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura al fallar", status: "FAIL" } })).ok()).toBeTruthy();
+		await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "no aparece el registro" } });
+		return id;
+	};
+	const good = await make("fiel", bars), bad = await make("bloque negro", black);
+	const open = async (id) => {
+		await p.goto(`/#run=${run}&view=tests&test=${id}`);
+		await p.locator('#test-detail [data-tab="inspector"]').click();
+		const insp = p.locator("#inspector-panel .insp");
+		await insp.locator('[data-insp="instant"]').click();
+		await expect(insp.locator(".insp-fid")).toBeVisible();
+		return { insp, pct: parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10) };
+	};
+	const g = await open(good);
+	expect(g.pct, "la reconstrucción fiel se parece a la captura").toBeGreaterThanOrEqual(95);
+	await expect(g.insp.locator(".insp-fidwarn")).toBeHidden();
+	const b = await open(bad);
+	expect(b.pct, "el bloque negro baja la fidelidad").toBeLessThan(85);
+	await expect(b.insp.locator(".insp-fid")).toHaveClass(/low/);
+	await expect(b.insp.locator(".insp-fidwarn")).toContainText("Superponer captura");
+	// queda guardada por test y se resume por run y modo
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(2);
+	const sum = (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes[0];
+	expect(sum.mode).toBe("structure");
+	expect(Math.round(sum.min * 100)).toBe(b.pct);
+});

@@ -166,6 +166,9 @@ func Open(path string) (*Store, error) {
 		{"runs", "delivery", "TEXT NOT NULL DEFAULT ''"},
 		// la página de un paso o de un WARNING (TRACEREPORTS_DOM_ON=warning)
 		{"test_dom_steps", "kind", "TEXT NOT NULL DEFAULT 'step'"},
+		// cuánto se parece la página reconstruida a la captura (0..1, la mide el visor) y con qué modo de snapshot
+		{"test_dom", "fidelity", "REAL"},
+		{"test_dom", "fidelity_mode", "TEXT NOT NULL DEFAULT ''"},
 	} {
 		if err := ensureColumn(sqldb, c[0], c[1], c[2]); err != nil {
 			sqldb.Close()

@@ -260,6 +260,7 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
   const out = { url: location.href, title: document.title, viewport: { w: innerWidth, h: innerHeight },
     page: { w: Math.max(doc.scrollWidth, innerWidth), h: Math.max(doc.scrollHeight, innerHeight) }, nodes, elements };
   if (gkeys.size) out.glyphs = glyphs;
+  if (sx || sy) out.scroll = { x: Math.round(sx), y: Math.round(sy) }; // la captura muestra esta parte de la página
   return out;
 }"""
 

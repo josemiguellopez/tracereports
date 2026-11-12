@@ -2373,6 +2373,9 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	// también en el reporte exportado: el ZIP trae las páginas en dom/ (ver staticInspector)
 	const hasInspector = (t) => !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
 
+	/** La captura del momento del fallo: la última del test (la misma regla del recomendador de locators, que sin un selector no responde). */
+	const lastShot = (t) => [...(t.logs || [])].reverse().find((l) => l.screenshot)?.screenshot || "";
+
 	/** Monta el Inspector una sola vez por test: los refrescos del detalle no lo reinician. */
 	async function mountInspector(t) {
 		const el = $("#inspector-panel");
@@ -2402,7 +2405,10 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			loadBaseline: (label) => get(`/api/v1/tests/${t.id}/dom/baseline?label=${encodeURIComponent(label || "")}`),
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
-			screenshot: loc?.screenshot || "",
+			screenshot: loc?.screenshot || lastShot(t),
+			// la fidelidad medida queda en el servidor para compararla por run (structure frente a html);
+			// sin permiso de escritura en la UI solo se muestra
+			onFidelity: (fidelity, mode) => { apiSend("PUT", `/api/v1/ui/tests/${t.id}/dom/fidelity`, { fidelity, mode }).catch(() => {}); },
 		});
 	}
 
@@ -2427,7 +2433,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			loadStep: (seq) => page(`${t.id}/${seq}`),
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
-			screenshot: loc?.screenshot || "",
+			screenshot: loc?.screenshot || lastShot(t),
 			compareUnavailable: tr("Comparar con el último PASS necesita el servidor: el reporte exportado no trae ejecuciones anteriores."),
 			notice: omitted ? tr("{n} páginas de este test no entraron en el reporte exportado (tope de tamaño): siguen en el servidor.", { n: omitted }) : "",
 		};

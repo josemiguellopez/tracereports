@@ -124,6 +124,22 @@
 		if (table) for (const n of snap.nodes || []) if (!n.style && Number.isInteger(n.s) && table[n.s]) n.style = table[n.s];
 		return snap;
 	}
+	/**
+	 * Fidelidad: la parte de los píxeles de dos imágenes del mismo tamaño (RGBA, ya reducidas) cuyo color
+	 * se parece (ningún canal difiere más de `tol`). A esa escala un texto es una mancha gris: lo que baja
+	 * la cifra es lo que se ve distinto, como un bloque negro donde había barras grises.
+	 */
+	function fidelity(a, b, tol = 48) {
+		const len = Math.min(a.data.length, b.data.length);
+		let same = 0;
+		for (let i = 0; i < len; i += 4) {
+			const d = Math.max(Math.abs(a.data[i] - b.data[i]), Math.abs(a.data[i + 1] - b.data[i + 1]), Math.abs(a.data[i + 2] - b.data[i + 2]));
+			if (d <= tol) same++;
+		}
+		return len ? same / (len / 4) : 0;
+	}
+	/** Bajo esta fidelidad el Inspector avisa que la reconstrucción no es fiable para ese caso. */
+	const FIDELITY_WARN = 0.85;
 	/** Un snapshot básico (solo elements, clientes anteriores) como nodos planos: el Inspector lo dibuja igual. */
 	function fromElements(snap) {
 		const vw = snap.viewport?.w || 1280, vh = snap.viewport?.h || 800;
@@ -342,12 +358,14 @@
 					: opts.compareUnavailable ? `<button class="cf-btn cf-btn-sm" type="button" disabled title="${esc(opts.compareUnavailable)}" aria-describedby="insp-nocompare">⇄ ${esc(t("Comparar con el último PASS"))}</button><span class="m-hint insp-nocompare" id="insp-nocompare">${esc(opts.compareUnavailable)}</span>` : ""}
 				${opts.screenshot ? `<label class="insp-ovl"><input type="checkbox" data-insp="ovl"> ${esc(t("Superponer captura"))} <input type="range" data-insp="ovlop" min="0" max="100" value="55" aria-label="${esc(t("Opacidad de la captura"))}"></label>` : ""}
 				<span class="insp-status" aria-live="polite"></span>
+				<span class="insp-fid" hidden title="${esc(t("Cuánto se parece la página reconstruida a la captura del momento del fallo"))}"></span>
 			</div>
 			${opts.notice ? `<p class="insp-notice" role="note">${esc(opts.notice)}</p>` : ""}
 			${!pages.length ? `<p class="insp-notice" role="note">${esc(t("Este reporte no trae las páginas de este test."))}</p>` : ""}
 			<div class="insp-main">
 				<div class="insp-left">
 					<div class="insp-viewport"><div class="insp-stage"><div class="insp-layer"></div>${opts.screenshot ? `<img class="insp-overlay" alt="${esc(t("Captura del momento del fallo"))}">` : ""}<div class="insp-cursors"></div></div></div>
+					<p class="insp-notice insp-fidwarn" hidden></p>
 					<p class="insp-basic m-hint" hidden>${esc(t("Snapshot básico (solo los elementos interactivos): con el cliente actualizado se ve la página completa."))}</p>
 					<ol class="insp-steps" aria-label="${esc(t("Páginas del test"))}"></ol>
 				</div>
@@ -458,7 +476,11 @@
 				els[n.i] = el;
 			}
 			const ov = $(".insp-overlay");
-			if (ov) { ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = snap !== opts.snapshot; }
+			if (ov) {
+				ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = snap !== opts.snapshot;
+				Object.assign(ov.style, { left: (current.snap.scroll?.x || 0) + "px", top: (current.snap.scroll?.y || 0) + "px" }); // la parte de la página que muestra
+			}
+			if (snap === opts.snapshot && opts.screenshot && s.nodes?.length && !s.basic) measureSoon();
 			fit();
 			if (diffOn) applyDiff();
 		}
@@ -545,6 +567,84 @@
 		async function moveTo(c, x, y, ms, id) {
 			const from = { ...c.pos };
 			await tween(ms, id, (p) => { const e = ease(p); place(c, from.x + (x - from.x) * e, from.y + (y - from.y) * e); });
+		}
+
+		// ---------- fidelidad: la página reconstruida contra la captura ----------
+		let fidReq = 0, fidDone = null;
+		function measureSoon() {
+			const req = ++fidReq;
+			if (fidDone !== null) return showFidelity(fidDone);
+			setTimeout(() => measure().then((f) => {
+				if (req !== fidReq || f === null) return;
+				fidDone = f; showFidelity(f);
+				opts.onFidelity?.(f, current.snap.mode || "structure");
+			}).catch(() => { /* sin cifra: la captura no se pudo leer */ }), 60);
+		}
+		function showFidelity(f) {
+			const pct = Math.round(f * 100), badge = $(".insp-fid"), warn = $(".insp-fidwarn");
+			if (!badge) return;
+			badge.hidden = false; badge.textContent = t("Fidelidad: {n} %", { n: pct });
+			badge.classList.toggle("low", f < FIDELITY_WARN);
+			warn.hidden = f >= FIDELITY_WARN;
+			warn.textContent = t("La reconstrucción difiere de la captura ({n} %): usa «Superponer captura» para ver la página real.", { n: pct });
+		}
+		const loadImg = (src) => new Promise((res, rej) => { const im = new Image(); im.onload = () => res(im); im.onerror = rej; im.src = src; });
+		/** Las reglas de la hoja del Inspector que dibujan los nodos, para la copia que se rasteriza. */
+		function nodeRules() {
+			let css = "";
+			for (const sh of document.styleSheets) {
+				let rules;
+				try { rules = sh.cssRules; } catch { continue; }
+				for (const r of rules) {
+					if (r.selectorText && /\.insp-(n|layer)\b/.test(r.selectorText) && !/hover|\.sel|match|similar|failed-el|diff|drawing|caret/.test(r.selectorText)) css += r.cssText + "\n";
+				}
+			}
+			return css;
+		}
+		/** Dibuja la parte de la página que muestra la captura y la compara con ella, a 240 px de ancho. */
+		async function measure() {
+			const s = current.snap, vw = s.viewport?.w || current.W, vh = s.viewport?.h || current.H, sx = s.scroll?.x || 0, sy = s.scroll?.y || 0;
+			const W = 240, H = Math.max(1, Math.round((W * vh) / vw));
+			const canvas = () => {
+				const c = document.createElement("canvas"); c.width = W; c.height = H;
+				const g = c.getContext("2d", { willReadFrequently: true }); g.fillStyle = "#fff"; g.fillRect(0, 0, W, H);
+				return g;
+			};
+			const shot = await loadImg(opts.screenshot), k = shot.naturalWidth / vw;
+			const ga = canvas();
+			if (shot.naturalHeight / k > vh * 1.15) ga.drawImage(shot, sx * k, sy * k, vw * k, Math.min(vh * k, shot.naturalHeight - sy * k), 0, 0, W, H); // captura de la página entera
+			else ga.drawImage(shot, 0, 0, W, H);
+			// la reconstrucción como queda al terminar de armarse, sin la animación ni las marcas del Inspector
+			const copy = layer.cloneNode(true);
+			for (const el of copy.querySelectorAll(".insp-n")) {
+				const n = current.nodes[+el.dataset.i];
+				el.classList.remove("hover", "sel", "match", "similar", "failed-el", "diff-added", "diff-changed", "drawing");
+				el.style.clipPath = el.dataset.clip || ""; el.style.backgroundColor = el.dataset.bg || "";
+				const tx = el.querySelector(".t");
+				if (tx) tx.textContent = shownText(n);
+			}
+			copy.querySelectorAll("img").forEach((i) => i.remove());
+			const bg = current.nodes[0]?.style?.backgroundColor || "#fff";
+			const style = document.createElement("style"); style.textContent = nodeRules();
+			const wrap = document.createElement("div");
+			wrap.setAttribute("style", `position:relative;width:${vw}px;height:${vh}px;overflow:hidden;color:#222;font-family:Arial,sans-serif`);
+			wrap.style.background = bg;
+			const page = document.createElement("div");
+			page.setAttribute("style", `position:absolute;left:${-sx}px;top:${-sy}px;width:${current.W}px;height:${current.H}px`);
+			page.appendChild(copy); wrap.append(style, page);
+			const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${vw}" height="${vh}"><foreignObject width="100%" height="100%">${new XMLSerializer().serializeToString(wrap)}</foreignObject></svg>`;
+			const gb = canvas();
+			gb.drawImage(await loadImg("data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg)), 0, 0, W, H);
+			// los íconos y los SVG son imágenes: dentro del foreignObject no se cargan, se dibujan encima
+			const f = W / vw;
+			for (const img of layer.querySelectorAll(".insp-n img")) {
+				const n = current.nodes[+img.closest(".insp-n").dataset.i];
+				const box = img.classList.contains("insp-svg") ? { x: 0, y: 0, w: n.w, h: n.h }
+					: { x: parseFloat(img.style.left) || 0, y: parseFloat(img.style.top) || 0, w: parseFloat(img.style.width) || 0, h: parseFloat(img.style.height) || 0 };
+				if (!(box.w > 0 && box.h > 0)) continue;
+				try { gb.drawImage(await loadImg(img.src), (n.x + box.x - sx) * f, (n.y + box.y - sy) * f, box.w * f, box.h * f); } catch { /* sin ese ícono */ }
+			}
+			return fidelity(ga.getImageData(0, 0, W, H), gb.getImageData(0, 0, W, H));
 		}
 
 		// ---------- el enjambre arma la página ----------
@@ -830,5 +930,5 @@
 		};
 	}
 
-	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
+	window.TraceReportsInspector = { fold, lit, labelOf, robustXPath, anchorsOf, relativeXPath, stableCSS, best, constName, snippets, similarTo, fromElements, expandStyles, fidelity, plainSelector, nodeKeys, diffSnapshots, nodeName, paintPlan, clipInset, shownText, iconBox, drawIcons, mount };
 })();

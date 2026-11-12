@@ -2,6 +2,8 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
+	"math"
 	"net/http"
 	"regexp"
 	"sort"
@@ -9,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/go-chi/chi/v5"
+	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/locator"
 	"github.com/josemiguellopez/tracereports/internal/redact"
 )
@@ -118,6 +121,9 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 			}
 		}
 	}
+	if snap.Scroll != nil && (snap.Scroll.X < 0 || snap.Scroll.Y < 0 || snap.Scroll.X > 100000 || snap.Scroll.Y > 200000) {
+		snap.Scroll = nil
+	}
 	if snap.Page != nil && (snap.Page.W <= 0 || snap.Page.H <= 0 || snap.Page.W > 100000 || snap.Page.H > 200000) {
 		snap.Page = nil
 	}
@@ -153,6 +159,57 @@ func tableStyles(snap *locator.Snapshot) {
 		}
 		n.S, n.Style = &idx, nil
 	}
+}
+
+// putDOMFidelity stores the fidelity the Inspector measured for the failure page (PUT
+// /ui/tests/{id}/dom/fidelity {"fidelity":0.94,"mode":"structure"}). Measuring is reading: any viewer
+// who may use the UI actions records it, and a later snapshot of the same test clears it.
+func (s *Server) putDOMFidelity(w http.ResponseWriter, r *http.Request) {
+	if !s.guardUIWrite(w, r) {
+		return
+	}
+	id, ok := pathID(w, r, "test_id")
+	if !ok {
+		return
+	}
+	var in struct {
+		Fidelity *float64 `json:"fidelity"`
+		Mode     string   `json:"mode"`
+	}
+	if !decodeLimited(w, r, &in) {
+		return
+	}
+	if in.Mode == "" {
+		in.Mode = "structure"
+	}
+	if in.Fidelity == nil || *in.Fidelity < 0 || *in.Fidelity > 1 || (in.Mode != "structure" && in.Mode != "html") {
+		writeError(w, http.StatusBadRequest, "fidelity must be 0..1 and mode structure or html")
+		return
+	}
+	err := s.Store.SetDOMFidelity(id, math.Round(*in.Fidelity*1000)/1000, in.Mode)
+	if errors.Is(err, db.ErrNotFound) {
+		writeError(w, http.StatusNotFound, "test without a failure page")
+		return
+	}
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// runDOMFidelity: the run's measured fidelity by snapshot mode (GET /runs/{id}/dom/fidelity).
+func (s *Server) runDOMFidelity(w http.ResponseWriter, r *http.Request) {
+	id, ok := pathID(w, r, "run_id")
+	if !ok {
+		return
+	}
+	out, err := s.Store.RunDOMFidelity(id)
+	if err != nil {
+		serverError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"run_id": id, "modes": out})
 }
 
 // getDOM returns the snapshot of the moment of the failure (GET /tests/{id}/dom; 204 without one).

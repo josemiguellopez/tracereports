@@ -214,3 +214,11 @@ test("expandStyles: cada nodo recupera su estilo de la tabla; un snapshot anteri
 	const old = { nodes: [{ i: 0, style: { color: "x" } }] };
 	assert.equal(I.expandStyles(old).nodes[0].style.color, "x");
 });
+
+test("fidelity: la parte de los píxeles que se parecen, con tolerancia", () => {
+	const img = (...px) => ({ data: Uint8ClampedArray.from(px.flatMap((c) => [...c, 255])) });
+	const white = [255, 255, 255], grey = [236, 235, 235], black = [0, 0, 0];
+	assert.equal(I.fidelity(img(white, grey), img(white, grey)), 1);
+	assert.equal(I.fidelity(img(white, grey, grey, grey), img(white, [240, 238, 230], black, black)), 0.5, "un gris parecido cuenta, el negro no");
+	assert.equal(I.fidelity({ data: new Uint8ClampedArray(0) }, { data: new Uint8ClampedArray(0) }), 0);
+});
