@@ -191,6 +191,7 @@
 		"a este ritmo, sin limpiar": "at this pace, without cleaning up",
 		"{b} son archivos que ninguna ejecución usa (de borrados interrumpidos o versiones anteriores).": "{b} are files no run uses (from interrupted deletions or earlier versions).",
 		"Qué ocupa cada proyecto": "What each project takes",
+		"El servidor no respondió en {s} s": "The server did not answer within {s} s",
 		"Páginas del Inspector: {b} en {n} páginas": "Inspector pages: {b} in {n} pages", "Páginas": "Pages",
 		"Se guardan comprimidas y los íconos una sola vez ({g} compartidos). Las guardadas con una versión anterior se comprimen al compactar.": "They are stored compressed and their icons once ({g} shared). Pages stored by an earlier version are compressed when compacting.",
 		"Espacio (aprox.)": "Space (approx.)",

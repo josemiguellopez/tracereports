@@ -112,9 +112,17 @@
 		throw new Error(`no disponible en el reporte exportado: ${path}`);
 	}
 
-	async function api(path) {
+	async function api(path, timeoutMs = 0) {
 		if (STATIC) return staticApi(path);
-		const res = await fetch(path, { headers: { Accept: "application/json" } });
+		// con tiempo límite: un pedido que el servidor no contesta no queda colgado para siempre
+		const ctl = timeoutMs ? new AbortController() : null, timer = ctl && setTimeout(() => ctl.abort(), timeoutMs);
+		let res;
+		try {
+			res = await fetch(path, { headers: { Accept: "application/json" }, signal: ctl?.signal });
+		} catch (err) {
+			if (ctl?.signal.aborted) throw new Error(tr("El servidor no respondió en {s} s", { s: Math.round(timeoutMs / 1000) }));
+			throw err;
+		} finally { if (timer) clearTimeout(timer); }
 		if (!res.ok) {
 			// un error del servidor con su causa o su referencia se explica; si no, el código y la ruta
 			const data = res.status >= 500 ? await res.json().catch(() => ({})) : {};
@@ -1466,9 +1474,14 @@
 		if (STATIC || !window.TraceReportsLive) return;
 		const L = S.liveView;
 		if (L.ui.paused && L.loaded && !force) return; // en pausa: la vista queda quieta para analizar
+		// un pedido a la vez: si el servidor tarda, los avisos y el reloj no apilan pedidos colgados (se pide
+		// otra vez al terminar el que está en curso); después de un error, se espera cada vez más
+		if (L.inflight) { L.again = true; return; }
+		if (!force && Date.now() < (L.retryAt || 0)) return;
+		L.inflight = true;
 		const current = turn("live");
 		try {
-			const list = await api("/api/v1/live");
+			const list = await api("/api/v1/live", LIVE_TIMEOUT_MS);
 			if (!current()) return;
 			L.list = list.executions; L.now = list.now; L.no_signal_ms = list.no_signal_ms;
 			// las anteriores (para el selector y la pantalla vacía): aparte y como mucho una vez por minuto
@@ -1482,27 +1495,34 @@
 			// entera en "Cargando…" mientras el servidor respondía (un clic en el mapa redibuja en ese rato)
 			if (L.exec && L.exec.key !== L.key) L.exec = null;
 			if (L.key) {
-				let one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`).catch((err) => {
+				let one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`, LIVE_TIMEOUT_MS).catch((err) => {
 					if (L.list.some((e) => e.key === L.key) || !fallback) throw err;
 					return null;
 				});
 				if (!current()) return;
-				if (!one) { L.key = fallback; one = await api(`/api/v1/live/execution?key=${encodeURIComponent(fallback)}`); if (!current()) return; }
+				if (!one) { L.key = fallback; one = await api(`/api/v1/live/execution?key=${encodeURIComponent(fallback)}`, LIVE_TIMEOUT_MS); if (!current()) return; }
 				L.exec = one.execution; L.now = one.now;
 				if (L.key.startsWith("r:")) L.key = one.execution.key; // pedida por un run: desde ahora, su clave
 				// la anterior también en el selector (con su hora: "Anteriores")
 				if (!L.list.some((e) => e.key === L.key)) { const { runs, ...summary } = one.execution; L.list = [...L.list, summary]; }
 			}
-			L.loaded = true;
+			L.loaded = true; L.fails = 0; L.retryAt = 0;
 			if (L.panel) loadLivePanel(L.panel.id, true); // el test abierto en el panel sigue al día
 			if (L.key && (L.epKey !== L.key || Date.now() - (L.epAt || 0) > 5000)) loadLiveEndpoints(L.key);
 			loadLiveRegressions();
 		} catch (err) {
+			L.fails = (L.fails || 0) + 1;
+			L.retryAt = Date.now() + Math.min(60000, 2000 * 2 ** (L.fails - 1)); // 2, 4, 8… hasta 60 s
 			if (!current()) return;
 			L.error = err.message;
+		} finally {
+			L.inflight = false;
+			if (L.again) { L.again = false; scheduleLiveView(); }
 		}
 		if (S.view === "live") { renderLiveView(); writeHash(); }
 	}
+	/** Cuánto espera «En vivo» a que el servidor conteste antes de dar el pedido por perdido. */
+	const LIVE_TIMEOUT_MS = 20000;
 
 	/**
 	 * Las ejecuciones anteriores: el selector las ofrece en "Anteriores" y, si nada corre ni terminó hace poco,
