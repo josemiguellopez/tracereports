@@ -64,6 +64,11 @@ for (const lang of ["es", "en"]) {
 		await expect(where.locator("h3")).toContainText(lang === "es" ? "Dónde falló" : "Where it failed");
 		await expect(where).toContainText("test_002_agregar_inmunizacion");
 		await expect(where).toContainText("Guardar la inmunización y buscarla en la lista");
+		// el paso que falló repite el error: el anterior es el último que pasó, y se rotula así
+		await expect(where.locator("dt", { hasText: lang === "es" ? "Último paso correcto" : "Last step that passed" })).toHaveCount(1);
+		await expect(where.locator("dt", { hasText: lang === "es" ? "Paso que falló" : "Step that failed" })).toHaveCount(0);
+		// «Ver reporte completo ↗»: la flecha no baja sola a otra línea
+		await expect(card.locator(".esc-foot a")).toHaveCSS("white-space", "nowrap");
 		await expect(where).toContainText("Error Linea 3739 esperando elemento");
 		await expect(where.locator("dd.esc-mono").last()).toContainText("//div[contains(@class,'textoverflow')");
 		await expect(where.locator("dd.esc-mono").last()).not.toContainText('"]');

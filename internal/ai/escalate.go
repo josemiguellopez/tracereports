@@ -172,33 +172,81 @@ type NetFact struct {
 type WhereFailed struct {
 	Test     string `json:"test"`
 	Step     string `json:"step,omitempty"`
+	LastOK   string `json:"last_ok,omitempty"` // sin un paso que falló propio: el último que pasó (rotulado así)
 	Error    string `json:"error,omitempty"`
 	Selector string `json:"selector,omitempty"`
 }
 
-// whereFailed: the step is the FAIL one; when that step is only the screenshot taken on failure or
-// repeats the error, the one before it says what the test was doing.
+// fullError is the test's error as complete as the report has it: a client may store the error message
+// cut (~300 characters, in the middle of the selector), while the FAIL step carries it whole.
+func fullError(t *db.Test) string {
+	best := t.ErrorMessage
+	head := []rune(errtext.Useful(t.ErrorMessage))
+	if len(head) > 60 {
+		head = head[:60]
+	}
+	for _, l := range t.Logs {
+		if l.Status != "FAIL" || len(head) == 0 {
+			continue
+		}
+		if u := errtext.Useful(l.Message); len(u) > len(errtext.Useful(best)) && strings.HasPrefix(u, string(head)) {
+			best = l.Message
+		}
+	}
+	return best
+}
+
+// shownError: the useful part of an error to show, at most n letters. An error that came cut (its
+// selector does not close) ends in "…" too: it is not the whole text.
+func shownError(msg string, n int) string {
+	s := errtext.Short(msg, n)
+	if s != "" && !strings.HasSuffix(s, "…") && locator.Truncated(locator.ExtractSelector(s)) {
+		s += "…"
+	}
+	return s
+}
+
+// whereFailed: the error (whole, from the FAIL step when the stored message was cut), the step that
+// failed when it says something else than the error, and otherwise the last step that passed, named as
+// such (a step that passed shown as "the step" reads as if it had failed).
 func whereFailed(t *db.Test) *WhereFailed {
-	w := &WhereFailed{Test: t.Name, Error: errtext.Short(t.ErrorMessage, 300)}
+	full := fullError(t)
+	w := &WhereFailed{Test: t.Name, Error: shownError(full, 600)}
+	same := func(msg string) bool {
+		u, e := errtext.Useful(msg), errtext.Useful(full)
+		return u == "" || strings.HasPrefix(e, u) || strings.HasPrefix(u, e)
+	}
+	firstFail := -1
 	for i, l := range t.Logs {
 		if l.Status != "FAIL" {
 			continue
 		}
-		step := errtext.Short(l.Message, 200)
-		if (l.Screenshot != "" || step == errtext.Short(t.ErrorMessage, 200)) && i > 0 {
-			step = errtext.Short(t.Logs[i-1].Message, 200)
+		if firstFail < 0 {
+			firstFail = i
 		}
-		if step != "" && step != w.Error && step != errtext.Short(t.ErrorMessage, 200) {
-			w.Step = step
+		// la captura del fallo ("Captura al fallar") no es un paso; uno que repite el error tampoco suma
+		if same(l.Message) || l.Screenshot != "" && len([]rune(l.Message)) < 40 {
+			continue
 		}
+		w.Step = errtext.Short(l.Message, 300)
 		break
 	}
-	// del error sin su envoltorio: si no, el selector arrastra el cierre de la lista ("]")
-	w.Selector = locator.ExtractSelector(errtext.Useful(t.ErrorMessage), t.ErrorTrace)
-	if w.Selector == "" {
-		w.Selector = locator.ExtractSelector(w.Step)
+	if w.Step == "" && firstFail > 0 {
+		for i := firstFail - 1; i >= 0; i-- {
+			if l := t.Logs[i]; l.Status != "FAIL" && strings.TrimSpace(l.Message) != "" {
+				w.LastOK = errtext.Short(l.Message, 300)
+				break
+			}
+		}
 	}
-	w.Selector = errtext.Cut(w.Selector, 400)
+	// el selector completo: del error sin su envoltorio, o completado con los pasos si vino cortado
+	w.Selector = locator.ExtractSelector(errtext.Useful(full), t.ErrorTrace)
+	if w.Selector == "" || locator.Truncated(w.Selector) {
+		if sel, _ := failedSelector(t); sel != "" && (w.Selector == "" || len(sel) > len(w.Selector)) {
+			w.Selector = sel
+		}
+	}
+	w.Selector = errtext.Cut(w.Selector, 600)
 	return w
 }
 
@@ -260,7 +308,7 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 		if t.Status != "FAIL" {
 			continue
 		}
-		ff := FailedFact{ID: t.ID, Name: t.Name, Error: firstLine(t.ErrorMessage)}
+		ff := FailedFact{ID: t.ID, Name: t.Name, Error: firstLine(t.ErrorMessage)} // run.Tests no trae los pasos
 		if t.Triage != nil && t.Triage.State == "DONE" {
 			ff.Category = t.Triage.Category
 		}
@@ -312,10 +360,10 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 	}
 	if testID == 0 && f.Failed == 1 && t.Status == "FAIL" {
 		// la ejecución completa con un solo fallo: la ficha nombra el test y la evidencia trae su error
-		f.TestName, f.Error = t.Name, clip(t.ErrorMessage, 1500)
+		f.TestName, f.Error = t.Name, clip(fullError(t), 1500)
 	}
 	if testID != 0 {
-		f.TestName, f.TestTags, f.TestDesc, f.Error = t.Name, t.Category, t.Description, clip(t.ErrorMessage, 1500)
+		f.TestName, f.TestTags, f.TestDesc, f.Error = t.Name, t.Category, t.Description, clip(fullError(t), 1500)
 		f.ReportPath = fmt.Sprintf("#run=%d&view=tests&test=%d", runID, t.ID)
 		if t.Triage != nil && t.Triage.State == "DONE" {
 			f.Category, f.AISummary, f.AISuggest, f.LocatorPick = t.Triage.Category, t.Triage.Summary, t.Triage.Suggestion, t.Triage.LocatorPick
@@ -892,6 +940,10 @@ func fillFromTemplate(e *Escalation) {
 	}
 	if e.Evidence = usefulEvidence(usableList(e.Evidence)); len(e.Evidence) == 0 {
 		e.Evidence = tpl.Evidence
+	}
+	// el titular del diagnóstico de la ejecución copiado tal cual no resume nada: el de la plantilla dice la causa
+	if e.TestID == 0 && e.Facts.Failed == 1 && e.Facts.RunHeadline != "" && same(e.Headline, e.Facts.RunHeadline) {
+		e.Headline = tpl.Headline
 	}
 	// la página seguía cargando y el modelo igual culpa al selector o a la interfaz: gana la plantilla,
 	// que sale de la evidencia (un modelo chico repite la categoría del error aunque se le diga)

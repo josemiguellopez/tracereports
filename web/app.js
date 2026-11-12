@@ -4020,7 +4020,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación",
 			doc: "Reporte de escalamiento", ref: "N.º", generated: "Generado", severity: "Severidad", audience: "Audiencia",
 			sev_critical: "Crítica", sev_high: "Alta", sev_medium: "Media", sev_low: "Baja", run_date: "Fecha de ejecución",
-			summary: "Resumen ejecutivo", where: "Dónde falló", step: "Paso", error: "Error", selector: "Selector no encontrado",
+			summary: "Resumen ejecutivo", where: "Dónde falló", step: "Paso que falló", last_ok: "Último paso correcto", error: "Error", selector: "Selector no encontrado",
 			foot: "Generado con TraceReports · {d} · Uso interno",
 			blank_title: "La página estaba en blanco al fallar",
 			blank_desc: "El navegador no llegó a mostrar contenido: todas las capturas del test están en blanco.", blank_view: "Ver la captura" },
@@ -4038,7 +4038,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation",
 			doc: "Escalation report", ref: "No.", generated: "Generated", severity: "Severity", audience: "Audience",
 			sev_critical: "Critical", sev_high: "High", sev_medium: "Medium", sev_low: "Low", run_date: "Run date",
-			summary: "Executive summary", where: "Where it failed", step: "Step", error: "Error", selector: "Selector not found",
+			summary: "Executive summary", where: "Where it failed", step: "Step that failed", last_ok: "Last step that passed", error: "Error", selector: "Selector not found",
 			foot: "Generated with TraceReports · {d} · Internal use",
 			blank_title: "The page was blank at the failure",
 			blank_desc: "The browser never showed any content: every screenshot of the test is blank.", blank_view: "View the screenshot" },
@@ -4212,7 +4212,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	function escWhere(e) {
 		const w = e.facts?.where, L = ESC_L[e.lang] || ESC_L.es;
 		if (e.audience !== "qa" || !w) return null;
-		const rows = [[L.test, w.test, true], [L.step, w.step], [L.error, w.error, true], [L.selector, w.selector, true]].filter(([, v]) => v);
+		const rows = [[L.test, w.test, true], [L.step, w.step], [L.last_ok, w.last_ok], [L.error, w.error, true], [L.selector, w.selector, true]].filter(([, v]) => v);
 		return rows.length > 1 ? rows : null;
 	}
 	function escCard(e) {
