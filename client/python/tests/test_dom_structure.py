@@ -275,3 +275,24 @@ def test_svg_keeps_its_gradients_clips_and_masks(page):
         assert '<linearGradient id="shared"' in sprite and 'fill="url(#shared)"' in sprite, sprite
     finally:
         page.set_content(PAGE)
+
+
+def test_vertical_tabs_travel_with_writing_mode_and_turn(page):
+    # Pestañas verticales: con writing-mode (la caja ya es alta) o con rotate (la caja en pantalla es la
+    # girada): viaja el giro acumulado, sin traslación, y el tamaño de layout. Un translate no es un giro.
+    page.set_content(
+        '<div class="wm" style="writing-mode:vertical-rl;width:47px;height:105px">Historia</div>'
+        '<div class="rot" style="position:absolute;top:200px;left:200px;width:90px;height:24px;transform:translateX(5px) rotate(90deg)">'
+        '<span class="inner">Formularios</span></div>'
+        '<div class="mv" style="transform:translateY(-10px);width:50px;height:20px">Mover</div>')
+    try:
+        nodes = capturar_dom(page)["nodes"]
+        by = lambda cls: next(n for n in nodes if n["attrs"].get("class") == cls)  # noqa: E731
+        assert by("wm")["style"]["writingMode"] == "vertical-rl" and "tf" not in by("wm")
+        rot = by("rot")
+        assert rot["tf"] == "matrix(0, 1, -1, 0, 0, 0)" and (rot["lw"], rot["lh"]) == (90, 24), rot
+        assert (rot["w"], rot["h"]) == (24, 90) and "tx" not in rot, "the box on screen is the turned one"
+        assert by("inner")["tf"] == "matrix(0, 1, -1, 0, 0, 0)", "a child inherits its parent's turn"
+        assert "tf" not in by("mv"), "a translate is already in the box"
+    finally:
+        page.set_content(PAGE)

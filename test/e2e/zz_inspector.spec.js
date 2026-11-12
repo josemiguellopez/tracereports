@@ -410,3 +410,31 @@ test("el Inspector dibuja un skeleton SVG con sus gradientes y recortes, no un b
 	expect(px.gap[3], "entre barras no hay nada").toBe(0);
 	expect(px.lost[3], "una pintura externa quitada deja un hueco, no negro").toBe(0);
 });
+
+// Pestañas verticales: con writing-mode el texto va de arriba abajo en su caja alta; con rotate la caja
+// se dibuja con su tamaño de layout y girada, ocupando lo mismo que en la página.
+test("el Inspector dibuja las pestañas verticales como en la página (writing-mode y rotate)", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector pestañas", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "pestañas verticales" } })).json()).test_id;
+	const snap = page("Ficha", { pay: false, extra: [
+		{ p: 0, tag: "div", attrs: { class: "tab-wm" }, text: "Historia", x: 900, y: 100, w: 47, h: 105, visible: true, depth: 1, tx: 14, ty: 10,
+			style: { ...style("rgb(255, 255, 255)"), writingMode: "vertical-rl" } },
+		{ p: 0, tag: "div", attrs: { class: "tab-rot" }, text: "Formularios", x: 900, y: 220, w: 24, h: 90, visible: true, depth: 1,
+			tf: "matrix(0, 1, -1, 0, 0, 0)", lw: 90, lh: 24, style: style("rgb(255, 255, 255)") },
+	] });
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).status()).toBeLessThan(300);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "no se abrió la pestaña" } });
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	const wm = insp.locator(".insp-n", { hasText: "Historia" });
+	await expect(wm).toHaveCSS("writing-mode", "vertical-rl");
+	const text = await wm.locator(".t").boundingBox();
+	expect(text.height, "el texto va de arriba abajo").toBeGreaterThan(text.width);
+	const rot = insp.locator(".insp-n", { hasText: "Formularios" });
+	await expect(rot).toHaveCSS("transform", "matrix(0, 1, -1, 0, 0, 0)");
+	const [box, ref] = await Promise.all([rot.boundingBox(), insp.locator(".insp-n", { hasText: "Historia" }).boundingBox()]);
+	expect(box.height, "girada: alta y angosta, como en la página").toBeGreaterThan(box.width * 3);
+	expect(Math.abs(box.x - ref.x), "en el mismo lugar que en la página").toBeLessThan(3);
+});

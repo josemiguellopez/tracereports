@@ -79,7 +79,7 @@ DOM_SCRIPT = """(mask) => {""" + _SHOWN + """
 STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
   const KEEP = ['id', 'class', 'name', 'role', 'type', 'placeholder', 'href', 'title', 'for', 'alt', 'data-testid', 'data-test', 'data-test-id'];
   const STYLE = ['display', 'position', 'backgroundColor', 'color', 'fontSize', 'fontWeight', 'fontFamily', 'borderTopWidth',
-    'borderTopColor', 'borderRadius', 'opacity', 'textAlign', 'lineHeight', 'zIndex', 'overflowX', 'overflowY'];
+    'borderTopColor', 'borderRadius', 'opacity', 'textAlign', 'lineHeight', 'zIndex', 'overflowX', 'overflowY', 'writingMode'];
   const SEL = 'a,button,input,select,textarea,label,summary,[role],[data-testid],[data-test-id],[data-test],[id],[name],[aria-label],[placeholder],h1,h2,h3,h4,h5,h6';
   const SKIP = new Set(['script', 'style', 'noscript', 'template', 'link', 'meta', 'head']);
   const nodes = [], elements = [];
@@ -164,7 +164,11 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
     const s = new XMLSerializer().serializeToString(clone).replace(/currentColor/g, getComputedStyle(el).color);
     return s.length <= 12000 ? s : '';
   };
-  const walk = (el, parent, depth) => {
+  // giro o inclinación acumulados (rotate, skew, scale; sin traslaciones, que la caja ya incluye): el
+  // Inspector dibuja la caja sin girar, del tamaño de su layout, y le aplica esta matriz en su centro
+  const turned = (m) => Math.abs(m.a - 1) > 0.01 || Math.abs(m.b) > 0.01 || Math.abs(m.c) > 0.01 || Math.abs(m.d - 1) > 0.01;
+  const linear = (m) => new DOMMatrix([m.a, m.b, m.c, m.d, 0, 0]);
+  const walk = (el, parent, depth, acc) => {
     if (nodes.length >= 5000 || depth > 60) return;
     const tag = el.tagName.toLowerCase();
     if (SKIP.has(tag)) return;
@@ -191,7 +195,12 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
     for (const k of STYLE) style[k] = st[k];
     const node = { i: nodes.length, p: parent, tag, attrs, text, x: Math.round(r.x + sx), y: Math.round(r.y + sy),
       w: Math.round(r.width), h: Math.round(r.height), visible, depth, style };
-    if (tb) { node.tx = Math.round(tb.x - r.x); node.ty = Math.round(tb.y - r.y); }
+    if (st.transform && st.transform !== 'none') { try { acc = (acc || new DOMMatrix()).multiply(linear(new DOMMatrix(st.transform))); } catch (e) { /* sin giro */ } }
+    if (acc && turned(acc) && el.offsetWidth !== undefined) {
+      const f = (v) => Math.round(v * 10000) / 10000;
+      node.tf = 'matrix(' + [acc.a, acc.b, acc.c, acc.d].map(f).join(', ') + ', 0, 0)';
+      node.lw = el.offsetWidth; node.lh = el.offsetHeight;
+    } else if (tb) { node.tx = Math.round(tb.x - r.x); node.ty = Math.round(tb.y - r.y); }
     if (visible && !covered) {
       const icons = [];
       // ::before / ::after con uno a tres caracteres: el ícono de fuente (o una marca como "*")
@@ -226,10 +235,10 @@ STRUCT_SCRIPT = r"""(mask) => {""" + _SHOWN + r"""
         x: Math.round(r.x), y: Math.round(r.y), w: Math.round(r.width), h: Math.round(r.height), visible });
     }
     if (tag === 'svg') return; // el dibujo viaja en node.svg; sus partes no son nodos
-    for (const c of el.children) walk(c, node.i, depth + 1);
-    if (el.shadowRoot) for (const c of el.shadowRoot.children) walk(c, node.i, depth + 1);
+    for (const c of el.children) walk(c, node.i, depth + 1, acc);
+    if (el.shadowRoot) for (const c of el.shadowRoot.children) walk(c, node.i, depth + 1, acc);
   };
-  walk(document.body, -1, 0);
+  walk(document.body, -1, 0, null);
   const doc = document.documentElement;
   const out = { url: location.href, title: document.title, viewport: { w: innerWidth, h: innerHeight },
     page: { w: Math.max(doc.scrollWidth, innerWidth), h: Math.max(doc.scrollHeight, innerHeight) }, nodes, elements };

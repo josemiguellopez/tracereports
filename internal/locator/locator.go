@@ -60,6 +60,11 @@ type Node struct {
 	TX      *int              `json:"tx,omitempty"`
 	TY      *int              `json:"ty,omitempty"`
 	Style   map[string]string `json:"style,omitempty"`
+	// TF: the rotation/skew the page applied to the box, as matrix(a, b, c, d, 0, 0) (its own and its
+	// ancestors'); LW and LH: the box's layout size before it. X/Y/W/H stay the turned box on screen.
+	TF string `json:"tf,omitempty"`
+	LW int    `json:"lw,omitempty"`
+	LH int    `json:"lh,omitempty"`
 	// Icons drawn on it and, for an inline <svg>, its markup (sanitized by the server).
 	Icons []NodeIcon `json:"icons,omitempty"`
 	SVG   string     `json:"svg,omitempty"`

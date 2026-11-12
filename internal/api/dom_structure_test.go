@@ -247,3 +247,30 @@ func TestDOMPersonalDataMaskCanBeTurnedOff(t *testing.T) {
 		t.Fatal("con off el RUT queda")
 	}
 }
+
+// Pestañas verticales: writing-mode, y el giro de una caja (rotate) como matriz sin traslación con su
+// tamaño de layout. Lo que no es una matriz de números se descarta, y la caja queda como estaba.
+func TestTurnedBoxesAreKept(t *testing.T) {
+	srv, testID := newTestServer(t)
+	postDOM(t, srv, testID, structSnap("fail", "", `,{"i":3,"p":0,"tag":"div","text":"Historia","x":0,"y":0,"w":47,"h":105,"visible":true,"depth":1,"style":{"writingMode":"vertical-rl"}},`+
+		`{"i":4,"p":0,"tag":"div","text":"Formularios","x":0,"y":0,"w":24,"h":90,"visible":true,"depth":1,"tf":"matrix(0, 1, -1, 0, 0, 0)","lw":90,"lh":24},`+
+		`{"i":5,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"tf":"matrix(1, 0, 0, 1, 0, 0); background:url(x)","lw":10,"lh":10},`+
+		`{"i":6,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"tf":"matrix(0, 1, -1, 0, 0, 0)","lw":0,"lh":10},`+
+		`{"i":7,"p":0,"tag":"div","x":0,"y":0,"w":10,"h":10,"visible":true,"depth":1,"tf":"matrix(0, 1, -1, 0, 500, 500)","lw":10,"lh":10}`))
+	rec := do(t, srv, http.MethodGet, fmt.Sprintf("/api/v1/tests/%d/dom", testID), "")
+	var snap locator.Snapshot
+	if err := json.Unmarshal(rec.Body.Bytes(), &snap); err != nil {
+		t.Fatal(err)
+	}
+	if snap.Nodes[3].Style["writingMode"] != "vertical-rl" {
+		t.Errorf("writing-mode: %+v", snap.Nodes[3].Style)
+	}
+	if n := snap.Nodes[4]; n.TF != "matrix(0, 1, -1, 0, 0, 0)" || n.LW != 90 || n.LH != 24 {
+		t.Errorf("turned box: %+v", n)
+	}
+	for _, i := range []int{5, 6, 7} {
+		if n := snap.Nodes[i]; n.TF != "" || n.LW != 0 || n.LH != 0 {
+			t.Errorf("node %d: not a plain matrix with a size, dropped: %+v", i, n)
+		}
+	}
+}

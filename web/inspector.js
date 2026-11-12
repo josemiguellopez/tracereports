@@ -408,15 +408,22 @@
 				Object.assign(el.style, { left: n.x + "px", top: n.y + "px", width: n.w + "px", height: n.h + "px", zIndex: 10 + plan.rank[n.i],
 					color: st.color || "", fontSize: st.fontSize || "", fontWeight: st.fontWeight || "", fontFamily: st.fontFamily || "",
 					borderRadius: st.borderRadius || "", lineHeight: !st.lineHeight || st.lineHeight === "normal" ? "1.2" : st.lineHeight });
+				// una caja girada (pestañas verticales con rotate): su tamaño de layout, centrado donde se ve, con el giro
+				if (n.tf && n.lw > 0 && n.lh > 0) Object.assign(el.style, { left: n.x + (n.w - n.lw) / 2 + "px", top: n.y + (n.h - n.lh) / 2 + "px",
+					width: n.lw + "px", height: n.lh + "px", transform: n.tf });
+				if (st.writingMode && st.writingMode !== "horizontal-tb") el.style.writingMode = st.writingMode;
 				if (plan.opacity[n.i] < 1) el.style.opacity = String(Math.round(plan.opacity[n.i] * 1000) / 1000);
 				// un texto de varias líneas (un párrafo de un modal, "16:43<br>Compra en línea") se ajusta como en la página
 				const lh = parseFloat(st.lineHeight) || fs * 1.2;
-				if ((n.text || "").includes("\n") || n.h > lh * 1.8) el.classList.add("wrap");
-				if (clipped) el.style.clipPath = clipped;
+				// el alto de una línea se mide a lo ancho si el texto va de arriba abajo, y sin el giro de la caja
+				const vertical = /^(vertical|sideways)/.test(st.writingMode || "");
+				const across = n.tf ? (vertical ? n.lw : n.lh) : (vertical ? n.w : n.h);
+				if ((n.text || "").includes("\n") || across > lh * 1.8) el.classList.add("wrap");
+				if (clipped && !n.tf) el.style.clipPath = clipped; // el recorte va en coordenadas de la página
 				if (parseFloat(st.borderTopWidth) > 0) el.style.border = `${st.borderTopWidth} solid ${st.borderTopColor || "#999"}`;
 				el.dataset.bg = transparent(st.backgroundColor) ? "" : st.backgroundColor;
 				if (n.tag === "svg" || n.tag === "img" || n.tag === "canvas") el.classList.add("img");
-				if (n.h <= fs * 2.4 || ["button", "a"].includes(n.tag)) el.classList.add("mid");
+				if (across <= fs * 2.4 || ["button", "a"].includes(n.tag)) el.classList.add("mid");
 				if (n.tag === "button" || (!transparent(st.backgroundColor) && n.text && n.w < 220)) el.classList.add("center");
 				const tx = document.createElement("span"); tx.className = "t";
 				if (n.tx !== undefined && n.tx !== null) Object.assign(tx.style, { position: "absolute", left: n.tx + "px", top: (n.ty || 0) + "px" });

@@ -35,12 +35,15 @@ var nodeStyles = map[string]bool{"display": true, "position": true, "backgroundC
 	"fontWeight": true, "fontFamily": true, "borderTopWidth": true, "borderTopColor": true, "borderRadius": true,
 	"opacity": true, "textAlign": true, "lineHeight": true,
 	// el orden de las capas (un modal encima de la página) y el recorte de los paneles con scroll
-	"zIndex": true, "overflowX": true, "overflowY": true}
+	"zIndex": true, "overflowX": true, "overflowY": true,
+	// pestañas verticales: el texto va de arriba abajo en una caja alta
+	"writingMode": true}
 
 var (
 	tagRe        = regexp.MustCompile(`^[a-z][a-z0-9-]{0,39}$`)
 	ariaAttrRe   = regexp.MustCompile(`^aria-[a-z]{1,30}$`)
 	styleValueRe = regexp.MustCompile(`^[a-zA-Z0-9 #%.,()'"_-]*$`)
+	matrixRe     = regexp.MustCompile(`^matrix\((-?\d{1,4}(\.\d{1,6})?(e-?\d{1,2})?, ){4}0, 0\)$`)
 )
 
 // cleanNodes validates and redacts a structural snapshot in place. A tree that does not hold (a
@@ -81,6 +84,9 @@ func cleanNodes(p *redact.Policy, snap *locator.Snapshot) {
 		n.Icons = cleanIcons(n.Icons, snap.Glyphs)
 		if n.SVG != "" {
 			n.SVG = cleanSVG(n.SVG)
+		}
+		if !matrixRe.MatchString(n.TF) || n.LW <= 0 || n.LH <= 0 || n.LW > 100000 || n.LH > 100000 {
+			n.TF, n.LW, n.LH = "", 0, 0
 		}
 		for _, c := range []**int{&n.TX, &n.TY} {
 			if *c != nil && (**c < 0 || **c > 100000) {
