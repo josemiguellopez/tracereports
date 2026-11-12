@@ -785,6 +785,9 @@ body[data-theme="pixel"] .ai-hint { font-size: 18px; }
 .esc-doc .esc-foot div { display: flex; flex-direction: column; gap: 2px; }
 .esc-tags { display: flex; gap: 6px; flex-wrap: wrap; }
 .esc-sev, .esc-aud { white-space: nowrap; } /* una insignia es una sola línea, también en el PNG */
+.esc-where { display: grid; grid-template-columns: max-content 1fr; gap: 4px 12px; margin: 0; }
+.esc-where dt { font-weight: 600; color: var(--color-text-muted, #5b6b7b); }
+.esc-where dd { margin: 0; overflow-wrap: anywhere; }
 .esc-sev { font-size: 11.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: #fff; background: var(--sev); padding: 3px 9px; border-radius: 999px; }
 .esc-aud { font-size: 11.5px; font-weight: 700; color: #455a64; background: #eef1f4; padding: 3px 9px; border-radius: 999px; }
 .esc-brand { display: inline-flex; align-items: center; gap: 7px; font: 600 12.5px "JetBrains Mono", ui-monospace, Consolas, monospace; color: #18200d; letter-spacing: -.01em; }

@@ -361,7 +361,7 @@ var visibilityRe = regexp.MustCompile(`(?i)element\(s\) not found|expected to be
 
 func locatorFailure(in *Input) (bool, string) {
 	text := in.Error + "\n" + in.Trace + "\n" + in.FailedStep
-	sel := locator.ExtractSelector(in.Error, in.Trace)
+	sel := locator.ExtractSelector(errtext.Useful(in.Error), in.Trace) // sin el envoltorio del framework
 	if sel == "" {
 		sel = locator.ExtractSelector(in.FailedStep)
 	}

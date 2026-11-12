@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/josemiguellopez/tracereports/internal/errtext"
+	"github.com/josemiguellopez/tracereports/internal/locator"
 	"image"
 	_ "image/gif"  // capturas: los formatos que acepta el servidor
 	_ "image/jpeg" //
@@ -117,9 +118,11 @@ type Facts struct {
 	ShotCaption string   `json:"shot_caption,omitempty"`
 	// ShotBlank: every screenshot of the test is blank (the page never rendered). The screenshot is
 	// still the evidence, but shown as a notice: a big white box looks like an image that failed to load.
-	ShotBlank   bool          `json:"shot_blank,omitempty"`
-	Network     []NetFact     `json:"network,omitempty"`
-	FailedTests []FailedFact  `json:"failed_tests,omitempty"`
+	ShotBlank   bool         `json:"shot_blank,omitempty"`
+	Network     []NetFact    `json:"network,omitempty"`
+	FailedTests []FailedFact `json:"failed_tests,omitempty"`
+	// Where: where the (first) failure happened, from the data (never from the model): for QA.
+	Where       *WhereFailed  `json:"where,omitempty"`
 	Incidents   []db.Incident `json:"incidents,omitempty"`
 	RunHeadline string        `json:"run_headline,omitempty"`
 	RunSummary  string        `json:"run_summary,omitempty"`
@@ -158,6 +161,41 @@ type NetFact struct {
 }
 
 // FailedFact is one failed test of the run.
+// WhereFailed is where a test failed: the test, the step it was on, its error (the useful part) and
+// the selector it could not find.
+type WhereFailed struct {
+	Test     string `json:"test"`
+	Step     string `json:"step,omitempty"`
+	Error    string `json:"error,omitempty"`
+	Selector string `json:"selector,omitempty"`
+}
+
+// whereFailed: the step is the FAIL one; when that step is only the screenshot taken on failure or
+// repeats the error, the one before it says what the test was doing.
+func whereFailed(t *db.Test) *WhereFailed {
+	w := &WhereFailed{Test: t.Name, Error: errtext.Short(t.ErrorMessage, 300)}
+	for i, l := range t.Logs {
+		if l.Status != "FAIL" {
+			continue
+		}
+		step := errtext.Short(l.Message, 200)
+		if (l.Screenshot != "" || step == errtext.Short(t.ErrorMessage, 200)) && i > 0 {
+			step = errtext.Short(t.Logs[i-1].Message, 200)
+		}
+		if step != "" && step != w.Error && step != errtext.Short(t.ErrorMessage, 200) {
+			w.Step = step
+		}
+		break
+	}
+	// del error sin su envoltorio: si no, el selector arrastra el cierre de la lista ("]")
+	w.Selector = locator.ExtractSelector(errtext.Useful(t.ErrorMessage), t.ErrorTrace)
+	if w.Selector == "" {
+		w.Selector = locator.ExtractSelector(w.Step)
+	}
+	w.Selector = errtext.Cut(w.Selector, 400)
+	return w
+}
+
 type FailedFact struct {
 	ID       int64  `json:"id"`
 	Name     string `json:"name"`
@@ -246,6 +284,9 @@ func BuildFacts(store *db.Store, shots atrest.Dir, runID, testID int64) (*Facts,
 	}
 	if t.RunID != runID {
 		return nil, db.ErrNotFound
+	}
+	if t.Status == "FAIL" {
+		f.Where = whereFailed(t)
 	}
 	if testID != 0 {
 		f.TestName, f.TestTags, f.TestDesc, f.Error = t.Name, t.Category, t.Description, clip(t.ErrorMessage, 1500)

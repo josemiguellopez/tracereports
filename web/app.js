@@ -4019,7 +4019,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación",
 			doc: "Reporte de escalamiento", ref: "N.º", generated: "Generado", severity: "Severidad", audience: "Audiencia",
 			sev_critical: "Crítica", sev_high: "Alta", sev_medium: "Media", sev_low: "Baja", run_date: "Fecha de ejecución",
-			summary: "Resumen ejecutivo",
+			summary: "Resumen ejecutivo", where: "Dónde falló", step: "Paso", error: "Error", selector: "Selector no encontrado",
 			foot: "Generado con TraceReports · {d} · Uso interno",
 			blank_title: "La página estaba en blanco al fallar",
 			blank_desc: "El navegador no llegó a mostrar contenido: todas las capturas del test están en blanco.", blank_view: "Ver la captura" },
@@ -4037,7 +4037,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation",
 			doc: "Escalation report", ref: "No.", generated: "Generated", severity: "Severity", audience: "Audience",
 			sev_critical: "Critical", sev_high: "High", sev_medium: "Medium", sev_low: "Low", run_date: "Run date",
-			summary: "Executive summary",
+			summary: "Executive summary", where: "Where it failed", step: "Step", error: "Error", selector: "Selector not found",
 			foot: "Generated with TraceReports · {d} · Internal use",
 			blank_title: "The page was blank at the failure",
 			blank_desc: "The browser never showed any content: every screenshot of the test is blank.", blank_view: "View the screenshot" },
@@ -4207,6 +4207,13 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	 * resumen ejecutivo y secciones numeradas. El color va solo en la severidad: el resto es sobrio
 	 * para un correo a gerencia, un ticket o un PDF.
 	 */
+	/** «Dónde falló» (audiencia QA): el test, el paso, el error y el selector, de los datos del reporte. */
+	function escWhere(e) {
+		const w = e.facts?.where, L = ESC_L[e.lang] || ESC_L.es;
+		if (e.audience !== "qa" || !w) return null;
+		const rows = [[L.test, w.test, true], [L.step, w.step], [L.error, w.error, true], [L.selector, w.selector, true]].filter(([, v]) => v);
+		return rows.length > 1 ? rows : null;
+	}
 	function escCard(e) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const showCalls = e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length);
@@ -4220,8 +4227,11 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			...(e.owner ? [[L.owner, `<b>${esc(e.owner)}</b>`]] : []),
 		];
 		// secciones numeradas, en el orden en que se leen
+		const where = escWhere(e);
 		const sections = [
-			[L.what, `<p>${esc(e.what_happened)}</p>`], [L.impact, `<p>${esc(e.impact)}</p>`], [L.cause, `<p>${esc(e.root_cause)}</p>`],
+			[L.what, `<p>${esc(e.what_happened)}</p>`],
+			...(where ? [[L.where, `<dl class="esc-where">${where.map(([k, v, mono]) => `<dt>${esc(k)}</dt><dd${mono ? ' class="esc-mono"' : ""}>${esc(v)}</dd>`).join("")}</dl>`]] : []),
+			[L.impact, `<p>${esc(e.impact)}</p>`], [L.cause, `<p>${esc(e.root_cause)}</p>`],
 			...(showCalls ? [[L.calls, `<table class="esc-calls">${f.network.map((n) => `<tr><td><b>${esc(n.method)}</b></td><td class="esc-path">${esc(n.path)}</td>
 				<td class="esc-st">${esc(n.outcome)}</td><td class="esc-ms">${n.duration_ms ? `${n.duration_ms} ms` : ""}</td></tr>`).join("")}</table>`]] : []),
 			...(e.evidence?.length || f.flaky ? [[L.evidence, `${e.evidence?.length ? `<ul>${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
@@ -4292,7 +4302,10 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			(qa.signals || []).forEach((s) => lines.push(`• [${s.level === "risk" ? L.qa_risk : L.qa_note}] ${s.text}`));
 			lines.push("");
 		}
-		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
+		if (e.what_happened) lines.push(`${B(L.what + ":")} ${e.what_happened}`);
+		const where = escWhere(e);
+		if (where) { lines.push("", B(L.where + ":")); where.forEach(([k, v]) => lines.push(`• ${k}: ${v}`)); lines.push(""); }
+		[[L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
 		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
 			lines.push("", B(L.calls + ":"));
 			f.network.forEach((n) => lines.push(`• ${n.method} ${n.path} → ${n.outcome}${n.duration_ms ? ` (${n.duration_ms} ms)` : ""}`));
@@ -4331,7 +4344,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			${f.assessment ? h3(`${L.qa_verdict}: ${L[`qa_${f.assessment.verdict}`] || f.assessment.verdict}`)
 				+ (f.assessment.signals?.length ? `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.assessment.signals.map((s) => `<li><b>${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}:</b> ${esc(s.text)}</li>`).join("")}</ul>` : p(L.qa_clean_desc)) : ""}
 			${shot ? `<img src="${shot}" alt="${esc(L.shot)}" style="margin-top:14px;max-width:100%;border:1px solid #e0e0e0;border-radius:6px">` : ""}
-			${h3(L.what)}${p(e.what_happened)}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
+			${h3(L.what)}${p(e.what_happened)}${escWhere(e) ? h3(L.where) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${escWhere(e).map(([k, v, mono]) => `<li><b>${esc(k)}:</b> ${mono ? `<code>${esc(v)}</code>` : esc(v)}</li>`).join("")}</ul>` : ""}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
 			${e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length) ? h3(L.calls) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.network.map((n) => `<li><code>${esc(n.method)} ${esc(n.path)}</code> → ${esc(n.outcome)}</li>`).join("")}</ul>` : ""}
 			${e.evidence?.length ? h3(L.evidence) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 			${e.next_steps?.length ? h3(L.next) + `<ol style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
