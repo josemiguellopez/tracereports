@@ -4252,7 +4252,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			${escVerdictHTML(e, L)}
 			${escShotHTML(e, L)}
 			${sections.map(([title, body], i) => `<section class="esc-sec"><h3><span class="esc-num">${i + 1}.</span> ${esc(title)}</h3>${body}</section>`).join("")}
-			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name)).join("")}</section>` : ""}
+			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name || !e.test_id)).join("")}</section>` : ""}
 			<footer class="esc-foot"><div><span>${esc(escFmt(L.foot, { d: generated }))}</span>
 				<span class="esc-by">${esc(e.source === "ai" ? escFmt(L.by_ai, { m: e.model || "" }) : L.by_tpl)}</span></div>
 				<a href="${esc(escReportURL(e))}" target="_blank" rel="noopener">${esc(L.report)} ↗</a></footer>
@@ -4314,7 +4314,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		if (e.evidence?.length) { lines.push("", B(L.evidence + ":")); e.evidence.forEach((x) => lines.push(`• ${x}`)); }
 		if (e.next_steps?.length) { lines.push("", B(L.next + ":")); e.next_steps.forEach((x, i) => lines.push(`${i + 1}. ${x}`)); }
 		if (e.owner) lines.push("", `${B(L.owner + ":")} ${e.owner}`);
-		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name))); }
+		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name || !e.test_id))); }
 		lines.push("", `${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`);
 		lines.push(`${L.report}: ${escReportURL(e)}`);
 		lines.push(escFmt(L.foot, { d: fmtDateTime(e.created_at || Date.now()) }));
@@ -4350,7 +4350,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			${e.evidence?.length ? h3(L.evidence) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 			${e.next_steps?.length ? h3(L.next) + `<ol style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
 			${e.owner ? `<p style="margin:16px 0 0;font-size:13px;color:#37474f">${esc(L.owner)}: <b>${esc(e.owner)}</b></p>` : ""}
-			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join("") : ""}
+			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name || !e.test_id)).join("") : ""}
 			<p style="margin:16px 0 0"><a href="${esc(escReportURL(e))}" style="color:#1565c0">${esc(L.report)}</a></p>
 			<p style="margin:14px 0 0;padding-top:8px;border-top:1px solid #dfe5ea;font-size:11.5px;color:#90a4ae">${esc(escFmt(L.foot, { d: generated }))}</p>
 		</div>`;
@@ -4396,7 +4396,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 		if (e.evidence?.length) out.push(p(b(L.evidence + ":")), list("ul", e.evidence));
 		if (e.next_steps?.length) out.push(p(b(L.next + ":")), list("ol", e.next_steps));
 		if (e.owner) out.push(p(`${b(L.owner + ":")} ${esc(e.owner)}`));
-		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join(""));
+		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name || !e.test_id)).join(""));
 		out.push(p(`${esc(`${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`)}<br>
 			<a href="${esc(escReportURL(e))}">${esc(L.report)}</a>`));
 		return out.join("");
