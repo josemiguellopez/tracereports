@@ -4418,15 +4418,25 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	}
 
 	/** Convierte la tarjeta en PNG: estilos copiados en línea + SVG foreignObject + canvas (sin librerías). */
+	/**
+	 * El estilo calculado de un elemento de la tarjeta, en línea para el PNG. Un elemento en línea
+	 * (insignia, chip) no lleva su ancho ni su alto: los toma de su texto, como en pantalla. Con el ancho
+	 * fijo de la pantalla (49.84px para «Baja»), al dibujar el PNG a otra escala el texto mide unas
+	 * fracciones más y su última letra salta de línea («BAJ»). Las imágenes y los bloques (las columnas de
+	 * la tabla) sí conservan sus medidas.
+	 */
+	const PNG_SIZE = new Set(["width", "height", "inline-size", "block-size", "min-width", "min-inline-size"]);
+	function pngStyle(n) {
+		const cs = getComputedStyle(n);
+		const fixed = ["IMG", "CANVAS", "svg"].includes(n.tagName) || !cs.display.startsWith("inline");
+		let css = "";
+		for (const prop of cs) if (fixed || !PNG_SIZE.has(prop)) css += `${prop}:${cs.getPropertyValue(prop)};`;
+		return css;
+	}
 	async function cardToPNG(card) {
 		const clone = card.cloneNode(true);
 		const src = [card, ...card.querySelectorAll("*")], dst = [clone, ...clone.querySelectorAll("*")];
-		src.forEach((n, i) => {
-			const cs = getComputedStyle(n);
-			let css = "";
-			for (const prop of cs) css += `${prop}:${cs.getPropertyValue(prop)};`;
-			dst[i].setAttribute("style", css);
-		});
+		src.forEach((n, i) => dst[i].setAttribute("style", pngStyle(n)));
 		clone.querySelectorAll(".esc-copy").forEach((b) => b.remove()); // en la imagen no hay a qué hacer clic
 		for (const img of clone.querySelectorAll("img")) img.src = await toDataURL(img.getAttribute("src")).catch(() => "");
 		const w = card.offsetWidth, h = card.offsetHeight, scale = 2;
