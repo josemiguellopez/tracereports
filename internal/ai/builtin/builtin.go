@@ -23,7 +23,7 @@ import (
 
 // Version identifies the rule catalog. It changes when a rule is added or its meaning changes, so
 // a stored diagnosis says which catalog wrote it (it is shown as the "model" of the provider).
-const Version = "rules-v1"
+const Version = "rules-v2" // v2: still_loading (TIMING)
 
 // Categories of the diagnosis: the same ones the LLM answers with (ai.Categories).
 const (

@@ -352,6 +352,8 @@ func runServer(parent context.Context) error {
 	logEgress(analyzer.Config())
 	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
+	// con reglas nuevas, los diagnósticos guardados de los últimos 30 días ven lo que ellas ven (sin «Reanalizar»)
+	go analyzer.RetriageOnUpgrade()
 
 	srv := &http.Server{
 		Handler:           apiServer.Router(),
