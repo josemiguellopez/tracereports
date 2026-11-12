@@ -37,6 +37,23 @@ type Snapshot struct {
 	// carrying Node.Style (a page repeats a few combinations hundreds of times). Older snapshots
 	// have Node.Style on every node: readers take either.
 	Styles []map[string]string `json:"styles,omitempty"`
+	// HTML: the page itself (TRACEREPORTS_DOM_MODE=html), drawn by the browser in the Inspector with
+	// the page's own CSS; Nodes stay for positions, locators and comparing. Mode says which one the
+	// Inspector draws ("html" or empty for the structure).
+	HTML *HTMLDoc `json:"html,omitempty"`
+	Mode string   `json:"mode,omitempty"`
+}
+
+// HTMLDoc is the page's HTML (every element with data-tr-i, its index in Nodes) and its style
+// sheets by SHA-256, in document order. Sheets carries the text of the ones the client had not sent
+// before; the server stores them apart, once each, and drops the field. Missing: sheets the client
+// could not read (another origin without CORS).
+type HTMLDoc struct {
+	Doc     string            `json:"doc"`
+	CSS     []string          `json:"css,omitempty"`
+	Sheets  map[string]string `json:"sheets,omitempty"`
+	Missing []string          `json:"missing,omitempty"`
+	DPR     float64           `json:"dpr,omitempty"`
 }
 
 // ExpandStyles gives every node its Style back from the Styles table (a no-op on older snapshots).
