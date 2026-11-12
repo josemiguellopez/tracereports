@@ -2434,9 +2434,9 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			snapshot: idx.fail?.included ? await page(`${t.id}/fail`) : null,
 			steps: idx.steps.filter((s) => s.included),
 			loadStep: (seq) => page(`${t.id}/${seq}`),
-			loadCSS: async (h) => { // css/<hash>.js del ZIP, una vez por hoja
+			loadCSS: async (h) => { // css/<16 del hash>.js del ZIP (rutas cortas en Windows), una vez por hoja
 				if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("hash");
-				if (window.TRACEREPORTS_CSS?.[h] === undefined) await loadScript(`css/${h}.js`).catch(() => {});
+				if (window.TRACEREPORTS_CSS?.[h] === undefined) await loadScript(`css/${h.slice(0, 16)}.js`).catch(() => {});
 				if (typeof window.TRACEREPORTS_CSS?.[h] !== "string") throw new Error("missing");
 				return window.TRACEREPORTS_CSS[h];
 			},

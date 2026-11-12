@@ -127,7 +127,7 @@ func (s *Server) exportDOM(runID int64, tests []db.Test, add func(string, []byte
 		}
 		used += len(css)
 		js, _ := json.Marshal(css)
-		add("css/"+h+".js", []byte(fmt.Sprintf("(window.TRACEREPORTS_CSS = window.TRACEREPORTS_CSS || {})[%q] = %s;\n", h, js)), zip.Deflate)
+		add("css/"+cssFileName(h), []byte(fmt.Sprintf("(window.TRACEREPORTS_CSS = window.TRACEREPORTS_CSS || {})[%q] = %s;\n", h, js)), zip.Deflate)
 	}
 	js, err := json.Marshal(index)
 	if err != nil {
@@ -136,3 +136,8 @@ func (s *Server) exportDOM(runID int64, tests []db.Test, add func(string, []byte
 	}
 	add("dom/index.js", []byte("window.TRACEREPORTS_DOM_INDEX = "+string(js)+";\n"), zip.Deflate)
 }
+
+// cssFileName: a sheet's file in the ZIP, by the first 16 characters of its hash (64 bits: two sheets of
+// one run do not share them). With the whole hash, a path extracted on Windows passed 260 characters
+// and the browser did not load it.
+func cssFileName(hash string) string { return hash[:16] + ".js" }

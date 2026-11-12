@@ -180,7 +180,12 @@ func TestExportCarriesHTMLSheetsOnce(t *testing.T) {
 			n++
 		}
 	}
-	js := files["css/"+h+".js"]
+	js := files["css/"+h[:16]+".js"] // corto: extraído en Windows, la ruta entera no pasa de 260 caracteres
+	for name := range files {
+		if len(name) > 60 {
+			t.Errorf("a long path inside the ZIP: %s", name)
+		}
+	}
 	if n != 1 || !strings.Contains(js, `window.TRACEREPORTS_CSS`) || !strings.Contains(js, `rgb(1, 2, 3)`) {
 		t.Fatalf("css files: %d %q", n, js)
 	}
