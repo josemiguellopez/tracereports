@@ -42,6 +42,9 @@ type Snapshot struct {
 	// Inspector draws ("html" or empty for the structure).
 	HTML *HTMLDoc `json:"html,omitempty"`
 	Mode string   `json:"mode,omitempty"`
+	// StylesFrom: "html" when the nodes travel without their styles because the page's own HTML and CSS
+	// give them (the Inspector computes them from there); set by the server.
+	StylesFrom string `json:"styles_from,omitempty"`
 }
 
 // HTMLDoc is the page's HTML (every element with data-tr-i, its index in Nodes) and its style

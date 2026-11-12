@@ -676,3 +676,96 @@ test("modo HTML: la fidelidad espera las hojas de estilo aunque tarden", async (
 	await expect.poll(async () => Math.round(((await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes[0]?.min || 0) * 100)).toBe(pct);
 	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
 });
+
+// Un test que terminó en WARNING no tiene página del fallo: sus páginas llegan como pasos, el último con
+// kind "warning". La fidelidad se mide sobre ese último warning con su captura (antes no había cifra para
+// 20 de los 22 tests con problemas de una suite real).
+test("un test WARNING mide la fidelidad sobre la página de su último warning", async ({ page: p, request, browser }) => {
+	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
+	await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">
+		<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69)"></div>
+		<div style="position:absolute;left:40px;top:100px;width:600px;height:300px;background:#fff"></div></body>`);
+	const png = await real.screenshot();
+	await real.close();
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector fidelidad warning", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "termina en warning" } })).json()).test_id;
+	const snap = page("", { pay: false });
+	snap.nodes[1].text = ""; snap.nodes[3].text = "";
+	for (const [kind, label] of [["step", "Abrir la ficha"], ["warning", "La lista tardó más de 5 s"]]) {
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...snap, kind, label } })).status()).toBeLessThan(300);
+	}
+	expect((await request.post(`/api/v1/tests/${id}/screenshot`, { multipart: { file: { name: "shot.png", mimeType: "image/png", buffer: png }, message: "Captura del warning", status: "WARNING" } })).ok()).toBeTruthy();
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "WARNING", error_message: "La lista tardó más de 5 s" } });
+	expect((await (await request.get(`/api/v1/tests/${id}/dom`)).status())).toBe(204); // sin página del fallo
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await expect(insp.locator(".insp-fid")).toBeVisible();
+	const pct = parseInt((await insp.locator(".insp-fid").textContent()).replace(/\D+/g, ""), 10);
+	expect(pct).toBeGreaterThanOrEqual(85);
+	await expect.poll(async () => (await (await request.get(`/api/v1/runs/${run}/dom/fidelity`)).json()).modes?.[0]?.tests).toBe(1);
+	// en otro paso no se mide ni se muestra la superposición
+	await insp.locator('.insp-steps [data-page="0"]').click();
+	await expect(insp.locator(".insp-overlay")).toBeHidden();
+});
+
+// Modo HTML: el servidor no guarda los estilos de los nodos (los da la página real). El visor los calcula
+// del HTML con su CSS, y la reconstrucción (y la animación) se dibujan con los colores de la página.
+test("modo HTML: la reconstrucción toma los estilos de la página real, que no se guardan dos veces", async ({ page: p, request }, info) => {
+	const crypto = require("node:crypto");
+	const css = "body{margin:0;background:rgb(246, 244, 239)}.top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}";
+	const h = crypto.createHash("sha256").update(css).digest("hex");
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML estilos", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "estilos desde el html" } })).json()).test_id;
+	const snap = page("Zapatilla Trail");
+	snap.nodes[1].style = style("rgb(255, 0, 0)"); // lo que mande el cliente no se guarda: manda la página
+	snap.html = { doc: `<html><head></head><body data-tr-i="0"><div class="top" data-tr-i="1">Demo Shop</div><div id="ficha" data-tr-i="2">Zapatilla</div></body></html>`, css: [h], sheets: { [h]: css }, dpr: 1 };
+	expect((await (await request.post(`/api/v1/tests/${id}/dom`, { data: snap })).json()).mode).toBe("html");
+	const stored = await (await request.get(`/api/v1/tests/${id}/dom`)).json();
+	expect(stored.styles_from).toBe("html");
+	expect(stored.nodes.some((n) => n.style || n.s !== undefined)).toBe(false);
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: "x" } });
+
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await insp.locator('[data-insp="instant"]').click();
+	await insp.locator('[data-insp="view"]').click(); // a la reconstrucción
+	await expect(insp.locator(".insp-frame")).toHaveCount(0);
+	await expect(insp.locator('.insp-n[data-i="1"]')).toHaveCSS("background-color", "rgb(31, 95, 69)");
+	await expect(insp.locator('.insp-n[data-i="1"] .t')).toHaveText("Demo Shop");
+	info.errors_ = info.errors_.filter((e) => !e.includes("Blocked script execution in 'about:srcdoc'"));
+});
+
+// Los pasos siguientes también se animan, pero solo con lo que cambió desde el anterior: un paso igual
+// pasa rápido y en la página del fallo los cursores dibujan solo el botón que apareció.
+test("los cursores arman en cada paso solo lo que cambió desde el anterior", async ({ page: p, request }) => {
+	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector pasos animados", environment: "qa" } })).json()).run_id;
+	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "tres paginas" } })).json()).test_id;
+	const base = page("Zapatilla Trail", { pay: false });
+	for (const label of ["Abrir la ficha", "Elegir la talla"]) {
+		expect((await request.post(`/api/v1/tests/${id}/dom`, { data: { ...base, kind: "step", label } })).status()).toBeLessThan(300);
+	}
+	expect((await request.post(`/api/v1/tests/${id}/dom`, { data: page("Zapatilla Trail") })).status()).toBeLessThan(300); // + el botón Pagar
+	await request.patch(`/api/v1/tests/${id}/finish`, { data: { status: "FAIL", error_message: 'TimeoutError: waiting for locator("#btn-pagar")' } });
+
+	await p.addInitScript(() => {
+		window.__status = [];
+		new MutationObserver(() => {
+			const s = document.querySelector(".insp-status")?.textContent;
+			if (s && window.__status[window.__status.length - 1] !== s) window.__status.push(s);
+		}).observe(document, { subtree: true, childList: true, characterData: true });
+	});
+	await p.goto(`/#run=${run}&view=tests&test=${id}`);
+	await p.locator('#test-detail [data-tab="inspector"]').click();
+	const insp = p.locator("#inspector-panel .insp");
+	await expect(insp.locator(".insp-steps li.failed")).toHaveCount(1, { timeout: 30_000 });
+	const seen = await p.evaluate(() => window.__status);
+	const builds = seen.filter((s) => /^Reconstruyendo 0 de \d+$/.test(s));
+	expect(builds[0]).toBe("Reconstruyendo 0 de 3"); // la primera página, entera
+	expect(builds).toContain("Reconstruyendo 0 de 1"); // la del fallo: solo el botón nuevo
+	expect(builds.length, "el paso igual al anterior no se vuelve a armar").toBe(2);
+	await expect(insp.locator('.insp-n[data-i="4"] .t')).toHaveText("Pagar ahora");
+});

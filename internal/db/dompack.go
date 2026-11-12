@@ -1,0 +1,287 @@
+package db
+
+import (
+	"bytes"
+	"compress/gzip"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"io"
+	"strings"
+)
+
+// Las páginas del Inspector (test_dom y test_dom_steps) se guardan empaquetadas:
+//
+//   - los íconos (glyphs: PNG chicos en base64, que casi no se comprimen) van una sola vez por su
+//     SHA-256 en dom_glyphs: son los mismos en cada paso de un test y en cada test de la suite. La
+//     página guarda "trg:sha256:<hash>" en su lugar. Como el CSS del modo HTML, un ícono no es un dato
+//     de la página (no se sella) y se borra con la retención cuando ningún test lo usa;
+//   - el JSON que queda va comprimido (gzip), y después se sella si el cifrado en reposo está activo.
+//
+// Una página guardada antes (JSON en claro, con sus íconos adentro) se lee igual; «Compactar ahora»
+// las empaqueta (PackDOM).
+const domGlyphSchema = `
+CREATE TABLE IF NOT EXISTS dom_glyphs (
+	hash       TEXT    PRIMARY KEY,
+	data       TEXT    NOT NULL,
+	bytes      INTEGER NOT NULL,
+	created_at INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS dom_glyph_refs (
+	test_id INTEGER NOT NULL REFERENCES tests(id) ON DELETE CASCADE,
+	hash    TEXT    NOT NULL,
+	PRIMARY KEY (test_id, hash)
+);
+CREATE INDEX IF NOT EXISTS idx_dom_glyph_refs_hash ON dom_glyph_refs(hash);
+`
+
+// glyphRef replaces a stored icon in a page; minGlyph: smaller values stay in the page.
+const (
+	glyphRef = "trg:sha256:"
+	minGlyph = 64
+)
+
+// gzipMagic starts a compressed page (a JSON page starts with "{").
+var gzipMagic = []byte{0x1f, 0x8b}
+
+// packDOM turns a page's JSON into what is stored: icons by reference, compressed, sealed with name
+// when encrypting. The result is a string when sealed and bytes (a BLOB) otherwise.
+func (s *Store) packDOM(testID int64, name, snapshotJSON string) (any, error) {
+	page, err := s.shareGlyphs(testID, snapshotJSON)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	zw, _ := gzip.NewWriterLevel(&buf, gzip.BestSpeed)
+	if _, err := zw.Write([]byte(page)); err != nil {
+		return nil, err
+	}
+	if err := zw.Close(); err != nil {
+		return nil, err
+	}
+	if s.vault.Encrypting() {
+		return s.vault.Seal(name, buf.String())
+	}
+	return buf.Bytes(), nil
+}
+
+// unpackDOM is the inverse of packDOM for what the vault already opened: it decompresses a packed page
+// and puts its icons back. A page stored before packing comes out as it was.
+func (s *Store) unpackDOM(opened string) (string, error) {
+	if strings.HasPrefix(opened, string(gzipMagic)) {
+		zr, err := gzip.NewReader(strings.NewReader(opened))
+		if err != nil {
+			return "", err
+		}
+		raw, err := io.ReadAll(zr)
+		if err != nil {
+			return "", err
+		}
+		opened = string(raw)
+	}
+	if !strings.Contains(opened, glyphRef) {
+		return opened, nil
+	}
+	return s.restoreGlyphs(opened)
+}
+
+// shareGlyphs stores the page's icons in dom_glyphs (each one once) and returns the page with their
+// references. A page without icons (or not a JSON object) is returned as is.
+func (s *Store) shareGlyphs(testID int64, snapshotJSON string) (string, error) {
+	if !strings.Contains(snapshotJSON, `"glyphs"`) {
+		return snapshotJSON, nil
+	}
+	var page map[string]json.RawMessage
+	if json.Unmarshal([]byte(snapshotJSON), &page) != nil {
+		return snapshotJSON, nil
+	}
+	var glyphs map[string]string
+	if raw, ok := page["glyphs"]; !ok || json.Unmarshal(raw, &glyphs) != nil || len(glyphs) == 0 {
+		return snapshotJSON, nil
+	}
+	now := NowMs()
+	for k, v := range glyphs {
+		if len(v) < minGlyph || strings.HasPrefix(v, glyphRef) {
+			continue
+		}
+		sum := sha256.Sum256([]byte(v))
+		hash := hex.EncodeToString(sum[:])
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO dom_glyphs(hash, data, bytes, created_at) VALUES(?,?,?,?)`, hash, v, len(v), now); err != nil {
+			return "", err
+		}
+		if _, err := s.db.Exec(`INSERT OR IGNORE INTO dom_glyph_refs(test_id, hash) VALUES(?,?)`, testID, hash); err != nil {
+			return "", err
+		}
+		glyphs[k] = glyphRef + hash
+	}
+	raw, err := json.Marshal(glyphs)
+	if err != nil {
+		return "", err
+	}
+	page["glyphs"] = raw
+	out, err := json.Marshal(page)
+	return string(out), err
+}
+
+// restoreGlyphs puts the stored icons back in a page (an icon no longer stored is left out: the
+// Inspector draws the node without it).
+func (s *Store) restoreGlyphs(pageJSON string) (string, error) {
+	var page map[string]json.RawMessage
+	if json.Unmarshal([]byte(pageJSON), &page) != nil {
+		return pageJSON, nil
+	}
+	var glyphs map[string]string
+	if raw, ok := page["glyphs"]; !ok || json.Unmarshal(raw, &glyphs) != nil {
+		return pageJSON, nil
+	}
+	for k, v := range glyphs {
+		hash, ok := strings.CutPrefix(v, glyphRef)
+		if !ok {
+			continue
+		}
+		var data string
+		err := s.db.QueryRow(`SELECT data FROM dom_glyphs WHERE hash=?`, hash).Scan(&data)
+		if errors.Is(err, sql.ErrNoRows) {
+			delete(glyphs, k)
+			continue
+		}
+		if err != nil {
+			return "", err
+		}
+		glyphs[k] = data
+	}
+	raw, err := json.Marshal(glyphs)
+	if err != nil {
+		return "", err
+	}
+	page["glyphs"] = raw
+	out, err := json.Marshal(page)
+	return string(out), err
+}
+
+// pruneDOMGlyphs deletes the icons no test uses any more (after deleting runs).
+func (s *Store) pruneDOMGlyphs() error {
+	_, err := s.db.Exec(`DELETE FROM dom_glyphs WHERE NOT EXISTS (SELECT 1 FROM dom_glyph_refs r WHERE r.hash = dom_glyphs.hash)`)
+	return err
+}
+
+// PackDOM packs the pages stored before packing existed (in clear JSON or sealed JSON), at most limit
+// of them (0 = all). It returns how many it packed; a page sealed with a key that is not configured
+// stays as it is. Run before compacting, so the space goes back to the disk.
+func (s *Store) PackDOM(limit int) (int, error) {
+	type row struct {
+		table string
+		test  int64
+		seq   int
+	}
+	var todo []row
+	collect := func(q, table string) error {
+		rows, err := s.db.Query(q)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			r := row{table: table}
+			if err := rows.Scan(&r.test, &r.seq); err != nil {
+				return err
+			}
+			todo = append(todo, r)
+		}
+		return rows.Err()
+	}
+	// en claro: empieza con "{"; sellada: hay que abrirla para saber (se mira al empaquetarla)
+	if err := collect(`SELECT test_id, 0 FROM test_dom WHERE substr(CAST(snapshot AS BLOB), 1, 1) != x'1f' ORDER BY test_id`, "test_dom"); err != nil {
+		return 0, err
+	}
+	if ok, err := s.HasTable("test_dom_steps"); err != nil {
+		return 0, err
+	} else if ok {
+		if err := collect(`SELECT test_id, seq FROM test_dom_steps WHERE substr(CAST(snapshot AS BLOB), 1, 1) != x'1f' ORDER BY test_id, seq`, "test_dom_steps"); err != nil {
+			return 0, err
+		}
+	}
+	packed := 0
+	for _, r := range todo {
+		if limit > 0 && packed >= limit {
+			break
+		}
+		name, where, args := domName(r.test), `test_id=?`, []any{r.test}
+		if r.table == "test_dom_steps" {
+			name, where, args = domStepName(r.test, r.seq), `test_id=? AND seq=?`, []any{r.test, r.seq}
+		}
+		var stored string
+		if err := s.db.QueryRow(`SELECT snapshot FROM `+r.table+` WHERE `+where, args...).Scan(&stored); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				continue // la borró la retención mientras tanto
+			}
+			return packed, err
+		}
+		plain, err := s.vault.Open(name, stored)
+		if err != nil || strings.HasPrefix(plain, string(gzipMagic)) || !strings.HasPrefix(strings.TrimSpace(plain), "{") {
+			continue // sellada con otra llave, o ya empaquetada
+		}
+		value, err := s.packDOM(r.test, name, plain)
+		if err != nil {
+			return packed, err
+		}
+		if _, err := s.db.Exec(`UPDATE `+r.table+` SET snapshot=? WHERE `+where, append([]any{value}, args...)...); err != nil {
+			return packed, err
+		}
+		packed++
+	}
+	return packed, nil
+}
+
+// DOMRunSize is what the Inspector's pages of one run take in the database.
+type DOMRunSize struct {
+	RunID int64  `json:"run_id"`
+	Name  string `json:"name"`
+	Pages int    `json:"pages"`
+	Bytes int64  `json:"bytes"`
+}
+
+// DOMSizes returns what the Inspector's pages take: in total, the shared icons, and the heaviest
+// runs (at most top), as stored (packed or not).
+func (s *Store) DOMSizes(top int) (total, glyphs int64, pages int, runs []DOMRunSize, err error) {
+	q := `SELECT t.run_id, r.name, COUNT(*), COALESCE(SUM(LENGTH(CAST(d.snapshot AS BLOB))), 0) FROM (
+			SELECT test_id, snapshot FROM test_dom UNION ALL SELECT test_id, snapshot FROM test_dom_steps) d
+		JOIN tests t ON t.id = d.test_id JOIN runs r ON r.id = t.run_id GROUP BY t.run_id ORDER BY 4 DESC`
+	rows, err := s.reader().Query(q)
+	if err != nil {
+		return 0, 0, 0, nil, err
+	}
+	defer rows.Close()
+	runs = []DOMRunSize{}
+	for rows.Next() {
+		var r DOMRunSize
+		if err := rows.Scan(&r.RunID, &r.Name, &r.Pages, &r.Bytes); err != nil {
+			return 0, 0, 0, nil, err
+		}
+		total += r.Bytes
+		pages += r.Pages
+		if len(runs) < top {
+			runs = append(runs, r)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, 0, 0, nil, err
+	}
+	err = s.reader().QueryRow(`SELECT COALESCE(SUM(bytes), 0) FROM dom_glyphs`).Scan(&glyphs)
+	return total, glyphs, pages, runs, err
+}
+
+// RunDOMSize is what the Inspector's pages of one run take (pages and bytes as stored).
+func (s *Store) RunDOMSize(runID int64) (DOMRunSize, error) {
+	r := DOMRunSize{RunID: runID}
+	err := s.reader().QueryRow(`SELECT r.name, COUNT(d.test_id), COALESCE(SUM(LENGTH(CAST(d.snapshot AS BLOB))), 0) FROM runs r
+		LEFT JOIN tests t ON t.run_id = r.id
+		LEFT JOIN (SELECT test_id, snapshot FROM test_dom UNION ALL SELECT test_id, snapshot FROM test_dom_steps) d ON d.test_id = t.id
+		WHERE r.id = ? GROUP BY r.id`, runID).Scan(&r.Name, &r.Pages, &r.Bytes)
+	if errors.Is(err, sql.ErrNoRows) {
+		return r, ErrNotFound
+	}
+	return r, err
+}

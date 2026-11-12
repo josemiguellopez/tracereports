@@ -68,10 +68,12 @@ func (s *Store) pruneDOMCSS() error {
 }
 
 // SetDOMFidelity stores how much the redrawn failure page matches its screenshot (0..1), as the
-// Inspector measured it, for the snapshot mode it was drawn from (ErrNotFound without a snapshot).
+// Inspector measured it, for the snapshot mode it was drawn from (ErrNotFound without a page: a test
+// that ended in WARNING has no failure page, and is measured on the page of its last warning).
 func (s *Store) SetDOMFidelity(testID int64, fidelity float64, mode string) error {
 	var n int
-	if err := s.db.QueryRow(`SELECT COUNT(*) FROM test_dom WHERE test_id=?`, testID).Scan(&n); err != nil {
+	if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM test_dom WHERE test_id=?) + (SELECT COUNT(*) FROM test_dom_steps WHERE test_id=? AND kind='warning')`,
+		testID, testID).Scan(&n); err != nil {
 		return err
 	}
 	if n == 0 {

@@ -99,7 +99,7 @@ func Open(path string) (*Store, error) {
 		sqldb.Close()
 		return nil, err
 	}
-	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + domCSSSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema + deliveriesSchema + aiUsageSchema + labSchema + similarSchema + liveSchema + sessionsSchema); err != nil {
+	if _, err := sqldb.Exec(schema + networkSchema + insightsSchema + domSchema + domCSSSchema + domGlyphSchema + settingsSchema + escalationSchema + idempotencySchema + ticketsSchema + quarantineSchema + verdictsSchema + artifactsSchema + consoleSchema + deliveriesSchema + aiUsageSchema + labSchema + similarSchema + liveSchema + sessionsSchema); err != nil {
 		sqldb.Close()
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}

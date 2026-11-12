@@ -233,6 +233,9 @@ func sumURLs(sizes map[string]int64, urls []string) (bytes int64, n int) {
 	return bytes, n
 }
 
+// storageTopDOMRuns: the heaviest runs by Inspector pages listed in Storage.
+const storageTopDOMRuns = 10
+
 type projectUsage struct {
 	Project string `json:"project"`
 	Runs    int    `json:"runs"`
@@ -327,6 +330,10 @@ func (s *Server) storage(w http.ResponseWriter, r *http.Request) {
 		cmp["running_runs"] = n
 	}
 	out["compact"] = cmp
+	// las páginas del Inspector: lo que más crece con TRACEREPORTS_DOM_STEPS
+	if total, glyphs, pages, runs, err := s.Store.DOMSizes(storageTopDOMRuns); err == nil {
+		out["dom"] = map[string]any{"bytes": total, "glyph_bytes": glyphs, "pages": pages, "runs": runs}
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 

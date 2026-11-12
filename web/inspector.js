@@ -165,6 +165,24 @@
 		const body = String(snap.html?.doc || "");
 		return "<!doctype html>" + (body.includes("<head></head>") ? body.replace("<head></head>", `<head>${head}</head>`) : `<html><head>${head}</head>${body}</html>`);
 	}
+	/** Las propiedades de estilo que manda el cliente por nodo (dom.py: STYLE y los extras). */
+	const NODE_STYLE = ["display", "position", "backgroundColor", "color", "fontSize", "fontWeight", "fontFamily", "borderTopWidth",
+		"borderTopColor", "borderRadius", "opacity", "textAlign", "lineHeight", "zIndex", "overflowX", "overflowY", "writingMode"];
+	/** El estilo de un nodo como lo arma el cliente, calculado por el navegador sobre la página real (modo HTML). */
+	function computedStyle(win, el, n) {
+		const st = win.getComputedStyle(el), style = {};
+		for (const k of NODE_STYLE) style[k] = st[k];
+		for (const side of ["Right", "Bottom", "Left"]) {
+			style[`border${side}Width`] = st[`border${side}Width`];
+			if (parseFloat(st[`border${side}Width`]) > 0) style[`border${side}Color`] = st[`border${side}Color`];
+		}
+		if (/gradient\(/.test(st.backgroundImage) && !/url\(/i.test(st.backgroundImage)) style.backgroundImage = st.backgroundImage;
+		if (st.boxShadow && st.boxShadow !== "none") style.boxShadow = st.boxShadow;
+		if (st.textOverflow && st.textOverflow !== "clip") style.textOverflow = st.textOverflow;
+		if (st.whiteSpace && st.whiteSpace !== "normal") style.whiteSpace = st.whiteSpace;
+		if (n.attrs?.placeholder) { try { style.placeholderColor = win.getComputedStyle(el, "::placeholder").color; } catch { /* sin color propio */ } }
+		return style;
+	}
 	/** Fidelidad: la parte de los píxeles de dos imágenes del mismo tamaño (RGBA, ya reducidas) cuyo color
 	 * se parece (ningún canal difiere más de `tol`). A esa escala un texto es una mancha gris: lo que baja
 	 * la cifra es lo que se ve distinto, como un bloque negro donde había barras grises.
@@ -399,6 +417,9 @@
 		let curPage = -1, diffOn = false, diffReq = 0;
 		const pages = [...(opts.steps || []).map((s) => ({ kind: s.kind === "warning" ? "warning" : "step", seq: s.seq, label: s.label })),
 			...(opts.snapshot ? [{ kind: "fail", label: opts.failed?.selector ? t("Momento del fallo: {s}", { s: opts.failed.selector }) : t("Momento del fallo") }] : [])];
+		// la página principal (la que se compara con la captura): la del fallo, o en un test que terminó en
+		// WARNING (sin página del fallo) la de su último warning
+		const mainPage = opts.snapshot ? pages.length - 1 : pages.map((p) => p.kind).lastIndexOf("warning");
 		let prefInstant = false;
 		try { prefInstant = localStorage.getItem(PREF) === "1"; } catch { /* sin almacenamiento */ }
 		if (matchMedia("(prefers-reduced-motion: reduce)").matches) prefInstant = true;
@@ -477,9 +498,49 @@
 		let viewHTML = true; // con un snapshot HTML se ve la página real; el botón cambia a la reconstrucción
 		const htmlOn = (s) => !!(s?.html?.doc && viewHTML);
 		function parseHTMLDoc(s) { try { return new DOMParser().parseFromString(s.html.doc, "text/html"); } catch { return null; } }
+		// las hojas de la página, una vez por hash (las piden el iframe y el cálculo de estilos)
+		const cssCache = new Map();
+		const sheet = (h) => {
+			if (h === EMPTY_SHEET) return Promise.resolve(""); // un <style> vacío está, sin nada que pedir
+			if (!cssCache.has(h)) cssCache.set(h, opts.loadCSS ? opts.loadCSS(h).catch(() => null) : Promise.resolve(null));
+			return cssCache.get(h);
+		};
+		const sheetsOf = (s) => Promise.all((s.html.css || []).map(sheet));
+		/** Modo HTML sin estilos en los nodos (el servidor no los guarda dos veces): se calculan de la página
+		 * real, su HTML con su CSS, en un iframe oculto sin scripts (sandbox sin allow-scripts y la misma CSP
+		 * sin red). Así la animación y la reconstrucción se dibujan como siempre. */
+		async function hydrateStyles(s) {
+			if (!s || s.styles_from !== "html" || !s.html?.doc || s.hydrated || !s.nodes?.length) return s;
+			s.hydrated = true;
+			const doc = parseHTMLDoc(s);
+			if (!doc) return s;
+			const sheets = await sheetsOf(s);
+			const fr = document.createElement("iframe");
+			fr.setAttribute("sandbox", "allow-same-origin"); // sin allow-scripts: nada de la página corre
+			fr.setAttribute("aria-hidden", "true"); fr.tabIndex = -1;
+			Object.assign(fr.style, { position: "fixed", left: "-100000px", top: "0", border: "0", width: (s.viewport?.w || 1280) + "px", height: (s.viewport?.h || 800) + "px" });
+			const loaded = new Promise((res) => { fr.addEventListener("load", res, { once: true }); setTimeout(res, 4000); });
+			fr.srcdoc = htmlSrcdoc(s, sheets, doc);
+			document.body.appendChild(fr);
+			try {
+				await loaded;
+				const d = fr.contentDocument, win = fr.contentWindow;
+				if (!d || !win) return s;
+				const byI = new Map();
+				const walk = (root) => {
+					for (const el of root.querySelectorAll("[data-tr-i]")) byI.set(+el.getAttribute("data-tr-i"), el);
+					for (const el of root.querySelectorAll("*")) if (el.shadowRoot) walk(el.shadowRoot);
+				};
+				walk(d);
+				for (const n of s.nodes) {
+					const el = byI.get(n.i);
+					if (el && !n.style) n.style = computedStyle(win, el, n);
+				}
+			} catch { /* sin estilos: la página real se ve igual, la reconstrucción sin colores */ } finally { fr.remove(); }
+			return s;
+		}
 		async function mountFrame(s, doc, req) {
-			// la de un <style> vacío (SHA-256 de "") está, sin nada que pedir: no es una hoja que falta
-			const sheets = await Promise.all((s.html.css || []).map((h) => (h === EMPTY_SHEET ? "" : opts.loadCSS ? opts.loadCSS(h).catch(() => null) : null)));
+			const sheets = await sheetsOf(s);
 			if (req !== frameReq) return;
 			const lost = sheets.filter((c) => typeof c !== "string").length + (s.html.missing || []).length;
 			const note = $(".insp-cssnote");
@@ -571,10 +632,10 @@
 			}
 			const ov = $(".insp-overlay");
 			if (ov) {
-				ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = snap !== opts.snapshot;
+				ov.src = opts.screenshot; ov.style.width = (current.snap.viewport?.w || current.W) + "px"; ov.hidden = !isMain(snap);
 				Object.assign(ov.style, { left: (current.snap.scroll?.x || 0) + "px", top: (current.snap.scroll?.y || 0) + "px" }); // la parte de la página que muestra
 			}
-			if (snap === opts.snapshot && opts.screenshot && s.nodes?.length && !s.basic) measureSoon();
+			if (isMain(snap) && opts.screenshot && s.nodes?.length && !s.basic) measureSoon();
 			fit();
 			if (diffOn) applyDiff();
 		}
@@ -774,8 +835,9 @@
 		}
 
 		// ---------- el enjambre arma la página ----------
-		async function construct(id) {
-			const order = drawable().sort((a, b) => a.depth - b.depth || a.y - b.y || a.x - b.x);
+		/** Los cursores arman la página; con `only`, solo esos nodos (lo que cambió desde el paso anterior). */
+		async function construct(id, only = null) {
+			const order = drawable().filter((n) => !only || only.has(n.i)).sort((a, b) => a.depth - b.depth || a.y - b.y || a.x - b.x);
 			const done = new Map(), total = order.length, status = $(".insp-status");
 			let built = 0;
 			order.forEach((n) => { let r; const pr = new Promise((res) => (r = res)); done.set(n.i, { pr, r }); });
@@ -836,7 +898,9 @@
 				return `<li class="${cls}" data-page="${k}" tabindex="0"><span class="num">${k + 1}</span><span>${esc(p.label || t("Paso {n}", { n: k + 1 }))}</span><small>${tag}</small></li>`;
 			}).join("");
 		}
-		async function pageSnap(p) { return p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq); }
+		/** La página que se muestra es la principal: la del fallo, o la del último warning si no hay fallo. */
+		function isMain(snap) { return opts.snapshot ? snap === opts.snapshot : mainPage >= 0 && curPage === mainPage; }
+		async function pageSnap(p) { return hydrateStyles(p.kind === "fail" ? opts.snapshot : await opts.loadStep(p.seq)); }
 		function markFailure(instant) {
 			cursors.querySelectorAll(".insp-ghost, .insp-simlabel").forEach((g) => g.remove());
 			layer.querySelectorAll(".similar, .failed-el").forEach((e) => e.classList.remove("similar", "failed-el"));
@@ -895,20 +959,40 @@
 					if (id !== runId) return;
 					if (!snap) continue;
 					curPage = k;
+					const prev = current?.nodes;
 					show(snap);
-					if (k === 0 && !instant) {
+					// qué arman los cursores: la primera página entera; en las siguientes, solo lo que cambió desde la
+					// anterior (un paso sin cambios pasa rápido; uno que cambia casi todo, una navegación, se arma entero)
+					const plan = instant ? { skip: true } : stepPlan(k === 0 ? null : prev);
+					if (!plan.skip) {
 						// modo HTML: los cursores arman la reconstrucción y al final se funde a la página real
 						const real = current.html;
 						if (real) { stage.classList.remove("html-mode"); stage.classList.add("html-build"); }
-						hideAll(); await construct(id);
+						if (plan.only) { showAll(); hideSome(plan.only); } else hideAll();
+						await construct(id, plan.only);
+						counted();
 						if (real) await revealReal(id);
 					} else { showAll(); counted(); }
+					lastPlan = plan;
 					if (p.kind === "fail") { markFailure(instant); renderSteps(k, true); break; }
 					if (!testCursor) testCursor = makeCursor("#0f1b2b", "test", "test");
 					say(p.label || t("Paso {n}", { n: k + 1 }), null);
-					if (!instant) await tween(1400, id);
+					if (!instant) await tween(lastPlan.same ? 350 : 1400, id); // un paso sin cambios no hace esperar
 				}
 			} catch (e) { if (e !== CANCEL) throw e; }
+		}
+		let lastPlan = {};
+		/** Qué armar en una página: todo (sin la anterior), nada (igual a la anterior) o solo lo nuevo y lo que
+		 * cambió; si cambió más del 60 % de lo que se dibuja, todo. */
+		function stepPlan(prevNodes) {
+			if (!prevNodes) return {};
+			const d = diffSnapshots(prevNodes, current.nodes);
+			const only = new Set([...d.added, ...d.changed.map((c) => c.i)].filter((i) => els[i]));
+			if (!only.size) return { skip: true, same: true };
+			return only.size > drawable().length * 0.6 ? {} : { only };
+		}
+		function hideSome(set) {
+			for (const i of set) { const el = els[i], n = current.nodes[i]; if (!el || !n) continue; el.style.clipPath = "inset(0 100% 100% 0)"; el.style.backgroundColor = ""; el.firstChild.textContent = ""; }
 		}
 		/** Después de armar en modo HTML: la página real aparece encima de la reconstrucción (~400 ms) y
 		 * después queda debajo de sus cajas, ya transparentes, como siempre en ese modo. */
