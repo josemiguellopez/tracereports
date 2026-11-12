@@ -17,14 +17,14 @@ test("En vivo: con /live colgado hay un solo pedido a la vez, con tiempo límite
 	await page.goto("/#view=live");
 	await expect.poll(() => calls).toBe(1);
 	// 15 s colgado: el reloj de 10 s y los avisos no lanzan otro pedido
-	await page.clock.runFor(15_000);
+	await page.clock.fastForward(15_000);
 	expect(calls).toBe(1);
 	// a los 20 s se corta y lo dice
-	await page.clock.runFor(6_000);
+	await page.clock.fastForward(6_000);
 	await expect(page.locator("#view-live")).toContainText("El servidor no respondió en 20 s");
 	// el servidor vuelve: el próximo intento (con espera) carga la vista
 	answer = true;
-	await page.clock.runFor(12_000);
+	await page.clock.fastForward(12_000);
 	await expect.poll(() => calls).toBeGreaterThanOrEqual(2);
 	await expect(page.locator("#view-live")).not.toContainText("El servidor no respondió");
 	expect(errors).toEqual([]);
