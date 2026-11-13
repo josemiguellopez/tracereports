@@ -75,12 +75,14 @@ if (!process.env.E2E_FAKE_LAB) {
 
 module.exports = defineConfig({
 	testDir: ".",
+	// cada tanda de run.js la suya: Playwright vacía esta carpeta al empezar y se borraban los archivos de la otra
+	outputDir: process.env.E2E_OUTPUT_DIR || "test-results",
 	timeout: 30_000,
 	expect: { timeout: 10_000 },
 	fullyParallel: false,
 	workers: Number(process.env.E2E_WORKERS || 1), // run.js da más a la tanda de los archivos en paralelo
 	forbidOnly: !!process.env.CI,
-	retries: 0,
+	retries: Number(process.env.E2E_RETRIES || 0), // run.js: 1 (un test que pasa al segundo intento sale como «flaky»)
 	reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
 	globalSetup: require.resolve("./seed.js"),
 	use: {
@@ -92,6 +94,12 @@ module.exports = defineConfig({
 		trace: "retain-on-failure",
 		screenshot: "only-on-failure",
 	},
+	// sin animaciones (la app respeta prefers-reduced-motion): menos CPU y GPU y tests más rápidos. Los tests que
+	// prueban una animación llevan { tag: "@motion" } y corren aparte, con movimiento
+	projects: [
+		{ name: "default", grepInvert: /@motion/, use: { reducedMotion: "reduce" } },
+		{ name: "motion", grep: /@motion/, use: { reducedMotion: "no-preference" } },
+	],
 	webServer: {
 		// run.js compila el servidor una vez (E2E_SERVER_BIN) para todas las tandas; solo, go run
 		command: process.env.E2E_SERVER_BIN ? `"${process.env.E2E_SERVER_BIN}"` : "go run ./cmd",

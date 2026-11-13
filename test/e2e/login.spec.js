@@ -99,7 +99,7 @@ test("clave equivocada: un solo mensaje, los campos marcados y la clave borrada;
 	await expect(page.locator("#go")).toBeDisabled();
 });
 
-test("bien: envía usuario, clave y recordarme, y vuelve a donde estaba (con su #); nunca a otro sitio", async ({ page }) => {
+test("bien: envía usuario, clave y recordarme, y vuelve a donde estaba (con su #); nunca a otro sitio", { tag: "@motion" }, async ({ page }) => {
 	let body = null;
 	await page.route("**/api/v1/auth/login", async (r) => {
 		body = r.request().postDataJSON();
@@ -194,7 +194,7 @@ test("a 2 min de vencer por inactividad avisa; Seguir conectado la renueva", asy
 });
 
 test.describe("la obra: un equipo de agentes construye la página (como Swarm)", () => {
-	test("reglas, guías, rectángulos con su medida y textos que se escriben; siete agentes y Buddy cuenta cuántos", async ({ page }) => {
+	test("reglas, guías, rectángulos con su medida y textos que se escriben; siete agentes y Buddy cuenta cuántos", { tag: "@motion" }, async ({ page }) => {
 		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
 		await page.goto("/login/");
 		await expect(page.locator("#card")).toHaveClass(/building/);
@@ -232,7 +232,7 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		for (const sel of ["#user", "#pass", "#go", ".remember", ".foot"]) await expect(page.locator(sel)).toBeVisible();
 	});
 
-	test("escribir termina la obra al instante (nada bloquea el ingreso) y no se repite en la misma pestaña", async ({ page }) => {
+	test("escribir termina la obra al instante (nada bloquea el ingreso) y no se repite en la misma pestaña", { tag: "@motion" }, async ({ page }) => {
 		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
 		await page.goto("/login/");
 		await expect(page.locator(".agent").first()).toBeVisible();
@@ -292,7 +292,7 @@ test.describe("Trace Buddy conversa", () => {
 });
 
 test.describe("la barra de la obra", () => {
-	test("muestra a los agentes y el avance; Esc la salta; queda ↻ repetir", async ({ page }) => {
+	test("muestra a los agentes y el avance; Esc la salta; queda ↻ repetir", { tag: "@motion" }, async ({ page }) => {
 		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
 		await page.goto("/login/");
 		const bar = page.locator("#buildbar");
@@ -307,7 +307,7 @@ test.describe("la barra de la obra", () => {
 		await expect(page.locator("#ab-replay")).toBeVisible();
 	});
 
-	test("el botón Saltar; No volver a mostrar se recuerda; ↻ repetir la vuelve a mostrar", async ({ page }) => {
+	test("el botón Saltar; No volver a mostrar se recuerda; ↻ repetir la vuelve a mostrar", { tag: "@motion" }, async ({ page }) => {
 		await page.route("**/api/v1/auth/session", (r) => r.fulfill({ json: session() }));
 		await page.goto("/login/");
 		await expect(page.locator("#buildbar")).toBeVisible();
