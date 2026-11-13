@@ -232,6 +232,7 @@ itself never leaves the page, and what is masked carries no icon.
 | Variable | Effect |
 |---|---|
 | `TRACEREPORTS_DOM=basic` | Only the interactive elements, as before (the Inspector draws just those). Default: `structure` |
+| `TRACEREPORTS_DOM_MODE=html` | **Optional.** Besides the structure, sends the page's HTML and its style sheets (each sheet once per process, by its hash). The Inspector draws the real page with its CSS in an isolated iframe, without scripts or network, and «Try XPath / CSS» runs on that HTML. What was typed, what is masked and scripts do not travel. Default: `structure` |
 | `TRACEREPORTS_DOM_STEPS=1` | Also keeps the page of every step with a screenshot (once per different page, up to 40 per test), to walk the whole test in the Inspector. **It is for every test, also the ones that pass** (each page weighs hundreds of KB). Off by default |
 | `TRACEREPORTS_DOM_STEPS=on-problem` | The same, only for tests that end in FAIL or have a WARNING: the pages wait in memory and are sent when the test ends. A passing test sends a baseline for "Compare with the last PASS" only when the server has none for that test from the last 7 days |
 

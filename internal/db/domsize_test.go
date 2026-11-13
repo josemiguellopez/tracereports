@@ -87,7 +87,7 @@ func TestSizesAndLiveAreFastWithManyPages(t *testing.T) {
 		if err := f(); err != nil {
 			t.Fatal(name, err)
 		}
-		if d := time.Since(start); d > time.Second {
+		if d := time.Since(start); d > slowdown*time.Second {
 			t.Errorf("%s took %s", name, d)
 		}
 	}

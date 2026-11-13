@@ -2395,6 +2395,8 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 	const hasInspector = (t) => !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
 
 	/** La captura del momento del fallo: la última del test (la misma regla del recomendador de locators, que sin un selector no responde). */
+	/** Las capturas del test con su hora y su estado: el Inspector elige la de cada página por cercanía. */
+	const stepShots = (t) => (t.logs || []).filter((l) => l.screenshot).map((l) => ({ at: l.timestamp, src: l.screenshot, status: l.status }));
 	const lastShot = (t) => [...(t.logs || [])].reverse().find((l) => l.screenshot)?.screenshot || "";
 
 	/** Monta el Inspector una sola vez por test: los refrescos del detalle no lo reinician. */
@@ -2429,6 +2431,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
 			screenshot: loc?.screenshot || lastShot(t),
+			shots: stepShots(t), // la captura de cada paso (la de un WARNING para su página, no la última del test)
 			// la fidelidad medida queda en el servidor para compararla por run (structure frente a html);
 			// sin permiso de escritura en la UI solo se muestra
 			onFidelity: (fidelity, mode) => { apiSend("PUT", `/api/v1/ui/tests/${t.id}/dom/fidelity`, { fidelity, mode }).catch(() => {}); },
@@ -2463,6 +2466,7 @@ ${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
 			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
 			backend: loc?.backend_cause || null,
 			screenshot: loc?.screenshot || lastShot(t),
+			shots: stepShots(t), // la captura de cada paso (la de un WARNING para su página, no la última del test)
 			compareUnavailable: tr("Comparar con el último PASS necesita el servidor: el reporte exportado no trae ejecuciones anteriores."),
 			notice: omitted ? tr("{n} páginas de este test no entraron en el reporte exportado (tope de tamaño): siguen en el servidor.", { n: omitted }) : "",
 		};

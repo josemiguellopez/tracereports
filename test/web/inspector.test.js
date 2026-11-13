@@ -223,6 +223,18 @@ test("fidelity: la parte de los píxeles que se parecen, con tolerancia", () => 
 	assert.equal(I.fidelity({ data: new Uint8ClampedArray(0) }, { data: new Uint8ClampedArray(0) }), 0);
 });
 
+test("nearestShot: la captura de un paso es la más cercana a su página, del mismo tipo, y nunca una lejana", () => {
+	// el caso del test 5657: la página del warning a T, su captura 3 s después y la última del test 38 s después
+	const T = 1794508980691;
+	const shots = [{ at: T - 20_000, src: "abrir.png", status: "INFO" }, { at: T + 2_998, src: "warning.png", status: "WARNING" },
+		{ at: T + 2_500, src: "info-cerca.png", status: "INFO" }, { at: T + 41_511, src: "ultima.png", status: "INFO" }];
+	assert.equal(I.nearestShot(shots, T, "warning"), "warning.png", "la del WARNING, aunque otra esté un poco más cerca");
+	assert.equal(I.nearestShot(shots, T, "step"), "info-cerca.png", "un paso: la más cercana");
+	assert.equal(I.nearestShot(shots, T + 60_000, "warning"), "", "ninguna a menos de 10 s: no hay con qué comparar");
+	assert.equal(I.nearestShot([], T, "warning"), "");
+	assert.equal(I.nearestShot(shots, 0, "warning"), "", "una página sin hora no adivina");
+});
+
 test("failedRaster: una página rasterizada en blanco contra una captura con contenido no es una cifra", () => {
 	const img = (n, ...parts) => ({ data: Uint8ClampedArray.from(parts.flatMap(([c, k]) => Array.from({ length: Math.round(n * k) }, () => [...c, 255])).flat()) });
 	const white = [255, 255, 255], dim = [120, 120, 120], panel = [60, 70, 90], blue = [31, 111, 235];
