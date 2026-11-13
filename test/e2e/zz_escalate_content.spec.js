@@ -46,6 +46,7 @@ async function generate(page, scope, { audience = "qa", lang = "es" } = {}) {
 		await view.locator("[data-esc-gen]").click();
 		await expect(card).toBeVisible({ timeout: 3000 });
 	}).toPass({ timeout: 20_000 });
+	await expect(card).toHaveAttribute("lang", lang); // la de este idioma, no la anterior que sigue a la vista
 	return card;
 }
 

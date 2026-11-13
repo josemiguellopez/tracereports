@@ -80,6 +80,8 @@ async function generate(page, testId, { audience = "business", lang = "es" } = {
 		await view.locator("[data-esc-gen]").click();
 		await expect(card).toBeVisible({ timeout: 3000 });
 	}).toPass({ timeout: 20_000 });
+	// la tarjeta ya generada en este idioma (la del idioma anterior sigue a la vista mientras llega la nueva)
+	await expect(card).toHaveAttribute("lang", lang);
 	return card;
 }
 
