@@ -23,7 +23,8 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_ENCRYPT_AT_REST` | — | `1` = cifra las capturas, traces, videos e instantáneas del DOM nuevas (AES-256-GCM). Exige `TRACEREPORTS_DB_KEY`. Ver [Cifrado de la evidencia](security-hardening.md#cifrado-de-la-evidencia-en-la-aplicación-opcional) |
 | `TRACEREPORTS_DB_KEY` / `TRACEREPORTS_DB_KEY_FILE` | — | Su clave (32 bytes en base64 o hex), o un archivo que la contiene; nunca dentro de `DATA_DIR` |
 | `TRACEREPORTS_DB_KEY_PREVIOUS` / `_FILE` | — | La clave anterior, solo mientras la rotas (`tracereports evidence rekey`) |
-| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login (HTTP Basic) para **ver** los reportes |
+| `TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD` | — | Login para **ver** los reportes: la página de ingreso (`/login/`) en el navegador, HTTP Basic para la API |
+| `TRACEREPORTS_SESSION_IDLE_MIN` / `_MAX_HOURS` / `_REMEMBER_DAYS` | `30` / `8` / `7` | Sesión de la página de ingreso: vence tras esos minutos sin uso o esas horas en total; "Recordarme" la mantiene esos días |
 | `TRACEREPORTS_UI_VIEWER_USER` / `TRACEREPORTS_UI_VIEWER_PASSWORD` | — | Login de **solo lectura** para el resto del equipo: ve todo, no escribe resultados, no cambia Ajustes ni usa acciones. Usuario distinto del de administración |
 | `TRACEREPORTS_ALLOWED_HOSTS` | — | Sin login de UI: nombres por los que se atiende además de `localhost` (separados por coma; `*` = cualquiera). Ver [Seguridad](#seguridad) |
 | `TRACEREPORTS_ALLOWED_CIDRS` | — (todas) | Solo estas redes entran (`10.0.0.0/8,fd00::/8`, o IPs sueltas); el resto recibe `403`, también con token. Este equipo siempre entra. Ver [Restringir por red](#restringir-por-red-de-origen) |
@@ -50,15 +51,22 @@ Si la pantalla de Ajustes está en solo lectura, ella misma muestra un `.env` co
 | `TRACEREPORTS_REDACT` | activo | `off` guarda los secretos tal como llegan (no recomendado) |
 | `TRACEREPORTS_REDACT_HEADERS` / `TRACEREPORTS_REDACT_KEYS` | — | Más headers y claves (JSON, query, formulario) a enmascarar, separados por coma |
 | `TRACEREPORTS_REDACT_PATTERNS` | — | Expresiones regulares extra, separadas por `;` (p. ej. un RUT: `\b\d{7,8}-[\dkK]\b`) |
-| `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días |
+| `TRACEREPORTS_RETENTION_DAYS` | — | Borra las ejecuciones (y sus capturas) más antiguas que N días, cada 6 h; sin ella, los días elegidos en Mantenimiento (ver [Almacenamiento y retención](#almacenamiento-y-retención)) |
+| `TRACEREPORTS_REMEASURE_PAGES` | — | `1` olvida el peso anotado de las páginas del Inspector y las vuelve a medir al arrancar, en segundo plano y sin leerlas (para comprobar la medición; quitarla después) |
 | `TRACEREPORTS_SCREENSHOTS` | `all` | Qué capturas guarda el servidor: `all`, `failures` (solo de un paso o un test que falló) u `off` (ninguna, tampoco trace ni video). Ver [Capturas de pantalla](#capturas-de-pantalla) |
 | `TRACEREPORTS_LAB` | activo | `off` desactiva el Lab (reenviar llamadas capturadas desde el reporte) |
-| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Ver [FixLab](fixlab.md#seguridad) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Hosts extra a los que puede llamar el Lab de un servidor compartido, separados por coma (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). Un host interno de la lista se llama sin pedir confirmación. Ver [FixLab](fixlab.md#seguridad) |
+| `TRACEREPORTS_LAB_STRICT` | apagado | `1`: el Lab de un servidor compartido nunca llama a un host interno (IP privada o este equipo) fuera de `TRACEREPORTS_LAB_HOSTS`; sin esto, la persona lo confirma |
 | `TRACEREPORTS_AI_STATUS_URL` | — | Página de estado (formato Statuspage, `…/api/v2/summary.json`) que muestra Ajustes → Uso de la IA en vez de la del proveedor: un espejo, un proxy o la de un proveedor compatible con OpenAI |
 | `TRACEREPORTS_AI_MAX_PER_RUN` | `50` | Diagnósticos automáticos con IA por ejecución; el resto queda como *no analizado* y se puede analizar a mano. Cuenta un diagnóstico por **resultado** de cada test: reenviar el mismo resultado, un reinicio o un error del proveedor no gastan otro, y un *Re-analizar* manual no cuenta. `0` = sin límite |
 | `TRACEREPORTS_AI_BUDGET_RECOVERY` | — | Solo si el servidor lo pide al arrancar (una base que una versión anterior dejó a medias): `backfill` cuenta como gastados los diagnósticos ya hechos, `keep` deja la cuenta como está |
 | `TRACEREPORTS_LEGACY_DB` | — | Solo si el servidor lo pide al arrancar: `ignore` arranca con una base nueva cuando `DATA_DIR` tiene `#`, `?` o `%` y una versión anterior guardó la base en otra ruta (para conservar los datos, muévela) |
 | `TRACEREPORTS_STALE_RUN_HOURS` | `24` | Cierra como *incompleta* una ejecución que sigue *en curso* sin recibir nada en N horas (el cliente murió sin cerrarla); sus tests sin terminar quedan *Interrumpido*. Admite decimales (`0.5`). `0` = nunca. Sin la variable, se ajusta desde *Mantenimiento*. Ver [Ejecuciones abandonadas](#ejecuciones-abandonadas) |
+| `TRACEREPORTS_REDACT_PII` | encendido | Enmascara RUT, teléfonos y correos en el snapshot del DOM (texto y atributos de texto; quedan los atributos de los locators: id, class, data-test*, placeholder y aria-label). Las fechas no. `off` lo apaga |
+| `TRACEREPORTS_NO_SIGNAL_MIN` | `3` | En vivo: un test en curso queda *sin señal* cuando no llega nada de él hace N minutos (reloj del servidor). Acepta decimales. Ver [En vivo](#en-vivo) |
+| `TRACEREPORTS_LIVE_ALERTS` | — | `1` envía las alertas de En vivo (un test sin señal, uno lento, demasiados fallos) a los webhooks de Teams/Slack, una vez cada una |
+| `TRACEREPORTS_ALERT_TURTLE` | — | Avisa además un test que lleva N veces su p90 (p. ej. `3`) |
+| `TRACEREPORTS_ALERT_FAILURES` | — | Avisa además una ejecución en curso con más de N fallos |
 
 ## Seguridad
 
@@ -89,8 +97,12 @@ TRACEREPORTS_UI_PASSWORD=una-clave-segura
 - **Ajustes → Conectar tus tests** te guía con el token: lo genera en el navegador, te da la línea
   del `.env`, los comandos para PowerShell, macOS/Linux, GitHub Actions y GitLab CI con tu URL, y
   verifica que el servidor lo acepte.
-- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: el navegador pide usuario y clave para ver la UI y
-  la API de lectura.
+- **`TRACEREPORTS_UI_USER` / `TRACEREPORTS_UI_PASSWORD`**: la UI abre en una página de ingreso (`/login/`) y guarda
+  la sesión en una cookie `HttpOnly` y `SameSite=Strict` (`Secure` con HTTPS); en la base queda solo su hash. Vence
+  tras `TRACEREPORTS_SESSION_IDLE_MIN` sin uso (una pestaña olvidada no la mantiene) o tras
+  `TRACEREPORTS_SESSION_MAX_HOURS` igual; "Recordarme" la mantiene `TRACEREPORTS_SESSION_REMEMBER_DAYS`. Cambiar la
+  clave cierra todas las sesiones. Los intentos fallidos cuentan para el mismo freno que HTTP Basic y los tokens.
+  La API de lectura sigue aceptando HTTP Basic y los tokens, como antes.
 - **Ajustes desde la UI** (proveedor de IA, idioma por defecto): se pueden cambiar con el login de
   la UI o con el token. Sin login ni token (modo local), también desde el mismo equipo donde corre
   el servidor, conectado directo: se mira la conexión real y una petición que llega por un proxy
@@ -200,6 +212,7 @@ falló la ejecución. Gana la regla de mayor prioridad (a igual prioridad, la de
 | `network_error` | `INFRA_ERROR` | El mensaje de error es de DNS, conexión rechazada, TLS o una excepción de conexión (`ConnectionError`) |
 | `js_error` | `LOGIC_BUG` | Un error de JavaScript no capturado y el elemento esperado nunca apareció |
 | `backend_client_error` | `LOGIC_BUG` | Un 4xx del que la aplicación no se recuperó |
+| `blank_page` | `INFRA_ERROR` | La página estaba en blanco al fallar (snapshot del DOM sin nada visible, o captura de un solo color) |
 | `locator_not_found` | `LOCATOR_CHANGED` | El selector no encontró el elemento |
 | `assertion` | `LOGIC_BUG` | Falló una verificación (cita el valor esperado, el real y la línea) |
 | `environment_down` | `INFRA_ERROR` | Falló el 80 % o más de una ejecución de al menos 5 tests |
@@ -563,11 +576,14 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
 
 ## Para quien corrige: reproducir y comparar
 
-- **Reproducir en local**: el detalle de un test trae el comando para correrlo en tu máquina, en la
-  versión exacta de la ejecución (`git checkout <commit> && …`): `pytest '<nodeid>'`,
-  `npx playwright test <archivo> -g '<título>' --project=<proyecto>`, Maven/Gradle para JUnit o
-  `go test ./<paquete>/... -run '^TestX$'`. Sale de la identidad del test, así que necesita que el
-  cliente la reporte (todos lo hacen).
+- **Reproducir en local**: el detalle de un test trae los comandos para correrlo en tu máquina: solo
+  ese test (`pytest '<nodeid>'`, `npx playwright test <archivo> -g '<título>' --project=<proyecto>`,
+  Maven/Gradle para JUnit o `go test ./<paquete>/... -run '^TestX$'`) y su archivo o clase completos.
+  Si el error dice que el test necesitaba uno anterior (un dato vacío, un paso omitido porque falló
+  otro), el archivo completo va primero: solo, ese test falla por otra razón. El commit de la
+  ejecución va como nota (`git checkout <commit>` solo si tu copia está en otra versión), nunca
+  encadenado al comando. Lo mismo en Escalar (Desarrollo), los tickets, la cápsula del Lab y MCP. Sale
+  de la identidad del test, así que necesita que el cliente la reporte (todos lo hacen).
 - **Reenviar en el Lab (FixLab)**: *Abrir en Lab* en una llamada con error (pestaña **Red**) o en un
   incidente de backend reenvía la llamada con una sesión nueva (repite el login grabado y lee los
   tokens anti-CSRF en vivo; tú solo escribes la contraseña) para ver si el fallo **sigue
@@ -575,7 +591,8 @@ uno. La retención los borra con su ejecución, y el ZIP exportado incluye hasta
   conexión**. Guárdala como **check** y pulsa **Verificar** en el incidente cuando esté arreglado;
   expórtala a Postman, Bruno o `.http`; llévala a tu terminal o a CI con `tracereports repro` /
   `verify`, o a Claude Code con `tracereports mcp`. En un servidor compartido solo llama a los hosts
-  que llamó el test y a `TRACEREPORTS_LAB_HOSTS`; `TRACEREPORTS_LAB=off` lo desactiva. Guía
+  que llamó el test y a `TRACEREPORTS_LAB_HOSTS`, y pregunta antes de un host interno que no esté en
+  esa lista (`TRACEREPORTS_LAB_STRICT=1` lo rechaza); `TRACEREPORTS_LAB=off` lo desactiva. Guía
   completa: [FixLab](fixlab.md).
 - **Comparar con la última vez que pasó**: en una llamada con error (pestaña **Red**), busca la
   misma llamada (mismo método, host y ruta, con los ids normalizados: `/orders/123` = `/orders/456`)
@@ -609,6 +626,117 @@ Se configura con `TRACEREPORTS_RELEASE_GATE`, por ejemplo
 `min_pass_rate=98; critical=smoke,checkout,login; max_new_failures=0; max_flaky=2`. Un criterio
 mal escrito impide arrancar. Por API: `GET /api/v1/runs/{id}/release`.
 
+## En vivo
+
+**En vivo** (menú lateral) muestra lo que corre ahora, por ejecución, con lo que el servidor ya recibe de
+cualquier cliente:
+
+- **Ejecuciones**: las corridas de una misma ejecución juntas. Comparten `execution_id` (los clientes envían
+  `TRACEREPORTS_EXECUTION_ID` o el id del build de CI); sin él, las del mismo proyecto, ambiente, rama y commit
+  que empiezan una tras otra (un lanzador que crea una corrida por archivo).
+- **Progreso y ETA** cuando el cliente dice cuántos tests recolectó (el plugin de pytest lo hace).
+- **Tortuga**: un test en curso más lento que su p90 en sus ejecuciones anteriores (o el doble de su mediana).
+  **Sin señal**: no llega nada de él hace `TRACEREPORTS_NO_SIGNAL_MIN` minutos (3 por defecto). Van primero.
+- **Tiles por estado** (Pass, Fallo, Warning, En curso, Tortuga, Sin señal) que filtran la tabla con un clic, y
+  **Solo con problemas** (fallo, interrumpido, tortuga, sin señal), activo por defecto con más de 20 corridas o
+  carriles.
+- **Línea de tiempo**: un minimapa de toda la ejecución (arrastra para acercar un tramo; −, + y Ajustar) y los
+  carriles por worker. Sin `worker` (una corrida por archivo), los carriles se reutilizan como procesos: cada
+  corrida toma el primer carril libre, así 86 corridas en 12 procesos se ven en 12 carriles.
+- Una **tabla** agrupada por archivo, worker o estado, lo más severo primero, con la duración frente a la
+  mediana y el último paso (en una línea, sin URLs; el texto completo en el tooltip), y una búsqueda por test,
+  archivo, worker o paso. Con muchos archivos, los sin problemas quedan en una línea.
+- **Panel lateral**: clic en un test (fila o barra) muestra su estado y, en pestañas, su **traza** (los pasos y
+  las llamadas al backend en una misma línea de tiempo, con las fallidas en rojo y el momento del fallo
+  marcado), los últimos 5 pasos y la captura más reciente, sin salir de En vivo; "Abrir el test" va al detalle.
+- **Salud de la ejecución**: tasa de fallo (y la diferencia con la ejecución anterior del mismo proyecto),
+  duración típica (p50) y lenta (p95) y ritmo en tests por minuto, cada uno con su sparkline.
+- **Diagnóstico**: errores agrupados por firma (un clic filtra), los más lentos frente a su historial, el
+  **backend de la ejecución** (los endpoints de todas sus corridas, con errores primero y p95) y la actividad
+  reciente. En el minimapa, el ícono de fallo o de sin señal marca dónde ocurrió cada uno.
+- **Facetas** junto a la tabla (estado, error, archivo, worker), varias a la vez, y la tabla se ordena por
+  estado, nombre, duración o frente a la mediana. **Pausar** congela la vista para analizarla.
+- **Requiere atención**, arriba de todo: los tests en fallo, sin señal, interrumpidos o tortuga, con archivo,
+  worker, duración y ×p50; un clic abre el detalle.
+- Los estados elegidos y la búsqueda quedan en el enlace (`&f=fail,warn`, `&lq=texto`): compartirlo abre la
+  vista ya filtrada. Valores de `f`: `fail`, `nosig`, `turtle`, `warn`, `run`, `pass`, `skip`, `int`.
+- `/` lleva al buscador y `Esc` lo limpia. El último paso va en una línea, con los XPaths acortados y el stack
+  trace en un badge que se abre debajo; la tabla tiene columna **Worker** y "Expandir todo / Colapsar todo".
+- **Ejecuciones anteriores**: la lista muestra las de las últimas 2 horas, pero cualquier ejecución se abre
+  con la misma vista por su clave o por uno de sus runs (`#view=live&exec=r:888`). **Observabilidad**, en la
+  barra superior, abre la ejecución del run que se está mirando.
+- **Mostrar** (Todos / Con problemas) y **Agrupar por** (archivo, worker, estado, error) son controles segmentados:
+  responden en el mismo cuadro del clic (el control cambia y una barra fina avisa que se recalcula) y una
+  línea de estado dice qué se ve: «Mostrando 6 de 234 tests · Solo con problemas · Agrupado por archivo».
+- **Mapa de la ejecución**, en tres vistas. **Campo** (por defecto): la ejecución como un toroide de partículas que se lee como un reloj; el ángulo es
+  el tiempo (arriba el comienzo, en sentido horario, con las pausas comprimidas) y cada anillo un worker o
+  proceso. Cada test es un punto donde terminó (o donde va, sobre la aguja punteada de "ahora", en el color del texto: el rojo es solo de los fallos), más grande cuanto
+  más lento fue, con una estela fina de lo que duró; los fallos brillan. Pasar el mouse lo muestra, un clic (o
+  las flechas y Enter) abre su detalle. Alrededor, los canales (tests, fallos, red, workers: cada uno filtra o
+  agrupa), la **ingesta real** (los eventos de esta ejecución que llegaron por el stream en el último minuto y
+  hace cuánto el último; terminada o sin eventos nunca dice "activa"), la anomalía dominante (un
+  clic filtra por su firma) y la presión de errores. Cada evento que llega lanza un pulso
+  desde su canal hasta su test. El campo se maneja: arrastrar gira e inclina, Shift + arrastrar lo mueve,
+  +/− (o Ctrl + rueda; en pantalla completa, la rueda) acerca, F lo pone a pantalla completa (Esc vuelve), 0
+  restablece la vista; un clic marca la partícula al instante y abre su detalle; Ctrl/⌘ + clic (o **Abrir el
+  test** del panel) abre el test, y también un doble clic en la partícula ya elegida (dos clics rápidos en una
+  nueva solo la eligen: nunca sacan de En vivo). **Pausar vista** (o Espacio) congela el campo
+  para analizar mientras la ingesta sigue en el servidor: cuenta los eventos que llegan y "Reanudar (+N)" se
+  pone al día. **Cuadrícula**: un cuadro por test, en el orden en que empezaron; un clic abre
+  su detalle. **Agentes**: la ejecución como un reactor, un disco inclinado que se ve en perspectiva y se
+  gira arrastrando. El núcleo brilla con la ejecución y su anillo dice cuánto pasó y cuánto falló; alrededor, un
+  segmento por worker (o proceso, si el cliente no lo informa), con una bobina del color de su estado (corriendo,
+  lento, sin señal, libre) y sus tests adentro como celdas, en orden desde el borde interior. Con pocos tests las
+  celdas son grandes; cuando un worker llena su segmento se ven los últimos, los anteriores se cuentan junto a su
+  nombre y los fallos se ven siempre. Las anotaciones señalan con una línea guía y se escriben solas (el worker sin
+  señal, el más lento, el último fallo), sin tapar celdas ni nombres. Mismos controles que el Campo: pausa, zoom
+  (botones, + / −, Ctrl + rueda) para apuntar al test exacto, arrastrar para girar (con zoom, para moverse), 0 para
+  restablecer y pantalla completa (F, Esc); con un filtro, lo que no coincide queda apagado y no responde. Un clic en
+  el nombre de un worker deja en la tabla solo sus tests; en una celda, el detalle del test. Con "reducir
+  movimiento" se dibuja quieto.
+  Al abrir, primero se boceta el modelo: unos agentes, cada uno con el nombre de un worker y su manera de trabajar
+  (uno rápido, uno que se queda pensando, uno de CAD con cruz, coordenadas y cotas, uno que borra y rehace), dibujan
+  sus segmentos a destiempo y después el reactor se enciende encima. **Boceto** (B) lo repite; un clic o una tecla
+  lo salta. Arriba, una **cinta** con los últimos eventos que
+  se detiene con el mouse, y un reloj.
+- La **línea de tiempo** empieza en el primer test (no en el inicio de la ejecución), marca **ahora** con una
+  línea y comprime las pausas largas sin ningún test corriendo (≈, con cuánto duraron). Ctrl + rueda acerca o
+  aleja; **Ajustar a la ventana** vuelve a todo; **Ocultar inactivos** deja solo los carriles que corren.
+  Sin `worker`, los carriles se llaman **Proceso 1, Proceso 2…** (un carril en paralelo); la leyenda lo explica,
+  igual que **×1,7** (tardó 1,7 veces lo normal: su mediana en ejecuciones anteriores).
+- **Agrupar por error** junta los tests por causa (la firma con el selector resumido: «TimeoutException en
+  fa-plus-circle»), la que más afectó primero y «Sin fallo» al final.
+- La tabla dibuja **de a 100 filas** («Mostrar 100 más»); el buscador filtra al dejar de escribir, así la página
+  no se congela con ejecuciones grandes. Las horas van en 24 h y los decimales con coma («×1,7», «1,3%»).
+- En En vivo, **Trace Buddy** se achica para no tapar la tabla (vuelve a su tamaño con el mouse o con su chat
+  abierto) y el título de la página dice la ejecución.
+- Los nombres largos llevan la **elipsis en el medio** (se ve el comienzo y el final, que distingue un test de
+  otro), con el nombre completo en el tooltip y un botón para copiarlo; la columna Test se ensancha
+  arrastrando su borde (o con ← →) y **Nombres en 2 líneas** los muestra enteros. Ambas preferencias se
+  recuerdan en ese navegador.
+- Elegir un estado (o una faceta, o buscar) se nota en la **línea de tiempo**: lo que coincide resalta, los
+  carriles sin coincidencias se juntan en una línea, el minimapa cuenta solo eso y el título dice "3 de 234
+  tests coinciden". Pasar el mouse por un carril resalta sus tests en la tabla.
+- **Fallos nuevos**: cada test que falló dice si en su ejecución anterior pasó ("Nuevo") o ya fallaba. Están en
+  Requiere atención (que tiene su propio buscador y filtro por estado, también "nuevos"), en la tabla y en
+  **Errores agrupados**, donde cada error se despliega con los tests a los que pertenece.
+- El panel lateral muestra el **carril del test** con lo que corrió antes y después. Al terminar la ejecución,
+  un **resumen de cierre** con duración, resultados, fallos nuevos y lentos, y "Escalar los fallos".
+- **Teclado**: J/K siguiente o anterior que requiere atención, O abre el test, P pausa, C modo compacto (sin
+  tarjetas de diagnóstico ni gráficos, para una pantalla chica o una tele), ? muestra los atajos; doble clic
+  en una fila abre el test.
+- Cada control, ícono, columna y estado tiene **tooltip** (con el mouse o el foco del teclado) que dice qué es
+  o qué hace. Los estados tienen un set de íconos propio (la tortuga es un ícono, no la palabra).
+- **Gráficos**: resultados en el tiempo (por estado), tasa de fallo acumulada (con la anterior como referencia)
+  y la distribución de duraciones (con p50 y p95); cada uno con "Ver datos" en tabla.
+- El **selector de ejecución** muestra la hora, hace cuánto empezó o terminó y si está en curso, es reciente,
+  de hoy o anterior; con más de 8 ejecuciones trae buscador y las agrupa por antigüedad.
+- **Cancelar ejecución…** (admin): una cancelación cooperativa. No se detiene ningún proceso: los clientes con
+  `TRACEREPORTS_REMOTE_CONTROL=1` la ven entre un test y otro, saltan los que faltan y cierran la ejecución.
+- **Alertas** a Teams/Slack con `TRACEREPORTS_LIVE_ALERTS=1` (ver la referencia).
+
+Se actualiza con los eventos en vivo (SSE) y cada 10 s, así un test sin señal aparece aunque no llegue nada.
+
 ## Historial, flaky y comparación
 
 No requieren configuración. Se calculan con los datos que ya existen:
@@ -638,8 +766,18 @@ Cada fallo va a un incidente según la evidencia, nunca solo por la categoría d
    antes). Gana un error del servidor (sin respuesta, 5xx, 408, 429); un 4xx solo cuenta si la
    aplicación no siguió funcionando con ese host después. Las respuestas **esperadas** nunca
    cuentan. La firma incluye método, **host**, ruta normalizada y resultado.
-2. Si no, la **firma del error**: tipo de excepción, mensaje sin números ni ids y el frame más
-   interno del código del proyecto.
+2. Si no, la **firma del error**: tipo de excepción, mensaje sin números ni ids y el archivo del
+   frame más interno del código del proyecto. El mismo error lanzado desde varias líneas de un
+   archivo es un incidente; su ubicación lista las líneas (`tests/x.py:135, 158`). Se saltan las
+   líneas que Python agrega a una excepción encadenada ("During handling of the above exception…").
+3. **En cascada**: en un archivo de tests que dependen entre sí, el primer test que falla y los
+   siguientes fallidos del mismo archivo cuyo error apunta a él (nombra ese test, o dice que falta un
+   dato o que se omitió porque falló un paso anterior) son un incidente con la causa del primero. Un
+   test que pasa en medio corta la cadena. Si el primero duró mucho más que el resto (5 minutos o
+   más) se muestra como colgado, y una página en blanco al fallar (snapshot del DOM sin nada visible,
+   o captura de un solo color) se agrega como evidencia; el motor local concluye entonces
+   `blank_page`, no un selector roto. Los tests de una cascada no cuentan como fallos independientes
+   para "el ambiente probablemente estaba caído".
 
 Todos los fallos quedan en algún incidente. La IA describe como máximo los 8 más grandes (el resto
 se muestra con su evidencia) y su causa se presenta como **hipótesis**, con la evidencia en que se
@@ -711,6 +849,73 @@ para cerrarlas o eliminarlas en lote (una ejecución en curso no se elimina: pri
 **El umbral desde la interfaz.** En Mantenimiento, *Cerrar tras* cambia el umbral (30 min a 48 h, o
 *Nunca*) sin reiniciar el servidor; necesita el mismo permiso que Ajustes. Si el servidor tiene
 `TRACEREPORTS_STALE_RUN_HOURS`, manda la variable y el selector queda bloqueado.
+
+### Conexiones de los clientes
+
+**Mantenimiento → Conexiones de los clientes** dice si la evidencia llega bien al servidor, sin entrar a la
+máquina que lo corre. Arriba, un resumen dice cuánto hay de cada cosa (un clic lleva a esa lista); cada lista
+va plegada y muestra 10 filas, con "Mostrar más". Lo que se deja abierto sigue abierto al actualizar.
+
+- **Runs con problemas de entrega** (7 días), **una fila por ejecución** (con muchos workers, una ejecución deja
+  decenas de runs con el mismo problema): cuántos runs, qué les pasó y en qué equipos; la ejecución se abre para
+  ver sus runs uno por uno. Los runs: los que el cliente no pudo crear a tiempo (grabó en local y los
+  subió al terminar), con la causa (`the server did not answer within 30 s`), a qué dirección conectó y cuánto
+  esperó, el equipo y la versión del cliente; también los que tuvieron reintentos o evidencia perdida. El
+  reporte de esos runs lo avisa arriba ("Este run llegó al final"). Lo informa el cliente al cerrar el run
+  (Python; ver `delivery` en la [API](api.md)).
+- **Pedidos lentos del servidor**: los últimos 50 de más de 2 s desde que arrancó (también en el log como
+  `slow request`). Si un test dijo «timed out» y aquí no hay nada a esa hora, el pedido no llegó al servidor:
+  el problema está en la red o en Docker (ver `scripts/watch-health.ps1` en [Docker](docker.md#problemas-frecuentes)).
+- **Bloqueos del servidor**: momentos en que varios pedidos estuvieron más de 10 s sin respuesta a la vez (una
+  tarea tenía tomada la base de datos y todo esperaba). El servidor lo avisa en el log (`server stalled`) y guarda
+  un volcado de lo que hacía cada tarea en ese momento en `DATA_DIR/diagnostics/` (los 10 últimos); con el permiso
+  de Ajustes se descarga desde aquí para reportar el problema.
+- **Credenciales rechazadas** (solo con el permiso de Ajustes): las direcciones que fallaron el token o el
+  login en los últimos 15 min y si quedaron bloqueadas; suele ser un token mal puesto en el `.env` de los tests.
+
+Si una acción de Mantenimiento falla, el mensaje dice la causa cuando se puede actuar (disco de datos lleno, base
+ocupada, carpeta sin permiso de escritura) y siempre una **referencia**: el mismo código queda en el log del
+servidor junto al error completo (`docker compose logs tracereports | Select-String <referencia>`).
+
+### Almacenamiento y retención
+
+La evidencia vive en la carpeta de datos (`DATA_DIR`; en Docker, el volumen `tracereports-data` montado en
+`/data`): la base SQLite (ejecuciones, pasos, red, DOM) y `screenshots/` (capturas y adjuntos).
+**Mantenimiento → Almacenamiento** muestra:
+
+- el disco de esa carpeta: cuánto está en uso y cuánto queda libre, con un aviso (también en el log, cada
+  6 h) desde el 80 %, que dice cuánto de eso ocupa TraceReports;
+- la evidencia guardada (base y archivos), cuántas ejecuciones y desde cuándo, el crecimiento promedio por
+  día y cuánto duraría el disco a ese ritmo;
+- lo que ocupa cada proyecto (sus archivos más su parte de la base, aproximada);
+- los archivos que ninguna ejecución usa (de borrados interrumpidos o versiones anteriores).
+
+**Retención.** *Conservar* elige cuántos días de ejecuciones se guardan sin reiniciar el servidor: opciones de 1, 2, 3,
+7, 14 y 30 días, 2, 3 y 6 meses, 1 año o todo, y **Otro…** para escribir cualquier número de días (de 1 a
+3650; se guarda con Enter o al salir del campo). Necesita el mismo permiso que Ajustes. Cada 6 horas se borran
+las ejecuciones terminadas más antiguas, con sus capturas; la base se compacta aparte (ver abajo). `TRACEREPORTS_RETENTION_DAYS` manda sobre
+la interfaz y bloquea el selector. Sin ninguna de las dos no se borra nada (y el servidor lo avisa al
+arrancar).
+
+**Limpiar ahora…** (administración) pregunta cuántos días conservar, con las mismas opciones y **Otro…**,
+muestra primero qué se borraría (ejecuciones, tests y el espacio que se liberaría; con **Otro…** se actualiza
+mientras escribes), la fecha de corte y la ejecución más antigua, y borra solo al confirmar. Bajo el selector
+se ven la última limpieza (cuándo, qué y cuánto liberó; si se cortó con un error, lo que alcanzó a borrar y el
+error) y la próxima. Una ejecución en curso nunca se borra. La limpieza
+(y eliminar en lote) borra de a 25 ejecuciones por vez: con una base de varios GB puede tardar unos minutos,
+pero los clientes siguen enviando mientras tanto. Mientras trabaja, la pantalla lo dice y un segundo clic no la
+repite.
+
+**Compactar la base**: borrar no achica el archivo de la base al momento (lo borrado se sobrescribe con ceros, pero
+el espacio queda dentro del archivo). Compactarla lo devuelve al disco, pero reescribe toda la base: con varios GB
+tarda minutos, los clientes esperan para guardar mientras dura y necesita libre en el disco tanto como ocupa la
+base. Por eso se hace aparte: sola, cuando no hay ejecuciones en curso y los clientes llevan 15 min sin enviar
+(como mucho una vez cada 20 h), o con **Compactar ahora…**, que dice cuánto devolvería, cuánto espacio necesita
+(sin él no empieza) y si hay ejecuciones en curso.
+
+API: `GET /maintenance/storage`, `GET /maintenance/storage/preview?days=N`, `PUT /ui/maintenance/retention`
+(`{"days": N}`, 0 = conservar todo) y `POST /ui/maintenance/retention/run` (`{"days": N}`, o `{}` para la
+retención vigente).
 
 ## Diagnóstico con IA después de un reinicio
 

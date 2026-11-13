@@ -2,6 +2,7 @@ package lab
 
 import (
 	"fmt"
+	"net"
 	"net/url"
 	"strings"
 )
@@ -33,18 +34,28 @@ func HostRule(p *Plan, extra []string) func(*url.URL) error {
 		}
 	}
 	return func(u *url.URL) error {
-		host := strings.ToLower(u.Host)
-		if allowed[host] {
+		if allowed[strings.ToLower(u.Host)] || Listed(extra, u.Host) {
 			return nil
-		}
-		name := strings.ToLower(u.Hostname())
-		for _, h := range extra {
-			if h == host || h == name || (strings.HasPrefix(h, "*.") && strings.HasSuffix(name, h[1:])) {
-				return nil
-			}
 		}
 		return fmt.Errorf("host %s is not one the test called nor in TRACEREPORTS_LAB_HOSTS", u.Host)
 	}
+}
+
+// Listed reports whether hostport ("host" or "host:port") is in a TRACEREPORTS_LAB_HOSTS list:
+// the same host:port, the host name, or a "*.domain" it belongs to.
+func Listed(list []string, hostport string) bool {
+	host := strings.ToLower(hostport)
+	name := host
+	if h, _, err := net.SplitHostPort(host); err == nil {
+		name = h
+	}
+	name = strings.Trim(name, "[]")
+	for _, h := range list {
+		if h == host || h == name || (strings.HasPrefix(h, "*.") && strings.HasSuffix(name, h[1:])) {
+			return true
+		}
+	}
+	return false
 }
 
 // HostOf returns the host[:port] of a URL ("" if it has none), to allow a base URL the person chose.

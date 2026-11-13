@@ -18,6 +18,105 @@ type Snapshot struct {
 	Title    string    `json:"title"`
 	Viewport Size      `json:"viewport"`
 	Elements []Element `json:"elements"`
+	// Structural snapshot (the Inspector): the whole page as a tree, to redraw it and evaluate
+	// selectors on it without reproducing the failure. Elements stays for the locator suggestions
+	// and older servers. Page is the document size (it can be taller than the viewport).
+	Page *Size `json:"page,omitempty"`
+	// Scroll: how far the window was scrolled (the screenshot shows the page from there).
+	Scroll *Point `json:"scroll,omitempty"`
+	Nodes  []Node `json:"nodes,omitempty"`
+	// Kind: "fail" (the moment of the failure, the default) or "step" (a page the test went through,
+	// TRACEREPORTS_DOM_STEPS); Label is the step it was taken at and At when (ms).
+	Kind  string `json:"kind,omitempty"`
+	Label string `json:"label,omitempty"`
+	At    int64  `json:"at,omitempty"`
+	// Glyphs: the icons as the page drew them (an icon-font character, a Material ligature or a small
+	// image), rendered by the client into small PNG data URLs and referenced by id from Node.Icons.
+	Glyphs map[string]string `json:"glyphs,omitempty"`
+	// Styles: the distinct node styles, once each; a node points to its own with Node.S instead of
+	// carrying Node.Style (a page repeats a few combinations hundreds of times). Older snapshots
+	// have Node.Style on every node: readers take either.
+	Styles []map[string]string `json:"styles,omitempty"`
+	// HTML: the page itself (TRACEREPORTS_DOM_MODE=html), drawn by the browser in the Inspector with
+	// the page's own CSS; Nodes stay for positions, locators and comparing. Mode says which one the
+	// Inspector draws ("html" or empty for the structure).
+	HTML *HTMLDoc `json:"html,omitempty"`
+	Mode string   `json:"mode,omitempty"`
+	// StylesFrom: "html" when the nodes travel without their styles because the page's own HTML and CSS
+	// give them (the Inspector computes them from there); set by the server.
+	StylesFrom string `json:"styles_from,omitempty"`
+}
+
+// HTMLDoc is the page's HTML (every element with data-tr-i, its index in Nodes) and its style
+// sheets by SHA-256, in document order. Sheets carries the text of the ones the client had not sent
+// before; the server stores them apart, once each, and drops the field. Missing: sheets the client
+// could not read (another origin without CORS).
+type HTMLDoc struct {
+	Doc     string            `json:"doc"`
+	CSS     []string          `json:"css,omitempty"`
+	Sheets  map[string]string `json:"sheets,omitempty"`
+	Missing []string          `json:"missing,omitempty"`
+	DPR     float64           `json:"dpr,omitempty"`
+}
+
+// ExpandStyles gives every node its Style back from the Styles table (a no-op on older snapshots).
+func (s *Snapshot) ExpandStyles() {
+	for i := range s.Nodes {
+		if n := &s.Nodes[i]; n.S != nil && *n.S >= 0 && *n.S < len(s.Styles) && n.Style == nil {
+			n.Style = s.Styles[*n.S]
+		}
+	}
+}
+
+// NodeIcon is an icon drawn on a node: G is its glyph id; Pos says where it goes ("before", "after",
+// "text" for a ligature that replaces the text, "img" for a small image); W and H, its size.
+type NodeIcon struct {
+	G   string `json:"g"`
+	Pos string `json:"pos"`
+	W   int    `json:"w"`
+	H   int    `json:"h"`
+}
+
+// Node is one element of a structural snapshot. P is the index of its parent (-1 for the root),
+// so the tree travels as a flat list. Text is its own text (not its children's); TX/TY where that
+// text starts inside the box. Style holds only what is needed to draw it.
+type Node struct {
+	I       int               `json:"i"`
+	P       int               `json:"p"`
+	Tag     string            `json:"tag"`
+	Attrs   map[string]string `json:"attrs,omitempty"`
+	Text    string            `json:"text,omitempty"`
+	X       int               `json:"x"`
+	Y       int               `json:"y"`
+	W       int               `json:"w"`
+	H       int               `json:"h"`
+	Visible bool              `json:"visible"`
+	Depth   int               `json:"depth"`
+	TX      *int              `json:"tx,omitempty"`
+	TY      *int              `json:"ty,omitempty"`
+	Style   map[string]string `json:"style,omitempty"`
+	S       *int              `json:"s,omitempty"` // index in Snapshot.Styles
+	// TF: the rotation/skew the page applied to the box, as matrix(a, b, c, d, 0, 0) (its own and its
+	// ancestors'); LW and LH: the box's layout size before it. X/Y/W/H stay the turned box on screen.
+	TF string `json:"tf,omitempty"`
+	LW int    `json:"lw,omitempty"`
+	LH int    `json:"lh,omitempty"`
+	// Shown: what a control shows that nobody typed (the chosen option of a <select>, the label of an
+	// <input type=button>); Filled: a field has something typed (never what).
+	Shown  string `json:"shown,omitempty"`
+	Filled bool   `json:"filled,omitempty"`
+	// Icons drawn on it and, for an inline <svg>, its markup (sanitized by the server).
+	Icons []NodeIcon `json:"icons,omitempty"`
+	SVG   string     `json:"svg,omitempty"`
+	// Anim: the inline <svg> was animated (<animate>, as a loading skeleton): set by the server before it
+	// drops the animation, never taken from the client.
+	Anim bool `json:"anim,omitempty"`
+}
+
+// Point is a position in CSS pixels.
+type Point struct {
+	X int `json:"x"`
+	Y int `json:"y"`
 }
 
 // Size is a viewport in CSS pixels.
@@ -133,22 +232,38 @@ var xpathCue = regexp.MustCompile(`(?i)\b(?:selector|locator|localizador|xpath|e
 func bareXPath(text string) string {
 	m := xpathCue.FindStringSubmatchIndex(text)
 	if m == nil {
-		return ""
+		// sin palabra que lo anuncie ("TimeoutException en (//i[...])[1]"): un XPath suelto, como último
+		// recurso; nunca el // de una URL (va después de ":")
+		if m = looseXPath.FindStringSubmatchIndex(text); m == nil {
+			return ""
+		}
 	}
-	return scanXPath(text, m[2])
+	start := m[2]
+	for start > 0 && text[start-1] == '(' { // (//li)[2]: el índice es parte del selector
+		start--
+	}
+	return scanXPath(text, start)
 }
 
+var looseXPath = regexp.MustCompile(`(?:^|[\s=>(])\(*(//[A-Za-z*])`)
+
 // scanXPath reads the XPath that starts at start: up to the first space or unbalanced closing
-// outside brackets, parentheses and quotes.
+// outside brackets, parentheses and quotes. Written between quotes ("el elemento '//div[...]' no
+// está"), it also ends at that closing quote: inside the XPath the quotes go within [] or ().
 func scanXPath(text string, start int) string {
 	depth := 0
-	var quote rune
+	var quote, wrap rune
+	if start > 0 && (text[start-1] == '\'' || text[start-1] == '"') {
+		wrap = rune(text[start-1])
+	}
 	for i, r := range text[start:] {
 		switch {
 		case quote != 0:
 			if r == quote {
 				quote = 0
 			}
+		case r == wrap && depth == 0:
+			return text[start : start+i]
 		case r == '\'' || r == '"':
 			quote = r
 		case r == '[' || r == '(':
@@ -179,6 +294,29 @@ func pySeleniumSelector(by, value string) string {
 	default: // CSS_SELECTOR, XPATH, TAG_NAME
 		return value
 	}
+}
+
+// Truncated reports whether a selector was cut before its end (the error message stored only its
+// first characters): a bracket, parenthesis or quote left open. Suggestions for half a selector
+// would compare against the wrong thing.
+func Truncated(sel string) bool {
+	depth := 0
+	var quote rune
+	for _, r := range sel {
+		switch {
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			}
+		case r == '\'' || r == '"':
+			quote = r
+		case r == '[' || r == '(':
+			depth++
+		case r == ']' || r == ')':
+			depth--
+		}
+	}
+	return depth > 0 || quote != 0
 }
 
 // LooksLikeLocatorFailure reports whether an error is about an element that was not found.
@@ -398,7 +536,7 @@ func xpathLit(s string) string {
 		return `'` + s + `'`
 	}
 	parts := strings.Split(s, `"`)
-	out := make([]string, 0, 2*len(parts))
+	var out []string // sin capacidad calculada: un valor muy largo no desborda la cuenta
 	for i, p := range parts {
 		if i > 0 {
 			out = append(out, `'"'`)

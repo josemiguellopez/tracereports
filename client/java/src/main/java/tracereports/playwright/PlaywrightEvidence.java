@@ -161,7 +161,7 @@ public final class PlaywrightEvidence {
     /** Snapshot de los elementos de la página (recomendador de locators), o null. */
     public static Object dom(Page page) {
         try {
-            return page.evaluate(Dom.FUNCTION);
+            return page.evaluate(Dom.FUNCTION, Mask.selector());
         } catch (RuntimeException e) {
             return null;
         }

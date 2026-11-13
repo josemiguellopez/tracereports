@@ -21,25 +21,41 @@ Standard library only. The client never breaks or slows down your suite:
   single call over 40 MiB is sent without its bodies, marked `body_truncated` with its original size
   (`body_size`, in UTF-8 bytes);
 - when the server does not answer, the calls that need its answer (create run or test) fail fast
-  for 30 s instead of waiting their timeout in every test;
+  for 30 s instead of waiting their timeout in every test. A server that is down (refused connection)
+  opens that circuit at once; a server that accepted the request but is slow to answer is retried
+  first with the same `Idempotency-Key`, so a busy server gives back the same run instead of a second
+  one or a run left *Running*;
+- timeouts: `TRACEREPORTS_TIMEOUT` (seconds per JSON request, default 2) and `TRACEREPORTS_RUN_TIMEOUT`
+  (creating and closing the run, per attempt, default 10 and never shorter than `TRACEREPORTS_TIMEOUT`;
+  the retries together take at most 30 s), or `TraceReports(timeout=..., run_timeout=...)`. Raise them if the server is shared by many suites at once;
 - `end_run()` waits for the queue (`TRACEREPORTS_FLUSH_TIMEOUT`, 30 s) before closing the run. Whatever
   could not be sent is saved in `TRACEREPORTS_SPOOL_DIR` to resend with
   `python -m tracereports.resend <folder>`; without that folder it is reported as lost. Resending
   goes in batches (a spool larger than the queue also makes progress), in order and without
   duplicates; several processes can share the folder (each file is taken by one, and a dead
   process's file is resumed after 10 minutes). It exits 0 only when nothing is left;
-- **without a server**: if the run cannot be created (server down or wrong token), everything is
-  recorded in `./tracereports-offline/<session>`; `tracereports report <folder>` builds the HTML report
-  and `tracereports push <folder>` uploads it later (see [Without a server](offline.md));
+- **without a server**: if the run cannot be created (server down, no answer within 30 s or wrong token:
+  the warning says which), everything is recorded in `./tracereports-offline/<session>`; `tracereports
+  report <folder>` builds the HTML report and `tracereports push <folder>` uploads it later (see [Without a
+  server](offline.md)). If the server answers by the end, the client **uploads it by itself** (`push`, no
+  duplicates) and the pytest summary says "uploaded at the end"; `TRACEREPORTS_OFFLINE_PUSH=0` turns it off;
 - **full queue** (5000 events or 64 MB): new events are dropped, the queued ones are kept and it is
-  counted in `cr.delivery["dropped"]`.
+  counted in `cr.delivery["dropped"]`;
+- **slow network or many workers at once**: the queue sends first what changes a result (creating and
+  closing tests, steps, screenshots, closing the run) and then the heavy evidence (network, DOM, console,
+  attachments). If `end_run()` runs out of time, what is left is evidence, not a test that would show as
+  *Interrupted*. If the server accepts it (it says so in its responses), JSON over 8 KB travels gzip
+  compressed (`TRACEREPORTS_GZIP=0` turns it off), network batches are up to 2 MB and each attempt of a
+  queued upload also waits according to its size, so a big batch is not uploaded again in full while the
+  first one is still arriving.
 
 `cr.delivery` tells you what happened: `sent`, `retried`, `rejected` (the server answered 4xx),
 `dropped`, `spooled`, `lost`, `pending` and `unregistered_tests`.
 
 Variables it reads: `TRACEREPORTS_URL` (default `http://localhost:8080`), `TRACEREPORTS_TOKEN`,
 `TRACEREPORTS_DISABLED=1` (turns reporting off), `TRACEREPORTS_PROJECT`, `TRACEREPORTS_SPOOL_DIR`,
-`TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_SYNC=1` (sends everything inline, to debug) and, for the context,
+`TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`, `TRACEREPORTS_FLUSH_TIMEOUT`, `TRACEREPORTS_GZIP=0`, `TRACEREPORTS_SYNC=1`
+(sends everything inline, to debug) and, for the context,
 `TRACEREPORTS_BRANCH` / `TRACEREPORTS_COMMIT` (otherwise the GitHub Actions, GitLab, Azure DevOps, Jenkins,
 Bitbucket or CircleCI variables, or `git`). A variable missing from the environment is read from the
 project's `.env` ([details](configuration.md#the-projects-env-in-the-clients)).
@@ -198,6 +214,66 @@ cr.attach_screenshot(selenium_screenshot(driver), "Form")             # instead 
 `TRACEREPORTS_SCREENSHOTS` decides which screenshots are sent: `all` (default), `failures` (only those of
 a `FAIL` step) or `off` (none). The server applies the same variable on its own (see
 [Configuration → Screenshots](configuration.md#screenshots)).
+
+## Inspector: the page at the moment of the failure
+
+On failure the client also sends the **structure of the page** (every element with its box, its own
+text and a few styles). The test's **Inspector** tab rebuilds it, so you can inspect what was on screen,
+try XPath or CSS on it and copy robust locators (right click → *QA / Automation*) **without reproducing
+the failure again**. If the selector that failed does not exist, it marks it and points to the most
+similar element.
+
+**Icons** look like in the application: icon-font icons (Font Awesome and the like in `::before`/`::after`,
+and Material Icons/Symbols ligatures) are drawn in the test's browser with the font the page already loaded
+and travel as small PNG images (one per distinct icon); inline `<svg>` travel with their colors resolved
+and the server rebuilds them with shapes and colors only; same-origin images up to 64 px too. The font
+itself never leaves the page, and what is masked carries no icon.
+
+| Variable | Effect |
+|---|---|
+| `TRACEREPORTS_DOM=basic` | Only the interactive elements, as before (the Inspector draws just those). Default: `structure` |
+| `TRACEREPORTS_DOM_MODE=html` | **Optional.** Besides the structure, sends the page's HTML and its style sheets (each sheet once per process, by its hash). The Inspector draws the real page with its CSS in an isolated iframe, without scripts or network, and «Try XPath / CSS» runs on that HTML. What was typed, what is masked and scripts do not travel. Default: `structure` |
+| `TRACEREPORTS_DOM_STEPS=1` | Also keeps the page of every step with a screenshot (once per different page, up to 40 per test), to walk the whole test in the Inspector. **It is for every test, also the ones that pass** (each page weighs hundreds of KB). Off by default |
+| `TRACEREPORTS_DOM_STEPS=on-problem` | The same, only for tests that end in FAIL or have a WARNING: the pages wait in memory and are sent when the test ends. A passing test sends a baseline for "Compare with the last PASS" only when the server has none for that test from the last 7 days |
+
+`TRACEREPORTS_DOM_ON` does not limit `TRACEREPORTS_DOM_STEPS`: it only adds the page of each `WARNING`. The
+failure page is always kept.
+
+What is covered in screenshots (`input[type=password]`, `[data-tracereports-mask]`,
+`TRACEREPORTS_SCREENSHOT_MASK`) keeps its box but not its text, and what someone typed in a field never
+travels. Not captured: the inside of cross-origin iframes and what a `<canvas>` draws.
+
+## Live: execution, planned tests and remote control
+
+| Variable | Effect |
+|---|---|
+| `TRACEREPORTS_EXECUTION_ID` | Groups in Live the runs of one execution (a launcher that creates a run per file). Without it, the CI build id is used: `BUILD_BUILDID` (Azure DevOps), `GITHUB_RUN_ID` (+ attempt), `CI_PIPELINE_ID` (GitLab), `BUILD_TAG` (Jenkins) |
+| `TRACEREPORTS_REMOTE_CONTROL=1` | Between tests, the plugin asks whether the run was cancelled from Live (*Cancel execution…*): the tests left become *Skip* with the reason and the run closes. Nothing is killed. Off by default |
+| `TRACEREPORTS_DOM_ON=fail,warning` | Also keeps the page of each `WARNING` step (it often comes before a failure); the Inspector marks it with ⚠ |
+
+The pytest plugin also sends how many tests it collected (with pytest-xdist too): Live shows progress and
+ETA. With `TRACEREPORTS_DOM_STEPS=1` (or `on-problem`) in the runs that pass, the Inspector can **compare a failure with the last
+PASS** of the same test: what is gone, what is new and what changed.
+
+### A custom launcher that creates a run per file
+
+The plugin reports as planned **every** test of the pytest session, in its run. If a custom launcher (a
+bridge) creates a run per file in the same session, that total matches none of them: turn the plugin's off
+with `TRACEREPORTS_PLANNED=off` and report each run from the bridge.
+
+```python
+import collections
+import pytest
+
+@pytest.hookimpl(trylast=True)             # after the TraceReports plugin
+def pytest_collection_finish(session):
+    per_file = collections.Counter(item.nodeid.split("::")[0] for item in session.items)
+    # when the run of each file is opened (cr = that run's client):
+    #     cr.set_planned(per_file[file])
+```
+
+For Live to show the runs together, the bridge also sets `TRACEREPORTS_EXECUTION_ID` when it starts.
+
 
 ## Network capture with Playwright
 

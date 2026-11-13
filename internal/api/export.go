@@ -26,6 +26,11 @@ import (
 // preview is cut on pretty-printed JSON, which is larger than the raw body.
 const bodyFileMinChars = 4000
 
+// exportAssets: the files of the interface that go in the exported report next to index.html. Every
+// script and stylesheet index.html loads must be here, or the report opens broken without a server
+// (TestExportCarriesEveryAssetOfIndex checks it).
+var exportAssets = []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "inspector.js", "live.js", "livefield.js", "liveagents.js", "runnotify.js", "app.js"}
+
 // staticDataMarker is replaced in index.html by the <script> that loads the exported data.
 const staticDataMarker = "<!-- tracereports:static-data -->"
 
@@ -172,11 +177,14 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 	}
 	index = bytes.Replace(index, []byte(staticDataMarker), []byte(`<script src="data.js"></script>`), 1)
 
-	folder := fmt.Sprintf("tracereports_%s_%s_run%d",
+	name := fmt.Sprintf("tracereports_%s_%s_run%d",
 		slug(detail.Name), time.UnixMilli(detail.StartedAt).Format("20060102_1504"), detail.ID)
+	// la carpeta de adentro, corta: «Extraer todo» de Windows la pone dentro de otra con el nombre del ZIP, y
+	// una ruta de más de 260 caracteres (MAX_PATH) no se carga desde file://
+	folder := fmt.Sprintf("run%d", detail.ID)
 
 	w.Header().Set("Content-Type", "application/zip")
-	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, folder))
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s.zip"`, name))
 
 	// From here on the response is streaming: errors can only be logged.
 	zw := zip.NewWriter(w)
@@ -192,7 +200,7 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 
 	add("README.txt", []byte(exportReadme), zip.Deflate)
 	add("index.html", index, zip.Deflate)
-	for _, asset := range []string{"style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "app.js"} {
+	for _, asset := range exportAssets {
 		content, err := fs.ReadFile(s.Web, asset)
 		if err != nil {
 			slog.Error("export: read asset", "asset", asset, "err", err)
@@ -231,6 +239,8 @@ func (s *Server) exportRun(w http.ResponseWriter, r *http.Request) {
 			add(b.name, b.content, zip.Deflate)
 		}
 	}
+	// las páginas del Inspector, de a una (cada una pesa cientos de KB), con su índice al final
+	s.exportDOM(id, detail.Tests, add)
 	// capturas, traces y videos: se copian del disco al ZIP sin cargarlos enteros en memoria
 	for _, name := range shots {
 		f, err := s.shots().Open(name) // el ZIP lleva la evidencia descifrada: quien exporta ya la ve
@@ -348,10 +358,12 @@ func (s *Server) exportEscalations(runID int64, detail *db.RunDetail, shots *[]s
 			slog.Warn("export: escalation facts", "run_id", runID, "test_id", testID, "err", err)
 			continue
 		}
+		// el diagnóstico del motor local, en cada idioma (una vez por idioma, no por audiencia)
+		byLang := map[string]*ai.Facts{"es": s.AI.LocalizedFacts(facts, testID, "es"), "en": s.AI.LocalizedFacts(facts, testID, "en")}
 		for _, audience := range ai.Audiences {
 			for _, lang := range []string{"es", "en"} {
 				ref := escalationRef{RunID: runID, TestID: testID, Audience: audience, Lang: lang}
-				f := *facts
+				f := *byLang[lang]
 				e := ai.EscalateTemplate(&f, runID, testID, audience, lang)
 				s.withOwner(e)
 				s.withDev(e)

@@ -46,23 +46,24 @@ func TestCurlKeepsBodyAsSent(t *testing.T) {
 
 func TestCommands(t *testing.T) {
 	cases := []struct {
-		fw, key, commit string
-		want            []string
+		fw, key string
+		want    []string
 	}{
-		{"pytest", "tests/test_login.py::test_admin", "bbb222", []string{"git checkout bbb222 && pytest 'tests/test_login.py::test_admin'"}},
-		{"playwright", "tests/login.spec.js > Login > admin entra [chromium]", "", []string{"npx playwright test 'tests/login.spec.js' -g '^admin entra$' --project='chromium'"}},
-		{"junit5", "com.acme.LoginTest#loginOk", "", []string{"mvn test -Dtest='LoginTest#loginOk'", "./gradlew test --tests 'com.acme.LoginTest.loginOk'"}},
-		{"go", "shop/checkout/TestPay/visa", "0123456789abcdef", []string{"git checkout 0123456789ab && go test ./shop/checkout/... -run '^TestPay$/^visa$'"}},
+		// este test y, después, todo su archivo o clase; sin git checkout (el commit va aparte: Script)
+		{"pytest", "tests/test_login.py::test_admin", []string{"pytest 'tests/test_login.py::test_admin'", "pytest 'tests/test_login.py'"}},
+		{"playwright", "tests/login.spec.js > Login > admin entra [chromium]", []string{"npx playwright test 'tests/login.spec.js' -g '^admin entra$' --project='chromium'", "npx playwright test 'tests/login.spec.js' --project='chromium'"}},
+		{"junit5", "com.acme.LoginTest#loginOk", []string{"mvn test -Dtest='LoginTest#loginOk'", "./gradlew test --tests 'com.acme.LoginTest.loginOk'", "mvn test -Dtest='LoginTest'", "./gradlew test --tests 'com.acme.LoginTest'"}},
+		{"go", "shop/checkout/TestPay/visa", []string{"go test ./shop/checkout/... -run '^TestPay$/^visa$'"}},
 		// claves de Allure (importadas): allure-pytest, allure-playwright y allure-junit5
-		{"pytest", "test.allure_attachments_test#test_attach", "", []string{"pytest 'test/allure_attachments_test.py::test_attach'"}},
-		{"pytest", "tests.shop.test_cart.TestCart#test_add [qty=2]", "", []string{"pytest 'tests/shop/test_cart.py::TestCart::test_add'"}},
-		{"playwright", "tests/sample.test.js:4:1 [Project=chromium]", "", []string{"npx playwright test 'tests/sample.test.js:4' --project='chromium'"}},
-		{"junit-platform", "com.example.junit5.StepTest.lambdaStepTest", "", []string{"mvn test -Dtest='StepTest#lambdaStepTest'", "./gradlew test --tests 'com.example.junit5.StepTest.lambdaStepTest'"}},
-		{"pytest", "name:algo", "", nil},
-		{"cypress", "x", "", nil},
+		{"pytest", "test.allure_attachments_test#test_attach", []string{"pytest 'test/allure_attachments_test.py::test_attach'", "pytest 'test/allure_attachments_test.py'"}},
+		{"pytest", "tests.shop.test_cart.TestCart#test_add [qty=2]", []string{"pytest 'tests/shop/test_cart.py::TestCart::test_add'", "pytest 'tests/shop/test_cart.py'"}},
+		{"playwright", "tests/sample.test.js:4:1 [Project=chromium]", []string{"npx playwright test 'tests/sample.test.js:4' --project='chromium'", "npx playwright test 'tests/sample.test.js' --project='chromium'"}},
+		{"junit-platform", "com.example.junit5.StepTest.lambdaStepTest", []string{"mvn test -Dtest='StepTest#lambdaStepTest'", "./gradlew test --tests 'com.example.junit5.StepTest.lambdaStepTest'", "mvn test -Dtest='StepTest'", "./gradlew test --tests 'com.example.junit5.StepTest'"}},
+		{"pytest", "name:algo", nil},
+		{"cypress", "x", nil},
 	}
 	for _, c := range cases {
-		got := Commands(c.fw, c.key, c.commit)
+		got := Commands(c.fw, c.key)
 		if len(got) != len(c.want) {
 			t.Fatalf("%s %s: %v", c.fw, c.key, got)
 		}
@@ -71,5 +72,32 @@ func TestCommands(t *testing.T) {
 				t.Errorf("%s: %q, quería %q", c.fw, got[i].Cmd, c.want[i])
 			}
 		}
+	}
+}
+
+// Un caso real: test_002 depende de que test_001 haya creado el pedido; corrido solo falla por
+// otra razón ("número de pedido no puede ser vacío"). Ahí el archivo completo va primero.
+func TestDependentTestRunsTheWholeFileFirst(t *testing.T) {
+	key := "tests/shop/checkout/test_pay_with_saved_card.py::TestCheckout::test_002_pay_with_saved_card"
+	cmds := Commands("pytest", key)
+	if !DependsOnEarlier("Exception: Error número de pedido no puede ser vacio") ||
+		!DependsOnEarlier("Failed: Test 'test_002' omitido — paso anterior falló: 'test_001'") ||
+		DependsOnEarlier("AssertionError: assert 10 == 12") || DependsOnEarlier("TimeoutError: waiting for locator('#pay')") {
+		t.Fatal("DependsOnEarlier")
+	}
+	got := Ordered(cmds, true)
+	if got[0].Scope != ScopeFile || got[0].Cmd != "pytest 'tests/shop/checkout/test_pay_with_saved_card.py'" || got[1].Scope != ScopeTest {
+		t.Fatalf("file first: %+v", got)
+	}
+	if same := Ordered(cmds, false); same[0].Scope != ScopeTest {
+		t.Fatalf("test first: %+v", same)
+	}
+	s := Script(got, "fd051753d33f9a", "es")
+	want := "# Todo el archivo (si el test depende de otros anteriores del mismo archivo) · pytest\n" +
+		"pytest 'tests/shop/checkout/test_pay_with_saved_card.py'\n\n" +
+		"# Este test · pytest\npytest '" + key + "'\n\n" +
+		"# La ejecución usó el commit fd051753d33f; si tu copia está en otra versión: git checkout fd051753d33f"
+	if s != want {
+		t.Fatalf("script:\n%s\nwant:\n%s", s, want)
 	}
 }

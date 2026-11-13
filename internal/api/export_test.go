@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -40,6 +41,10 @@ func TestExportRunZip(t *testing.T) {
 		"features.css":             {Data: []byte("/* features */")},
 		"tracereports_features.js": {Data: []byte("// features")},
 		"lab.js":                   {Data: []byte("// lab")},
+		"inspector.js":             {Data: []byte("// inspector")},
+		"live.js":                  {Data: []byte("// live")},
+		"livefield.js":             {Data: []byte("// live field")},
+		"liveagents.js":            {Data: []byte("// live agents")},
 		"i18n.js":                  {Data: []byte("// i18n")},
 		"i18n.en.js":               {Data: []byte("// en")},
 		"app.js":                   {Data: []byte("//app")},
@@ -65,7 +70,7 @@ func TestExportRunZip(t *testing.T) {
 		rc.Close()
 		files[f.Name[strings.Index(f.Name, "/")+1:]] = string(b)
 	}
-	for _, want := range []string{"index.html", "style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "app.js", "data.js", "README.txt", "screenshots/t1_1.png"} {
+	for _, want := range []string{"index.html", "style.css", "themes.css", "features.css", "i18n.js", "i18n.en.js", "tracereports_features.js", "lab.js", "inspector.js", "live.js", "livefield.js", "liveagents.js", "app.js", "data.js", "README.txt", "screenshots/t1_1.png"} {
 		if _, ok := files[want]; !ok {
 			t.Errorf("zip missing %s (has %v)", want, len(files))
 		}
@@ -99,6 +104,32 @@ func TestSlugAndScreenshotFile(t *testing.T) {
 	} {
 		if got := screenshotFile(in); got != want {
 			t.Errorf("screenshotFile(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Todo script y hoja de estilos que carga index.html va en el reporte exportado: si falta uno (como
+// pasó con livefield.js), el reporte sin servidor se abre roto.
+func TestExportCarriesEveryAssetOfIndex(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "web", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	have := map[string]bool{}
+	for _, a := range exportAssets {
+		have[a] = true
+	}
+	refs := regexp.MustCompile(`(?:<script[^>]+src|<link[^>]+rel="stylesheet"[^>]+href)="([^"]+)"`).FindAllStringSubmatch(string(raw), -1)
+	if len(refs) < 5 {
+		t.Fatalf("index.html should load several local assets, found %d", len(refs))
+	}
+	for _, m := range refs {
+		src := m[1]
+		if strings.HasPrefix(src, "http") || strings.HasPrefix(src, "vendor/") {
+			continue // vendor/ travels as a folder; nothing loads from a CDN
+		}
+		if !have[src] {
+			t.Errorf("index.html loads %q but the exported report does not carry it (exportAssets)", src)
 		}
 	}
 }

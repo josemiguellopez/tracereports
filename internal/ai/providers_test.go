@@ -3,6 +3,7 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -136,7 +137,7 @@ func TestConfigFromEnvAndValidate(t *testing.T) {
 		"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OLLAMA_HOST"} {
 		t.Setenv(k, "")
 	}
-	if c := ConfigFromEnv(); c.Provider != ProviderBuiltin || c.Model != "rules-v1" || c.BaseURL != "" || c.APIKey != "" || c.Validate() != nil {
+	if c := ConfigFromEnv(); c.Provider != ProviderBuiltin || c.Model != builtin.Version || c.BaseURL != "" || c.APIKey != "" || c.Validate() != nil {
 		t.Fatalf("no env -> local rules engine, got %+v", c)
 	}
 	t.Setenv("AI_PROVIDER", "off")

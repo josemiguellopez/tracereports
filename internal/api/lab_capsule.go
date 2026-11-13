@@ -66,7 +66,7 @@ func (s *Server) newCapsule(runID int64) (*lab.Capsule, error) {
 
 // addCommands fills how to run the test locally (from the run's framework and the test key).
 func addCommands(c *lab.Capsule, call *lab.CapsuleCall) {
-	call.Test.Commands = repro.Commands(c.Run.Framework, call.Test.Key, c.Run.Commit)
+	call.Test.Commands = repro.Ordered(repro.Commands(c.Run.Framework, call.Test.Key), repro.DependsOnEarlier(call.Test.Error))
 }
 
 func writeCapsule(w http.ResponseWriter, name string, c *lab.Capsule) {

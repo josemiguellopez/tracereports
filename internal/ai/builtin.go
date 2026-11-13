@@ -2,6 +2,8 @@ package ai
 
 import (
 	"fmt"
+	"github.com/josemiguellopez/tracereports/internal/errtext"
+	"github.com/josemiguellopez/tracereports/internal/locator"
 	"strings"
 
 	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
@@ -87,6 +89,21 @@ func (a *Analyzer) builtinInput(t *db.Test, lang string) (builtin.Input, error) 
 		return builtin.Input{}, err
 	}
 	in.RunFailed, in.RunTotal = run.Failed, run.Total
+	shot := ""
+	for i := len(t.Logs) - 1; i >= 0; i-- {
+		if l := t.Logs[i]; l.Screenshot != "" && l.Status == "FAIL" {
+			shot = l.Screenshot
+			break
+		}
+	}
+	in.BlankPage = a.blankPage(t.ID, shot)
+	// ¿seguía cargando? Un elemento que no apareció mientras la página cargaba no es un selector roto
+	in.Loading = loadingSignals(a.store, t, conns, lang)
+	sel := locator.ExtractSelector(errtext.Useful(t.ErrorMessage), t.ErrorTrace)
+	if sel == "" {
+		sel = locator.ExtractSelector(in.FailedStep)
+	}
+	in.SelectorBefore = selectorBefore(a.store, t, sel, lang)
 	return in, nil
 }
 
@@ -113,6 +130,13 @@ func (a *Analyzer) builtinIncidents(run *db.RunDetail, incidents []db.Incident) 
 		names = append(names, t.Name)
 	}
 	lang := a.builtinLang(names...)
+	// los que fallaron en cascada no son fallos independientes: no cuentan para "ambiente caído"
+	followers := 0
+	for _, inc := range incidents {
+		if inc.Kind == "cascade" {
+			followers += len(inc.TestIDs) - 1
+		}
+	}
 	out := make([]builtin.Diagnosis, len(incidents))
 	for i, inc := range incidents {
 		t, err := a.store.GetTest(inc.TestIDs[0])
@@ -123,7 +147,7 @@ func (a *Analyzer) builtinIncidents(run *db.RunDetail, incidents []db.Incident) 
 		if err != nil {
 			return nil, "", err
 		}
-		in.RunFailed, in.RunTotal = run.Failed, run.Total
+		in.RunFailed, in.RunTotal = run.Failed-followers, run.Total-followers
 		out[i] = a.redactDiagnosis(builtin.Diagnose(in))
 	}
 	return out, lang, nil
@@ -144,6 +168,9 @@ func (a *Analyzer) builtinRun(run *db.RunDetail, rt *db.RunTriage) error {
 			in.Category = d.Category
 		}
 		incs[i] = builtin.Incident{Title: in.Title, Tests: len(in.TestIDs), Diagnosis: d}
+		if in.Kind == "cascade" {
+			incs[i].Followers = len(in.TestIDs) - 1
+		}
 	}
 	headline, summary := builtin.Summarize(lang, run.Total, run.Failed, incs)
 	if headline != "" {
@@ -161,6 +188,19 @@ func builtinPromptSection(d builtin.Diagnosis) string {
 	}
 	return fmt.Sprintf("\n\nDeterministic pre-diagnosis by TraceReports' local rules engine (rule %s, category %s). It was built\n"+
 		"only from the evidence above; confirm it or correct it with that evidence:\n%s %s", d.Rule, d.Category, d.Summary, d.Suggestion)
+}
+
+// loadingPromptSection tells the model what said the page was still loading at the failure.
+func loadingPromptSection(in builtin.Input) string {
+	facts := append([]string{}, in.Loading...)
+	if in.SelectorBefore != "" {
+		facts = append(facts, in.SelectorBefore)
+	}
+	if len(facts) == 0 {
+		return ""
+	}
+	return "\n\nLoading signals at the moment of the failure (from the page and its network, not from the test):\n- " +
+		strings.Join(facts, "\n- ") + "\nWith these, the element did not show up in time: answer TIMING, not LOCATOR_CHANGED, unless the evidence above proves the UI changed."
 }
 
 // Signature is what identifies a failed test for the similar incidents index (#44): its incident

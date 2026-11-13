@@ -206,7 +206,7 @@ func FuzzErrorSignature(f *testing.F) {
 		if s1 != s2 || e1 != e2 || l1 != l2 {
 			t.Fatal("firma inestable")
 		}
-		if !strings.HasPrefix(s1, e1+"|") || !strings.HasSuffix(s1, "|"+l1) {
+		if !strings.HasPrefix(s1, e1+"|") || !strings.HasSuffix(s1, "|"+frameFile(l1)) {
 			t.Fatalf("formato: %q", s1)
 		}
 		_ = builtin.Diagnose(builtin.Input{Error: msg, Trace: trace, Location: l1})

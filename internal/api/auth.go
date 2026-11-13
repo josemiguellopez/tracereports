@@ -39,8 +39,11 @@ func (a Auth) uiLogin() bool {
 	return (a.UIUser != "" && a.UIPass != "") || (a.ViewerUser != "" && a.ViewerPass != "")
 }
 
-// viewerOK reports whether the request carries the read-only login.
+// viewerOK reports whether the request carries the read-only login (HTTP Basic or its session).
 func (a Auth) viewerOK(r *http.Request) bool {
+	if sessionOf(r).role == "viewer" {
+		return true
+	}
 	user, pass, ok := r.BasicAuth()
 	return ok && a.ViewerUser != "" && a.ViewerPass != "" &&
 		subtle.ConstantTimeCompare([]byte(user), []byte(a.ViewerUser)) == 1 &&
@@ -74,7 +77,11 @@ func tokenHeader(r *http.Request) string {
 	return r.Header.Get("X-TraceReports-Token")
 }
 
+// basicOK reports whether the request carries the admin UI login (HTTP Basic or its session).
 func (a Auth) basicOK(r *http.Request) bool {
+	if sessionOf(r).role == "admin" {
+		return true
+	}
 	user, pass, ok := r.BasicAuth()
 	return ok && a.UIUser != "" && a.UIPass != "" &&
 		subtle.ConstantTimeCompare([]byte(user), []byte(a.UIUser)) == 1 &&
@@ -89,15 +96,32 @@ func (a Auth) middleware(next http.Handler) http.Handler {
 		// cualquiera de los dos tokens escribe resultados y lee; administrar es aparte
 		token := a.tokenOK(r) || a.ingestOK(r)
 		// los ajustes tienen su propia regla (settingsAccess): la UI no conoce el token
-		isSettings := strings.HasPrefix(r.URL.Path, "/api/v1/settings") || strings.HasPrefix(r.URL.Path, "/api/v1/ui/")
+		isSettings := strings.HasPrefix(r.URL.Path, "/api/v1/settings") || strings.HasPrefix(r.URL.Path, "/api/v1/ui/") ||
+			r.URL.Path == "/api/v1/auth/login" || r.URL.Path == "/api/v1/auth/logout" // ingresar y salir no escriben resultados
 		if isWrite && a.tokensSet() && !token && !isSettings {
 			writeError(w, http.StatusUnauthorized, "missing or invalid API token (Authorization: Bearer <TRACEREPORTS_TOKEN>)")
 			return
 		}
 		viewer := !token && a.viewerOK(r)
 		if uiAuth && !token && !viewer && !a.basicOK(r) {
-			w.Header().Set("WWW-Authenticate", `Basic realm="TraceReports", charset="UTF-8"`)
-			writeError(w, http.StatusUnauthorized, "authentication required")
+			// la página de ingreso y lo suyo se ven sin login; un navegador que pide una página va a ella
+			if loginPublic(r) {
+				next.ServeHTTP(w, r)
+				return
+			}
+			if wantsPage(r) {
+				loginRedirect(w, r)
+				return
+			}
+			// la UI no pide con WWW-Authenticate (el navegador abriría su propio cuadro encima): muestra su login
+			if !fromUI(r) {
+				w.Header().Set("WWW-Authenticate", `Basic realm="TraceReports", charset="UTF-8"`)
+			}
+			msg := "authentication required"
+			if sessionOf(r).expired {
+				msg = "session expired"
+			}
+			writeError(w, http.StatusUnauthorized, msg)
 			return
 		}
 		// el login de solo lectura nunca escribe: ni resultados, ni Ajustes, ni acciones de la UI

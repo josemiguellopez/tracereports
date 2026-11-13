@@ -31,12 +31,13 @@ const FACES = {
 	shy: { eyes: "shy", mouth: "wavy", blush: true },
 	shush: { eyes: "wink", mouth: "o" }, // "shhh": un guiño y la boquita en o
 	proud: { eyes: "arc", mouth: "side" }, // seguro de sí mismo
+	devil: { eyes: "devil", mouth: "smirk", color: "#ff4d6d" }, // pícaro: cejas en V, ojos rojos, sonrisa de lado y cuernitos
 };
 const MOOD_FACE = { idle: "normal", thinking: "focused", success: "stars", error: "worried" };
 
 // Gestos: cuánto duran (s). Cada uno mueve brazos, cabeza y cuerpo en step().
 const GESTURES = { wave: 2.2, nod: 0.9, thumbs: 1.8, facepalm: 1.8, scratch: 2.4, chin: 2.4, jump: 1.0, spinJoy: 1.2, stretch: 2.2, lookAround: 3.0, yawn: 2.0,
-	shush: 1.9, proud: 2.2 };
+	shush: 1.9, proud: 2.2, startle: 0.75, scheme: 2.4 };
 
 /** Monta el personaje en container (un elemento con tamaño). Devuelve sus controles, o null sin WebGL. */
 export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = false, onEvent = () => {} } = {}) {
@@ -193,6 +194,16 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		r.position.z = rimZ;
 	}
 	hoodGroup.add(rimTop, rimBot);
+	// los cuernitos del diablito: escondidos; crecen con la cara "devil"
+	const mHorn = new THREE.MeshStandardMaterial({ color: 0xff2d55, emissive: 0xff2d55, emissiveIntensity: 0.55, roughness: 0.35 });
+	const horns = [-1, 1].map((side) => {
+		const h = new THREE.Mesh(new THREE.ConeGeometry(0.15, 0.46, 20), mHorn);
+		h.position.set(side * 0.52, 0.98, 0.28);
+		h.rotation.set(-0.25, 0, side * -0.42);
+		h.scale.setScalar(0.001);
+		head.add(h);
+		return h;
+	});
 	// el visor: negro brillante; la cara es un parche de esfera un poco por delante
 	const visor = new THREE.Mesh(new THREE.SphereGeometry(0.8, 48, 36), mVisor);
 	visor.scale.set(1.12, 0.92, 0.82);
@@ -237,6 +248,8 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		gesture: null, gT: 0, gDur: 0, hop: 0, shake: 0, sparkLife: 0, hover: 0,
 		talk: 0, idleFor: 0, asleep: false, panel: false, nextFidget: 9,
 		hoverFor: 0, blush: 0, change: null, flying: [],
+		// el login: "cover" se tapa los ojos (escribes la clave), "peek" espía entre los dedos, "none" mira
+		privacy: "none", coverL: 0, coverR: 0, lookHold: 0,
 		running: false, visible: true, last: 0, t: 0,
 	};
 	const ease = (k) => k * k * (3 - 2 * k);
@@ -277,9 +290,10 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		ctx.clearRect(0, 0, 512, 256);
 		ctx.save();
 		ctx.translate(st.look.x * 44, st.look.y * 22); // los ojos siguen al puntero
-		ctx.fillStyle = o.eyes;
-		ctx.strokeStyle = o.eyes;
-		ctx.shadowColor = o.eyes;
+		const ink = f.color || o.eyes;
+		ctx.fillStyle = ink;
+		ctx.strokeStyle = ink;
+		ctx.shadowColor = ink;
 		ctx.shadowBlur = 26;
 		ctx.lineCap = "round";
 		ctx.lineJoin = "round";
@@ -310,6 +324,11 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 				star(ctx, x, y, 46, 20); ctx.fill(); break;
 			case "heart":
 				heart(ctx, x, y, 44); ctx.fill(); break;
+			case "devil": // ojos entrecerrados, inclinados hacia adentro, con la ceja en V
+				ctx.save(); ctx.translate(x, y + 6); ctx.rotate(side * 0.32);
+				roundRect(ctx, -34, -18 * open, 68, 34 * open, 16); ctx.fill(); ctx.restore();
+				ctx.lineWidth = 13; ctx.beginPath(); ctx.moveTo(x + side * 44, y - 62); ctx.lineTo(x - side * 30, y - 34); ctx.stroke();
+				break;
 			case "shy": // ojitos que miran hacia abajo, de lado
 				ctx.lineWidth = 15; ctx.beginPath(); ctx.arc(x - 10, y + 22, 26, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); break;
 			default:
@@ -330,6 +349,9 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 			case "frown": ctx.arc(256, 206, 26, Math.PI * 1.15, Math.PI * 1.85); ctx.stroke(); break;
 			case "o": ctx.ellipse(256, 186, 14, 18, 0, 0, Math.PI * 2); ctx.stroke(); break;
 			case "side": ctx.moveTo(240, 186); ctx.quadraticCurveTo(262, 192, 284, 176); ctx.stroke(); break;
+			case "smirk": // sonrisa de lado, con un colmillito
+				ctx.moveTo(206, 168); ctx.quadraticCurveTo(250, 214, 304, 154); ctx.stroke();
+				ctx.beginPath(); ctx.moveTo(236, 190); ctx.lineTo(244, 208); ctx.lineTo(252, 192); ctx.closePath(); ctx.fill(); break;
 			case "wavy": // boquita nerviosa
 				ctx.lineWidth = 9; ctx.moveTo(226, 184);
 				for (let i = 1; i <= 4; i++) ctx.quadraticCurveTo(226 + i * 12 - 6, 184 + (i % 2 ? -8 : 8), 226 + i * 12, 184);
@@ -421,6 +443,11 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		mVisor.emissive.setRGB(0.12 * st.blush, 0.0, 0.03 * st.blush); // el visor se pone apenas rojizo
 		// cara: la del momento (gesto o reacción); tímido; dormido; si no, la del ánimo
 		st.face = st.faceUntil > t ? st.face : shy ? "shy" : st.asleep ? "sleepy" : MOOD_FACE[st.mood] || "normal";
+		const hornK = Math.min(1, dt * 7);
+		for (const h of horns) h.scale.setScalar(Math.max(0.001, lerp(h.scale.x, st.face === "devil" ? 1 : 0, hornK)));
+		// tapado: ojos cerrados detrás de las manos; espiando: un ojo abierto
+		if (st.faceUntil <= t && st.privacy === "cover" && st.coverR > 0.5) st.face = "sleepy"; // ojos cerrados
+		if (st.faceUntil <= t && st.privacy === "peek") st.face = "wink";
 		drawFace();
 
 		// gesto en curso: avance 0..1
@@ -452,6 +479,9 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		if (st.asleep) { hx = 0.32 + Math.sin(t * 0.8) * 0.03; hy *= 0.2; hz = 0.15; }
 		if (st.blush > 0.3) { hx += 0.16 * st.blush; hy -= 0.18 * st.blush; hz -= 0.1 * st.blush; } // agacha la cara, de lado
 		if (st.mood === "error") hz += Math.sin(t * 30) * 0.03 * st.shake;
+		hx += 0.14 * Math.max(st.coverL, st.coverR); // tapándose, agacha un poco la cabeza
+		if (g === "startle") hx -= b * 0.32; // del susto, echa la cabeza atrás
+		if (g === "scheme") { hx += 0.12; hz += Math.sin(t * 3) * 0.05; } // agacha la cabeza, pícaro
 		head.rotation.x = lerp(head.rotation.x, hx, k);
 		head.rotation.y = lerp(head.rotation.y, hy, k);
 		head.rotation.z = lerp(head.rotation.z, hz, k);
@@ -474,6 +504,11 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		case "facepalm": rz = 0.32 + b * 2.25; rx = -b * 1.35; break;
 		case "shush": rz = 0.32 + b * 1.85; rx = -b * 1.5; break; // la mano a la "boca" del visor
 		case "proud": rz = -0.62; rx = -1.42; lz = 0.62; lx = -1.22; break; // brazos cruzados
+		case "startle": rz = 0.32 + b * 1.5; lz = -0.32 - b * 1.5; rx = -b * 0.7; lx = -b * 0.7; break; // ¡las manos arriba!
+		case "scheme": { // se frota las manos, maquinando
+			const rub = Math.sin(t * 20) * 0.1;
+			rz = -0.55 + rub; rx = -1.35; lz = 0.55 + rub; lx = -1.35; break;
+		}
 		case "scratch": rz = 2.7; rx = -0.5 + Math.sin(t * 18) * 0.12; break;
 		case "chin": rz = 1.9; rx = -1.0; break;
 		case "stretch": rz = 0.32 + b * 2.6; lz = -0.32 - b * 2.6; break;
@@ -483,6 +518,17 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 			if (st.mood === "thinking") { rz = 1.9; rx = -0.95; } // mano al mentón
 			if (st.mood === "success") { rz = 0.6; }
 		}
+		// las manos a la cara (con resorte: rápido, sin golpe); al espiar, la derecha baja un poco
+		const kc = Math.min(1, dt * 9);
+		st.coverL = lerp(st.coverL, st.privacy === "none" ? 0 : 1, kc);
+		st.coverR = lerp(st.coverR, st.privacy === "cover" ? 1 : st.privacy === "peek" ? 0.45 : 0, kc);
+		// la cabeza es grande: para llegar al visor el hombro se adelanta y sube, y el brazo apunta a la cara
+		// cada mano va sobre su ojo y crece (guantes de dibujo animado: a escala real no tapan nada)
+		rz = lerp(rz, -0.17, st.coverR); rx = lerp(rx, -2.46, st.coverR);
+		lz = lerp(lz, 0.17, st.coverL); lx = lerp(lx, -2.46, st.coverL);
+		armR.position.set(lerp(0.6, 0.42, st.coverR), lerp(-0.42, 0.05, st.coverR), lerp(0, 0.55, st.coverR));
+		armL.position.set(lerp(-0.6, -0.42, st.coverL), lerp(-0.42, 0.05, st.coverL), lerp(0, 0.55, st.coverL));
+		for (const [a, c] of [[armR, st.coverR], [armL, st.coverL]]) { const s = 1 + c * 1.15; a.children[2].scale.set(s, 1.1 * s, 0.9 * s); }
 		armR.rotation.z = lerp(armR.rotation.z, rz, k);
 		armR.rotation.x = lerp(armR.rotation.x, rx, k);
 		armL.rotation.z = lerp(armL.rotation.z, lz, k);
@@ -679,6 +725,41 @@ export function mountBuddy3D(container, { theme = "trace-dark", reducedMotion = 
 		/** Con el panel abierto mira hacia la conversación. */
 		setPanel(open) { st.panel = open; st.idleFor = 0; st.asleep = false; if (open) gesture("wave"); },
 		setVisible(v) { st.visible = v; setRunning(v && !document.hidden); },
+		/**
+		 * El login: "cover" se tapa los ojos (se escribe la clave), "peek" espía entre los dedos,
+		 * "none" mira (la clave a la vista: se destapa y la mira, sorprendido).
+		 */
+		setPrivacy(mode) {
+			if (!["none", "cover", "peek"].includes(mode) || mode === st.privacy) return;
+			const was = st.privacy;
+			st.privacy = mode;
+			if (mode !== "none") { clearTimeout(st.devilTimer); st.faceUntil = 0; st.gesture = null; } // se tapa ya, sin terminar la broma
+			st.asleep = false;
+			st.idleFor = 0;
+			if (mode === "none" && was === "cover") show("surprised", 0.8);
+			if (reducedMotion) { st.coverL = mode === "none" ? 0 : 1; st.coverR = mode === "cover" ? 1 : mode === "peek" ? 0.45 : 0; renderOnce(); }
+		},
+		/** Mira hacia un punto (x, y de -1 a 1): sigue lo que se escribe en el formulario. */
+		lookAt(x, y = 0) {
+			st.lookTarget.set(THREE.MathUtils.clamp(x, -1, 1), THREE.MathUtils.clamp(y, -1, 1));
+			st.asleep = false;
+			st.idleFor = 0;
+			if (reducedMotion) renderOnce();
+		},
+		/** Un gesto suelto: "nod" (sí), "shake" (no, la clave no era), "jump" (entró). */
+		react(kind) {
+			st.asleep = false;
+			st.idleFor = 0;
+			if (kind === "shake") { st.shake = 1; show("worried", 1.4); }
+			else if (kind === "startle") { // ¡un sustico! y después, pícaro: cara de diablito y se frota las manos
+				clearTimeout(st.devilTimer);
+				gesture("startle"); show("surprised", 0.75); st.hop = 0.45;
+				st.devilTimer = setTimeout(() => { if (st.privacy === "none") { gesture("scheme"); show("devil", 2.6); } }, reducedMotion ? 0 : 700);
+				if (reducedMotion) renderOnce();
+			}
+			else if (kind === "jump") { gesture("spinJoy"); show("stars", 1.4); burst(SPARKS, 2.2); }
+			else gesture(kind);
+		},
 		destroy() {
 			setRunning(false);
 			window.removeEventListener("pointermove", onPointer);

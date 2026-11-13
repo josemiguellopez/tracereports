@@ -152,7 +152,7 @@ purpose (`chmod -R a+rX folder`).
 | Steps, screenshots, timeline and replay | **Metrics** (they span many runs) |
 | Network with *Copy as cURL* and mocks | Sending to **Teams or Slack** and creating **tickets** |
 | Diagnosis and suggested locators | Generating or re-analyzing with **AI** (the existing diagnosis is shown) |
-| **Escalate**: the summary of the run and of each failed test, for Business, QA and Development, in English and Spanish, ready to copy as text, Markdown, email or an image | Server **Settings** |
+| **Escalate**: the summary of the run and of each failed test, for Business, QA and Development, in English and Spanish, ready to copy as text, Markdown, email, an image or a PDF | Server **Settings** |
 | **Release**: that run's decision with its criteria | Comparing with earlier runs |
 
 ## 5. Common cases

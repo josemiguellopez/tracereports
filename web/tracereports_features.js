@@ -630,7 +630,7 @@ cy.intercept(${jsStr(m.method)}, ${jsStr(m.glob)}, {
 				const t = e.target.closest("[data-tip]");
 				if (t === target) return;
 				hide();
-				if (t && e.pointerType !== "touch") timer = setTimeout(() => show(t), 380);
+				if (t && e.pointerType !== "touch") timer = setTimeout(() => show(t), 300);
 			});
 			document.addEventListener("pointerdown", hide);
 			document.addEventListener("focusin", (e) => {
@@ -712,29 +712,36 @@ cy.intercept(${jsStr(m.method)}, ${jsStr(m.glob)}, {
 
 	/**
 	 * Comandos para correr un test en local según el framework de la ejecución y la identidad del
-	 * test (la key que reportó el cliente). Devuelve [{label, cmd}] (vacío si no se puede deducir).
-	 * Con commit, el primero hace checkout de esa versión.
+	 * test (la key que reportó el cliente): [{label, cmd, scope}], primero solo el test ("test") y
+	 * después su archivo o clase completos ("file", "class"). Sin git checkout: el commit de la
+	 * ejecución se muestra aparte (reproScript). Igual que internal/repro.
 	 */
-	function reproCommands({ framework = "", key = "", name = "", commit = "" } = {}) {
+	function reproCommands({ framework = "", key = "" } = {}) {
 		const fw = lower(framework);
-		const out = [];
+		const out = [], whole = [];
 		if (!key || key.startsWith("name:")) return out;
+		const project = (p) => (p ? ` --project=${shq(p)}` : "");
 		if (fw === "pytest") {
-			out.push({ label: "pytest", cmd: `pytest ${shq(key)}` });
+			out.push({ label: "pytest", cmd: `pytest ${shq(key)}`, scope: "test" });
+			const file = key.split("::")[0];
+			if (key.includes("::") && file) whole.push({ label: "pytest", cmd: `pytest ${shq(file)}`, scope: "file" });
 		} else if (fw === "playwright") {
 			// "tests/login.spec.js > Login > admin entra [chromium]"
 			const m = key.match(/^(.*?) > (.*?)(?: \[([^\]]+)\])?$/);
 			if (m) {
 				const title = m[2].split(" > ").pop();
-				out.push({ label: "Playwright", cmd: `npx playwright test ${shq(m[1])} -g ${shq(`^${reEsc(title)}$`)}${m[3] ? ` --project=${shq(m[3])}` : ""}` });
+				out.push({ label: "Playwright", cmd: `npx playwright test ${shq(m[1])} -g ${shq(`^${reEsc(title)}$`)}${project(m[3])}`, scope: "test" });
+				whole.push({ label: "Playwright", cmd: `npx playwright test ${shq(m[1])}${project(m[3])}`, scope: "file" });
 			}
 		} else if (["junit5", "junit", "maven", "gradle", "testng"].includes(fw)) {
 			// "com.acme.LoginTest#adminEntra(String)" o "com.acme.LoginTest#loginOk"
 			const m = key.match(/^([\w.$]+)#([\w$]+)/);
 			if (m) {
 				const cls = m[1].split(".").pop();
-				out.push({ label: "Maven", cmd: `mvn test -Dtest=${shq(`${cls}#${m[2]}`)}` });
-				out.push({ label: "Gradle", cmd: `./gradlew test --tests ${shq(`${m[1]}.${m[2]}`)}` });
+				out.push({ label: "Maven", cmd: `mvn test -Dtest=${shq(`${cls}#${m[2]}`)}`, scope: "test" });
+				out.push({ label: "Gradle", cmd: `./gradlew test --tests ${shq(`${m[1]}.${m[2]}`)}`, scope: "test" });
+				whole.push({ label: "Maven", cmd: `mvn test -Dtest=${shq(cls)}`, scope: "class" });
+				whole.push({ label: "Gradle", cmd: `./gradlew test --tests ${shq(m[1])}`, scope: "class" });
 			}
 		} else if (fw === "go") {
 			// "shop/checkout/TestPay/visa": paquete hasta el primer Test*
@@ -743,16 +750,44 @@ cy.intercept(${jsStr(m.method)}, ${jsStr(m.glob)}, {
 			if (i >= 0) {
 				const pkg = parts.slice(0, i).join("/");
 				const run = parts.slice(i).map((p) => `^${reEsc(p)}$`).join("/");
-				out.push({ label: "Go", cmd: `go test ${shArg(`./${pkg}${pkg ? "/" : ""}...`)} -run ${shq(run)}` });
+				out.push({ label: "Go", cmd: `go test ${shArg(`./${pkg}${pkg ? "/" : ""}...`)} -run ${shq(run)}`, scope: "test" });
 			}
 		}
-		// solo un commit de Git válido: también protege lo guardado por versiones anteriores
-		const c = normalizeCommit(commit).slice(0, 12);
-		if (c && out.length) {
-			for (const o of out) o.cmd = `git checkout ${c} && ${o.cmd}`;
-		}
-		return out;
+		return [...out, ...whole];
 	}
 
-	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, curlOf, reproCommands, diffCalls, jsonDiff, maskValue, esc, Tips };
+	// el fallo habla de algo que un test anterior del mismo archivo debía dejar (dato vacío, paso
+	// omitido): corrido solo, falla por eso (igual que repro.DependsOnEarlier)
+	const DEPENDS_RE = /\bvac[ií][oa]s?\b|\bempty\b|\bis (?:none|null|undefined)\b|\bnonetype\b|\bomitid[oa]s?\b|\bomitted\b|\bskipped because\b|\bpaso anterior\b|\bprevious (?:step|test)\b|\bprecondici[oó]n\b|\bprecondition\b|\bdepende de\b|\bdepends on\b/i;
+	const dependsOnEarlier = (msg) => DEPENDS_RE.test(String(msg || "").slice(0, 600));
+	/** Con un test que depende de otros anteriores, el archivo o la clase completos van primero. */
+	const orderedRepro = (cmds, fileFirst) => (fileFirst ? [...cmds.filter((c) => c.scope !== "test"), ...cmds.filter((c) => c.scope === "test")] : cmds);
+
+	const REPRO_TEXT = {
+		es: { test_short: "Este test", file_short: "Todo el archivo", class_short: "Toda la clase",
+			test: "Este test", file: "Todo el archivo (si el test depende de otros anteriores del mismo archivo)",
+			class: "Toda la clase (si el test depende de otros anteriores de la misma clase)",
+			commit: "La ejecución usó el commit {c}; si tu copia está en otra versión: git checkout {c}" },
+		en: { test_short: "This test", file_short: "The whole file", class_short: "The whole class",
+			test: "This test", file: "The whole file (if the test depends on earlier ones of the same file)",
+			class: "The whole class (if the test depends on earlier ones of the same class)",
+			commit: "The run used commit {c}; if your copy is on another version: git checkout {c}" },
+	};
+	/** Qué corre cada comando, para mostrarlo junto a él (short: sin la explicación entre paréntesis). */
+	const reproScope = (scope, lang = "es", short = false) => (REPRO_TEXT[lang] || REPRO_TEXT.es)[short ? `${scope}_short` : scope] || "";
+	/** La nota del commit de la ejecución ("" sin un commit de Git válido). */
+	const reproCommitNote = (commit, lang = "es") => {
+		const c = normalizeCommit(commit).slice(0, 12);
+		return c ? (REPRO_TEXT[lang] || REPRO_TEXT.es).commit.replace(/\{c\}/g, c) : "";
+	};
+	/** Los comandos como un bloque de shell con un comentario por comando y el commit como nota (igual que repro.Script). */
+	function reproScript(cmds, commit = "", lang = "es") {
+		if (!cmds?.length) return "";
+		const lines = cmds.map((c) => `# ${reproScope(c.scope, lang)} · ${c.label}\n${c.cmd}`).join("\n\n");
+		const note = reproCommitNote(commit, lang);
+		return note ? `${lines}\n\n# ${note}` : lines;
+	}
+
+	window.TraceReportsFeatures = { copyText, download, Drawer, sparkline, TimeTravelPlayer, LiveStream, MockGenerator, curlOf, reproCommands,
+		dependsOnEarlier, orderedRepro, reproScope, reproCommitNote, reproScript, diffCalls, jsonDiff, maskValue, esc, Tips };
 })();

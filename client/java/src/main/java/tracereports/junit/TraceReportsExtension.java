@@ -56,7 +56,8 @@ public class TraceReportsExtension implements BeforeEachCallback, AfterTestExecu
                 Path dir = Path.of("").toAbsolutePath().getFileName();
                 name = dir == null ? "JUnit" : dir.toString();
             }
-            cr.startRun(new TraceReports.RunInfo(name).environment(tracereports.Env.get("TRACEREPORTS_ENV")).framework("junit5"));
+            cr.startRun(new TraceReports.RunInfo(name).environment(tracereports.Env.get("TRACEREPORTS_ENV")).framework("junit5")
+                    .planned(PlannedTestsListener.planned()));
         }
 
         @Override
@@ -111,6 +112,12 @@ public class TraceReportsExtension implements BeforeEachCallback, AfterTestExecu
         TraceTest t = s.cr.startTest(new TraceReports.TestInfo(name.replaceAll("\\(\\)$", ""))
                 .key(key).suite(cls).params(index.isEmpty() ? "" : "#" + index + " " + display).category(String.join(", ", tags)));
         context.getStore(NS).put(TEST, t);
+        // TRACEREPORTS_REMOTE_CONTROL=1: si cancelaron la ejecución desde En vivo, el test se salta con el
+        // motivo (testAborted lo registra como Skip). No se detiene ningún proceso.
+        TraceReports.Control c = s.cr.cancelRequested();
+        if (c.cancel()) {
+            org.junit.jupiter.api.Assumptions.abort("Cancelado desde TraceReports" + (c.reason().isEmpty() ? "" : ": " + c.reason()));
+        }
     }
 
     /**

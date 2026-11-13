@@ -52,6 +52,7 @@ closed once.
 | `TRACEREPORTS_BIN_DOWNLOAD` | `1` | `0`: disable downloads; installed and already cached binaries still work |
 | `TRACEREPORTS_BIN_BASE_URL` | GitHub Releases | Local HTTP test server only (loopback); release paths are `/v0.2.0/checksums.txt` and `/v0.2.0/<asset>` |
 | `TRACEREPORTS_OFFLINE_REPORT` | `1` | `0`: do not build the report at the end (record only) |
+| `TRACEREPORTS_OFFLINE_PUSH` | `1` | Python: when it recorded because the run could not be created and the server answers by the end, it uploads it (`push`). `0`: do not upload |
 
 Add `tracereports-offline/` to your `.gitignore`: a recording may carry screenshots and test data.
 

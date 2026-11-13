@@ -10,6 +10,9 @@ type Incident struct {
 	Title     string
 	Tests     int
 	Diagnosis Diagnosis
+	// Followers: tests of the incident that failed because an earlier one did (a cascade). They are
+	// not independent failures: a run with one broken test and its cascade is not a down environment.
+	Followers int
 }
 
 // Summarize writes the headline (empty: keep the default one) and the summary of a run from its
@@ -22,7 +25,11 @@ func Summarize(lang string, total, failed int, incidents []Incident) (headline, 
 	if len(incidents) == 0 {
 		return "", ""
 	}
-	if total >= EnvDownMinTests && failed*100 >= EnvDownPercent*total {
+	followers := 0
+	for _, in := range incidents {
+		followers += in.Followers
+	}
+	if own, n := failed-followers, total-followers; n >= EnvDownMinTests && own*100 >= EnvDownPercent*n {
 		headline = fill(t["run_env_down"].Summary, map[string]string{
 			"pct": strconv.Itoa(failed * 100 / total), "failed": strconv.Itoa(failed), "total": strconv.Itoa(total)})
 	}
@@ -35,7 +42,7 @@ func Summarize(lang string, total, failed int, incidents []Incident) (headline, 
 		counts[cat]++
 	}
 	var parts []string
-	for _, cat := range []string{CategoryBackend, CategoryInfra, CategoryLocator, CategoryLogic, "none"} {
+	for _, cat := range []string{CategoryBackend, CategoryInfra, CategoryTiming, CategoryLocator, CategoryLogic, "none"} {
 		if n := counts[cat]; n > 0 {
 			parts = append(parts, fill(t["cat_"+cat].Summary, map[string]string{"n": strconv.Itoa(n)}))
 		}

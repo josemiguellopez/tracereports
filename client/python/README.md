@@ -19,7 +19,9 @@ pytest --tracereports                     # reports your pytest suite with no co
   `tracereports report <folder>` builds the HTML report and `tracereports push <folder>` uploads it later.
   With `TRACEREPORTS_OFFLINE=both` it also keeps that local copy while sending to the server
   ([local report guide][local-report]).
-- **Configuration** from the environment or the project's `.env` (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
+- **Configuration** from the environment or the project's `.env` (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`,
+  `TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`…). A slow server is retried with the same
+  `Idempotency-Key` (never a second run); a down one switches to local recording at once.
 
 Full documentation: [docs/en/python.md][python].
 
@@ -31,3 +33,12 @@ Without an installed binary, closing downloads and verifies the v0.2.0 renderer 
 [python]: https://github.com/josemiguellopez/tracereports/blob/main/docs/en/python.md
 [offline]: https://github.com/josemiguellopez/tracereports/blob/main/docs/en/offline.md
 [readme-es]: https://github.com/josemiguellopez/tracereports/blob/main/client/python/README.es.md
+
+## Pages for the Inspector
+
+- `TRACEREPORTS_DOM_STEPS=1`: keeps the page of every step of **every** test, also the ones that pass.
+- `TRACEREPORTS_DOM_STEPS=on-problem`: only of the ones that fail or have a WARNING (and a comparison
+  baseline of the passing ones every 7 days).
+- `TRACEREPORTS_DOM_ON=fail,warning` does not limit the above: it only adds the page of each WARNING.
+- `TRACEREPORTS_DOM_MODE=html` (optional; default `structure`): also sends the page's HTML and its style
+  sheets, so the Inspector draws the real page with its CSS in an isolated iframe.

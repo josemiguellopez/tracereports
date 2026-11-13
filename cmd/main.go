@@ -41,7 +41,9 @@
 //	TRACEREPORTS_SECRET_KEY  master key (32 bytes, base64/hex) to encrypt the AI key saved from Settings
 //	TRACEREPORTS_SECRET_KEY_PREVIOUS  the previous master key, only while rotating it
 //	TRACEREPORTS_LAB      off = disable FixLab's Request Lab (resending captured calls from the report)
-//	TRACEREPORTS_LAB_HOSTS  extra hosts a shared server's Lab may call (host, host:port or *.domain)
+//	TRACEREPORTS_LAB_HOSTS  extra hosts a shared server's Lab may call (host, host:port or *.domain);
+//	                        an internal one listed here is called without asking for confirmation
+//	TRACEREPORTS_LAB_STRICT 1 = a shared server's Lab never calls an internal host outside LAB_HOSTS
 package main
 
 import (
@@ -287,6 +289,7 @@ func runServer(parent context.Context) error {
 	}
 	analyzer := ai.New(store)
 	analyzer.Redact = redaction
+	analyzer.Shots = atrest.Dir{Path: shotsDir, Vault: vault}
 	// los análisis de IA terminan en segundo plano: la UI se entera en vivo por SSE
 	analyzer.OnChange = func(kind string, runID, testID int64) {
 		hub.Publish(live.Event{Type: kind, RunID: runID, TestID: testID})
@@ -316,7 +319,8 @@ func runServer(parent context.Context) error {
 		// criterios de "¿podemos salir a producción?" (TRACEREPORTS_RELEASE_GATE)
 		ReleaseGate: &gate,
 		// FixLab: reenviar llamadas capturadas desde el reporte (TRACEREPORTS_LAB=off lo apaga)
-		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS"))},
+		Lab: api.LabConfig{Disabled: labOff(env.Get("LAB")), Hosts: api.ParseLabHosts(env.Get("LAB_HOSTS")),
+			Strict: labStrict(env.Get("LAB_STRICT"))},
 		// tracereports demo (TRACEREPORTS_DEMO lo pone la demo)
 		Demo: env.Bool("DEMO"),
 		// qué capturas se guardan: all, failures u off (TRACEREPORTS_SCREENSHOTS)
@@ -348,6 +352,9 @@ func runServer(parent context.Context) error {
 	logEgress(analyzer.Config())
 	// lo que un reinicio dejó a medias (diagnósticos PENDING) se retoma, sin quedar colgado
 	analyzer.Recover(func(runID int64) { notifier.RunFinished(runID) })
+	// con reglas nuevas, los diagnósticos guardados de los últimos 30 días ven lo que ellas ven (sin «Reanalizar»)
+	go analyzer.RetriageOnUpgrade()
+	go measureDOMSizes(store)
 
 	srv := &http.Server{
 		Handler:           apiServer.Router(),
@@ -362,7 +369,10 @@ func runServer(parent context.Context) error {
 
 	ctx, stop := signal.NotifyContext(parent, os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	startRetention(ctx, store, shotsDir)
+	apiServer.StartRetention(ctx)
+	apiServer.StartCompaction(ctx) // devuelve al disco lo borrado cuando no hay ejecuciones en curso
+	apiServer.StartLiveAlerts(ctx)
+	apiServer.StartStallWatch(ctx) // avisa y guarda un volcado cuando el servidor queda trabado
 	startStaleRuns(ctx, apiServer)
 	if err := startWeekly(ctx, env.Get("WEEKLY_SUMMARY"), apiServer, notifier); err != nil {
 		return err
@@ -405,9 +415,46 @@ func labOff(v string) bool {
 	return false
 }
 
+// labStrict: TRACEREPORTS_LAB_STRICT on, so a shared server's Lab never calls an internal host
+// outside TRACEREPORTS_LAB_HOSTS (without it, the person confirms it).
+func labStrict(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	}
+	return false
+}
+
 func envOr(key, def string) string {
 	if v := os.Getenv(key); v != "" {
 		return v
 	}
 	return def
+}
+
+// measureDOMSizes records, in short batches with proportional pauses, the size of the Inspector's pages
+// stored by a version that did not note it: from then on Storage and /runs/{id}/dom/size never read the
+// pages. TRACEREPORTS_REMEASURE_PAGES=1 forgets the sizes and measures them all again (to check it).
+func measureDOMSizes(store *db.Store) {
+	if strings.TrimSpace(env.Get("REMEASURE_PAGES")) == "1" {
+		if err := store.ForgetDOMSizes(); err != nil {
+			slog.Warn("storage: forget the Inspector's page sizes", "err", err)
+			return
+		}
+		slog.Info("storage: measuring every Inspector page again (TRACEREPORTS_REMEASURE_PAGES=1)")
+	}
+	last := time.Now()
+	total, err := store.MeasureAllDOMSizes(200, 200*time.Millisecond, func(done int) {
+		if time.Since(last) >= 30*time.Second {
+			last = time.Now()
+			slog.Info("storage: measuring the Inspector's pages", "done", done)
+		}
+	})
+	if err != nil {
+		slog.Warn("storage: measure the Inspector's pages", "err", err, "measured", total)
+		return
+	}
+	if total > 0 {
+		slog.Info("storage: Inspector's pages measured", "pages", total)
+	}
 }

@@ -165,9 +165,19 @@ func sortedKeys(m map[string]string) []string {
 
 // Command is one way to run the test locally.
 type Command struct {
-	Label string `json:"label"`
+	Label string `json:"label"` // herramienta: pytest, Playwright, Maven, Gradle, Go
 	Cmd   string `json:"cmd"`
+	// Scope: what it runs. ScopeTest, only the failed test; ScopeFile / ScopeClass, the whole file or
+	// class (a test that depends on earlier ones, like a flow split in steps, fails alone for another reason).
+	Scope string `json:"scope"`
 }
+
+// Scopes of a command.
+const (
+	ScopeTest  = "test"
+	ScopeFile  = "file"
+	ScopeClass = "class"
+)
 
 var (
 	pwKey   = regexp.MustCompile(`^(.*?) > (.*?)(?: \[([^\]]+)\])?$`)
@@ -203,31 +213,36 @@ func pytestNodeID(key string) string {
 }
 
 // Commands runs the test locally according to the framework of the run and the test key
-// (pytest nodeid, Playwright title path, Java Class#method, Go package/TestName). With the
-// commit, each command first checks it out.
-func Commands(framework, key, commit string) []Command {
+// (pytest nodeid, Playwright title path, Java Class#method, Go package/TestName): first only the
+// test, then its whole file or class. No git checkout: the commit of the run is shown apart (Script),
+// a checkout fails with local changes and leaves a detached HEAD.
+func Commands(framework, key string) []Command {
 	fw := strings.ToLower(framework)
-	var out []Command
+	var out, whole []Command
 	if key == "" || strings.HasPrefix(key, "name:") {
 		return nil
 	}
+	project := func(p string) string {
+		if p == "" {
+			return ""
+		}
+		return " --project=" + shq(p)
+	}
 	switch fw {
 	case "pytest":
-		out = append(out, Command{"pytest", "pytest " + shq(pytestNodeID(key))})
+		id := pytestNodeID(key)
+		out = append(out, Command{"pytest", "pytest " + shq(id), ScopeTest})
+		if file, _, ok := strings.Cut(id, "::"); ok && file != "" {
+			whole = append(whole, Command{"pytest", "pytest " + shq(file), ScopeFile})
+		}
 	case "playwright":
 		if m := allurePWKey.FindStringSubmatch(key); m != nil { // Allure: archivo:línea:columna
-			cmd := "npx playwright test " + shq(m[1]+":"+m[2])
-			if m[3] != "" {
-				cmd += " --project=" + shq(m[3])
-			}
-			out = append(out, Command{"Playwright", cmd})
+			out = append(out, Command{"Playwright", "npx playwright test " + shq(m[1]+":"+m[2]) + project(m[3]), ScopeTest})
+			whole = append(whole, Command{"Playwright", "npx playwright test " + shq(m[1]) + project(m[3]), ScopeFile})
 		} else if m := pwKey.FindStringSubmatch(key); m != nil {
 			t := strings.Split(m[2], " > ")
-			cmd := fmt.Sprintf("npx playwright test %s -g %s", shq(m[1]), shq("^"+reEsc(t[len(t)-1])+"$"))
-			if m[3] != "" {
-				cmd += " --project=" + shq(m[3])
-			}
-			out = append(out, Command{"Playwright", cmd})
+			out = append(out, Command{"Playwright", fmt.Sprintf("npx playwright test %s -g %s", shq(m[1]), shq("^"+reEsc(t[len(t)-1])+"$")) + project(m[3]), ScopeTest})
+			whole = append(whole, Command{"Playwright", "npx playwright test " + shq(m[1]) + project(m[3]), ScopeFile})
 		}
 	case "junit5", "junit", "maven", "gradle", "testng", "junit-platform":
 		if m := allureJavaKey.FindStringSubmatch(key); m != nil && !strings.Contains(key, "#") {
@@ -235,8 +250,10 @@ func Commands(framework, key, commit string) []Command {
 		}
 		if m := javaKey.FindStringSubmatch(key); m != nil {
 			cls := m[1][strings.LastIndex(m[1], ".")+1:]
-			out = append(out, Command{"Maven", "mvn test -Dtest=" + shq(cls+"#"+m[2])},
-				Command{"Gradle", "./gradlew test --tests " + shq(m[1]+"."+m[2])})
+			out = append(out, Command{"Maven", "mvn test -Dtest=" + shq(cls+"#"+m[2]), ScopeTest},
+				Command{"Gradle", "./gradlew test --tests " + shq(m[1]+"."+m[2]), ScopeTest})
+			whole = append(whole, Command{"Maven", "mvn test -Dtest=" + shq(cls), ScopeClass},
+				Command{"Gradle", "./gradlew test --tests " + shq(m[1]), ScopeClass})
 		}
 	case "go":
 		parts := strings.Split(key, "/")
@@ -252,18 +269,72 @@ func Commands(framework, key, commit string) []Command {
 			if pkg != "" {
 				pkg += "/"
 			}
-			out = append(out, Command{"Go", fmt.Sprintf("go test %s -run %s", shArg("./"+pkg+"..."), shq(strings.Join(run, "/")))})
+			out = append(out, Command{"Go", fmt.Sprintf("go test %s -run %s", shArg("./"+pkg+"..."), shq(strings.Join(run, "/"))), ScopeTest})
 			break
 		}
 	}
-	// solo un commit de Git válido: también protege lo guardado por versiones anteriores
-	if commit = NormalizeCommit(commit); commit != "" {
-		if len(commit) > 12 {
-			commit = commit[:12]
+	return append(out, whole...)
+}
+
+// dependsRe: the failure is about something an earlier test of the same file should have left
+// (empty data, a step skipped because the previous one failed): run alone, the test fails for that.
+var dependsRe = regexp.MustCompile(`(?i)\bvac[ií][oa]s?\b|\bempty\b|\bis (?:none|null|undefined)\b|\bnonetype\b|\bomitid[oa]s?\b|\bomitted\b|\bskipped because\b|\bpaso anterior\b|\bprevious (?:step|test)\b|\bprecondici[oó]n\b|\bprecondition\b|\bdepende de\b|\bdepends on\b`)
+
+// DependsOnEarlier reports whether a failure message says the test needed an earlier one.
+func DependsOnEarlier(errorMessage string) bool {
+	if len(errorMessage) > 600 {
+		errorMessage = errorMessage[:600]
+	}
+	return dependsRe.MatchString(errorMessage)
+}
+
+// Ordered puts the whole file or class first when fileFirst (a test that depends on earlier ones).
+func Ordered(cmds []Command, fileFirst bool) []Command {
+	if !fileFirst {
+		return cmds
+	}
+	out := make([]Command, 0, len(cmds))
+	for _, c := range cmds {
+		if c.Scope != ScopeTest {
+			out = append(out, c)
 		}
-		for i := range out {
-			out[i].Cmd = "git checkout " + commit + " && " + out[i].Cmd
+	}
+	for _, c := range cmds {
+		if c.Scope == ScopeTest {
+			out = append(out, c)
 		}
 	}
 	return out
+}
+
+var scriptText = map[string]map[string]string{
+	"es": {ScopeTest: "Este test", ScopeFile: "Todo el archivo (si el test depende de otros anteriores del mismo archivo)",
+		ScopeClass: "Toda la clase (si el test depende de otros anteriores de la misma clase)",
+		"commit":   "La ejecución usó el commit %s; si tu copia está en otra versión: git checkout %s"},
+	"en": {ScopeTest: "This test", ScopeFile: "The whole file (if the test depends on earlier ones of the same file)",
+		ScopeClass: "The whole class (if the test depends on earlier ones of the same class)",
+		"commit":   "The run used commit %s; if your copy is on another version: git checkout %s"},
+}
+
+// Script is the commands as one shell block, each under a comment that says what it runs, and the
+// commit of the run as a note (never chained to the command).
+func Script(cmds []Command, commit, lang string) string {
+	t := scriptText[lang]
+	if t == nil {
+		t = scriptText["es"]
+	}
+	var b strings.Builder
+	for i, c := range cmds {
+		if i > 0 {
+			b.WriteString("\n")
+		}
+		fmt.Fprintf(&b, "# %s · %s\n%s\n", t[c.Scope], c.Label, c.Cmd)
+	}
+	if commit = NormalizeCommit(commit); commit != "" && len(cmds) > 0 {
+		if len(commit) > 12 {
+			commit = commit[:12]
+		}
+		fmt.Fprintf(&b, "\n# "+t["commit"]+"\n", commit, commit)
+	}
+	return strings.TrimRight(b.String(), "\n")
 }

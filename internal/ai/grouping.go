@@ -1,19 +1,25 @@
 package ai
 
 import (
+	"encoding/json"
 	"fmt"
+	"github.com/josemiguellopez/tracereports/internal/errtext"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/db"
+	"github.com/josemiguellopez/tracereports/internal/locator"
 )
 
 // Failure grouping. An incident joins failed tests only on discriminating evidence:
 //   - backend: the same failing call (method, host and normalized path, outcome) that happened
 //     shortly before the test failed and plausibly caused it;
-//   - error: the same signature (exception type, normalized message and the innermost frame of
-//     the project's code).
+//   - error: the same signature (exception type, normalized message and the file of the innermost
+//     frame of the project's code: the same error raised from several lines of a file is one);
+//   - cascade: the first failed test of a file and the later ones of that file whose failure points
+//     to it (cascade.go).
 // The AI category alone never merges two failures: two LOGIC_BUGs are two incidents unless their
 // signatures match.
 
@@ -107,7 +113,7 @@ var (
 // type, message with variable parts (numbers, ids) replaced, and the innermost frame of the
 // project's own code (shared page objects or helpers make related failures share it).
 func errorSignature(msg, trace string) (sig, exc, location string) {
-	first := strings.TrimSpace(strings.SplitN(strings.TrimSpace(msg), "\n", 2)[0])
+	first := errorLine(msg)
 	if m := excTypeRe.FindStringSubmatch(first); m != nil {
 		exc = m[1]
 		first = strings.TrimSpace(first[len(m[0]):])
@@ -121,7 +127,48 @@ func errorSignature(msg, trace string) (sig, exc, location string) {
 		norm = norm[:120]
 	}
 	location = innermostFrame(trace)
-	return exc + "|" + norm + "|" + location, exc, location
+	return exc + "|" + norm + "|" + frameFile(location), exc, location
+}
+
+// frameFile is the file of a "file:line" location (the line stays out of the grouping key).
+func frameFile(loc string) string {
+	if i := strings.LastIndexByte(loc, ':'); i > 0 && strings.Trim(loc[i+1:], "0123456789") == "" {
+		return loc[:i]
+	}
+	return loc
+}
+
+// mergeLocation adds the line of another test of the same incident: "pages/x.py:135, 158".
+func mergeLocation(cur, add string) string {
+	if cur == "" || add == "" {
+		return cur + add
+	}
+	file := frameFile(add)
+	if file == add || !strings.HasPrefix(cur, file+":") {
+		return cur
+	}
+	line := add[len(file)+1:]
+	for _, l := range strings.Split(cur[len(file)+1:], ", ") {
+		if l == line {
+			return cur
+		}
+	}
+	return cur + ", " + line
+}
+
+// chainedRe: the lines Python adds between chained exceptions; they say nothing of the error.
+var chainedRe = regexp.MustCompile(`^(?:During handling of the above exception, another exception occurred:|The above exception was the direct cause of the following exception:|Traceback \(most recent call last\):)$`)
+
+// errorLine is the first line of an error message that says something: a chained exception starts
+// with "During handling of the above exception..." in every test, which would join unrelated
+// failures and is a useless title.
+func errorLine(msg string) string {
+	for _, l := range strings.Split(strings.TrimSpace(msg), "\n") {
+		if l = strings.TrimSpace(l); l != "" && !chainedRe.MatchString(l) {
+			return l
+		}
+	}
+	return ""
 }
 
 func lastErrorLine(trace string) string {
@@ -187,12 +234,10 @@ func (a *Analyzer) incidentFor(t *db.Test) (db.Incident, error) {
 		in.Evidence = append(in.Evidence, db.Evidence{TestID: t.ID, Kind: "network", Ref: conn.ID, Text: fact})
 	} else {
 		sig, exc, loc := errorSignature(t.ErrorMessage, t.ErrorTrace)
-		title := strings.TrimSpace(strings.SplitN(t.ErrorMessage, "\n", 2)[0])
+		// sin el envoltorio del framework ("…archivo.py: [") y cortado en una palabra, nunca en una letra
+		title := errtext.Short(t.ErrorMessage, 110)
 		if title == "" {
 			title = "Fallo sin mensaje de error"
-		}
-		if len(title) > 110 {
-			title = title[:110] + "…"
 		}
 		in = db.Incident{Key: "error:" + sig, Kind: "error", Title: title, Exception: exc, Location: loc}
 		in.Evidence = append(in.Evidence, db.Evidence{TestID: t.ID, Kind: "error", Text: title})
@@ -200,11 +245,41 @@ func (a *Analyzer) incidentFor(t *db.Test) (db.Incident, error) {
 	if t.Triage != nil && t.Triage.State == "DONE" {
 		in.Category = t.Triage.Category
 	}
+	shot := ""
 	for i := len(full.Logs) - 1; i >= 0; i-- {
 		if l := full.Logs[i]; l.Screenshot != "" && l.Status == "FAIL" {
 			in.Evidence = append(in.Evidence, db.Evidence{TestID: t.ID, Kind: "screenshot", Ref: l.ID, Text: l.Message, URL: l.Screenshot})
+			shot = l.Screenshot
 			break
 		}
 	}
+	if blank := a.blankPage(t.ID, shot); blank != "" {
+		in.Evidence = append(in.Evidence, db.Evidence{TestID: t.ID, Kind: "blank_page", Text: blank})
+	}
 	return in, nil
+}
+
+// blankPage says whether the page was blank when the test failed (the browser never finished
+// loading it): the DOM snapshot has elements but none visible, or the screenshot is a single
+// color. "" when it was not, or there is nothing to tell.
+func (a *Analyzer) blankPage(testID int64, shot string) string {
+	if raw, err := a.store.GetDOM(testID); err == nil && raw != "" {
+		var snap locator.Snapshot
+		if json.Unmarshal([]byte(raw), &snap) == nil && len(snap.Elements) > 0 {
+			visible := 0
+			for _, e := range snap.Elements {
+				if e.Visible {
+					visible++
+				}
+			}
+			if visible == 0 {
+				return fmt.Sprintf("Página en blanco al fallar: el snapshot del DOM no tiene elementos visibles (%d en total)", len(snap.Elements))
+			}
+			return "" // con elementos visibles no estaba en blanco, diga lo que diga la captura
+		}
+	}
+	if shot != "" && a.Shots.Path != "" && blankImage(a.Shots, filepath.Base(shot)) {
+		return "Página en blanco al fallar: la captura es de un solo color"
+	}
+	return ""
 }

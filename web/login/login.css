@@ -1,0 +1,377 @@
+/* Página de ingreso de TraceReports. Un lienzo técnico (reglas, grilla, workers que arman una traza en
+   vivo) y una tarjeta sobria con Trace Buddy asomado encima. Profundidad por capas (0 fondo … 5 efectos),
+   movimiento solo con transform/opacity y nada con "reducir movimiento". */
+:root {
+	--ink: #08090c;
+	--ink-2: #0d0f13;
+	--line: #1d222a;
+	--line-2: #2a313b;
+	--text: #e9edf2;
+	--muted: #8a94a2;
+	--faint: #4b5361;
+	--lime: #c9fa6b;
+	--lime-ink: #18200d;
+	--cyan: #29dfff;
+	--pass: #3ecf8e;
+	--warn: #f5b83d;
+	--fail: #ff5d5d;
+	--focus: #29dfff;
+	--spring: cubic-bezier(.22, 1.25, .36, 1);
+	--out: cubic-bezier(.2, .8, .2, 1);
+	--ruler: 22px;
+	--px: 0px; --py: 0px; /* el puntero, para el parallax */
+	color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+	background: var(--ink); color: var(--text); overflow: hidden;
+	font: 400 14px/1.45 Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+	-webkit-font-smoothing: antialiased;
+}
+.mono { font-family: "JetBrains Mono", Consolas, monospace; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+
+/* ---------- depth 0-3: el lienzo ---------- */
+.stage { position: fixed; inset: 0; }
+.stage canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+/* luz de la escena: un foco frío arriba y el viñeteado que asienta la tarjeta */
+.stage::before, .stage::after { content: ""; position: absolute; inset: 0; pointer-events: none; }
+.stage::before {
+	background: radial-gradient(60% 50% at 30% 20%, rgba(41, 223, 255, .07), transparent 70%),
+		radial-gradient(40% 40% at 78% 60%, rgba(201, 250, 107, .05), transparent 70%);
+	transform: translate3d(calc(var(--px) * -0.25), calc(var(--py) * -0.25), 0);
+}
+.stage::after { background: radial-gradient(120% 90% at 50% 50%, transparent 55%, rgba(0, 0, 0, .55) 100%); }
+.ruler { position: absolute; background: rgba(13, 15, 19, .92); z-index: 1; }
+.ruler-top { left: 0; right: 0; top: 0; height: var(--ruler); border-bottom: 1px solid var(--line); }
+.ruler-left { top: 0; bottom: 0; left: 0; width: var(--ruler); border-right: 1px solid var(--line); }
+.ruler-left::before { content: ""; position: absolute; left: 0; top: 0; width: var(--ruler); height: var(--ruler); background: var(--ink-2); border: solid var(--line); border-width: 0 1px 1px 0; z-index: 2; }
+
+/* ---------- layout ---------- */
+.shell {
+	position: relative; z-index: 2; height: 100%;
+	display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, 420px); align-items: center;
+	gap: 48px; padding: calc(var(--ruler) + 40px) clamp(28px, 6vw, 96px) 40px calc(var(--ruler) + clamp(28px, 5vw, 80px));
+}
+
+/* ---------- depth 4: el mensaje ---------- */
+.pitch { align-self: end; max-width: 620px; padding-bottom: 12px;
+	transform: translate3d(calc(var(--px) * 0.15), calc(var(--py) * 0.15), 0); }
+.kicker { display: inline-flex; align-items: center; gap: 10px; margin: 0 0 18px; padding: 5px 10px 5px 8px;
+	border: 1px solid var(--line-2); border-radius: 999px; background: rgba(13, 15, 19, .7);
+	font: 500 11px "JetBrains Mono", monospace; letter-spacing: .08em; color: var(--muted); }
+.kicker .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--pass); box-shadow: 0 0 0 0 rgba(62, 207, 142, .6); animation: pulse 2s infinite; }
+.kicker .mono { color: var(--text); letter-spacing: 0; }
+.pitch h1 { margin: 0; font: 600 clamp(34px, 4.2vw, 58px)/1.02 Inter, sans-serif; letter-spacing: -.035em; color: #f4f7fa; max-width: 12ch; }
+.lede { margin: 18px 0 0; max-width: 46ch; color: var(--muted); font-size: 15.5px; }
+
+/* ---------- depth 4: la tarjeta ---------- */
+.card {
+	position: relative; padding: 30px 30px 22px; border-radius: 18px;
+	background: linear-gradient(180deg, rgba(20, 23, 29, .86), rgba(12, 14, 18, .9));
+	border: 1px solid var(--line-2);
+	box-shadow: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 30px 80px -20px rgba(0, 0, 0, .8), 0 0 0 1px rgba(0, 0, 0, .4);
+	backdrop-filter: blur(14px) saturate(1.2); -webkit-backdrop-filter: blur(14px) saturate(1.2);
+	transform: translate3d(calc(var(--px) * -0.08), calc(var(--py) * -0.08), 0);
+	animation: card-in 900ms var(--spring) both 120ms;
+}
+/* el borde superior se enciende apenas, como un filo */
+.card::before { content: ""; position: absolute; inset: -1px; border-radius: inherit; padding: 1px; pointer-events: none;
+	background: linear-gradient(180deg, rgba(201, 250, 107, .35), rgba(41, 223, 255, .08) 35%, transparent 60%);
+	-webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0); -webkit-mask-composite: xor; mask-composite: exclude; }
+
+/* Trace Buddy encima de la tarjeta, asomado por el borde */
+.buddy { position: absolute; right: 18px; top: -138px; width: 170px; height: 170px; z-index: 3; pointer-events: none;
+	animation: buddy-in 1100ms var(--spring) both 450ms; }
+.buddy canvas { width: 100% !important; height: 100% !important; }
+.buddy-still { width: 112px; position: absolute; left: 30px; bottom: 26px; filter: drop-shadow(0 10px 20px rgba(0, 0, 0, .5)); }
+.buddy.has-3d .buddy-still { display: none; }
+
+.brand { display: flex; align-items: center; gap: 10px; margin-bottom: 26px; }
+.mark { width: 28px; height: 28px; border-radius: 6px; overflow: hidden; display: inline-flex; box-shadow: 0 0 0 1px rgba(201, 250, 107, .35); }
+.mark svg { width: 100%; height: 100%; }
+.word { font: 700 15px "JetBrains Mono", monospace; letter-spacing: -.01em; }
+.caret { color: var(--lime); animation: blink 1.1s steps(1) infinite; }
+.card h2 { margin: 0; font: 600 26px/1.15 Inter, sans-serif; letter-spacing: -.02em; }
+.sub { margin: 6px 0 22px; color: var(--muted); font-size: 13.5px; }
+.notice { margin: -8px 0 18px; padding: 9px 12px; border-radius: 10px; font-size: 13px;
+	background: rgba(41, 223, 255, .08); border: 1px solid rgba(41, 223, 255, .25); color: #bdeffd; }
+.notice.warn { background: rgba(245, 184, 61, .08); border-color: rgba(245, 184, 61, .3); color: #fde3a7; }
+
+/* campos */
+.field { display: grid; gap: 7px; margin-bottom: 16px; }
+.label { font: 500 11.5px "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.field input {
+	width: 100%; height: 46px; padding: 0 14px; border-radius: 11px;
+	background: rgba(8, 9, 12, .7); border: 1px solid var(--line-2); color: var(--text);
+	font: 500 15px Inter, sans-serif; outline: none;
+	transition: border-color .18s, box-shadow .25s var(--out), background .18s;
+}
+.field input:hover { border-color: #3a434f; }
+.field input:focus { border-color: rgba(41, 223, 255, .7); background: rgba(8, 9, 12, .9);
+	box-shadow: 0 0 0 4px rgba(41, 223, 255, .12), 0 0 24px -6px rgba(41, 223, 255, .5); }
+.field.bad input { border-color: rgba(255, 93, 93, .75); box-shadow: 0 0 0 4px rgba(255, 93, 93, .12); }
+.pw { position: relative; display: block; }
+.pw input { padding-right: 50px; letter-spacing: .02em; }
+.pw input[type="password"] { letter-spacing: .18em; }
+.eye { position: absolute; right: 6px; top: 6px; width: 34px; height: 34px; border-radius: 8px; border: 0;
+	background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center;
+	transition: color .15s, background .15s, transform .2s var(--spring); }
+.eye:hover { color: var(--text); background: rgba(255, 255, 255, .05); }
+.eye:active { transform: scale(.9); }
+.eye:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.eye svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; overflow: visible; }
+.eye .iris { fill: currentColor; stroke: none; transform-origin: 12px 12px; transition: transform .3s var(--spring); }
+.eye .slash { stroke-dasharray: 23; stroke-dashoffset: 0; transition: stroke-dashoffset .3s var(--out); }
+.eye[aria-pressed="true"] { color: var(--cyan); }
+.eye[aria-pressed="true"] .slash { stroke-dashoffset: 23; }
+.eye[aria-pressed="false"] .iris { transform: scaleY(.25); }
+.caps { font-size: 12px; color: var(--warn); }
+
+/* recordarme: un interruptor */
+.remember { display: flex; align-items: center; gap: 10px; margin: 4px 0 22px; font-size: 13.5px; cursor: pointer; user-select: none; }
+.remember input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch { position: relative; width: 34px; height: 20px; border-radius: 999px; background: #1e242c; border: 1px solid var(--line-2); flex: none;
+	transition: background .2s, border-color .2s; }
+.switch i { position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #9aa4b1;
+	transition: transform .35s var(--spring), background .2s; }
+.remember input:checked + .switch { background: rgba(201, 250, 107, .18); border-color: rgba(201, 250, 107, .55); }
+.remember input:checked + .switch i { transform: translateX(14px); background: var(--lime); }
+.remember input:focus-visible + .switch { outline: 2px solid var(--focus); outline-offset: 2px; }
+.muted { color: var(--muted); }
+
+/* el botón */
+.go {
+	position: relative; width: 100%; height: 48px; border: 0; border-radius: 12px; cursor: pointer; overflow: hidden;
+	display: flex; align-items: center; justify-content: center; gap: 10px;
+	background: var(--lime); color: var(--lime-ink); font: 650 15px Inter, sans-serif; letter-spacing: -.005em;
+	box-shadow: 0 1px 0 rgba(255, 255, 255, .5) inset, 0 10px 30px -10px rgba(201, 250, 107, .55);
+	transition: transform .25s var(--spring), box-shadow .25s, filter .2s;
+}
+.go::after { content: ""; position: absolute; inset: 0; background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, .45) 50%, transparent 65%);
+	transform: translateX(-120%); }
+.go:hover { box-shadow: 0 1px 0 rgba(255, 255, 255, .5) inset, 0 14px 36px -10px rgba(201, 250, 107, .7); }
+.go:hover::after { transform: translateX(120%); transition: transform .9s var(--out); }
+.go:active { transform: scale(.98); }
+.go:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+.go-arrow { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round;
+	transition: transform .3s var(--spring); }
+.go:hover .go-arrow { transform: translateX(3px); }
+.go-spin { display: none; width: 18px; height: 18px; border-radius: 50%; border: 2px solid rgba(24, 32, 13, .25); border-top-color: var(--lime-ink); animation: spin .7s linear infinite; }
+.go[aria-busy="true"] .go-spin { display: block; }
+.go[aria-busy="true"] .go-arrow { display: none; }
+.go:disabled { cursor: default; filter: saturate(.4) brightness(.8); }
+.go.ok { background: var(--pass); }
+
+.error { min-height: 20px; margin: 12px 0 0; font-size: 13px; color: #ff9b9b; }
+.foot { display: flex; align-items: center; gap: 8px; margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line);
+	font-size: 12px; color: var(--muted); }
+.foot svg { width: 15px; height: 15px; fill: none; stroke: var(--pass); stroke-width: 1.8; flex: none; }
+
+.shake { animation: shake .45s var(--out); }
+.nojs { position: fixed; inset: auto 0 20px; text-align: center; color: var(--warn); z-index: 5; }
+
+@keyframes card-in { from { opacity: 0; transform: translate3d(0, 24px, 0) scale(.98); } to { opacity: 1; } }
+@keyframes buddy-in { from { opacity: 0; transform: translateY(40px) scale(.9); } to { opacity: 1; transform: none; } }
+@keyframes blink { 50% { opacity: 0; } }
+@keyframes spin { to { transform: rotate(1turn); } }
+@keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(62, 207, 142, .55); } 70% { box-shadow: 0 0 0 8px rgba(62, 207, 142, 0); } 100% { box-shadow: 0 0 0 0 rgba(62, 207, 142, 0); } }
+@keyframes shake { 20%, 60% { transform: translateX(-7px); } 40%, 80% { transform: translateX(7px); } }
+
+/* angosto: la tarjeta al centro, el lienzo de fondo (atenuado) y sin el mensaje */
+@media (max-width: 960px) {
+	.shell { grid-template-columns: minmax(0, 440px); justify-content: center; padding: calc(var(--ruler) + 150px) 16px 24px calc(var(--ruler) + 16px); overflow-y: auto; }
+	.pitch { display: none; }
+	.stage canvas { opacity: .55; }
+	body { overflow: auto; }
+}
+@media (max-width: 480px) {
+	:root { --ruler: 0px; }
+	.ruler { display: none; }
+	.card { padding: 24px 20px 18px; }
+	.shell { padding: 140px 12px 20px; }
+	.buddy { width: 140px; height: 140px; top: -112px; right: 10px; }
+}
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+	.pitch, .card, .stage::before { transform: none !important; }
+}
+
+/* ---------- la obra: los agentes arman la tarjeta (Swarm: un sitio que se construye solo) ---------- */
+/* mientras se construye, cada pieza espera su agente; Motion las trae con resorte */
+.card.building { background: transparent; border-color: transparent; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.card.building::before { opacity: 0; }
+.card.assembling [data-build] { opacity: 0; }
+.card.framed { transition: background .5s var(--out), border-color .5s var(--out), box-shadow .6s var(--out); }
+/* el marco de la mesa de trabajo, con su nombre arriba (como un frame de una herramienta de diseño) */
+.artboard { position: absolute; left: -1px; top: -24px; display: inline-flex; align-items: center; gap: 6px;
+	font: 500 11px "JetBrains Mono", monospace; color: var(--muted); white-space: nowrap; pointer-events: none; }
+.artboard i { width: 8px; height: 8px; border: 1.5px solid currentColor; border-radius: 2px; }
+.ab-state { color: var(--warn); }
+.ab-state.done { color: var(--pass); }
+.card.building .artboard, .card.framing .artboard { color: var(--cyan); }
+.card.building::after { content: ""; position: absolute; inset: 0; border-radius: inherit; border: 1px dashed rgba(41, 223, 255, .45); pointer-events: none; }
+/* la barrida del agente de QA */
+.scan { position: absolute; left: 0; right: 0; height: 2px; top: 0; pointer-events: none; z-index: 4;
+	background: linear-gradient(90deg, transparent, var(--cyan), transparent); box-shadow: 0 0 18px 2px rgba(41, 223, 255, .55); }
+
+/* los agentes: un cursor con su nombre, como los de un editor compartido */
+.agents { position: fixed; inset: 0; z-index: 6; pointer-events: none; }
+.agent { position: absolute; left: 0; top: 0; display: flex; align-items: flex-start; gap: 2px; will-change: transform; }
+.agent svg { width: 18px; height: 18px; filter: drop-shadow(0 2px 4px rgba(0, 0, 0, .5)); }
+.agent b { margin-top: 14px; padding: 2px 7px 3px; border-radius: 6px; font: 600 10.5px "JetBrains Mono", monospace; color: #08090c; white-space: nowrap;
+	box-shadow: 0 4px 14px rgba(0, 0, 0, .35); }
+.agent em { display: block; font-style: normal; font-weight: 500; opacity: .75; }
+.chip-done { position: absolute; z-index: 5; padding: 2px 7px; border-radius: 6px; font: 600 10px "JetBrains Mono", monospace; pointer-events: none;
+	color: #04140c; background: var(--pass); white-space: nowrap; }
+
+/* el humo de la obra */
+.smoke { position: fixed; inset: 0; width: 100%; height: 100%; z-index: 5; pointer-events: none; }
+
+/* lo que dice Trace Buddy: un globo a su izquierda */
+.say { position: absolute; right: 168px; top: -112px; z-index: 4; max-width: 270px; margin: 0; padding: 11px 14px; border-radius: 14px 14px 4px 14px;
+	background: #f3f6f9; color: #0c1117; font: 500 13px/1.4 Inter, sans-serif; box-shadow: 0 14px 40px -10px rgba(0, 0, 0, .7); }
+.say::after { content: ""; position: absolute; right: -7px; bottom: 10px; border: 7px solid transparent; border-left-color: #f3f6f9; border-right: 0; }
+.say b { font-weight: 650; }
+.say .who { display: block; margin-bottom: 2px; font: 600 10px "JetBrains Mono", monospace; letter-spacing: .06em; text-transform: uppercase; color: #5b6676; }
+@media (max-width: 960px) { .say { right: auto; left: 0; top: -128px; max-width: calc(100% - 150px); } .say::after { display: none; } }
+@media (max-width: 480px) { .say { top: -122px; font-size: 12px; padding: 9px 11px; } }
+@media (prefers-reduced-motion: reduce) { .agents, .smoke, .scan { display: none; } }
+
+/* ---------- la obra completa: reglas, guías, rectángulos que se arrastran y textos que se escriben ---------- */
+.unbuilt { opacity: 0 !important; }
+.ruler-top { transform-origin: left center; }
+.ruler-left { transform-origin: center top; }
+.stage canvas { transition: opacity .9s var(--out); }
+.stage.dark canvas { opacity: 0; }
+/* una guía (como las de una herramienta de diseño): fina, punteada, con su posición */
+.guide { position: fixed; z-index: 5; pointer-events: none; background: repeating-linear-gradient(var(--gdir, 180deg), rgba(255, 95, 162, .85) 0 4px, transparent 4px 8px); }
+.guide.x { top: 0; bottom: 0; width: 1px; --gdir: 180deg; transform-origin: top; }
+.guide.y { left: 0; right: 0; height: 1px; --gdir: 90deg; transform-origin: left; }
+.guide::after { content: attr(data-label); position: absolute; padding: 1px 5px; border-radius: 4px; background: #ff5fa2; color: #1a0610;
+	font: 600 9.5px "JetBrains Mono", monospace; white-space: nowrap; }
+.guide.x::after { top: calc(var(--ruler) + 4px); left: 4px; }
+.guide.y::after { left: calc(var(--ruler) + 4px); top: 4px; }
+/* el rectángulo que arrastra un agente, con su medida */
+.draft { position: fixed; z-index: 5; pointer-events: none; border: 1.5px solid; border-radius: 10px; transform-origin: top left;
+	background: color-mix(in srgb, currentColor 6%, transparent); box-shadow: 0 0 0 1px rgba(0, 0, 0, .3); }
+.draft span { position: absolute; right: -2px; bottom: -22px; padding: 1px 6px; border-radius: 4px; color: #08090c;
+	font: 600 10px "JetBrains Mono", monospace; white-space: nowrap; }
+/* el cursor de texto del agente que escribe */
+.type-caret { display: inline-block; width: 2px; height: .95em; margin-left: 2px; vertical-align: -.1em; border-radius: 1px; animation: blink .8s steps(1) infinite; }
+
+/* ---------- el globo de Trace Buddy (v2): encabezado, "escribiendo…", resaltador y el tono pícaro ---------- */
+.say { position: absolute; right: 172px; top: -122px; z-index: 4; width: max-content; max-width: 280px; margin: 0; padding: 10px 14px 12px;
+	border-radius: 16px; color: #0c1117; transform-origin: 100% 100%;
+	background: linear-gradient(180deg, #ffffff, #eef2f7);
+	box-shadow: 0 1px 0 #fff inset, 0 0 0 1px rgba(255, 255, 255, .06), 0 22px 44px -14px rgba(0, 0, 0, .8), 0 0 40px -10px rgba(41, 223, 255, .35); }
+/* la colita: un cuadrado girado, redondeado, que apunta a Buddy */
+.say::after { content: ""; position: absolute; right: -6px; bottom: 16px; width: 14px; height: 14px; border: 0; border-radius: 3px;
+	background: #eef2f7; transform: rotate(45deg); }
+.say-h { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font: 600 10px "JetBrains Mono", monospace; letter-spacing: .05em;
+	text-transform: uppercase; color: #5b6676; }
+.say-h i { width: 7px; height: 7px; border-radius: 50%; background: var(--pass); box-shadow: 0 0 0 3px rgba(62, 207, 142, .2); }
+.say-h small { margin-left: 10px; font-weight: 500; text-transform: none; letter-spacing: 0; color: #9aa4b2; }
+.say-t { display: block; font: 500 13.5px/1.45 Inter, sans-serif; }
+.say-t b { font-weight: 650; background: linear-gradient(transparent 58%, rgba(201, 250, 107, .7) 58%); border-radius: 2px; padding: 0 1px; }
+/* escribiendo… */
+.say-t.typing { display: inline-flex; gap: 4px; padding: 6px 2px 2px; }
+.say-t.typing i { width: 6px; height: 6px; border-radius: 50%; background: #9aa6b6; animation: say-dot 1s ease-in-out infinite; }
+.say-t.typing i:nth-child(2) { animation-delay: .15s; } .say-t.typing i:nth-child(3) { animation-delay: .3s; }
+@keyframes say-dot { 0%, 60%, 100% { transform: translateY(0); opacity: .5; } 30% { transform: translateY(-4px); opacity: 1; } }
+/* pícaro (al mostrar la clave): rojo, con chispa */
+.say.devil { background: linear-gradient(180deg, #fff5f6, #ffe6ea); box-shadow: 0 1px 0 #fff inset, 0 22px 44px -14px rgba(0, 0, 0, .8), 0 0 46px -8px rgba(255, 45, 85, .55); }
+.say.devil::after { background: #ffe6ea; }
+.say.devil .say-h { color: #c4163a; }
+.say.devil .say-h i { background: #ff2d55; box-shadow: 0 0 0 3px rgba(255, 45, 85, .2); animation: pulse-red 1.2s infinite; }
+.say.devil .say-t b { background: linear-gradient(transparent 58%, rgba(255, 45, 85, .3) 58%); }
+@keyframes pulse-red { 50% { box-shadow: 0 0 0 6px rgba(255, 45, 85, 0); } }
+@media (max-width: 960px) { .say { right: auto; left: 0; top: -136px; max-width: calc(100% - 150px); } .say::after { display: none; } }
+@media (max-width: 480px) { .say { top: -128px; padding: 8px 11px 10px; } .say-t { font-size: 12.5px; } }
+
+/* ---------- boceto pintado y render (el agente grid y su paleta) ---------- */
+.draft { z-index: 1; overflow: visible; }
+.draft .fill { position: absolute; inset: 0; border-radius: inherit; transform-origin: left center; opacity: .92;
+	background-blend-mode: overlay; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06); }
+/* la textura de la pincelada, apenas */
+.draft .fill::after { content: ""; position: absolute; inset: 0; border-radius: inherit;
+	background: repeating-linear-gradient(100deg, rgba(255, 255, 255, .05) 0 2px, transparent 2px 9px); }
+.palette { position: fixed; z-index: 6; left: calc(var(--ruler) + 18px); top: calc(var(--ruler) + 18px); display: grid; gap: 6px; padding: 10px 12px 12px;
+	border-radius: 12px; background: rgba(13, 15, 19, .92); border: 1px solid var(--line-2); box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .8);
+	font: 500 10.5px "JetBrains Mono", monospace; color: var(--muted); }
+.palette b { color: var(--text); font-size: 10px; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 2px; }
+.palette .sw { display: flex; align-items: center; gap: 8px; }
+.palette .sw i { width: 18px; height: 18px; border-radius: 5px; box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .15); transition: transform .25s var(--spring), box-shadow .25s; }
+.palette .sw small { display: grid; line-height: 1.15; font-size: 10.5px; color: var(--text); }
+.palette .sw em { font-style: normal; color: var(--faint); font-size: 9.5px; }
+.palette .sw.on i { transform: scale(1.35); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .3), 0 0 0 3px rgba(255, 255, 255, .2), 0 0 18px rgba(255, 255, 255, .25); }
+/* la gota de color que viaja de la paleta al rectángulo */
+.drop { position: fixed; left: 0; top: 0; z-index: 7; width: 12px; height: 12px; border-radius: 50% 50% 50% 0; pointer-events: none;
+	box-shadow: 0 0 12px rgba(255, 255, 255, .25); }
+/* la barrida del render */
+.render-sweep { position: fixed; left: 0; right: 0; top: 0; height: 120px; z-index: 6; pointer-events: none;
+	background: linear-gradient(180deg, transparent, rgba(41, 223, 255, .08) 60%, rgba(201, 250, 107, .35) 98%, transparent);
+	box-shadow: 0 2px 30px rgba(201, 250, 107, .35); }
+@media (max-width: 960px) {
+	.palette { grid-auto-flow: column; align-items: center; top: calc(var(--ruler) + 8px); left: 50%; transform: translateX(-50%); padding: 6px 8px; }
+	.palette .sw small, .palette b { display: none; }
+}
+
+/* ---------- paleta horizontal (no tapa a los agentes) y el boceto de la traza ---------- */
+.palette { z-index: 4; display: flex; align-items: center; gap: 12px; padding: 10px 14px; }
+.palette b { margin: 0 4px 0 0; }
+.palette .sw { flex-direction: column; gap: 4px; align-items: center; }
+.palette .sw small { text-align: center; }
+.palette .sw em { display: none; }
+.draft.lane-label { border: 0; background: none; box-shadow: none; height: auto; font: 600 11px "JetBrains Mono", monospace; color: #8a94a2; }
+.draft.lane-track { border: 0; height: 1px; background: repeating-linear-gradient(90deg, rgba(120, 135, 155, .45) 0 3px, transparent 3px 7px); box-shadow: none; }
+.draft.lane-bar { border: 0; height: 18px; border-radius: 3px; background: rgba(255, 255, 255, .03); box-shadow: none; }
+.draft.lane-bar .fill { opacity: .78; }
+
+/* el nombre del test dentro de la barra del boceto, como en la animación */
+.draft.lane-bar .lbl { position: absolute; left: 7px; top: 0; right: 4px; line-height: 18px; overflow: hidden; white-space: nowrap;
+	font: 500 10px "JetBrains Mono", monospace; color: #06120c; }
+.draft.lane-bar .lbl.warn { color: #2a1d00; }
+.draft.lane-label .type-caret, .draft.lane-bar .type-caret { height: 11px; vertical-align: -1px; }
+
+/* la medida de la guía horizontal, a la derecha (a la izquierda tapaba la etiqueta del carril) */
+.guide.y::after { left: auto; right: 16px; }
+
+/* ---------- la barra de la obra (como la barra de colaboración de un editor) ---------- */
+.buildbar { position: fixed; left: 50%; bottom: 22px; z-index: 8; translate: -50% 0; display: flex; align-items: center; gap: 14px;
+	padding: 8px 8px 8px 14px; border-radius: 14px; background: rgba(16, 19, 24, .88); border: 1px solid var(--line-2);
+	backdrop-filter: blur(14px) saturate(1.3); -webkit-backdrop-filter: blur(14px) saturate(1.3);
+	box-shadow: 0 1px 0 rgba(255, 255, 255, .05) inset, 0 20px 50px -14px rgba(0, 0, 0, .85); font-size: 12.5px; white-space: nowrap; }
+.bb-agents { display: inline-flex; }
+.bb-agents i { width: 14px; height: 14px; border-radius: 50%; background: var(--c); margin-left: -4px; box-shadow: 0 0 0 2px #101318;
+	transition: opacity .3s, filter .3s, transform .3s var(--spring); }
+.bb-agents i:first-child { margin-left: 0; }
+.bb-agents i.done { opacity: .35; filter: grayscale(.6); transform: scale(.85); }
+.bb-text { color: var(--muted); }
+.bb-text b { color: var(--text); font-weight: 600; }
+.bb-pct { font: 600 11.5px "JetBrains Mono", monospace; color: var(--text); font-variant-numeric: tabular-nums; margin-left: 4px; }
+.bb-track { position: relative; width: 120px; height: 3px; border-radius: 3px; background: #232a33; overflow: hidden; }
+.bb-track i { position: absolute; inset: 0; background: linear-gradient(90deg, var(--cyan), var(--lime)); transform-origin: left; transform: scaleX(0);
+	transition: transform .35s var(--out); }
+.bb-skip { display: inline-flex; align-items: center; gap: 8px; height: 32px; padding: 0 8px 0 12px; border-radius: 9px; border: 1px solid var(--line-2);
+	background: #1a1f27; color: var(--text); font: 600 12.5px Inter, sans-serif; cursor: pointer; transition: background .15s, border-color .15s, transform .2s var(--spring); }
+.bb-skip:hover { background: #222833; border-color: #3a434f; }
+.bb-skip:active { transform: scale(.96); }
+.bb-skip:focus-visible, .bb-never input:focus-visible + span { outline: 2px solid var(--focus); outline-offset: 2px; }
+.bb-skip kbd { font: 600 10.5px "JetBrains Mono", monospace; padding: 2px 6px; border-radius: 5px; color: var(--muted); background: #0d0f13; border: 1px solid var(--line-2); }
+.bb-never { display: inline-flex; align-items: center; gap: 6px; padding-right: 6px; color: var(--muted); font-size: 12px; cursor: pointer; }
+.bb-never input { accent-color: var(--lime); margin: 0; cursor: pointer; }
+.bb-never:hover { color: var(--text); }
+/* ↻ repetir, junto al nombre del artboard */
+.ab-replay { pointer-events: auto; margin-left: 8px; padding: 0; border: 0; background: none; color: var(--muted); font: 500 11px "JetBrains Mono", monospace; cursor: pointer; }
+.ab-replay:hover { color: var(--cyan); text-decoration: underline; }
+.ab-replay:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; border-radius: 3px; }
+@media (max-width: 720px) {
+	.buildbar { bottom: 12px; gap: 10px; padding: 6px 6px 6px 10px; max-width: calc(100% - 24px); }
+	.bb-track, .bb-never span { display: none; }
+}
+@media (prefers-reduced-motion: reduce) { .buildbar { display: none; } }
+
+/* hidden manda (display: flex no lo pisa) */
+.buildbar[hidden], .say[hidden], .notice[hidden], .ab-replay[hidden] { display: none !important; }

@@ -20,8 +20,11 @@ type LabConfig struct {
 	// Disabled (TRACEREPORTS_LAB=off) turns the Lab off.
 	Disabled bool
 	// Hosts (TRACEREPORTS_LAB_HOSTS) are extra hosts a shared server may send to: "host",
-	// "host:port" or "*.domain".
+	// "host:port" or "*.domain". An internal host listed here is sent to without asking.
 	Hosts []string
+	// Strict (TRACEREPORTS_LAB_STRICT): on a shared server, an internal host not in Hosts is never
+	// called (without it, the person confirms it).
+	Strict bool
 }
 
 // ParseLabHosts splits TRACEREPORTS_LAB_HOSTS (comma separated).
@@ -78,7 +81,28 @@ func (s *Server) labAllow(r *http.Request, plan *lab.Plan) func(*url.URL) error 
 	return lab.HostRule(plan, s.Lab.Hosts)
 }
 
-// labSend resends a captured call: {"conn_id", "values", "base_url", "request"}.
+// labGuard is the internal-host rule of one send: none on the dev's own machine (like their terminal);
+// on a shared server an internal host not in TRACEREPORTS_LAB_HOSTS needs confirmed (or, strict, is
+// refused). The hosts come from ingested data: this keeps a planted call from reaching the internal
+// network behind an admin's back.
+func (s *Server) labGuard(r *http.Request, confirmed bool) *lab.Guard {
+	if s.labLocal(r) {
+		return nil
+	}
+	return &lab.Guard{Trusted: s.Lab.Hosts, Confirmed: confirmed, Strict: s.Lab.Strict}
+}
+
+// writeInternal answers a send that needs the person to confirm internal hosts (409, code
+// internal_host) or that strict mode refuses (403, same code).
+func writeInternal(w http.ResponseWriter, e *lab.ErrInternal) {
+	status := http.StatusConflict
+	if e.Strict {
+		status = http.StatusForbidden
+	}
+	writeJSON(w, status, map[string]any{"error": e.Error(), "code": "internal_host", "hosts": e.Hosts, "strict": e.Strict})
+}
+
+// labSend resends a captured call: {"conn_id", "values", "base_url", "request", "confirm_internal"}.
 func (s *Server) labSend(w http.ResponseWriter, r *http.Request) {
 	if !s.guardUIWrite(w, r) {
 		return
@@ -92,6 +116,8 @@ func (s *Server) labSend(w http.ResponseWriter, r *http.Request) {
 		Values  map[string]string `json:"values"`
 		BaseURL string            `json:"base_url"`
 		Request *lab.Request      `json:"request"`
+		// ConfirmInternal: the person saw the internal hosts (409 internal_host) and sends anyway
+		ConfirmInternal bool `json:"confirm_internal"`
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, maxJSONBody)
 	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
@@ -102,9 +128,14 @@ func (s *Server) labSend(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	res, err := lab.Run(r.Context(), plan, lab.Options{Values: in.Values, BaseURL: in.BaseURL, Target: in.Request, Allow: s.labAllow(r, plan)})
+	res, err := lab.Run(r.Context(), plan, lab.Options{Values: in.Values, BaseURL: in.BaseURL, Target: in.Request, Allow: s.labAllow(r, plan),
+		Guard: s.labGuard(r, in.ConfirmInternal)})
 	var missing *lab.ErrMissing
+	var internal *lab.ErrInternal
 	switch {
+	case errors.As(err, &internal):
+		writeInternal(w, internal)
+		return
 	case errors.As(err, &missing):
 		writeJSON(w, http.StatusBadRequest, map[string]any{"error": err.Error(), "missing": missing.Names})
 		return

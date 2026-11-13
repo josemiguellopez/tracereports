@@ -62,7 +62,7 @@ func TestEscalationForDevelopersCarriesTheTechnicalDetail(t *testing.T) {
 	if d.Framework != "pytest" || d.Commit != "abc123def4567890" || d.Branch != "main" || !strings.Contains(d.ErrorTrace, "Traceback") {
 		t.Fatalf("context: %+v", d)
 	}
-	if len(d.Repro) != 1 || d.Repro[0].Cmd != "git checkout abc123def456 && pytest 'tests/test_pay.py::test_card'" {
+	if len(d.Repro) != 2 || d.Repro[0].Cmd != "pytest 'tests/test_pay.py::test_card'" || d.Repro[1].Cmd != "pytest 'tests/test_pay.py'" {
 		t.Fatalf("repro: %+v", d.Repro)
 	}
 	if len(d.Console) != 1 || d.Console[0].Level != "pageerror" {

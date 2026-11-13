@@ -6,7 +6,7 @@ plugins {
 }
 
 group = "tracereports"
-version = "0.4.1"
+version = "0.5.0"
 
 java {
     toolchain { languageVersion.set(JavaLanguageVersion.of(17)) }
@@ -17,6 +17,8 @@ repositories { mavenCentral() }
 
 dependencies {
     compileOnly("org.junit.jupiter:junit-jupiter-api:6.1.3")
+    // los tests planificados de En vivo (PlannedTestsListener): lo trae el launcher de JUnit del proyecto
+    compileOnly("org.junit.platform:junit-platform-launcher:6.1.3")
     compileOnly("org.seleniumhq.selenium:selenium-api:4.52.0")
     compileOnly("com.microsoft.playwright:playwright:1.64.0")
 
@@ -37,7 +39,8 @@ tasks.withType<JavaCompile> { options.encoding = "UTF-8" }
 tasks.register<JavaExec>("installChromium") {
     classpath = sourceSets["test"].runtimeClasspath
     mainClass.set("com.microsoft.playwright.CLI")
-    args("install", "--with-deps", "chromium")
+    // -PbrowserOnly: solo el navegador, sin las librerías del sistema (cuando apt no está disponible)
+    args(if (project.hasProperty("browserOnly")) listOf("install", "chromium") else listOf("install", "--with-deps", "chromium"))
 }
 
 tasks.test {

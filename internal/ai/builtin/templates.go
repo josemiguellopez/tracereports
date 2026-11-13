@@ -35,6 +35,12 @@ var texts = map[string]map[string]text{
 		"backend_client_error": {
 			"El backend rechazó una petición antes del fallo y la aplicación no se recuperó: {call}.",
 			"Revisa los datos que envió el test (cuerpo y parámetros) y el contrato del endpoint {endpoint}."},
+		"blank_page": {
+			"La página quedó en blanco al fallar: no terminó de cargar, así que el elemento nunca pudo aparecer. No es un selector roto.",
+			"Revisa la carga del ambiente en ese momento (paralelismo, recursos, tiempos de carga) y que el test verifique que la página cargó antes de seguir; si ese paso devuelve un error, que el test se detenga ahí."},
+		"still_loading": {
+			"El test no encontró {selector} a tiempo, pero no es un selector roto: {why}. La página seguía cargando cuando el test lo buscó.",
+			"Espera a que termine la carga (que desaparezca el indicador de carga o llegue la respuesta del backend) antes de buscar el elemento; no cambies el selector."},
 		"locator_not_found": {
 			"El test no encontró {selector}: el selector ya no coincide con la página (cambió la interfaz) o el elemento no llegó a mostrarse.",
 			"Compara el selector con la captura del fallo y actualízalo; si TraceReports propone uno nuevo, revísalo en «Locator recomendado»."},
@@ -76,6 +82,7 @@ var texts = map[string]map[string]text{
 		"cat_" + CategoryBackend: {"{n} de backend", ""},
 		"cat_" + CategoryLogic:   {"{n} de lógica o datos", ""},
 		"cat_" + CategoryInfra:   {"{n} de ambiente o red", ""},
+		"cat_" + CategoryTiming:  {"{n} de espera (la página seguía cargando)", ""},
 		"cat_none":               {"{n} sin regla concluyente", ""},
 	},
 	"en": {
@@ -106,6 +113,12 @@ var texts = map[string]map[string]text{
 		"backend_client_error": {
 			"The backend rejected a request before the failure and the application did not recover: {call}.",
 			"Check the data the test sent (body and parameters) and the contract of the endpoint {endpoint}."},
+		"blank_page": {
+			"The page was blank when the test failed: it never finished loading, so the element could never show up. It is not a broken selector.",
+			"Check the load of the environment at that moment (parallelism, resources, load times) and that the test checks the page loaded before going on; if that step returns an error, make the test stop there."},
+		"still_loading": {
+			"The test did not find {selector} in time, but it is not a broken selector: {why}. The page was still loading when the test looked for it.",
+			"Wait for the load to finish (the loading indicator gone or the backend's answer in) before looking for the element; do not change the selector."},
 		"locator_not_found": {
 			"The test did not find {selector}: the selector no longer matches the page (the UI changed) or the element never showed up.",
 			"Compare the selector with the screenshot of the failure and update it; if TraceReports suggests a new one, review it in «Recommended locator»."},
@@ -147,6 +160,7 @@ var texts = map[string]map[string]text{
 		"cat_" + CategoryBackend: {"{n} backend", ""},
 		"cat_" + CategoryLogic:   {"{n} logic or data", ""},
 		"cat_" + CategoryInfra:   {"{n} environment or network", ""},
+		"cat_" + CategoryTiming:  {"{n} wait (the page was still loading)", ""},
 		"cat_none":               {"{n} with no conclusive rule", ""},
 	},
 }

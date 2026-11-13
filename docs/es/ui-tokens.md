@@ -75,7 +75,7 @@ reglas específicas si el tema cambia la tipografía: Pixel, por ejemplo, agrand
 | Tips | Pestañas, navegación, filtros y botones de acción | `.cf-tooltip`, atributo `data-tip` |
 | Métricas | Menú *Métricas* | `.kpi-grid`, `.kpi`, `.m-card`, `.hbars`, `.m-table` |
 | Análisis con IA | Menú *IA* | `.ai-top`, `.incident-card`, `.rec-pill`, `.ai-fail` |
-| Escalar | Menú *Escalar* | `.esc-layout`, `.esc-share`, `.esc-card` (diseño claro fijo: se comparte como imagen o correo) |
+| Escalar | Menú *Escalar* | `.esc-layout`, `.esc-share`, `.esc-card.esc-doc` (reporte formal con diseño claro fijo: se comparte como imagen, correo o PDF; `.esc-facts`, `.esc-summary`, `.esc-sec`, `.esc-shot-blank`; `#esc-print` es la copia que se imprime a PDF) |
 | Ajustes | Menú *Ajustes* | `.set-card`, `.prov-grid`, `.prov-card`, `.field`, `.ro-banner` |
 | Drawer | Panel lateral compartido (bbox, drift, mocks) | `.cf-drawer-root`, `.cf-drawer` |
 

@@ -10,6 +10,7 @@
 		BACKEND_TIMEOUT: "Timeout de backend",
 		LOGIC_BUG: "Bug de lógica",
 		INFRA_ERROR: "Error de infraestructura",
+		TIMING: "Espera insuficiente",
 	};
 
 	const S = {
@@ -18,17 +19,19 @@
 		view: "tests", testId: null, test: null,
 		status: "", search: "", stepFilter: "",
 		detailTab: "steps", net: { key: null, list: null }, netFilter: "", netSearch: "", netApiOnly: false,
-		hist: {}, insights: { key: null }, tlAll: false, epAll: false,
+		hist: {}, histGen: 0, liveView: { list: [], exec: null, key: "", now: 0, no_signal_ms: 0, loaded: false, ui: liveUI(), panel: null }, insights: { key: null }, tlAll: false, epAll: false,
 		loc: {}, locLang: "", locTool: "", replay: { testId: null, index: 0, speed: 1 }, player: null,
-		liveState: "off", autoScroll: true, activity: {}, newRuns: [], toastClosed: false,
+		liveState: "off", autoScroll: true, activity: {}, newRuns: [], newRunInfo: {}, notify: window.TraceReportsRunNotify?.load() || { until: 0, muted: {} },
 		catSel: null, excSel: null,
 		metrics: { days: 30, suite: "", env: "", tag: "", custom: null, data: null, loading: false, error: null, tests: {} },
 		recents: { q: "", tab: "" },
 		maint: { state: "", project: "", environment: "", branch: "", older: "", data: null, facets: null, loading: false, error: null,
-			selected: new Set(), action: null, msg: null, busy: false },
+			selected: new Set(), action: null, msg: null, busy: false,
+			// almacenamiento: uso del disco, retención y "Limpiar ahora" (con vista previa)
+			storage: null, storageError: null, clean: null },
 		runSearch: { q: "", project: "", environment: "", branch: "", tag: "", status: "", from: "", to: "", incomplete: false, flaky: false, sort: "recent", items: [], cursor: "", total: 0, loading: false, error: null, selected: 0, compare: [], facets: {}, timer: 0, newCount: 0 },
 		aiv: { rec: {}, recKey: null, busy: false, msg: null },
-		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0 },
+		esc: { test: 0, audience: "business", lang: window.TraceReportsI18n.lang, noAI: null, data: null, loading: false, msg: null, loadedKey: null, evidence: 0, stale: false },
 		settings: { data: null, form: null, msg: null, busy: false, error: null, loading: false,
 			usage: null, usageError: null, usageLoading: false, status: null, statusLoading: false,
 			gen: {}, snips: {}, connTab: "ps", check: null, checkInput: null, checking: false,
@@ -63,6 +66,37 @@
 	// Exported ZIP: data.js defines window.TRACEREPORTS_STATIC and the report runs without a server.
 	const STATIC = window.TRACEREPORTS_STATIC || null;
 
+	// ---------- sesión (la página de ingreso, /login/) ----------
+	// Toda llamada a la API dice que viene de la UI (así un 401 no abre el cuadro de login del
+	// navegador) y, si nadie tocó la página en un minuto, que es automática: una pestaña olvidada no
+	// mantiene viva la sesión. Un 401 por falta de login o sesión vencida lleva a /login/ y vuelve aquí.
+	const SESSION = { lastInput: Date.now(), leaving: false, info: null };
+	if (!STATIC) {
+		for (const ev of ["pointerdown", "keydown", "wheel", "touchstart"]) addEventListener(ev, () => { SESSION.lastInput = Date.now(); }, { passive: true, capture: true });
+		const nativeFetch = window.fetch.bind(window);
+		window.fetch = async (input, init = {}) => {
+			const url = typeof input === "string" ? input : input?.url || "";
+			const path = url.startsWith(location.origin) ? url.slice(location.origin.length) : url;
+			if (!path.startsWith("/api/")) return nativeFetch(input, init);
+			const headers = new Headers(init.headers || (typeof input === "string" ? undefined : input.headers));
+			headers.set("X-TraceReports-UI", "1");
+			if (Date.now() - SESSION.lastInput > 60_000) headers.set("X-TraceReports-Passive", "1");
+			const res = await nativeFetch(input, { ...init, headers });
+			if (res.status === 401 && !path.startsWith("/api/v1/auth/")) toLogin(res);
+			return res;
+		};
+	}
+	async function toLogin(res) {
+		if (SESSION.leaving) return;
+		let msg = "";
+		try { msg = (await res.clone().json()).error || ""; } catch { /* sin cuerpo */ }
+		// un token que falta para escribir resultados no es falta de login
+		if (msg !== "authentication required" && msg !== "session expired") return;
+		SESSION.leaving = true;
+		const next = location.pathname + location.search + location.hash;
+		location.href = `/login/?next=${encodeURIComponent(next)}${msg === "session expired" ? "&expired=1" : ""}`;
+	}
+
 	function staticApi(path) {
 		const p = path.split("?")[0];
 		let m;
@@ -78,19 +112,38 @@
 		throw new Error(`no disponible en el reporte exportado: ${path}`);
 	}
 
-	async function api(path) {
+	async function api(path, timeoutMs = 0) {
 		if (STATIC) return staticApi(path);
-		const res = await fetch(path, { headers: { Accept: "application/json" } });
-		if (!res.ok) throw new Error(`${res.status} ${path}`);
+		// con tiempo límite: un pedido que el servidor no contesta no queda colgado para siempre
+		const ctl = timeoutMs ? new AbortController() : null, timer = ctl && setTimeout(() => ctl.abort(), timeoutMs);
+		let res;
+		try {
+			res = await fetch(path, { headers: { Accept: "application/json" }, signal: ctl?.signal });
+		} catch (err) {
+			if (ctl?.signal.aborted) throw new Error(tr("El servidor no respondió en {s} s", { s: Math.round(timeoutMs / 1000) }));
+			throw err;
+		} finally { if (timer) clearTimeout(timer); }
+		if (!res.ok) {
+			// un error del servidor con su causa o su referencia se explica; si no, el código y la ruta
+			const data = res.status >= 500 ? await res.json().catch(() => ({})) : {};
+			throw new Error(data.ref || data.kind ? apiErrorText(data, res.status) : `${res.status} ${path}`);
+		}
 		return res.json();
 	}
 
 	// ---------- routing (hash) ----------
 	function readHash() {
 		const p = new URLSearchParams(location.hash.slice(1));
+		if (p.get("view") === "live" && S.view !== "live") S.liveView.anim = null; // al volver a En vivo se anima de nuevo
 		if (p.get("view")) S.view = p.get("view");
 		if (p.get("run")) S.runId = Number(p.get("run"));
 		if (p.get("test")) S.testId = Number(p.get("test"));
+		if (p.get("exec")) S.liveView.key = p.get("exec");
+		// En vivo ya filtrado desde un enlace: &f=fail,warn (estados) y &lq= (búsqueda)
+		if (p.get("view") === "live" && window.TraceReportsLive) {
+			S.liveView.ui.states = window.TraceReportsLive.statesFromHash(p.get("f"));
+			S.liveView.ui.q = p.get("lq") || "";
+		}
 		if (p.get("view") === "search") {
 			const x = S.runSearch;
 			["q", "project", "environment", "branch", "tag", "status", "from", "to", "sort"].forEach((k) => { x[k] = p.get(k) || (k === "sort" ? "recent" : ""); });
@@ -98,10 +151,19 @@
 		}
 	}
 	function writeHash() {
+		// saliendo de En vivo hacia un test (doble clic en el campo): un refresco de la vista que llega justo
+		// en ese momento no debe volver a escribir su propio enlace encima del del test
+		if (S.view === "live" && Date.now() - (S.leavingLive || 0) < 2000) return;
 		const p = new URLSearchParams();
 		if (S.runId) p.set("run", S.runId);
 		p.set("view", S.view);
 		if (S.testId && S.view === "tests") p.set("test", S.testId);
+		if (S.view === "live" && S.liveView.key) p.set("exec", S.liveView.key);
+		if (S.view === "live" && window.TraceReportsLive) {
+			const f = window.TraceReportsLive.statesToHash(S.liveView.ui.states);
+			if (f) p.set("f", f);
+			if (S.liveView.ui.q) p.set("lq", S.liveView.ui.q);
+		}
 		if (S.view === "search") {
 			const x = S.runSearch;
 			["q", "project", "environment", "branch", "tag", "status", "from", "to"].forEach((k) => { if (x[k]) p.set(k, x[k]); });
@@ -217,7 +279,8 @@
 			return;
 		}
 		if (!current() || id !== S.runId) return; // ya se eligió otra ejecución
-		if (S.run && JSON.stringify(S.run) !== JSON.stringify(run)) invalidateEscalation();
+		// otra ejecución, o cambió lo que se escala (los pasos de otros tests de la suite que sigue no cuentan)
+		if (S.run && (S.run.id !== run.id || escEvidence(S.run) !== escEvidence(run))) invalidateEscalation();
 		if (S.run?.id !== run.id || run.status !== "RUNNING") S.closeRun = null;
 		S.run = run;
 		S.runLoadedAt = Date.now();
@@ -240,7 +303,7 @@
 		}
 		if (!current() || id !== S.testId) return; // ya se eligió otro test
 		test.logs ||= []; // un test recién iniciado llega sin "logs" (omitempty)
-		if (S.test?.id === id && JSON.stringify(S.test) !== JSON.stringify(test)) {
+		if (S.test?.id === id && JSON.stringify(S.test) !== JSON.stringify(test) && (!S.esc.test || S.esc.test === id)) {
 			invalidateEscalation();
 			if (S.view === "escalate") renderEscalate();
 		}
@@ -266,14 +329,17 @@
 	// ---------- header ----------
 	function renderHeader() {
 		const r = S.run;
-		$("#report-name").textContent = r.name;
+		if (S.view !== "live") $("#report-name").textContent = r.name; // en En vivo manda la ejecución (renderLiveView)
 		if ($("#run-select").value !== String(r.id)) $("#run-select").value = String(r.id);
-		$("#report-env").textContent = r.environment || "";
+		if (S.view !== "live") $("#report-env").textContent = r.environment || "";
 		$("#suite-started").textContent = fmtDateTime(r.started_at);
 		renderLive();
 		document.title = `${S.newRuns.length ? "● " : ""}${r.name} · TraceReports`;
 		$("#export-li").hidden = !!STATIC;
 		$("#export-btn").href = `/api/v1/runs/${r.id}/export`;
+		// esta ejecución (y las demás corridas de su ejecución) en En vivo, aunque haya terminado hace días
+		const toLive = $("#live-of-run");
+		if (toLive) { toLive.href = `#view=live&exec=${encodeURIComponent(`r:${r.id}`)}`; toLive.hidden = !!STATIC; } // en las vistas globales (En vivo, Buscar…) lo oculta el CSS
 		if (STATIC) {
 			const pill = $("#static-pill");
 			pill.textContent = `Exportado ${fmtDateTime(STATIC.exported_at)}`;
@@ -283,19 +349,27 @@
 
 	// ---------- view switching ----------
 	function setView(view) {
+		// al entrar a En vivo la vista se anima de nuevo (y se redibuja aunque el HTML sea el mismo)
+		if (view === "live" && S.view !== "live") { S.liveView.anim = null; delete S.rendered["view-live"]; }
 		S.view = view;
 		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === view));
 		renderView();
 		writeHash();
 		if (view === "search" && !STATIC && !S.runSearch.items.length && !S.runSearch.loading) loadRunSearch();
+		if (view === "live" && !STATIC) loadLiveView();
 	}
 
 	// vistas que no dependen de la ejecución elegida
-	const GLOBAL_VIEWS = new Set(["search", "metrics", "maintenance", "settings"]);
+	const GLOBAL_VIEWS = new Set(["search", "live", "metrics", "maintenance", "settings"]);
 
 	function renderView() {
 		const global = GLOBAL_VIEWS.has(S.view);
 		$$(".side-nav a").forEach((a) => a.classList.toggle("active", a.dataset.view === S.view));
+		// en el celular el menú es una barra que se desplaza: la vista activa queda a la vista
+		const nav = $(".side-nav"), on = nav?.querySelector?.("a.active");
+		if (on && nav.scrollWidth > nav.clientWidth && (on.offsetLeft < nav.scrollLeft || on.offsetLeft + on.offsetWidth > nav.scrollLeft + nav.clientWidth)) {
+			nav.scrollLeft = on.offsetLeft - 8;
+		}
 		if (!S.run && !global) {
 			// sin ejecución cargada no hay qué mostrar: se oculta la vista anterior (Ajustes, Métricas…)
 			// y, si el servidor no tiene ejecuciones, vuelve el estado vacío
@@ -310,8 +384,16 @@
 		document.body.classList.toggle("view-global", global);
 		if (global) $("#run-banner").hidden = true; else renderRunBanner();
 		document.body.classList.toggle("view-dashboard", S.view === "dashboard");
+		document.body.classList.toggle("view-live", S.view === "live");
+		// el título de arriba: en En vivo, la ejecución que se mira (no la última corrida, que cambia sola)
+		if (S.view !== "live" && S.run) {
+			const rn = $("#report-name"), re = $("#report-env");
+			if (rn && S.run.name) rn.textContent = S.run.name;
+			if (re) re.textContent = S.run.environment || "";
+		}
 		const views = { search: renderRunSearch, tests: renderTests, categories: renderCategories, exceptions: renderExceptions, dashboard: renderDashboard,
-			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease };
+			ai: renderAI, escalate: renderEscalate, metrics: renderMetrics, maintenance: renderMaintenance, settings: renderSettings, release: renderRelease,
+			live: renderLiveView };
 		// la vista viene de la URL (#view=…): solo las propias, nunca un método heredado del objeto
 		(Object.hasOwn(views, S.view) ? views[S.view] : renderTests)();
 	}
@@ -410,6 +492,65 @@
 		$("#compare-card")?.scrollIntoView({ block: "start", behavior: "smooth" });
 	}
 
+	/**
+	 * Como setHTML, pero sin reemplazar: compara el HTML nuevo con lo que hay y toca solo lo que cambió
+	 * (los nodos iguales siguen siendo los mismos). En vivo se redibuja con cada evento; reemplazarla entera
+	 * reiniciaba sus animaciones (parpadeo), perdía el mouse y obligaba al navegador a rehacer miles de
+	 * elementos. Las listas se emparejan por su clave (data-live-test, data-attn, data-group, data-lane…).
+	 */
+	function morphHTML(el, html) {
+		if (S.rendered[el.id] === html) return false;
+		S.rendered[el.id] = html;
+		if (!el.firstChild) { el.innerHTML = html; return true; }
+		const tpl = document.createElement("template");
+		tpl.innerHTML = html;
+		morphChildren(el, tpl.content);
+		return true;
+	}
+	// clases que pone el código después de dibujar (animaciones, medidas): un parche no las borra
+	const MORPH_KEEP_CLASSES = ["has-on", "notext", "live-changed", "lt-new", "bump", "lane-hl", "lt-flash", "la-new", "lc-new", "lg-anom-new", "live-panel-in", "lt-trace-in", "live-enter"];
+	const morphKey = (n) => n.nodeType === 1 ? (n.getAttribute("data-live-test") ?? n.getAttribute("data-attn") ?? n.getAttribute("data-group") ?? n.getAttribute("data-lane") ?? n.getAttribute("data-ev") ?? n.getAttribute("data-seg") ?? n.getAttribute("data-live-errgroup") ?? n.id ?? null) || null : null;
+	const morphSame = (a, b) => a.nodeType === b.nodeType && a.nodeName === b.nodeName && morphKey(a) === morphKey(b);
+	function morphChildren(a, b) {
+		// el campo (canvas) vive dentro de su lugar y no está en el HTML: no se toca
+		if (a.nodeType === 1 && a.hasAttribute("data-live-field")) return;
+		const want = [...b.childNodes];
+		let cur = a.firstChild;
+		for (const nb of want) {
+			if (cur && morphSame(cur, nb)) { morphNode(cur, nb); cur = cur.nextSibling; continue; }
+			// una clave que está más adelante (la lista cambió de orden): se trae ese nodo, no se rehace
+			const key = morphKey(nb);
+			let found = null;
+			if (key !== null) for (let x = cur; x; x = x.nextSibling) if (morphSame(x, nb)) { found = x; break; }
+			if (found) { a.insertBefore(found, cur); morphNode(found, nb); continue; }
+			a.insertBefore(nb, cur);
+		}
+		while (cur) { const nx = cur.nextSibling; a.removeChild(cur); cur = nx; }
+	}
+	function morphNode(a, b) {
+		if (a.nodeType === 3 || a.nodeType === 8) { if (a.data !== b.data) a.data = b.data; return; }
+		if (a.nodeType !== 1) return;
+		for (const { name, value } of b.attributes) {
+			if (name === "class") {
+				const keep = MORPH_KEEP_CLASSES.filter((c) => a.classList.contains(c) && !b.classList.contains(c));
+				const v = keep.length ? `${value} ${keep.join(" ")}` : value;
+				if (a.getAttribute("class") !== v) a.setAttribute("class", v);
+			} else if (name === "value" && (a.tagName === "INPUT" || a.tagName === "TEXTAREA")) {
+				if (a !== document.activeElement && a.value !== value) a.value = value;
+			} else if (a.getAttribute(name) !== value) a.setAttribute(name, value);
+		}
+		for (const { name } of [...a.attributes]) {
+			if (b.hasAttribute(name)) continue;
+			// lo que pone el código y el HTML no trae: la posición del indicador, de la cinta, un <details> abierto,
+			// la descripción del tooltip
+			if ((name === "style" && a.tagName !== "COL") || (name === "open" && a.tagName === "DETAILS") || name === "aria-describedby") continue;
+			if (name === "class") { const keep = MORPH_KEEP_CLASSES.filter((c) => a.classList.contains(c)); keep.length ? a.setAttribute("class", keep.join(" ")) : a.removeAttribute("class"); continue; }
+			a.removeAttribute(name);
+		}
+		if ((a.tagName === "INPUT" || a.tagName === "TEXTAREA") && !b.hasAttribute("value") && a !== document.activeElement && a.value) a.value = "";
+		morphChildren(a, b);
+	}
+
 	// only touch the DOM when content actually changed (keeps scroll position & avoids flicker while polling)
 	function setHTML(el, html) {
 		if (S.rendered[el.id] === html) return false;
@@ -462,7 +603,8 @@
 		const tab = S.detailTab === "network" && t.network_total > 0 ? "network"
 			: S.detailTab === "console" && consoleList.length ? "console"
 			: S.detailTab === "timeline" ? "timeline"
-			: S.detailTab === "replay" && shots > 0 ? "replay" : "steps";
+			: S.detailTab === "replay" && shots > 0 ? "replay"
+			: S.detailTab === "inspector" && hasInspector(t) ? "inspector" : "steps";
 		const head = `<div class="card detail-head">
 			<div class="title-row"><h4 class="detail-name">${esc(t.name)}</h4>${statusLabel(t.status)}</div>
 			<div class="test-info">
@@ -508,6 +650,7 @@
 			<button data-tab="steps" class="${tab === "steps" ? "active" : ""}" data-tip-title="Steps" data-tip="Cada acción y validación del test en orden, con sus capturas debajo. Filtra por estado con los chips.">${icon("i-tests")}Steps <span class="tab-count">${t.logs.length}</span></button>
 			<button data-tab="timeline" class="${tab === "timeline" ? "active" : ""}" data-tip-title="Timeline" data-tip="Pasos, capturas y llamadas al backend en una sola línea de tiempo, con lo que duró cada llamada: muestra qué esperaba el test cuando se trabó.">${icon("i-timeline")}Timeline</button>
 			${shots ? `<button data-tab="replay" class="${tab === "replay" ? "active" : ""}" data-tip-title="Replay" data-tip="Reproduce el test como un video, paso a paso, con la captura de cada momento. Útil para ver cómo llegó la pantalla al fallo." data-tip-keys="Espacio: play/pausa · ← →: pasos">${icon("i-play")}Replay <span class="tab-count">${shots}</span></button>` : ""}
+			${hasInspector(t) ? `<button data-tab="inspector" class="${tab === "inspector" ? "active" : ""}" data-tip-title="Inspector" data-tip="${tr("La página del momento del fallo reconstruida: inspecciona elementos, prueba XPath o CSS y copia locators robustos (clic derecho) sin volver a reproducir el fallo.")}">${icon("i-target")}Inspector${t.dom_steps ? ` <span class="tab-count">${t.dom_steps + (t.has_dom ? 1 : 0)}</span>` : ""}</button>` : ""}
 			${t.network_total > 0 ? `<button data-tab="network" class="${tab === "network" ? "active" : ""}" data-tip-title="Red" data-tip="Las llamadas al backend que hizo la página durante el test: status, tiempos, headers y body. Desde una llamada con error puedes generar un mock.">${icon("i-network")}Red <span class="tab-count">${t.network_total}</span>
 				${t.network_errors ? `<span class="tab-err">${t.network_errors} con error</span>` : `<span class="tab-ok">OK</span>`}</button>` : ""}
 			${consoleList.length ? `<button data-tab="console" class="${tab === "console" ? "active" : ""}" data-tip-title="${tr("Consola")}" data-tip="${tr("Errores y advertencias de la consola del navegador durante el test, y los errores de JavaScript que la página no manejó.")}">${icon("i-warning")}${tr("Consola")} <span class="tab-count">${consoleList.length}</span>
@@ -516,6 +659,7 @@
 		const panel = tab === "network" ? `<div class="net-panel" id="net-panel"></div>`
 			: tab === "timeline" ? `<div class="timeline" id="timeline-panel"></div>`
 			: tab === "replay" ? `<div class="replay-panel" id="replay-panel"></div>`
+			: tab === "inspector" ? `<div class="inspector-panel" id="inspector-panel"></div>`
 			: tab === "console" ? consolePanel(consoleList) : steps;
 		const body = `<div class="card content-card">${tabs}${panel}</div>`;
 
@@ -523,6 +667,7 @@
 		if (tab === "network") ensureNetworkPanel(t);
 		if (tab === "timeline") ensureTimeline(t);
 		if (tab === "replay") mountReplay(t); else if (S.player) { S.player.destroy(); S.player = null; }
+		if (tab === "inspector") mountInspector(t); else if (S.inspector) { S.inspector.api?.destroy(); S.inspector = null; }
 		const bar = $("#test-detail .detail-tabs"), act = bar && $("button.active", bar);
 		if (act) { // pestaña activa visible en pantallas angostas
 			const r = act.getBoundingClientRect(), br = bar.getBoundingClientRect();
@@ -592,10 +737,18 @@
 		return `<span class="net-mini" data-tip="${t.network_errors} de ${t.network_total} llamadas al backend fallaron o respondieron con error: revisa la pestaña Red">${icon("i-network")}${t.network_errors} error(es) de red</span>`;
 	}
 
+	/** Una duración corta: "< 1 s", "42 s", "3 min 5 s". */
+	function fmtSecs(ms) {
+		const t = Math.round((ms || 0) / 1000);
+		if (t < 1) return "< 1 s";
+		return t < 60 ? `${t} s` : `${Math.floor(t / 60)} min${t % 60 ? ` ${t % 60} s` : ""}`;
+	}
 	function fmtBytes(n) {
 		if (n < 1024) return `${n} B`;
 		if (n < 1048576) return `${(n / 1024).toFixed(1)} KB`;
-		return `${(n / 1048576).toFixed(1)} MB`;
+		if (n < 1073741824) return `${(n / 1048576).toFixed(1)} MB`;
+		if (n < 1099511627776) return `${(n / 1073741824).toFixed(1)} GB`;
+		return `${(n / 1099511627776).toFixed(1)} TB`;
 	}
 
 	function loadScript(src) {
@@ -976,13 +1129,19 @@
 		CF.Drawer.open({ title: tr("Qué cambió desde que pasó"), subtitle: `${c.method} ${c.url}`, body: `<div class="baseline-diff">${html}</div>` });
 	}
 
-	/** Comandos para correr este test en local (según el framework y la identidad del test). */
+	/** Comandos para correr este test en local (según el framework y la identidad del test): este test
+	 * y su archivo completo; el archivo primero si el error dice que dependía de un test anterior. El
+	 * commit de la ejecución va como nota, no dentro del comando. */
 	function reproBlock(t) {
-		const cmds = CF.reproCommands({ framework: S.run?.framework, key: t.key, name: t.name, commit: S.run?.commit });
+		const lang = window.TraceReportsI18n?.lang === "en" ? "en" : "es";
+		const cmds = CF.orderedRepro(CF.reproCommands({ framework: S.run?.framework, key: t.key }), t.status === "FAIL" && CF.dependsOnEarlier(t.error_message));
 		if (!cmds.length) return "";
+		const note = CF.reproCommitNote(S.run?.commit, lang);
 		return `<details class="repro"><summary>${tr("Reproducir en local")}</summary>
-			${cmds.map((c) => `<div class="repro-row"><span class="repro-lbl">${esc(c.label)}</span><code data-no-i18n>${esc(c.cmd)}</code>
-				<button class="copy-btn" data-copy="${esc(c.cmd)}">${tr("Copiar")}</button></div>`).join("")}
+			${cmds.map((c) => `<div class="repro-row" data-scope="${esc(c.scope)}"><span class="repro-lbl" data-no-i18n data-tip="${esc(CF.reproScope(c.scope, lang))}">${esc(CF.reproScope(c.scope, lang, true))} · ${esc(c.label)}</span>
+				<code data-no-i18n>${esc(c.cmd)}</code><button class="copy-btn" data-copy="${esc(c.cmd)}">${tr("Copiar")}</button></div>`).join("")}
+			${cmds.some((c) => c.scope !== "test") ? `<p class="repro-hint" data-no-i18n>${esc(lang === "en" ? "Run the whole file when the test depends on earlier ones (data they create, steps they leave done): alone it fails for another reason." : "Corre el archivo completo cuando el test depende de otros anteriores (datos que crean, pasos que dejan hechos): solo, falla por otra razón.")}</p>` : ""}
+			${note ? `<p class="repro-note" data-no-i18n>${esc(note)}</p>` : ""}
 		</details>`;
 	}
 
@@ -1176,7 +1335,8 @@
 		const load = STATIC
 			? Promise.resolve(STATIC.locators?.[t.id] || false)
 			: fetch(`/api/v1/tests/${t.id}/locator`).then((r) => (r.status === 200 ? r.json() : false));
-		load.then((rep) => { S.loc[key] = rep; if (S.test?.id === t.id) renderTestDetail(); })
+		// backend_cause: el backend falló primero; sin reemplazos que mostrar (solo lo usa el Inspector)
+		load.then((rep) => { S.loc[key] = rep?.backend_cause ? false : rep; if (S.test?.id === t.id) renderTestDetail(); })
 			.catch(() => { S.loc[key] = false; });
 	}
 
@@ -1212,6 +1372,27 @@
 		return lang === "js" ? s.js : s.python;
 	}
 
+	/** El servidor guardó el snapshot de la página de este test (campo explícito; en uno anterior a
+	 * has_dom, el viewport que solo trae el snapshot). */
+	const hasDom = (rep) => (rep.has_dom !== undefined ? !!rep.has_dom : !!(rep.viewport && rep.viewport.w));
+
+	// un XPath que busca texto (contains(normalize-space(.)…), text()=…) suele validar contenido, no ubicar un control
+	const TEXT_XPATH = /^\/\/.*(?:normalize-space\(|text\(\)|contains\(\.\s*,)/;
+
+	/** Por qué no hay reemplazos: selector cortado, snapshot sin candidatos, o sin snapshot. */
+	function locatorEmpty(rep) {
+		if (rep.failed_selector_truncated) {
+			return `<p class="loc-empty">${tr("El selector llegó cortado (el error se guarda con sus primeros caracteres y no traía el selector completo): no se buscan reemplazos para medio selector.")}</p>`;
+		}
+		if (hasDom(rep)) {
+			const content = TEXT_XPATH.test(rep.failed_selector || "");
+			return `<p class="loc-empty">${tr("Hay snapshot de la página, pero ningún elemento sirve de reemplazo para este selector.")} ${content
+				? tr("El selector busca un texto: parece una validación de contenido o de flujo (el dato no estaba en la página), no un selector roto.")
+				: tr("Puede que el elemento no sea interactivo (por ejemplo un div con solo texto) o que el fallo no sea del selector sino del contenido o del flujo.")}</p>`;
+		}
+		return `<p class="loc-empty">No hay snapshot de la página para proponer reemplazos. Los clientes lo envían al fallar (<code>capturar_dom</code> en Python, <code>Test.DOM</code> en Go).</p>`;
+	}
+
 	function locatorCard(t) {
 		const rep = S.loc[locKey(t)];
 		if (!rep) return "";
@@ -1235,7 +1416,7 @@
 			</li>`).join("");
 		return `<details class="loc-card" id="locator-card" ${S.locOpen === false ? "" : "open"}>
 			<summary><span class="loc-badge">${icon("i-crosshair")}Locator drift</span>
-				<span class="loc-title">Selector roto${sugg.length ? ` · ${sugg.length} reemplazo${sugg.length === 1 ? "" : "s"} sugerido${sugg.length === 1 ? "" : "s"}` : ""}</span>
+				<span class="loc-title">${!sugg.length && hasDom(rep) && TEXT_XPATH.test(rep.failed_selector || "") ? tr("Selector de texto sin coincidencias") : "Selector roto"}${sugg.length ? ` · ${sugg.length} reemplazo${sugg.length === 1 ? "" : "s"} sugerido${sugg.length === 1 ? "" : "s"}` : ""}</span>
 				<svg class="chev" aria-hidden="true"><use href="#i-chevron"/></svg></summary>
 			<div class="loc-body">
 				<dl class="loc-diff"><dt>Fallido</dt><dd><code class="loc-failed">${esc(rep.failed_selector || "(no se pudo extraer del error)")}</code></dd>
@@ -1247,7 +1428,7 @@
 					<div class="loc-lang" role="group" aria-label="Lenguaje del snippet">
 						<button data-loc-lang="python" aria-pressed="${lang === "python"}">Python</button><button data-loc-lang="js" aria-pressed="${lang === "js"}">JS / TS</button>${tool === "selenium" && hasSelenium ? `<button data-loc-lang="java" aria-pressed="${lang === "java"}">Java</button>` : ""}</div></div></div>
 					<ol class="loc-list">${items}</ol>`
-					: `<p class="loc-empty">No hay snapshot de la página para proponer reemplazos. Los clientes lo envían al fallar (<code>capturar_dom</code> en Python, <code>Test.DOM</code> en Go).</p>`}
+					: locatorEmpty(rep)}
 			</div></details>`;
 	}
 
@@ -1287,6 +1468,1010 @@
 		S.player.testId = t.id;
 	}
 
+	// ---- En vivo (web/live.js) ----
+	/** Trae las ejecuciones y la elegida (o la más nueva en curso). Un turno por carga: la vieja no pisa a la nueva. */
+	async function loadLiveView(force = false) {
+		if (STATIC || !window.TraceReportsLive) return;
+		const L = S.liveView;
+		if (L.ui.paused && L.loaded && !force) return; // en pausa: la vista queda quieta para analizar
+		// un pedido a la vez: si el servidor tarda, los avisos y el reloj no apilan pedidos colgados (se pide
+		// otra vez al terminar el que está en curso); después de un error, se espera cada vez más
+		if (L.inflight) { L.again = true; return; }
+		if (!force && Date.now() < (L.retryAt || 0)) return;
+		L.inflight = true;
+		const current = turn("live");
+		try {
+			const list = await api("/api/v1/live", LIVE_TIMEOUT_MS);
+			if (!current()) return;
+			L.list = list.executions; L.now = list.now; L.no_signal_ms = list.no_signal_ms;
+			// las anteriores (para el selector y la pantalla vacía): aparte y como mucho una vez por minuto
+			// cada minuto, la primera página al día (si no se pidieron más: no se pierde lo cargado ni el scroll)
+			if (!L.history?.loading && (!L.history?.at || (Date.now() - L.history.at > 60000 && (L.history.pages || 1) === 1))) loadLiveHistory();
+			const fallback = (L.list.find((e) => e.running) || L.list[0])?.key || "";
+			// una ejecución pedida que ya no está en la lista (un enlace, "Observabilidad" de un run anterior,
+			// r:<run>) se pide igual: el servidor la arma por su clave; si no existe, la más nueva
+			if (!L.key) L.key = fallback;
+			// lo que se ve sigue en pantalla hasta que llega lo nuevo: vaciarlo antes de pedirlo dejaba la vista
+			// entera en "Cargando…" mientras el servidor respondía (un clic en el mapa redibuja en ese rato)
+			if (L.exec && L.exec.key !== L.key) L.exec = null;
+			if (L.key) {
+				let one = await api(`/api/v1/live/execution?key=${encodeURIComponent(L.key)}`, LIVE_TIMEOUT_MS).catch((err) => {
+					if (L.list.some((e) => e.key === L.key) || !fallback) throw err;
+					return null;
+				});
+				if (!current()) return;
+				if (!one) { L.key = fallback; one = await api(`/api/v1/live/execution?key=${encodeURIComponent(fallback)}`, LIVE_TIMEOUT_MS); if (!current()) return; }
+				L.exec = one.execution; L.now = one.now;
+				if (L.key.startsWith("r:")) L.key = one.execution.key; // pedida por un run: desde ahora, su clave
+				// la anterior también en el selector (con su hora: "Anteriores")
+				if (!L.list.some((e) => e.key === L.key)) { const { runs, ...summary } = one.execution; L.list = [...L.list, summary]; }
+			}
+			L.loaded = true; L.fails = 0; L.retryAt = 0;
+			if (L.panel) loadLivePanel(L.panel.id, true); // el test abierto en el panel sigue al día
+			if (L.key && (L.epKey !== L.key || Date.now() - (L.epAt || 0) > 5000)) loadLiveEndpoints(L.key);
+			loadLiveRegressions();
+		} catch (err) {
+			L.fails = (L.fails || 0) + 1;
+			L.retryAt = Date.now() + Math.min(60000, 2000 * 2 ** (L.fails - 1)); // 2, 4, 8… hasta 60 s
+			if (!current()) return;
+			L.error = err.message;
+		} finally {
+			L.inflight = false;
+			if (L.again) { L.again = false; scheduleLiveView(); }
+		}
+		if (S.view === "live") { renderLiveView(); writeHash(); }
+	}
+	/** Cuánto espera «En vivo» a que el servidor conteste antes de dar el pedido por perdido. */
+	const LIVE_TIMEOUT_MS = 20000;
+
+	/**
+	 * Las ejecuciones anteriores: el selector las ofrece en "Anteriores" y, si nada corre ni terminó hace poco,
+	 * la pantalla vacía las lista para abrir una sin saber su execution_id. Se buscan en el servidor (lo escrito
+	 * en el buscador que está a la vista, o el día si es una fecha, y el chip de fecha), de a una página;
+	 * append trae la siguiente ("Cargar más antiguas"). No frena la vista en vivo: una respuesta vieja no pisa
+	 * a la nueva.
+	 */
+	async function loadLiveHistory(append = false) {
+		const L = S.liveView, LV = window.TraceReportsLive;
+		const H = (L.history ||= { items: undefined, total: undefined, next: 0, at: 0, loading: false });
+		const typed = L.list?.length ? L.ui.pickerQ : L.ui.histQ;
+		const qy = LV.historyQuery(typed, L.list?.length ? "" : L.ui.histRange, Date.now());
+		const params = new URLSearchParams();
+		if (qy.q) params.set("q", qy.q);
+		if (qy.from) params.set("from", String(qy.from));
+		if (qy.to) params.set("to", String(qy.to));
+		if (append && H.next) params.set("before", String(H.next));
+		const current = turn("live-history");
+		H.loading = true;
+		if (S.view === "live") renderLiveView();
+		try {
+			const r = await api(`/api/v1/live/history?${params}`);
+			if (!current()) return;
+			const seen = new Set(append ? (H.items || []).map((x) => x.key) : []);
+			H.items = append ? [...(H.items || []), ...r.executions.filter((x) => !seen.has(x.key))] : r.executions;
+			Object.assign(H, { total: r.total, next: r.next, at: Date.now(), pages: append ? (H.pages || 1) + 1 : 1, filtered: !!(qy.q || qy.from || qy.to) });
+		} catch {
+			if (!current()) return;
+			H.items ||= []; H.at = Date.now(); // sin historial, la vista sigue igual
+		}
+		H.loading = false;
+		if (S.view === "live") renderLiveView();
+	}
+	/** La vista previa de una anterior: lo que falló (con su error) y el run para "Ver el reporte". Con caché. */
+	let histDetailTimer = 0;
+	function loadHistDetailSoon(key) {
+		const L = S.liveView;
+		if (!key || L.histDetail?.has(key)) return;
+		clearTimeout(histDetailTimer);
+		histDetailTimer = setTimeout(async () => {
+			try {
+				const r = await api(`/api/v1/live/execution?key=${encodeURIComponent(key)}`);
+				const LV = window.TraceReportsLive, runs = r.execution?.runs || [];
+				const fails = runs.flatMap((run) => (run.tests || []).filter((x) => x.state === "FAIL" || x.state === "INTERRUPTED")
+					.map((x) => ({ name: x.name, error: LV.errorSignature(x.last_step) })));
+				const cache = (L.histDetail ||= new Map());
+				cache.set(key, { fails, run: runs[0]?.id || 0 });
+				if (cache.size > 60) cache.delete(cache.keys().next().value); // las 60 últimas vistas
+			} catch { /* sin detalle: la vista previa queda con lo que ya tiene */ }
+			if (S.view === "live") renderLiveView();
+		}, 200); // al quedarse en una (no con cada flecha)
+	}
+	/** Después de dibujar el historial: su scroll y la fila enfocada siguen donde estaban; al llegar al final, más. */
+	let histObserver = null;
+	function afterHistRender(el, top, focusKey) {
+		const L = S.liveView, pane = el.querySelector("[data-live-histpane]");
+		if (!pane) { histObserver?.disconnect(); histObserver = null; return; }
+		pane.scrollTop = top;
+		if (focusKey) [...pane.querySelectorAll("[data-live-histsel]")].find((r) => r.dataset.liveHistsel === focusKey)?.focus({ preventScroll: true });
+		const sel = L.ui.histSel || L.history?.items?.[0]?.key;
+		if (sel && !L.histDetail?.has(sel)) loadHistDetailSoon(sel);
+		const sentinel = pane.querySelector("[data-live-histsentinel]");
+		histObserver?.disconnect();
+		if (sentinel && "IntersectionObserver" in window) {
+			histObserver = new IntersectionObserver((entries) => {
+				if (entries.some((x) => x.isIntersecting) && L.history?.next && !L.history.loading) loadLiveHistory(true);
+			}, { root: pane, rootMargin: "120px" });
+			histObserver.observe(sentinel);
+		}
+	}
+	let liveHistTimer = 0;
+	/** Buscar en el servidor al dejar de escribir (250 ms), no con cada tecla. */
+	const liveHistorySoon = () => { clearTimeout(liveHistTimer); liveHistTimer = setTimeout(() => loadLiveHistory(), 250); };
+
+	/** Los filtros de En vivo: se mantienen entre refrescos (los dibuja live.js; ver su render). */
+	S.ingest = [];
+	S.ingestSince = Date.now(); // desde cuándo esta pestaña cuenta los eventos del stream
+	function liveUI() {
+		return { problems: null, states: [], files: [], workers: [], errors: [], more: {}, sort: null, paused: false,
+			group: "file", q: "", zoom: null, allLanes: false, hideIdle: false, showOk: false, open: {}, openAll: null, stacks: {}, attnAll: false, pickerOpen: false, pickerQ: "", histQ: "", histRange: "", tables: {},
+			// preferencias de lectura de esta persona: el ancho de la columna Test y los nombres en 2 líneas
+			...livePrefs() };
+	}
+	function livePrefs() {
+		try { const p = JSON.parse(localStorage.getItem("tr-live-prefs") || "{}"); return { nameW: Number(p.nameW) || 0, wrap: !!p.wrap, compact: !!p.compact }; } catch { return { nameW: 0, wrap: false, compact: false }; }
+	}
+	function saveLivePrefs(ui) {
+		try { localStorage.setItem("tr-live-prefs", JSON.stringify({ nameW: ui.nameW || 0, wrap: !!ui.wrap, compact: !!ui.compact })); } catch { /* sin almacenamiento: queda para esta sesión */ }
+	}
+
+	/** El panel lateral: el test con sus pasos y su última captura, sin salir de la vista. */
+	/**
+	 * El detalle de los tests ya vistos (o pre-cargados al pasar el mouse por el mapa): elegir uno
+	 * muestra lo que se tiene al instante y lo actualiza por detrás, en vez de vaciar el panel y
+	 * volver a dibujarlo (era el "pestañeo" al cambiar de test). Como mucho 40, el último usado manda.
+	 */
+	const LIVE_PANEL_CACHE = 40;
+	function livePanelCache() {
+		const L = S.liveView;
+		return (L.panelCache ||= new Map());
+	}
+	function rememberLivePanel(id, data) {
+		const c = livePanelCache();
+		c.delete(id);
+		c.set(id, { ...(c.get(id) || {}), ...data });
+		while (c.size > LIVE_PANEL_CACHE) c.delete(c.keys().next().value);
+	}
+	/** Pasar el mouse por un test del mapa pide su detalle (una vez): al hacer clic ya está. */
+	function prefetchLivePanel(id) {
+		const L = S.liveView;
+		if (!id || livePanelCache().has(id) || L.prefetching?.has(id)) return;
+		(L.prefetching ||= new Set()).add(id);
+		Promise.all([api(`/api/v1/tests/${id}`), api(`/api/v1/tests/${id}/network`).catch(() => [])])
+			.then(([test, net]) => rememberLivePanel(id, { test, net: Array.isArray(net) ? net : net?.connections || [], netAt: Date.now() }))
+			.catch(() => {}).finally(() => L.prefetching?.delete(id));
+	}
+
+	async function loadLivePanel(id, refresh = false) {
+		const L = S.liveView;
+		if (!refresh) {
+			const known = livePanelCache().get(id), prev = L.panel;
+			// lo que ya se tiene de ese test; si no, con el panel abierto, lo anterior atenuado hasta que
+			// llegue lo nuevo (el encabezado ya es del test elegido): nunca un panel vacío entre medio
+			L.ui.escPick = id; // Escalar sigue con este test aunque se cierre el panel (hasta elegir otro o soltarlo)
+			L.panel = { id, tab: prev?.tab || "trace",
+				...(known ? { test: known.test, net: known.net, netAt: known.netAt } : prev?.test ? { test: prev.test, net: prev.net, stale: true } : {}) };
+			renderLiveView();
+		}
+		const prev = L.panel;
+		const running = !prev?.test || prev.test.status === "RUNNING";
+		const netDue = !refresh || (running && Date.now() - (prev.netAt || 0) > 8000);
+		try {
+			const [test, net] = await Promise.all([api(`/api/v1/tests/${id}`), netDue ? api(`/api/v1/tests/${id}/network`).catch(() => []) : null]);
+			const fresh = netDue ? { net: Array.isArray(net) ? net : net?.connections || [], netAt: Date.now() } : {};
+			rememberLivePanel(id, { test, ...fresh });
+			if (L.panel?.id !== id) return;
+			L.panel = { ...L.panel, test, error: undefined, stale: false, ...fresh };
+		} catch (err) {
+			if (L.panel?.id !== id) return;
+			L.panel = { ...L.panel, stale: false, error: refresh ? undefined : err.message };
+		}
+		if (S.view === "live") renderLiveView();
+	}
+
+	/**
+	 * Los fallos nuevos: para cada test que falló, su historial dice cómo terminó en su ejecución anterior
+	 * del mismo proyecto. "new" si pasó (una regresión de hoy), "old" si ya fallaba. Una sola vez por
+	 * test y como mucho 12 pedidos por refresco.
+	 */
+	async function loadLiveRegressions() {
+		const L = S.liveView;
+		if (!L.exec || L.regsBusy) return;
+		L.regs = L.regs || {};
+		L.regsAsked = L.regsAsked || new Set();
+		// de a 40, de a 8 pedidos a la vez, y seguido hasta terminar: con 128 fallos, de a 12 por refresco la
+		// mayoría se quedaba sin marca
+		const failed = window.TraceReportsLive.allTests(L.exec).filter((x) => (x.state === "FAIL" || x.state === "INTERRUPTED") && !L.regsAsked.has(x.id)).slice(0, 40);
+		if (!failed.length) return;
+		L.regsBusy = true;
+		for (const x of failed) L.regsAsked.add(x.id);
+		let changed = false;
+		try {
+			for (let i = 0; i < failed.length; i += 8) {
+				const got = await Promise.all(failed.slice(i, i + 8).map((x) => api(`/api/v1/tests/${x.id}/history?limit=6`).then((hist) => [x, hist]).catch(() => [x, null])));
+				for (const [x, hist] of got) {
+					if (!Array.isArray(hist) || L.regs[x.id]) continue;
+					const prev = hist.filter((e) => e.test_id !== x.id && e.run_id < x.run_id).sort((a, b) => b.started_at - a.started_at)[0];
+					// sin una ejecución anterior de este test no hay con qué comparar: "primera vez", no un hueco
+					const kind = !prev ? "first" : prev.status === "PASS" || prev.status === "WARNING" ? "new" : prev.status === "FAIL" || prev.status === "INTERRUPTED" ? "old" : "first";
+					L.regs[x.id] = kind;
+					changed = true;
+				}
+			}
+		} finally { L.regsBusy = false; }
+		if (changed && S.view === "live") renderLiveView();
+		// quedan fallos sin revisar: sigue enseguida, sin esperar al próximo evento
+		if (window.TraceReportsLive.allTests(L.exec).some((x) => (x.state === "FAIL" || x.state === "INTERRUPTED") && !L.regsAsked.has(x.id))) setTimeout(loadLiveRegressions, 150);
+	}
+
+	/** El backend de la ejecución (endpoints de todas sus corridas), para la tarjeta de En vivo. */
+	async function loadLiveEndpoints(key) {
+		const L = S.liveView;
+		L.epKey = key; L.epAt = Date.now();
+		try {
+			const r = await api(`/api/v1/live/endpoints?key=${encodeURIComponent(key)}`);
+			if (L.key !== key) return;
+			L.endpoints = r.endpoints || [];
+		} catch { if (L.key === key) L.endpoints = []; }
+		if (S.view === "live") renderLiveView();
+	}
+
+	function bindLiveView() {
+		const el = $("#view-live");
+		if (!el) return;
+		const L = S.liveView, ui = () => L.ui;
+		// cada cambio de filtro queda en la URL (&f=, &lq=) para compartir el enlace tal cual se ve
+		const redraw = () => { renderLiveView(); if (S.view === "live") writeHash(); };
+		const pick = (key) => {
+			// otra ejecución: sin el panel ni los filtros de la anterior (estaban dentro del comentario y no corrían).
+			// Los fallos nuevos (L.regs) son por id de test, que es único: se conservan
+			const filtered = L.history?.filtered;
+			L.key = key; L.exec = null; L.endpoints = undefined;
+			L.ui = { ...liveUI(), group: L.ui.group }; L.panel = null; L.anim = null;
+			renderLiveView(); loadLiveView(true);
+			if (filtered) loadLiveHistory(); // la búsqueda se borró con los filtros: el historial, sin filtrar
+			el.querySelector("[data-live-xpick]")?.focus();
+		};
+		const openPicker = (open) => {
+			ui().pickerOpen = open; if (!open) ui().pickerQ = "";
+			redraw();
+			if (!open && L.history?.filtered) loadLiveHistory(); // lo escrito se borró: la lista vuelve a ser la de siempre
+			if (open) (el.querySelector("[data-live-xq]") || el.querySelector(".xp-opt.on") || el.querySelector(".xp-opt"))?.focus();
+			else el.querySelector("[data-live-xpick]")?.focus();
+		};
+		// clic fuera del selector lo cierra
+		document.addEventListener("pointerdown", (e) => { if (S.view === "live" && ui().pickerOpen && !e.target.closest(".live-xpick")) openPicker(false); });
+		const FACET = { state: "states", file: "files", worker: "workers", error: "errors" };
+		let qTimer = 0;
+		/**
+		 * Un clic en Mostrar o Agrupar por responde en el mismo cuadro: el control cambia y su indicador se
+		 * desliza, y la tabla, el mapa y la línea de tiempo se atenúan con una barra de trabajo; recién en el
+		 * cuadro siguiente se recalcula y redibuja (nunca con la UI congelada sin señal). Los tiempos quedan
+		 * en window.__trLiveTiming: feedback (clic → primer pintado) y list (clic → lista redibujada).
+		 */
+		const instant = (btn, mutate) => {
+			const t0 = performance.now();
+			S.liveView.ui.rowLimit = 0; // otra vista de la tabla: vuelve a las primeras 100 filas
+			const segEl = btn.closest(".seg");
+			if (segEl) {
+				for (const o of segEl.querySelectorAll(".seg-o")) { const on = o === btn; o.classList.toggle("on", on); o.setAttribute("aria-checked", String(on)); }
+				placeThumb(segEl, true);
+			}
+			el.classList.add("live-busy");
+			requestAnimationFrame(() => {
+				const feedback = performance.now() - t0;
+				setTimeout(() => {
+					mutate();
+					redraw();
+					el.classList.remove("live-busy");
+					requestAnimationFrame(() => { window.__trLiveTiming = { feedback, list: performance.now() - t0 }; });
+				}, 0);
+			});
+		};
+		el.addEventListener("click", (e) => {
+			const d = (sel) => e.target.closest(sel);
+			let b;
+			if ((b = d("[data-live-copy]"))) {
+				e.preventDefault(); e.stopPropagation();
+				const name = b.dataset.liveCopy;
+				const done = () => { b.classList.add("done"); b.dataset.tip = tr("Copiado"); setTimeout(() => { b.classList.remove("done"); b.dataset.tip = tr("Copiar el nombre completo"); }, 1400); };
+				navigator.clipboard?.writeText(name).then(done, () => {});
+				return;
+			}
+			if (d("[data-live-resize]")) return; // el borde de la columna no ordena
+			if (d("[data-live-wrap]")) { ui().wrap = !ui().wrap; saveLivePrefs(ui()); return redraw(); }
+			if (d("[data-live-hideidle]")) { ui().hideIdle = !ui().hideIdle; return redraw(); }
+			if (d("[data-live-rowsmore]")) { ui().rowLimit = (ui().rowLimit || 100) + 100; return redraw(); }
+			if ((b = d("[data-live-attnstate]"))) { const k = b.dataset.liveAttnstate, st = ui().attnStates || []; ui().attnStates = st.includes(k) ? st.filter((x) => x !== k) : [...st, k]; return redraw(); }
+			if ((b = d("[data-live-errall]"))) { const k = b.dataset.liveErrall; ui().errAll = { ...(ui().errAll || {}), [k]: !(ui().errAll || {})[k] }; return redraw(); }
+			if ((b = d("[data-live-errgroup]"))) { const k = b.dataset.liveErrgroup; ui().errOpen = { ...(ui().errOpen || {}), [k]: !(ui().errOpen || {})[k] }; return redraw(); }
+			if (d("[data-live-compact]")) { ui().compact = !ui().compact; saveLivePrefs(ui()); return redraw(); }
+			if (d("[data-live-help]")) { ui().help = !ui().help; return redraw(); }
+			if (d("[data-live-helpclose]")) { ui().help = false; return redraw(); }
+			if ((b = d("[data-live-fieldview]"))) { const v = b.dataset.liveFieldview; return instant(b, () => { ui().fieldView = v; }); }
+			if ((b = d("[data-live-scroll]"))) { el.querySelector(b.dataset.liveScroll)?.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); return; }
+			if ((b = d("[data-live-state]"))) {
+				const k = b.dataset.liveState, st = ui().states;
+				b.classList.toggle("on"); b.setAttribute("aria-pressed", String(b.classList.contains("on"))); // el tile responde ya
+				return instant(b, () => { ui().states = st.includes(k) ? st.filter((x) => x !== k) : [...st, k]; });
+			}
+			if (d("[data-live-xpick]")) return openPicker(!ui().pickerOpen);
+			if ((b = d(".xp-opt[data-live-exec]"))) { ui().pickerOpen = false; return pick(b.dataset.liveExec); }
+			if ((b = d("[data-live-hist]"))) return pick(b.dataset.liveHist); // abrir la anterior elegida
+			if ((b = d("[data-live-histsel]"))) return selectHist(b.dataset.liveHistsel); // elegirla: su vista previa
+			if (d("[data-live-histmore]")) return loadLiveHistory(true); // la página siguiente, más antigua
+			if ((b = d("[data-live-histrange]"))) { ui().histRange = b.dataset.liveHistrange; redraw(); return loadLiveHistory(); }
+			if ((b = d("[data-live-charttable]"))) { ui().tables = { ...ui().tables, [b.dataset.liveCharttable]: !ui().tables[b.dataset.liveCharttable] }; return redraw(); }
+			if (d("[data-live-clear]")) { Object.values(FACET).forEach((k) => { ui()[k] = []; }); return redraw(); }
+			if ((b = d("[data-live-facet]"))) {
+				const k = FACET[b.dataset.liveFacet], v = b.dataset.v, list = ui()[k];
+				ui()[k] = list.includes(v) ? list.filter((x) => x !== v) : [...list, v];
+				ui().open = {};
+				return redraw();
+			}
+			if ((b = d("[data-live-more]"))) { ui().more = { ...ui().more, [b.dataset.liveMore]: !ui().more[b.dataset.liveMore] }; return redraw(); }
+			if ((b = d("[data-live-sort]"))) {
+				const col = b.dataset.liveSort, cur = ui().sort;
+				// primer clic: lo mayor arriba (duración, vs p50) o A-Z; segundo, al revés; tercero, vuelve a agrupar
+				const first = col === "name" || col === "state" ? 1 : -1;
+				ui().sort = !col ? null : cur?.col !== col ? { col, dir: first } : cur.dir === first ? { col, dir: -first } : null;
+				return redraw();
+			}
+			if (d("[data-live-pause]")) {
+				toggleLivePause();
+				return redraw();
+			}
+			if ((b = d("[data-live-ptab]"))) { L.panel = { ...L.panel, tab: b.dataset.livePtab }; return redraw(); }
+			if (d("[data-live-trace-all]")) { L.panel = { ...L.panel, all: !L.panel.all }; return redraw(); }
+			if ((b = d("[data-live-problems]"))) {
+				// en el control: elegir "Con problemas" (si ya está, no cambia); el enlace "mostrar todos" lo apaga
+				const g = window.TraceReportsLive.ganttLayout(L.exec, L.now, null);
+				const on = b.classList.contains("seg-o") ? true : !window.TraceReportsLive.problemsOn(L.exec, ui(), g.lanes.length);
+				return instant(b, () => { ui().problems = on; ui().states = on ? [] : ui().states; ui().open = {}; });
+			}
+			if ((b = d("[data-live-groupby]"))) { const k = b.dataset.liveGroupby; return instant(b, () => { ui().group = k; ui().open = {}; }); }
+			if ((b = d("[data-live-group]"))) {
+				const k = b.dataset.liveGroup;
+				ui().open = { ...ui().open, [k]: b.getAttribute("aria-expanded") !== "true" };
+				return redraw();
+			}
+			if (d("[data-live-showok]")) { ui().showOk = !ui().showOk; return redraw(); }
+			if (d("[data-live-alllanes]")) { ui().allLanes = !ui().allLanes; return redraw(); }
+			if ((b = d("[data-live-zoom]"))) { const z = b.dataset.liveZoom; return instant(b, () => { ui().zoom = window.TraceReportsLive.zoomStep(ui().zoom, z); }); }
+			if (d("[data-live-close]")) { L.panel = null; return redraw(); }
+			if (d("[data-live-escunpick]")) { L.ui.escPick = null; return redraw(); } // Escalar vuelve a todos los fallos
+			if ((b = d("[data-live-all]"))) return instant(b, () => { ui().states = []; ui().problems = false; ui().open = {}; });
+			if ((b = d("[data-live-stack]"))) { const id = b.dataset.liveStack; ui().stacks = { ...ui().stacks, [id]: !ui().stacks?.[id] }; return redraw(); }
+			if ((b = d("[data-live-openall]"))) { const on = b.dataset.liveOpenall === "1"; ui().openAll = on; ui().open = {}; ui().showOk = on; return redraw(); }
+			if (d("[data-live-attnmore]")) {
+				ui().attnAll = !ui().attnAll;
+				redraw();
+				// al cerrarla, la tarjeta queda a la vista (la página no se queda abajo, donde estaba el final de la lista)
+				if (!ui().attnAll) el.querySelector(".live-attn")?.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+				return;
+			}
+			// una barra del Gantt: abre el detalle y lleva a su fila en la tabla (abriendo su grupo), resaltada
+			const bar = d(".lg-bar[data-live-test]");
+			if (bar) {
+				const id = Number(bar.dataset.liveTest);
+				const x = window.TraceReportsLive.allTests(L.exec).find((y) => y.id === id);
+				if (x) { const k = ui().group === "worker" ? x.worker || "—" : ui().group === "state" ? x.state : x.file; ui().open = { ...ui().open, [k]: true }; }
+				loadLivePanel(id);
+				const tr = el.querySelector(`tr[data-live-test="${id}"]`);
+				if (tr) {
+					tr.scrollIntoView({ block: "center", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+					tr.classList.remove("lt-flash"); void tr.offsetWidth; tr.classList.add("lt-flash");
+				}
+				return;
+			}
+			// una fila abre el panel lateral (el nombre del test sigue llevando al test)
+			const row = d("[data-live-test]");
+			if (row && !d("a")) loadLivePanel(Number(row.dataset.liveTest));
+		});
+		// doble clic en una fila, un ítem de "Requiere atención" o un test de un error: abre el test
+		el.addEventListener("dblclick", (e) => {
+			const r = e.target.closest("[data-live-test][data-live-run]");
+			if (!r || e.target.closest(".lf-canvas, a")) return;
+			S.leavingLive = Date.now(); L.panel = null;
+			location.hash = `#run=${r.dataset.liveRun}&view=tests&test=${r.dataset.liveTest}`;
+		});
+		// pasar el mouse (o el foco) por un carril de la línea de tiempo resalta sus tests en la tabla
+		const laneHL = (key) => { for (const n of el.querySelectorAll(".lane-hl")) n.classList.remove("lane-hl"); if (key) for (const n of el.querySelectorAll(`tr[data-lane="${CSS.escape(key)}"], .lg-lane[data-lane="${CSS.escape(key)}"]`)) n.classList.add("lane-hl"); };
+		el.addEventListener("pointerover", (e) => { const l = e.target.closest?.("[data-live-lane]"); if (l) laneHL(l.dataset.liveLane); });
+		el.addEventListener("pointerout", (e) => { if (e.target.closest?.("[data-live-lane]") && !e.relatedTarget?.closest?.("[data-live-lane]")) laneHL(""); });
+		el.addEventListener("focusin", (e) => { const l = e.target.closest?.("[data-live-lane]"); laneHL(l ? l.dataset.liveLane : ""); });
+		// J/K: siguiente o anterior que requiere atención (abre su detalle); O abre el test; P pausa; C compacto; ? ayuda
+		document.addEventListener("keydown", (e) => {
+			if (S.view !== "live" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable], .lf-canvas")) return;
+			const k = e.key;
+			if (k === "?") { e.preventDefault(); ui().help = !ui().help; return redraw(); }
+			if (k === "Escape" && ui().help) { ui().help = false; return redraw(); }
+			if (k === "p" || k === "P") { e.preventDefault(); return toggleLivePause(); }
+			if (k === "c" || k === "C") { e.preventDefault(); ui().compact = !ui().compact; saveLivePrefs(ui()); return redraw(); }
+			if ((k === "o" || k === "O") && L.panel) {
+				e.preventDefault();
+				const x = window.TraceReportsLive.allTests(L.exec).find((y) => y.id === L.panel.id);
+				if (x) { S.leavingLive = Date.now(); L.panel = null; location.hash = `#run=${x.run_id}&view=tests&test=${x.id}`; }
+				return;
+			}
+			if (k === "j" || k === "J" || k === "k" || k === "K") {
+				const list = window.TraceReportsLive.attention(window.TraceReportsLive.allTests(L.exec || { runs: [] }));
+				if (!list.length) return;
+				e.preventDefault();
+				const i = list.findIndex((x) => x.id === L.panel?.id);
+				const next = k.toLowerCase() === "j" ? (i + 1) % list.length : (i <= 0 ? list.length - 1 : i - 1);
+				loadLivePanel(list[next].id);
+				requestAnimationFrame(() => el.querySelector(`.la-list [data-attn="${list[next].id}"]`)?.scrollIntoView({ block: "nearest" }));
+			}
+		});
+		// "/" lleva al buscador desde cualquier parte de la vista (salvo que se esté escribiendo en otro campo)
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "/" || S.view !== "live" || e.ctrlKey || e.metaKey || e.altKey || e.target.closest?.("input, textarea, select, [contenteditable]")) return;
+			const q = el.querySelector("[data-live-q]") || el.querySelector("[data-live-hq]");
+			if (q) { e.preventDefault(); q.focus(); q.select(); }
+		});
+		el.addEventListener("change", (e) => { const sel = e.target.closest("[data-live-exec-select]"); if (sel) pick(sel.value); });
+		// el historial (pantalla vacía): doble clic abre; ↑/↓, Inicio/Fin recorren con su vista previa; Enter abre
+		el.addEventListener("dblclick", (e) => { const r = e.target.closest("[data-live-histsel]"); if (r) pick(r.dataset.liveHistsel); });
+		el.addEventListener("keydown", (e) => {
+			const row = e.target.closest?.("[data-live-histsel]");
+			if (!row) return;
+			const rows = [...el.querySelectorAll("[data-live-histsel]")], i = rows.indexOf(row);
+			const to = { ArrowDown: i + 1, ArrowUp: i - 1, Home: 0, End: rows.length - 1 }[e.key];
+			if (e.key === "Enter" || e.key === " ") { e.preventDefault(); return pick(row.dataset.liveHistsel); }
+			if (to === undefined) return;
+			e.preventDefault();
+			const next = rows[Math.max(0, Math.min(rows.length - 1, to))];
+			if (next) selectHist(next.dataset.liveHistsel, true);
+		});
+		/** Elige una anterior de la lista: se marca al instante y su detalle (lo que falló) llega por detrás. */
+		function selectHist(key, focus = false) {
+			ui().histSel = key;
+			redraw();
+			const r = [...el.querySelectorAll("[data-live-histsel]")].find((x) => x.dataset.liveHistsel === key);
+			if (r) { if (focus) r.focus(); r.scrollIntoView({ block: "nearest" }); }
+			loadHistDetailSoon(key);
+		}
+		el.addEventListener("input", (e) => {
+			// buscar: se recalcula al dejar de escribir (140 ms), no con cada tecla; con 2.000 tests cada redibujo
+			// de la vista entera trababa el campo
+			if (e.target.matches("[data-live-q]")) { ui().q = e.target.value; ui().open = {}; ui().rowLimit = 0; clearTimeout(qTimer); qTimer = setTimeout(redraw, 140); }
+			if (e.target.matches("[data-live-xq]")) { ui().pickerQ = e.target.value; redraw(); liveHistorySoon(); } // las de ahora al instante; las anteriores, del servidor
+			if (e.target.matches("[data-live-aq]")) { ui().attnQ = e.target.value; clearTimeout(qTimer); qTimer = setTimeout(redraw, 140); }
+			if (e.target.matches("[data-live-hq]")) { ui().histQ = e.target.value; liveHistorySoon(); }
+		});
+		// el selector con teclado: flechas entre opciones (desde el buscador también), Enter elige, Escape cierra
+		el.addEventListener("keydown", (e) => {
+			if (!ui().pickerOpen || !e.target.closest(".live-xpick")) return;
+			const opts = [...el.querySelectorAll(".xp-opt")], i = opts.indexOf(e.target.closest(".xp-opt"));
+			if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); return openPicker(false); }
+			if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+				e.preventDefault();
+				const next = e.key === "ArrowDown" ? Math.min(opts.length - 1, i + 1) : i - 1;
+				(next < 0 ? el.querySelector("[data-live-xq]") || opts[0] : opts[next])?.focus();
+			}
+			if (e.key === "Enter" && i >= 0) { e.preventDefault(); ui().pickerOpen = false; pick(opts[i].dataset.liveExec); }
+		}, true);
+		// Escape cierra el panel aunque el foco haya quedado fuera (un refresco redibuja la vista)
+		document.addEventListener("keydown", (e) => {
+			if (e.key !== "Escape" || S.view !== "live" || !L.panel || e.target.closest?.(".live-cancel, .live-xpick, .modal, dialog")) return;
+			const id = L.panel.id;
+			L.panel = null; redraw();
+			el.querySelector(`tr[data-live-test="${id}"]`)?.focus();
+		});
+		el.addEventListener("keydown", (e) => {
+			// Esc en el buscador: primero lo limpia; vacío, sale de él (y no cierra el panel)
+			if (e.key === "Escape" && e.target.matches("[data-live-q]")) {
+				e.preventDefault(); e.stopPropagation();
+				if (e.target.value || ui().q) { e.target.value = ""; ui().q = ""; ui().open = {}; redraw(); } else e.target.blur();
+				return;
+			}
+			const row = e.target.closest("tr[data-live-test]");
+			if (row && e.key === "Enter") loadLivePanel(Number(row.dataset.liveTest));
+		});
+		// minimapa: arrastrar marca el tramo a acercar; un clic centra la ventana actual ahí
+		let drag = null;
+		const frac = (mini, x) => { const r = mini.getBoundingClientRect(); return Math.min(1, Math.max(0, (x - r.left) / r.width)); };
+		el.addEventListener("pointerdown", (e) => {
+			const mini = e.target.closest("[data-live-minimap]");
+			if (!mini || e.button !== 0 || e.target.closest("[data-live-test]")) return; // una anomalía abre su test
+			e.preventDefault();
+			drag = { mini, a: frac(mini, e.clientX), box: document.createElement("div") };
+			drag.box.className = "lg-brush drawing";
+			mini.appendChild(drag.box);
+			mini.setPointerCapture?.(e.pointerId);
+		});
+		el.addEventListener("pointermove", (e) => {
+			if (!drag) return;
+			const b = frac(drag.mini, e.clientX), lo = Math.min(drag.a, b), hi = Math.max(drag.a, b);
+			Object.assign(drag.box.style, { left: lo * 100 + "%", width: (hi - lo) * 100 + "%" });
+		});
+		el.addEventListener("pointerup", (e) => {
+			if (!drag) return;
+			const b = frac(drag.mini, e.clientX), lo = Math.min(drag.a, b), hi = Math.max(drag.a, b);
+			drag.box.remove();
+			drag = null;
+			if (hi - lo >= 0.02) ui().zoom = { a: lo, b: hi };
+			else if (ui().zoom) { const w = ui().zoom.b - ui().zoom.a, a = Math.min(1 - w, Math.max(0, lo - w / 2)); ui().zoom = { a, b: a + w }; }
+			redraw();
+		});
+		// la columna Test se ensancha arrastrando su borde (o con ← → sobre él); doble clic, al ancho de antes
+		const setNameW = (w) => {
+			ui().nameW = Math.round(Math.min(900, Math.max(160, w)));
+			for (const c of el.querySelectorAll("col.c-name")) c.style.width = ui().nameW + "px";
+		};
+		let resizing = null;
+		el.addEventListener("pointerdown", (e) => {
+			const hnd = e.target.closest("[data-live-resize]");
+			if (!hnd || e.button !== 0) return;
+			e.preventDefault(); e.stopPropagation();
+			const th = hnd.closest("th");
+			resizing = { x: e.clientX, w: th.getBoundingClientRect().width, hnd };
+			hnd.classList.add("drag");
+			hnd.setPointerCapture?.(e.pointerId);
+		}, true);
+		el.addEventListener("pointermove", (e) => { if (resizing) setNameW(resizing.w + e.clientX - resizing.x); });
+		el.addEventListener("pointerup", () => {
+			if (!resizing) return;
+			resizing.hnd.classList.remove("drag"); resizing = null;
+			saveLivePrefs(ui()); redraw();
+		});
+		el.addEventListener("dblclick", (e) => { if (e.target.closest("[data-live-resize]")) { ui().nameW = 0; saveLivePrefs(ui()); redraw(); } });
+		el.addEventListener("keydown", (e) => {
+			const hnd = e.target.closest?.("[data-live-resize]");
+			if (!hnd || (e.key !== "ArrowLeft" && e.key !== "ArrowRight")) return;
+			e.preventDefault();
+			setNameW((ui().nameW || hnd.closest("th").getBoundingClientRect().width) + (e.key === "ArrowRight" ? 24 : -24));
+			saveLivePrefs(ui());
+		});
+		// Ctrl + rueda sobre la línea de tiempo: acerca o aleja alrededor del puntero (la rueda sola sigue
+		// desplazando la página)
+		el.addEventListener("wheel", (e) => {
+			const area = e.target.closest("[data-live-lanes], [data-live-minimap]");
+			if (!area || !(e.ctrlKey || e.metaKey)) return;
+			e.preventDefault();
+			const track = area.matches("[data-live-minimap]") ? area : area.querySelector(".lg-track") || area;
+			const r = track.getBoundingClientRect(), f = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
+			const z = ui().zoom || { a: 0, b: 1 }, minimapArea = area.matches("[data-live-minimap]");
+			const at = minimapArea ? f : z.a + f * (z.b - z.a); // en el minimapa la fracción ya es del total
+			const w = Math.min(1, Math.max(0.02, (z.b - z.a) * (e.deltaY < 0 ? 0.7 : 1 / 0.7)));
+			if (w >= 1) { ui().zoom = null; return redraw(); }
+			const a = Math.min(1 - w, Math.max(0, at - (minimapArea ? w / 2 : f * w)));
+			ui().zoom = { a, b: a + w };
+			redraw();
+		}, { passive: false });
+		el.addEventListener("submit", async (e) => {
+			const form = e.target.closest("[data-live-cancel]");
+			if (!form) return;
+			e.preventDefault();
+			const btn = form.querySelector("button");
+			btn.disabled = true;
+			try {
+				await apiSend("POST", "/api/v1/ui/live/cancel", { key: S.liveView.key, reason: form.reason.value });
+				loadLiveView(true); // la cabecera pasa a "Cancelación pedida" (también en pausa)
+			} catch (err) {
+				btn.disabled = false;
+				let msg = form.querySelector(".live-cancel-err");
+				if (!msg) { msg = document.createElement("p"); msg.className = "live-cancel-err"; msg.setAttribute("role", "alert"); form.appendChild(msg); }
+				msg.textContent = err.message;
+			}
+		});
+	}
+
+	let liveViewTimer = null;
+	const scheduleLiveView = () => { if (S.view === "live" && !liveViewTimer) liveViewTimer = setTimeout(() => { liveViewTimer = null; loadLiveView(); }, 1500); };
+
+	function renderLiveView() {
+		const el = $("#view-live"), L = S.liveView;
+		if (!el) return;
+		if (!L.loaded) { setHTML(el, `<div class="card placeholder">${L.error ? esc(L.error) : tr("Cargando…")}</div>`); return; }
+		const t = window.TraceReportsI18n.t;
+		// el refresco (cada evento) redibuja todo: el buscador no pierde el foco ni el cursor, ni el
+		// formulario de cancelar abierto lo que se estaba escribiendo
+		// el buscador en uso no se recrea: se conserva el mismo <input> (valor, foco y cursor), así una
+		// tecla que llega justo con un refresco no se pierde
+		const act = document.activeElement, field = ["[data-live-q]", "[data-live-xq]", "[data-live-aq]", "[data-live-hq]"].find((f) => act?.matches?.(f)) || "";
+		const typing = field ? act : null;
+		const optFocus = act?.closest?.(".xp-opt")?.dataset.liveExec, listTop = el.querySelector(".xp-list")?.scrollTop || 0;
+		const histTop = el.querySelector("[data-live-histpane]")?.scrollTop || 0, histFocus = act?.closest?.("[data-live-histsel]")?.dataset.liveHistsel;
+		const reason = el.querySelector(".live-cancel[open] input[name=reason]");
+		const keep = reason ? { value: reason.value, focus: document.activeElement === reason } : null;
+		if (el.querySelector("[data-live-minimap] .lg-brush.drawing, [data-live-resize].drag")) return; // arrastrando: al soltar se dibuja
+		const flip = S.liveView.anim && !S.liveView.anim.first ? flipSnapshot(el) : null;
+		const thumbs = thumbSnapshot(el);
+		const replaced = morphHTML(el, window.TraceReportsLive.render({ list: L.list, history: L.history?.items, historyDetail: L.histDetail?.get(L.ui.histSel || L.history?.items?.[0]?.key), historyMeta: L.history ? { total: L.history.total, next: L.history.next, loading: L.history.loading } : null, exec: L.exec, key: L.key, now: L.now, no_signal_ms: L.no_signal_ms, ui: L.ui, panel: L.panel, endpoints: L.endpoints, ingest: liveIngest(), pausedNew: livePausedNew(), regressions: L.regs || null }, {
+			t, esc, icon, canAct,
+			clock: (ms, secs) => liveFmt(secs ? "hms" : "hm").format(ms),
+			// la fecha solo si no es de hoy
+			day: (ms) => (new Date(ms).toDateString() === new Date(L.now || Date.now()).toDateString() ? "" : liveFmt("day").format(ms)),
+		}));
+		if (typing) {
+			const fresh = el.querySelector(field);
+			if (fresh && fresh !== typing) { fresh.replaceWith(typing); typing.focus(); }
+		}
+		const list = el.querySelector(".xp-list");
+		if (list) list.scrollTop = listTop;
+		afterHistRender(el, histTop, histFocus);
+		if (optFocus) [...el.querySelectorAll(".xp-opt")].find((o) => o.dataset.liveExec === optFocus)?.focus();
+		// solo si el DOM cambió: con el mismo HTML los nodos siguen ahí (y quizás animándose)
+		el.classList.toggle("live-compact", !!L.ui.compact);
+		syncLiveField(el);
+		if (L.exec) {
+			const name = $("#report-name");
+			if (name && name.textContent !== L.exec.title) name.textContent = L.exec.title;
+			const env = $("#report-env");
+			if (env) env.textContent = [L.exec.environment, L.exec.running ? tr("en curso") : tr("terminada")].filter(Boolean).join(" · ");
+		}
+		if (replaced) {
+			tape.dirty = true; // la cinta se vuelve a medir una vez, en el próximo cuadro
+			const tr0 = el.querySelector("[data-live-tape-track]");
+			if (tr0 && S.tapeX) tr0.style.transform = `translateX(${-S.tapeX}px)`; // la cinta sigue donde iba
+			fitBars(el);
+			watchGantt(el);
+			for (const s of el.querySelectorAll(".seg")) placeThumb(s, false, thumbs.get(s.dataset.seg));
+			animateLive(el);
+			if (flip) flipPlay(el, flip);
+		}
+		if (keep) {
+			const d = el.querySelector(".live-cancel");
+			if (d) { d.open = true; const r = d.querySelector("input[name=reason]"); r.value = keep.value; if (keep.focus) r.focus(); }
+		}
+	}
+
+	/**
+	 * Animaciones de En vivo: la vista se redibuja con cada evento, así que solo se anima lo que cambió
+	 * (un número, el estado de un test, un evento nuevo, una anomalía nueva) o lo que aparece (la vista
+	 * la primera vez, el panel al abrirse, la traza al mostrarse). Con "reducir movimiento", nada.
+	 */
+	const STATE_CLS = ["pass", "fail", "warning", "skip", "interrupted", "running", "turtle", "nosig"];
+	function animateLive(el) {
+		const L = S.liveView;
+		if (!L.exec) return;
+		const A = L.anim || (L.anim = { first: true, states: new Map(), counts: {}, bumps: {}, evs: null, anoms: null, panelKey: "", traceKey: "" });
+		const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+		const flag = (n, cls) => { if (!motion) return; n.classList.remove(cls); void n.offsetWidth; n.classList.add(cls); };
+		if (A.first) {
+			A.first = false;
+			if (motion) { el.classList.add("live-enter"); setTimeout(() => el.classList.remove("live-enter"), 1400); }
+		}
+		// cambio de estado: pulso del color nuevo; lo que no estaba (un test nuevo, o filas que entran al
+		// cambiar el filtro), entra deslizándose; como mucho 40 por redibujo, para no marear
+		let entered = 0;
+		const firstSeen = !A.seen;
+		A.seen = A.seen || new Set();
+		for (const n of el.querySelectorAll("tr[data-live-test], .lg-bar[data-live-test], .hm-c[data-live-test]")) {
+			const key = `${n.tagName}${n.className.split(" ")[0]}:${n.dataset.liveTest}`, st = STATE_CLS.find((c) => n.classList.contains(c)) || "";
+			const prev = A.states.get(key);
+			if (prev !== undefined && prev !== st) flag(n, "live-changed");
+			else if (!firstSeen && motion && !A.seen.has(key) && (n.tagName === "TR" || n.classList.contains("hm-c")) && entered++ < 40) {
+				n.classList.add("lt-new");
+				n.style.animationDelay = `${Math.min(entered, 20) * 12}ms`;
+				setTimeout(() => { n.classList.remove("lt-new"); n.style.animationDelay = ""; }, 600);
+			}
+			A.states.set(key, st);
+			A.seen.add(key);
+		}
+		for (const n of el.querySelectorAll("[data-count]")) {
+			const k = n.dataset.count, to = Number(n.dataset.n), from = A.counts[k]; // el valor, no el texto (que cuenta)
+			if (from !== undefined && from !== to) { flag(n.closest(".live-tile") || n, "bump"); if (motion) countUp(n, from, to); }
+			A.counts[k] = to;
+		}
+		for (const n of el.querySelectorAll("[data-bump]")) {
+			const k = n.dataset.bump, v = n.textContent;
+			if (A.bumps[k] !== undefined && A.bumps[k] !== v) flag(n, "bump");
+			A.bumps[k] = v;
+		}
+		const evs = new Set([...el.querySelectorAll("li[data-ev]")].map((n) => n.dataset.ev));
+		if (A.evs) for (const n of el.querySelectorAll("li[data-ev]")) if (!A.evs.has(n.dataset.ev)) flag(n, "lc-new");
+		A.evs = evs;
+		// algo nuevo que requiere atención entra deslizándose y destella
+		const attn = new Set([...el.querySelectorAll(".la-list li[data-attn]")].map((n) => n.dataset.attn));
+		if (A.attn) for (const n of el.querySelectorAll(".la-list li[data-attn]")) if (!A.attn.has(n.dataset.attn)) flag(n, "la-new");
+		A.attn = attn;
+		const anoms = new Set([...el.querySelectorAll(".lg-anom")].map((n) => n.dataset.liveTest));
+		if (A.anoms) for (const n of el.querySelectorAll(".lg-anom")) if (!A.anoms.has(n.dataset.liveTest)) flag(n, "lg-anom-new");
+		A.anoms = anoms;
+		const panel = el.querySelector(".live-panel");
+		const opened = panel && !A.panelKey; // el panel recién se abre (no: se cambió de test con el panel abierto)
+		if (opened) flag(panel, "live-panel-in");
+		A.panelKey = panel ? String(L.panel?.id) : "";
+		// la traza entra fila por fila solo la primera vez que el panel se abre; al cambiar de test se
+		// reemplaza de una vez (repetir el fundido con cada clic se veía como un parpadeo)
+		const trace = el.querySelector(".lt-trace");
+		if (trace && opened) flag(trace, "lt-trace-in");
+		A.traceKey = trace ? String(L.panel?.id) : "";
+	}
+	// Reordenar sin saltos (la técnica FLIP, como el `layout` de Framer Motion): se anotan dónde estaban
+	// las filas antes de redibujar y, si un test cambió de lugar, se lo desliza desde ahí con un resorte.
+	const FLIP_SEL = "tr.lt-row[data-live-test], .la-list li[data-attn]";
+	const FLIP_MAX = 400;
+	function flipSnapshot(el) {
+		if (matchMedia("(prefers-reduced-motion: reduce)").matches) return null;
+		const nodes = el.querySelectorAll(FLIP_SEL);
+		if (!nodes.length || nodes.length > FLIP_MAX) return null;
+		const pos = new Map();
+		for (const n of nodes) pos.set(n.dataset.liveTest ? "r" + n.dataset.liveTest : "a" + n.dataset.attn, n.getBoundingClientRect().top);
+		return pos;
+	}
+	function flipPlay(el, pos) {
+		for (const n of el.querySelectorAll(FLIP_SEL)) {
+			const prev = pos.get(n.dataset.liveTest ? "r" + n.dataset.liveTest : "a" + n.dataset.attn);
+			if (prev === undefined) continue;
+			const dy = prev - n.getBoundingClientRect().top;
+			if (Math.abs(dy) < 2 || Math.abs(dy) > 1200) continue;
+			n.animate([{ transform: `translateY(${dy}px)` }, { transform: "none" }], { duration: 520, easing: "cubic-bezier(.22, 1.25, .36, 1)" });
+		}
+	}
+	/** El nombre dentro de una barra del Gantt solo si cabe; si no, la barra queda limpia (el tooltip lo dice). */
+	function fitBars(el) {
+		// solo las barras con algo adentro (nombre o el ícono de su estado; las angostas se dibujan vacías): medir las
+		// 1.200 de una ejecución larga costaba
+		const bars = [...el.querySelectorAll(".lg-track .lg-bar")].filter((b) => b.firstElementChild);
+		for (const b of bars) b.classList.remove("notext"); // medir con el texto puesto (el ancho pudo cambiar)
+		const over = bars.map((b) => b.scrollWidth > b.clientWidth + 1); // todas las lecturas juntas: un solo cálculo de layout
+		bars.forEach((b, i) => { if (over[i]) b.classList.add("notext"); });
+	}
+	// el ancho del Gantt también cambia sin que cambie la ventana (aparece la barra de scroll al cargar algo de
+	// arriba, se abre un panel): se vuelve a medir entonces, si no los nombres quedaban cortados
+	let ganttRO = null, ganttSeen = null, ganttW = 0, ganttRaf = 0;
+	function watchGantt(el) {
+		const g = el.querySelector(".live-gantt");
+		if (g === ganttSeen || typeof ResizeObserver !== "function") return;
+		ganttSeen = g; ganttW = g ? g.clientWidth : 0;
+		ganttRO ||= new ResizeObserver((en) => {
+			const w = en[en.length - 1].contentRect.width;
+			if (Math.abs(w - ganttW) < 1) return;
+			ganttW = w;
+			cancelAnimationFrame(ganttRaf);
+			ganttRaf = requestAnimationFrame(() => { const v = $("#view-live"); if (v && S.view === "live") fitBars(v); });
+		});
+		ganttRO.disconnect();
+		if (g) ganttRO.observe(g);
+	}
+	let fitTimer = null;
+	window.addEventListener("resize", () => {
+		clearTimeout(fitTimer);
+		fitTimer = setTimeout(() => { const el = $("#view-live"); if (el && S.view === "live") { fitBars(el); for (const s of el.querySelectorAll(".seg")) placeThumb(s, false); } }, 150);
+	});
+
+	/**
+	 * Pausar la vista: lo que se ve queda quieto para analizar (también el campo), pero la ingesta sigue
+	 * en el servidor; se cuenta lo que llega mientras tanto y al reanudar la vista se pone al día.
+	 */
+	function toggleLivePause() {
+		const L = S.liveView;
+		L.ui.paused = !L.ui.paused;
+		L.ui.pausedAt = L.ui.paused ? Date.now() : 0;
+		if (!L.ui.paused) loadLiveView(true);
+		renderLiveView(); if (S.view === "live") writeHash();
+	}
+	/** Cuántos eventos de la ejecución abierta llegaron desde que se pausó la vista. */
+	function livePausedNew() {
+		const L = S.liveView;
+		if (!L.ui?.paused || !L.exec) return 0;
+		const runs = new Set((L.exec.runs || []).map((r) => r.id));
+		return S.ingest.filter((x) => x.at >= L.ui.pausedAt && runs.has(x.run_id)).length;
+	}
+
+	/**
+	 * Los formateadores de hora de En vivo, uno por idioma y formato. Crear uno en cada llamada (como hace
+	 * toLocaleTimeString con opciones) costaba más que todo el resto de la vista: cada barra lleva su hora.
+	 */
+	const liveFmts = new Map();
+	function liveFmt(kind) {
+		const lang = I18N.lang === "en" ? "en-US" : "es-CL", k = `${lang}|${kind}`;
+		if (!liveFmts.has(k)) liveFmts.set(k, new Intl.DateTimeFormat(lang, { hms: { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" }, hm: { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }, day: { day: "2-digit", month: "short" } }[kind]));
+		return liveFmts.get(k);
+	}
+
+	/** La ingesta de la ejecución abierta: solo los eventos de sus corridas, en el último minuto. */
+	function liveIngest() {
+		const L = S.liveView, F = window.TraceReportsLiveField;
+		if (!F || !L.exec) return null;
+		const runs = new Set((L.exec.runs || []).map((r) => r.id));
+		// el texto cambia a lo sumo cada 5 s (el reloj de "hace X" no redibuja la vista a cada evento)
+		const now = Math.floor(Date.now() / 5000) * 5000;
+		// lo que llegó por el stream desde que la pestaña escucha; el rato de antes (la vista recién abierta) se
+		// completa con cuándo empezó y terminó cada test: así el gráfico muestra el minuto entero desde el primer momento
+		const since = S.ingestSince || now;
+		const before = [];
+		if (since > now - 60e3) {
+			for (const t of window.TraceReportsLive.allTests(L.exec)) {
+				if (t.started_at >= now - 60e3 && t.started_at < since) before.push({ at: t.started_at, kind: "test" });
+				if (t.ended_at && t.ended_at >= now - 60e3 && t.ended_at < since) before.push({ at: t.ended_at, kind: t.state === "FAIL" ? "fail" : "test" });
+			}
+		}
+		return F.ingestStats([...before, ...S.ingest.filter((x) => runs.has(x.run_id))], now, { running: !!L.exec.running, connected: S.liveState === "live" });
+	}
+
+	/**
+	 * El campo de la ejecución: un solo canvas (web/livefield.js) que se vuelve a poner en su lugar
+	 * después de cada redibujo, con los datos del momento; así su animación nunca se reinicia.
+	 */
+	function syncLiveField(el) {
+		const L = S.liveView, F = window.TraceReportsLiveField, A = window.TraceReportsLiveAgents, LIVE = window.TraceReportsLive;
+		const slot = el.querySelector("[data-live-field]");
+		if (!F || !slot || !L.exec) { L.field?.attach(null); L.agents?.attach(null); return; }
+		const t = window.TraceReportsI18n.t;
+		const onOpen = (id, run) => { S.leavingLive = Date.now(); L.panel = null; location.hash = `#run=${run}&view=tests&test=${id}`; };
+		// el mismo lugar, dos motores: el campo (el tiempo en círculo) o los agentes (el chip por dentro)
+		const agentsMode = slot.dataset.mode === "agents" && A;
+		if (agentsMode) {
+			L.field?.attach(null);
+			// clic en un agente: la tabla con los tests de ese worker (otro clic en el mismo, todos de nuevo)
+			if (!L.agents) L.agents = A.create({ t, onPick: (id) => loadLivePanel(id), onOpen, onHover: prefetchLivePanel, onPause: toggleLivePause,
+				onWorker: (key) => { L.ui.workers = L.ui.workers.length === 1 && L.ui.workers[0] === key ? [] : [key]; renderLiveView(); } });
+			L.agents.attach(slot);
+		} else {
+			L.agents?.attach(null);
+			if (!L.field) L.field = F.create({ t, onPick: (id) => loadLivePanel(id), onPause: toggleLivePause, onHover: prefetchLivePanel, onOpen });
+			L.field.attach(slot);
+		}
+		const engine = agentsMode ? L.agents : L.field;
+		const tests = LIVE.allTests(L.exec), shown = LIVE.filterTests(tests, L.ui, LIVE.problemsOn(L.exec, L.ui, LIVE.lanesOf(L.exec, L.now).length));
+		const filtered = (L.ui.states.length || L.ui.files.length || L.ui.workers.length || L.ui.errors.length || (L.ui.q || "").trim()) ? new Set(shown.map((x) => x.id)) : null;
+		const clock = (ms) => liveFmt("hms").format(ms);
+		const ing = liveIngest();
+		engine.update({
+			exec: L.exec, now: L.now || Date.now(), live: LIVE, match: filtered, selected: L.panel?.id, paused: !!L.ui.paused, pausedNew: livePausedNew(),
+			head: `${L.exec.title} · ${t(LIVE.INGEST[ing?.state || "quiet"].label)} · ${t("{n} eventos/min", { n: ing?.perMin || 0 })}`,
+			aria: agentsMode ? t("Agentes de la ejecución: {l} workers y {n} tests. Flechas para recorrer los agentes, Enter para ver sus tests.", { n: tests.length, l: LIVE.lanesOf(L.exec, L.now).length })
+				: t("Campo de la ejecución: {n} tests en {l} carriles. Flechas para recorrerlos, Enter para abrir.", { n: tests.length, l: LIVE.lanesOf(L.exec, L.now).length }),
+			// la tarjeta del mouse: con el color y el ícono de su estado (livefield.js arma el DOM)
+			card: (it) => {
+				const st = LIVE.STATES[it.state] || { cls: "running", icon: "i-st-running", label: it.state };
+				return { cls: st.cls, icon: st.icon, label: t(st.label), dur: LIVE.fmtDur(it.elapsed),
+					factor: it.factor ? `×${LIVE.num1(it.factor)} ${t("de lo normal")}` : "", slow: it.factor >= 2,
+					times: `${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ` · ${t("en curso")}`}`,
+					where: `${it.file}${it.worker ? ` · ${it.worker}` : ""}`, hint: t("Clic: el detalle · Ctrl + clic: abrir el test") };
+			},
+			tip: (it) => `${t(LIVE.STATES[it.state]?.label || it.state)} · ${LIVE.fmtDur(it.elapsed)}${it.factor ? ` · ×${LIVE.num1(it.factor)} ${t("de lo normal")}` : ""} · ${clock(it.started_at)}${it.ended_at ? ` → ${clock(it.ended_at)}` : ""}
+${it.file}${it.worker ? ` · ${it.worker}` : ""}
+${t("Clic: el detalle · Ctrl + clic: abrir el test")}`,
+		});
+		engine.setMotion(!L.ui.paused);
+	}
+
+	/**
+	 * El indicador de un control segmentado bajo la opción elegida. Con `from` (dónde estaba antes de
+	 * redibujar) o `slide` (un clic en el control que sigue en pantalla) se desliza hasta ella.
+	 */
+	function placeThumb(seg, slide, from) {
+		const th = seg.querySelector(".seg-thumb"), on = seg.querySelector(".seg-o.on");
+		seg.classList.toggle("has-on", !!on);
+		if (!th || !on) return;
+		const prev = slide ? { left: th.offsetLeft, width: th.offsetWidth } : from;
+		th.style.left = on.offsetLeft + "px"; th.style.width = on.offsetWidth + "px";
+		if (!prev || !prev.width || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+		const dx = prev.left - on.offsetLeft, sx = prev.width / Math.max(1, on.offsetWidth);
+		if (Math.abs(dx) < 1 && Math.abs(sx - 1) < 0.01) return;
+		th.animate([{ transform: `translateX(${dx}px) scaleX(${sx})`, transformOrigin: "left" }, { transform: "none", transformOrigin: "left" }],
+			{ duration: 220, easing: "cubic-bezier(.2, .8, .2, 1)" });
+	}
+	function thumbSnapshot(el) {
+		const m = new Map();
+		for (const s of el.querySelectorAll(".seg")) { const th = s.querySelector(".seg-thumb"); if (th && s.classList.contains("has-on")) m.set(s.dataset.seg, { left: th.offsetLeft, width: th.offsetWidth }); }
+		return m;
+	}
+
+	// La cinta de eventos se desplaza sola (unos 40 px/s) y conserva su posición aunque la vista se
+	// redibuje; se detiene con el mouse encima, con la pestaña oculta y con "reducir movimiento". El reloj
+	// de la cabecera avanza cada segundo sin redibujar nada.
+	const tape = { x: 0, last: 0, hover: false };
+	function tapeTick(ts) {
+		const el = S.view === "live" ? document.querySelector("#view-live [data-live-tape-track]") : null;
+		const dt = tape.last ? Math.min(64, ts - tape.last) : 0;
+		tape.last = ts;
+		if (el && !tape.hover && !document.hidden && !matchMedia("(prefers-reduced-motion: reduce)").matches) {
+			if (tape.el !== el || tape.dirty) { tape.el = el; tape.half = el.scrollWidth / 2; tape.win = el.parentElement.clientWidth; tape.dirty = false; }
+			const half = tape.half;
+			if (half > tape.win * 0.5) {
+				tape.x = (tape.x + dt * 0.04) % half; S.tapeX = tape.x;
+				el.style.transform = `translateX(${-tape.x}px)`;
+			} else el.style.transform = "none";
+		}
+		requestAnimationFrame(tapeTick);
+	}
+	requestAnimationFrame(tapeTick);
+	document.addEventListener("pointerover", (e) => { tape.hover = !!e.target.closest?.("[data-live-tape]"); });
+	setInterval(() => {
+		const c = S.view === "live" ? document.querySelector("#view-live [data-live-clock]") : null;
+		if (c) c.textContent = liveFmt("hms").format(Date.now());
+	}, 1000);
+
+	/** Un número que cuenta desde el valor anterior hasta el nuevo (600 ms, desacelerando). */
+	function countUp(n, from, to) {
+		const t0 = performance.now(), dur = 600;
+		const step = (now) => {
+			if (!n.isConnected) return;
+			const p = Math.min(1, (now - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+			n.textContent = String(Math.round(from + (to - from) * e));
+			if (p < 1) requestAnimationFrame(step);
+		};
+		requestAnimationFrame(step);
+	}
+
+	// ---- Inspector (web/inspector.js) ----
+	// también en el reporte exportado: el ZIP trae las páginas en dom/ (ver staticInspector)
+	const hasInspector = (t) => !!window.TraceReportsInspector && !!(t.has_dom || t.dom_steps);
+
+	/** La captura del momento del fallo: la última del test (la misma regla del recomendador de locators, que sin un selector no responde). */
+	/** Las capturas del test con su hora y su estado: el Inspector elige la de cada página por cercanía. */
+	const stepShots = (t) => (t.logs || []).filter((l) => l.screenshot).map((l) => ({ at: l.timestamp, src: l.screenshot, status: l.status }));
+	const lastShot = (t) => [...(t.logs || [])].reverse().find((l) => l.screenshot)?.screenshot || "";
+
+	/** Monta el Inspector una sola vez por test: los refrescos del detalle no lo reinician. */
+	async function mountInspector(t) {
+		const el = $("#inspector-panel");
+		if (!el || (S.inspector && S.inspector.el === el && S.inspector.testId === t.id)) return;
+		// el detalle se redibujó (llegó el diagnóstico, un paso nuevo): se reubica el mismo Inspector
+		if (S.inspector?.testId === t.id) { el.replaceWith(S.inspector.el); return; }
+		S.inspector?.api?.destroy();
+		const mine = (S.inspector = { el, testId: t.id, api: null });
+		const tr = window.TraceReportsI18n.t;
+		el.innerHTML = `<p class="m-hint">${esc(tr("Cargando la página del test…"))}</p>`;
+		if (STATIC) { // el reporte exportado: las páginas vienen en el ZIP (dom/), sin servidor
+			const opts = await staticInspector(t);
+			if (S.inspector !== mine || !el.isConnected) return;
+			mine.api = window.TraceReportsInspector.mount(el, { ...opts, t: tr });
+			return;
+		}
+		const get = (path) => fetch(path, { headers: { Accept: "application/json" } }).then((r) => (r.status === 200 ? r.json() : null)).catch(() => null);
+		const [snapshot, steps, loc] = await Promise.all([
+			t.has_dom ? get(`/api/v1/tests/${t.id}/dom`) : null,
+			t.dom_steps ? get(`/api/v1/tests/${t.id}/dom/steps`) : [],
+			t.status === "FAIL" ? get(`/api/v1/tests/${t.id}/locator`) : null,
+		]);
+		if (S.inspector !== mine || !el.isConnected) return;
+		mine.api = window.TraceReportsInspector.mount(el, {
+			snapshot, steps: steps || [], t: tr,
+			loadStep: (seq) => get(`/api/v1/tests/${t.id}/dom/steps/${seq}`),
+			loadBaseline: (label) => get(`/api/v1/tests/${t.id}/dom/baseline?label=${encodeURIComponent(label || "")}`),
+			// modo HTML: las hojas de estilo de la página, guardadas una vez por su hash
+			loadCSS: (h) => fetch(`/api/v1/dom/css/${h}`).then((r) => (r.status === 200 ? r.text() : Promise.reject(new Error(String(r.status))))),
+			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
+			backend: loc?.backend_cause || null,
+			screenshot: loc?.screenshot || lastShot(t),
+			shots: stepShots(t), // la captura de cada paso (la de un WARNING para su página, no la última del test)
+			// la fidelidad medida queda en el servidor para compararla por run (structure frente a html);
+			// sin permiso de escritura en la UI solo se muestra
+			onFidelity: (fidelity, mode) => { apiSend("PUT", `/api/v1/ui/tests/${t.id}/dom/fidelity`, { fidelity, mode }).catch(() => {}); },
+		});
+	}
+
+	/**
+	 * Lo que el Inspector necesita en el reporte exportado: dom/index.js dice qué páginas trae cada test
+	 * (las que no entraron por el tope de tamaño quedan en el servidor) y dom/test_<id>_<seq|fail>.js
+	 * cada página; se cargan como <script>, así funciona desde file://.
+	 */
+	async function staticInspector(t) {
+		const tr = window.TraceReportsI18n.t;
+		if (!window.TRACEREPORTS_DOM_INDEX) await loadScript("dom/index.js").catch(() => {});
+		const idx = window.TRACEREPORTS_DOM_INDEX?.[t.id] || { steps: [] };
+		const page = async (key) => {
+			if (!window.TRACEREPORTS_DOM?.[key]) await loadScript(`dom/test_${key.replace("/", "_")}.js`).catch(() => {});
+			return window.TRACEREPORTS_DOM?.[key] || null;
+		};
+		const loc = STATIC.locators?.[t.id];
+		const omitted = idx.omitted || (window.TRACEREPORTS_DOM_INDEX ? 0 : (t.has_dom ? 1 : 0) + (t.dom_steps || 0));
+		return {
+			snapshot: idx.fail?.included ? await page(`${t.id}/fail`) : null,
+			steps: idx.steps.filter((s) => s.included),
+			loadStep: (seq) => page(`${t.id}/${seq}`),
+			loadCSS: async (h) => { // css/<16 del hash>.js del ZIP (rutas cortas en Windows), una vez por hoja
+				if (!/^[0-9a-f]{64}$/.test(h)) throw new Error("hash");
+				if (window.TRACEREPORTS_CSS?.[h] === undefined) await loadScript(`css/${h.slice(0, 16)}.js`).catch(() => {});
+				if (typeof window.TRACEREPORTS_CSS?.[h] !== "string") throw new Error("missing");
+				return window.TRACEREPORTS_CSS[h];
+			},
+			failed: loc?.failed_selector ? { selector: loc.failed_selector } : null,
+			backend: loc?.backend_cause || null,
+			screenshot: loc?.screenshot || lastShot(t),
+			shots: stepShots(t), // la captura de cada paso (la de un WARNING para su página, no la última del test)
+			compareUnavailable: tr("Comparar con el último PASS necesita el servidor: el reporte exportado no trae ejecuciones anteriores."),
+			notice: omitted ? tr("{n} páginas de este test no entraron en el reporte exportado (tope de tamaño): siguen en el servidor.", { n: omitted }) : "",
+		};
+	}
+
 	// ---- mocks ----
 	async function openMockFor(conn) {
 		CF.MockGenerator.open(conn, { subtitle: `${S.test?.name || ""} · ${conn.method} ${conn.status || ""}` });
@@ -1303,10 +2488,26 @@
 	let runTimer = null, testTimer = null;
 	const scheduleRun = () => { clearTimeout(runTimer); runTimer = setTimeout(() => loadRun().catch(() => {}), 250); };
 	const scheduleTest = () => { clearTimeout(testTimer); testTimer = setTimeout(() => loadTest().catch(() => {}), 250); };
+	// la lista de ejecuciones (Recientes, el selector) se pone al día con lo que llega en vivo de
+	// cualquiera de ellas: como mucho una vez cada RUNS_REFRESH_MS, también con tests llegando sin parar
+	const RUNS_REFRESH_MS = 1500;
+	let runsTimer = null;
+	const scheduleRuns = () => { if (!runsTimer) runsTimer = setTimeout(() => { runsTimer = null; loadRuns().catch(() => {}); }, RUNS_REFRESH_MS); };
 
 	function setLiveState(state) {
+		const was = S.liveState;
 		S.liveState = state;
 		renderLive();
+		// al conectar (o reconectar) se avisan las ejecuciones que empezaron mientras no había conexión:
+		// su evento "created" no llegó a esta pestaña
+		if (state === "live" && was !== "live") loadRuns().then(catchUpNewRuns).catch(() => {});
+	}
+
+	/** Avisa las ejecuciones en curso que esta pestaña todavía no conocía (ver notifyNewRun). */
+	function catchUpNewRuns() {
+		if (!S.seenRuns) { S.seenRuns = new Set(S.runs.map((r) => r.id)); return; }
+		for (const r of S.runs) if (r.status === "RUNNING" && !S.seenRuns.has(r.id)) notifyNewRun(r.id);
+		for (const r of S.runs) S.seenRuns.add(r.id);
 	}
 
 	const STALE_MS = 5 * 60 * 1000; // una ejecución abierta sin pasos nuevos en 5 min no está "en vivo"
@@ -1339,29 +2540,57 @@
 
 	function onLive(type, e) {
 		const sameRun = e.run_id === S.runId;
-		if (sameRun && ["run", "test", "triage", "summary", "log", "network", "console", "artifact"].includes(type)) {
+		if (sameRun && ["run", "test", "triage", "summary", "log", "network", "console", "artifact"].includes(type) && escTouchedBy(type, e)) {
 			invalidateEscalation();
 			if (S.view === "escalate") renderEscalate();
 		}
 		if (e.run_id) S.activity[e.run_id] = Date.now();
+		if (["run", "test", "log"].includes(type)) scheduleLiveView(); // En vivo se pone al día (con calma: muchos eventos por segundo)
+		// la ingesta real (para el campo de En vivo): qué llegó, de qué corrida y cuándo; y su pulso
+		const F = window.TraceReportsLiveField, ch = F ? F.channelOf(type, e) : "";
+		if (ch && e.run_id) {
+			const now = Date.now();
+			S.ingest.push({ at: now, kind: ch, run_id: e.run_id, test_id: e.test_id || 0 });
+			if (S.ingest.length > 4000 || S.ingest[0].at < now - 120e3) S.ingest = S.ingest.filter((x) => x.at >= now - 120e3).slice(-3000);
+			const L = S.liveView;
+			if (S.view === "live" && L.field && L.exec?.runs?.some((r) => r.id === e.run_id)) {
+				if (L.ui.paused) {
+					const n = livePausedNew();
+					L.field.setPausedCount(n);
+					for (const c of document.querySelectorAll("#view-live [data-live-pausecount]")) c.textContent = String(n);
+				} else L.field.signal(ch, e.test_id);
+			}
+		}
+		// un resultado nuevo puede ser un cuadro más del historial de cualquier test (ensureHistory)
+		if ((type === "test" && e.data?.action === "finished") || (type === "run" && ["finished", "deleted"].includes(e.data?.action))) S.histGen++;
 		if (type === "run" && e.data?.action === "created") {
-			loadRuns().then(() => notifyNewRun(e.run_id)).catch(() => {});
+			// el evento trae nombre y ejecución: se avisa aunque la lista (los últimos 10, y la recarga
+			// más nueva gana) todavía no lo traiga, como pasa con muchas corridas creadas a la vez
+			S.newRunInfo[e.run_id] = { id: e.run_id, status: "RUNNING", ...e.data };
+			loadRuns().catch(() => {}).then(() => notifyNewRun(e.run_id));
 			if (S.view === "search") { S.runSearch.newCount++; renderRunSearch(); }
 		}
 		if (type === "log") {
 			if (e.test_id === S.testId) appendLiveStep(e.data);
 			return;
 		}
+		// estado y resultados de una ejecución de la lista (cerró, terminó un test): Recientes al día sin F5
+		if ((type === "run" && e.data?.action !== "created") || (type === "test" && S.runs.some((r) => r.id === e.run_id))) scheduleRuns();
 		if (sameRun) scheduleRun();
 		if (e.test_id && e.test_id === S.testId) scheduleTest();
 	}
 
-	/** Cambia a otra ejecución (selector de la barra o aviso de ejecución nueva). */
-	async function switchRun(id) {
+	/** Cambia a otra ejecución (selector de la barra o aviso de ejecución nueva). Desde una vista que
+	 * no es de una ejecución (Métricas, Buscar, Mantenimiento, Ajustes) pasa a sus tests: si no, la
+	 * ejecución se cargaba detrás y en pantalla no cambiaba nada. ``stay`` la carga sin mover de vista. */
+	async function switchRun(id, { stay = false } = {}) {
 		S.runId = id;
+		if (!stay && GLOBAL_VIEWS.has(S.view)) S.view = "tests";
 		$("#run-select").value = String(id);
 		S.testId = null; S.test = null; S.rendered = {};
-		S.newRuns = S.newRuns.filter((x) => x !== id); // ya la está viendo
+		const RN = window.TraceReportsRunNotify, seen = runInfo(id);
+		// ya la está viendo: sale de los avisos con todas las corridas de su ejecución
+		S.newRuns = S.newRuns.filter((x) => x !== id && !(seen && RN && RN.execKey(runInfo(x)) === RN.execKey(seen)));
 		renderNewRuns();
 		writeHash();
 		await loadRun(); await loadTest();
@@ -1369,53 +2598,177 @@
 
 	/**
 	 * Empezó otra ejecución: no se cambia sola (quien mira un reporte no pierde lo que estaba
-	 * viendo). Un aviso arriba ofrece verla en vivo; con "Ahora no" queda la insignia junto al
-	 * selector y un punto en la pestaña del navegador. Si no se estaba viendo ninguna, se abre.
+	 * viendo). Un aviso arriba ofrece verla en vivo; la insignia junto al selector y un punto en la
+	 * pestaña quedan mientras no se vea. Se avisa por ejecución (runnotify.js): las corridas nuevas de
+	 * una ejecución ya avisada solo suman a su cuenta. Si no se estaba viendo ninguna, se abre.
 	 */
+	/** Un run por su id: de la lista o, si todavía no está en ella, del evento que lo anunció. */
+	function runInfo(id) {
+		return S.runs.find((x) => x.id === id) || S.newRunInfo[id];
+	}
+
 	function notifyNewRun(id) {
-		const r = S.runs.find((x) => x.id === id);
+		S.seenRuns?.add(id);
+		const r = runInfo(id);
 		if (!r || id === S.runId || S.newRuns.includes(id)) return;
-		if (!S.run) { switchRun(id).catch(() => {}); return; }
+		if (!S.run) { switchRun(id, { stay: true }).catch(() => {}); return; }
+		// una corrida nueva de la ejecución que se está mirando (en el reporte o en En vivo) no es "otra"
+		const exe = r.execution_id;
+		if (exe && (exe === S.run.execution_id || S.liveView?.exec?.key === `x:${exe}` || S.liveView?.exec?.execution_id === exe)) return;
 		S.newRuns.push(id);
-		S.toastClosed = false; // cada ejecución nueva vuelve a avisar
 		renderNewRuns();
 	}
 
+	/** Lo silenciado cambió: se guarda y se vuelve a dibujar el aviso, la insignia y la campana. */
+	function setNotify(next) {
+		const RN = window.TraceReportsRunNotify;
+		S.notify = RN ? RN.prune(next, Date.now()) : next;
+		RN?.save(S.notify);
+		renderNewRuns();
+	}
+
+	/** Abre una ejecución nueva: En vivo de su ejecución (o su run, si no tiene execution_id). */
+	function openNewExec(g) {
+		const RN = window.TraceReportsRunNotify;
+		S.newRuns = S.newRuns.filter((x) => RN.execKey(runInfo(x)) !== g.key);
+		renderNewRuns();
+		if (g.key.startsWith("x:")) location.hash = `#view=live&exec=${encodeURIComponent(g.key)}`;
+		else switchRun(g.latest.id).catch(() => {});
+	}
+
+	function newRunGroups() {
+		const RN = window.TraceReportsRunNotify;
+		const runs = S.newRuns.map(runInfo).filter(Boolean);
+		return RN ? RN.group(runs, S.notify, Date.now()) : { list: [], loud: [] };
+	}
+
 	function renderNewRuns() {
-		const runs = S.newRuns.map((id) => S.runs.find((x) => x.id === id)).filter(Boolean);
-		const latest = runs[runs.length - 1];
+		const { list, loud } = newRunGroups();
+		const latest = list[list.length - 1];
 		const badge = $("#new-run-badge");
 		badge.hidden = !latest;
 		document.title = document.title.replace(/^● /, "");
+		renderNotifyBell();
 		let el = $("#run-toast");
-		if (!latest) { if (el) el.hidden = true; return; }
-		document.title = `● ${document.title}`;
-		badge.dataset.run = String(latest.id);
-		$(".nrb-text", badge).textContent = tr(runs.length === 1 ? "1 nueva" : "{n} nuevas", { n: runs.length });
-		badge.dataset.tip = tr("Ejecuciones que empezaron mientras mirabas esta. Clic para ver la última en vivo.");
+		if (latest) {
+			document.title = `● ${document.title}`;
+			badge.dataset.key = latest.key;
+			$(".nrb-text", badge).textContent = tr(list.length === 1 ? "1 nueva" : "{n} nuevas", { n: list.length });
+			badge.dataset.tip = tr("Ejecuciones que empezaron mientras mirabas esta. Clic para ver la última en vivo.");
+		}
+		if (el?.dataset.undo) return; // mostrando "silenciado · Deshacer": se respeta hasta que venza
+		const show = loud[loud.length - 1];
+		if (!show) { if (el) el.hidden = true; return; }
 		if (!el) {
 			el = document.createElement("div");
 			el.id = "run-toast";
 			el.className = "run-toast";
 			el.setAttribute("role", "status");
 			el.setAttribute("aria-live", "polite");
+			el.hidden = true;
 			el.addEventListener("click", (ev) => {
-				if (ev.target.closest("[data-toast-open]")) { el.hidden = true; switchRun(Number(el.dataset.run)).catch(() => {}); }
-				else if (ev.target.closest("[data-toast-close]")) { S.toastClosed = true; el.hidden = true; }
+				const RN = window.TraceReportsRunNotify, now = Date.now();
+				const { loud: shown } = newRunGroups();
+				if (ev.target.closest("[data-toast-open]")) {
+					const g = shown.find((x) => x.key === el.dataset.key);
+					el.hidden = true;
+					if (g) openNewExec(g);
+				} else if (ev.target.closest("[data-toast-close]")) {
+					// "Ahora no": esa ejecución (y las otras del aviso) no vuelve a avisar con cada corrida
+					let next = S.notify;
+					for (const g of shown) next = RN.mute(next, g.key, g.title, now);
+					el.hidden = true;
+					setNotify(next);
+				} else if (ev.target.closest("[data-toast-snooze]")) {
+					showSnoozeUndo(el); // antes de redibujar: el aviso queda mostrando "Deshacer"
+					setNotify(RN.snooze(S.notify, now));
+				} else if (ev.target.closest("[data-toast-undo]")) {
+					delete el.dataset.undo;
+					clearTimeout(el._undoTimer);
+					setNotify(RN.resume(S.notify));
+				}
 			});
 			document.body.appendChild(el);
 		}
-		el.dataset.run = String(latest.id);
-		const where = [latest.environment, latest.branch].filter(Boolean).map(esc).join(" · ");
+		const wasHidden = el.hidden;
+		el.dataset.key = show.key;
+		const r = show.latest, n = show.runs.length;
+		const where = [r.environment, r.branch].filter(Boolean).map(esc).join(" · ");
+		const title = loud.length > 1 ? tr("{n} ejecuciones nuevas en curso", { n: loud.length })
+			: n > 1 ? tr("Empezó una ejecución · {n} corridas", { n }) : tr("Empezó otra ejecución");
 		el.innerHTML = `<span class="run-toast-tag"><span class="dot" aria-hidden="true"></span>${tr("En vivo")}</span>
 			<div class="run-toast-body">
-				<b class="run-toast-title">${runs.length === 1 ? tr("Empezó otra ejecución") : tr("{n} ejecuciones nuevas en curso", { n: runs.length })}</b>
-				<span class="run-toast-sub" data-no-i18n>#${latest.id} · ${esc(latest.name)}${where ? ` · ${where}` : ""}</span>
+				<b class="run-toast-title">${esc(title)}</b>
+				<span class="run-toast-sub" data-no-i18n>${esc(show.key.startsWith("x:") ? show.title : `#${r.id} · ${r.name}`)}${where ? ` · ${where}` : ""}</span>
 			</div>
 			<button class="run-toast-open" data-toast-open>${tr("Ver en vivo")} →</button>
-			<button class="run-toast-later" data-toast-close>${tr("Ahora no")}</button>`;
-		el.hidden = S.toastClosed;
-		if (!el.hidden) { el.classList.remove("run-toast-in"); void el.offsetWidth; el.classList.add("run-toast-in"); }
+			<button class="run-toast-later" data-toast-snooze data-tip="${esc(tr("No avisar ninguna ejecución nueva por 15 minutos. Se reactiva en la campana de arriba."))}">${tr("Silenciar 15 min")}</button>
+			<button class="run-toast-later" data-toast-close data-tip="${esc(tr("No volver a avisar esta ejecución (sus corridas siguen sumando en la insignia)."))}">${tr("Ahora no")}</button>`;
+		el.hidden = false;
+		if (wasHidden) { el.classList.remove("run-toast-in"); void el.offsetWidth; el.classList.add("run-toast-in"); }
+	}
+
+	/** Tras "Silenciar 15 min": el aviso dice que quedó silenciado y ofrece deshacer unos segundos. */
+	function showSnoozeUndo(el) {
+		el.dataset.undo = "1";
+		el.hidden = false;
+		el.innerHTML = `<span class="run-toast-tag muted">${icon("i-bell-off")}</span>
+			<div class="run-toast-body"><b class="run-toast-title">${esc(tr("Avisos silenciados por 15 min"))}</b>
+				<span class="run-toast-sub">${esc(tr("Se reactivan solos, o antes desde la campana de arriba."))}</span></div>
+			<button class="run-toast-later" data-toast-undo>${tr("Deshacer")}</button>`;
+		clearTimeout(el._undoTimer);
+		el._undoTimer = setTimeout(() => { delete el.dataset.undo; el.hidden = true; renderNewRuns(); }, 6000);
+	}
+
+	/**
+	 * La campana de la barra: siempre dice si los avisos están activos o silenciados (con los minutos
+	 * que quedan) y abre el panel para reactivarlos o silenciar. Sin servidor (reporte exportado), no.
+	 */
+	function renderNotifyBell() {
+		const bell = $("#notify-bell");
+		if (!bell) return;
+		const RN = window.TraceReportsRunNotify;
+		bell.hidden = !!STATIC || !RN;
+		if (bell.hidden) return;
+		const left = RN.snoozeLeft(S.notify, Date.now()), muted = Object.keys(S.notify.muted).length;
+		bell.classList.toggle("off", !!left);
+		bell.innerHTML = `${icon(left ? "i-bell-off" : "i-bell")}${left ? `<span class="nb-left">${esc(tr("{n} min", { n: left }))}</span>` : muted ? `<span class="nb-count" aria-hidden="true">${muted}</span>` : ""}`;
+		const label = left ? tr("Avisos de ejecuciones nuevas silenciados: quedan {n} min", { n: left })
+			: muted ? tr("Avisos de ejecuciones nuevas activos ({n} silenciadas)", { n: muted }) : tr("Avisos de ejecuciones nuevas activos");
+		bell.setAttribute("aria-label", label);
+		bell.dataset.tip = label;
+		const panel = $("#notify-panel");
+		if (panel && !panel.hidden) renderNotifyPanel();
+	}
+
+	function renderNotifyPanel() {
+		const RN = window.TraceReportsRunNotify, panel = $("#notify-panel");
+		const now = Date.now(), left = RN.snoozeLeft(S.notify, now);
+		const muted = Object.entries(S.notify.muted);
+		const until = left ? new Date(S.notify.until).toLocaleTimeString(document.documentElement.lang === "en" ? "en-US" : "es-CL", { hour: "2-digit", minute: "2-digit", hourCycle: "h23" }) : "";
+		panel.innerHTML = `<h4>${esc(tr("Avisos de ejecuciones nuevas"))}</h4>
+			<p class="np-state ${left ? "off" : "on"}">${icon(left ? "i-bell-off" : "i-bell")}<span>${left ? esc(tr("Silenciados hasta las {h} (quedan {n} min)", { h: until, n: left })) : esc(tr("Activos: se avisa cada ejecución nueva una vez, no cada corrida."))}</span></p>
+			<div class="np-actions">${left ? `<button type="button" class="cf-btn cf-btn-primary cf-btn-sm" data-notify-resume>${esc(tr("Reactivar ahora"))}</button>` : ""}
+				<button type="button" class="cf-btn cf-btn-sm" data-notify-snooze="15">${esc(tr("Silenciar 15 min"))}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-notify-snooze="60">${esc(tr("Silenciar 1 h"))}</button></div>
+			${muted.length ? `<h5>${esc(tr("Ejecuciones silenciadas"))}</h5><ul class="np-muted">${muted.map(([k, m]) => `<li><span data-no-i18n>${esc(m.title)}</span><button type="button" class="cf-btn cf-btn-sm" data-notify-unmute="${esc(k)}">${esc(tr("Reactivar"))}</button></li>`).join("")}</ul>
+				<p class="m-hint">${esc(tr("Una ejecución silenciada con «Ahora no» vuelve a avisar sola a las 12 h."))}</p>` : ""}`;
+	}
+
+	function toggleNotifyPanel(open) {
+		const panel = $("#notify-panel"), bell = $("#notify-bell");
+		if (!panel || !bell) return;
+		const want = open === undefined ? panel.hidden : open;
+		if (want === !panel.hidden) return;
+		panel.hidden = !want;
+		bell.setAttribute("aria-expanded", String(want));
+		if (want) {
+			// el aviso flotante queda por encima de la barra: se cierra (el panel dice lo mismo y más)
+			const toast = $("#run-toast");
+			if (toast) { clearTimeout(toast._undoTimer); delete toast.dataset.undo; toast.hidden = true; }
+			renderNotifyPanel();
+			panel.querySelector("button")?.focus();
+		}
 	}
 
 	/** Agrega un paso recibido en vivo sin re-renderizar el detalle (animación de entrada). */
@@ -1444,17 +2797,34 @@
 	}
 
 	// ---------- historial y flaky ----------
+	const HIST_CELLS = 20;
+
+	/** Hasta HIST_CELLS cuadros (de la más nueva a la más vieja) que incluyen el test que se ve: con
+	 * posteriores, la ventana lo deja al centro para poder ir hacia atrás y hacia adelante. */
+	function histWindow(hist, testId) {
+		if (!hist || hist.length <= HIST_CELLS) return hist;
+		const at = Math.max(0, hist.findIndex((h) => h.test_id === testId));
+		const start = Math.min(Math.max(0, at - Math.floor(HIST_CELLS / 2)), hist.length - HIST_CELLS);
+		return hist.slice(start, start + HIST_CELLS);
+	}
+
+	/**
+	 * El historial se pide de nuevo cuando terminó algún test o ejecución desde la última vez
+	 * (S.histGen): guardado para siempre, el de un test abierto antes de una ejecución nueva no la
+	 * mostraba al volver a él desde un cuadro. Mientras llega el nuevo se sigue viendo el anterior.
+	 */
 	function ensureHistory(t) {
-		const key = `${t.id}:${t.status}`;
-		if (S.hist[key] !== undefined) return;
-		S.hist[key] = null; // cargando
-		api(`/api/v1/tests/${t.id}/history`)
-			.then((h) => { S.hist[key] = h; if (S.test?.id === t.id) renderTestDetail(); })
-			.catch(() => { S.hist[key] = []; });
+		const key = `${t.id}:${t.status}`, gen = S.histGen, e = S.hist[key];
+		if (e && (e.gen === gen || e.loading === gen)) return;
+		S.hist[key] = { gen: e?.gen, data: e?.data ?? null, loading: gen };
+		// con las posteriores: abierto desde un cuadro viejo, el historial sigue mostrando lo que vino después
+		api(`/api/v1/tests/${t.id}/history?newer=${HIST_CELLS}`)
+			.then((h) => { S.hist[key] = { gen, data: h }; if (S.test?.id === t.id) renderTestDetail(); })
+			.catch(() => { S.hist[key] = { gen, data: e?.data ?? [] }; });
 	}
 
 	function historyStrip(t) {
-		const hist = S.hist[`${t.id}:${t.status}`];
+		const hist = histWindow(S.hist[`${t.id}:${t.status}`]?.data, t.id);
 		if (!hist || hist.length < 2) return "";
 		const counted = hist.filter((h) => h.status !== "SKIP");
 		const ok = counted.filter((h) => h.status !== "FAIL").length;
@@ -1466,7 +2836,7 @@
 				: `<a class="${cls}" href="#run=${h.run_id}&view=tests&test=${h.test_id}" data-tip="${esc(tip)}"></a>`;
 		}).join("");
 		return `<div class="history">
-			<span class="history-lbl" tabindex="0" data-tip="Resultado de este mismo test en sus últimas ejecuciones del mismo proyecto, ambiente y rama, de la más antigua a la actual. Clic en un cuadro para abrir esa ejecución.">Historial</span><span class="hist-cells">${cells}</span>
+			<span class="history-lbl" tabindex="0" data-tip="Resultado de este mismo test en sus últimas ejecuciones del mismo proyecto, ambiente y rama, de la más antigua a la más nueva; el marcado es el que estás viendo. Clic en un cuadro para abrir esa ejecución.">Historial</span><span class="hist-cells">${cells}</span>
 			<span class="history-rate">${counted.length ? Math.round((ok / counted.length) * 100) : 0}% OK en ${counted.length} ejecuciones</span>
 			${t.key_approx ? `<span class="history-approx" data-tip="Este test se reportó sin identidad propia (key/nodeid): su historial se arma por nombre y puede mezclar tests homónimos de otros archivos.">≈ aproximado</span>` : ""}
 
@@ -1539,7 +2909,9 @@
 	}
 
 	// ---------- diagnóstico de la ejecución ----------
-	const INCIDENT_ICON = { backend: "i-plug", ai: "i-spark", error: "i-warning" };
+	const INCIDENT_ICON = { backend: "i-plug", ai: "i-spark", error: "i-warning", cascade: "i-timeline" };
+	// evidencia que escribe el servidor en español y se traduce con las reglas de i18n.en.js
+	const TRANSLATED_EVIDENCE = new Set(["network", "cascade", "hung", "blank_page"]);
 
 	/** Hechos observados de un incidente (llamada, error, captura), con enlace al test. */
 	function incidentEvidence(inc) {
@@ -1548,7 +2920,7 @@
 		if (!ev.length && !inc.location) return "";
 		const tr = window.TraceReportsI18n.t;
 		return `<ul class="inc-evidence" aria-label="${esc(tr("Evidencia observada"))}">${ev.map((e) =>
-			`<li><a data-goto="${e.test_id}" data-no-i18n>${esc(e.kind === "network" ? tr(e.text) : e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
+			`<li class="ev-${esc(e.kind)}"><a data-goto="${e.test_id}" data-no-i18n>${esc(TRANSLATED_EVIDENCE.has(e.kind) ? tr(e.text) : e.text)}</a></li>`).join("")}${inc.location ? `<li class="mono" data-no-i18n>${esc(inc.location)}</li>` : ""}</ul>`;
 	}
 
 	/** Botón "Abrir en Lab" de un incidente de backend: reenvía su llamada causal (no en el ZIP). */
@@ -1743,6 +3115,20 @@
 				<span class="banner-text"><b>${esc(who)}</b>${r.close_reason ? ` · <span data-no-i18n>${esc(r.close_reason)}</span>` : ""}
 					<small>${tr("{n} test(s) quedaron como Interrumpido: no cuentan como fallo.", { n: r.interrupted })}</small></span>
 				<a href="#" data-banner-interrupted>${tr("Ver interrumpidos →")}</a>`);
+			return;
+		}
+		const dv = r?.delivery, lost = dv ? (dv.lost || 0) + (dv.dropped || 0) + (dv.rejected || 0) : 0;
+		if (dv && (dv.late || lost)) {
+			el.hidden = false;
+			el.classList.add("cut");
+			const at = dv.late_at ? fmtTime(dv.late_at) : "";
+			const parts = [dv.lost && tr("{n} eventos perdidos", { n: dv.lost }), dv.dropped && tr("{n} descartados (cola llena)", { n: dv.dropped }),
+				dv.rejected && tr("{n} rechazados por el servidor", { n: dv.rejected }), dv.spooled && tr("{n} guardados para reenviar", { n: dv.spooled })].filter(Boolean);
+			setHTML(el, `<span class="banner-icon">${icon("i-plug")}</span>
+				<span class="banner-text"><b>${dv.late ? tr("Este run llegó al final: no hubo conexión al crearlo") : tr("Parte de la evidencia no llegó al servidor")}</b>
+					<small>${dv.late ? esc(tr("A las {h} el cliente no pudo crearlo ({why}); lo grabó en local y lo subió al terminar. No se ve en vivo, pero está completo.", { h: at, why: dv.reason || "—" })) : ""}
+					${parts.length ? esc(parts.join(" · ")) : ""}${dv.detail ? ` <span class="dv-detail" data-no-i18n>${esc(dv.detail)}</span>` : ""}</small></span>
+				<a href="#view=maintenance" data-banner-connections>${tr("Ver conexiones →")}</a>`);
 			return;
 		}
 		const show = S.view === "tests" && sum?.state === "DONE" && r.failed > 0;
@@ -2073,9 +3459,9 @@
 			sw: { bg: "#f2f4f7", top: "#ffffff", nav: "#263238", card: "#ffffff", accent: "#26a69a" } },
 		{ id: "trace-dark", name: "Trace Dark", desc: "La misma interfaz, en versión oscura.",
 			sw: { bg: "#1b1f24", top: "#252a31", nav: "#15181c", card: "#2c323a", accent: "#26a69a" } },
-		{ id: "midnight", name: "Midnight", desc: "Oscuro profundo, sidebar flotante y acento violeta.",
+		{ id: "midnight", name: "Midnight", desc: "Oscuro profundo, menú flotante y acento violeta.",
 			sw: { bg: "#08080d", top: "#101017", nav: "#1d1b2e", card: "#16161f", accent: "#a78bfa" } },
-		{ id: "paper", name: "Paper", desc: "Editorial: serifa, papel cálido y navegación superior.", topnav: true,
+		{ id: "paper", name: "Paper", desc: "Editorial: serifa y papel cálido.",
 			sw: { bg: "#f7f4ee", top: "#f7f4ee", nav: "#e7e0d3", card: "#fffdf9", accent: "#b4532a" } },
 		{ id: "pixel", name: "Pixel", desc: "Arte 8-bit de videojuego retro: ventanas de RPG y barra de vida.",
 			sw: { bg: "#1a1c2c", top: "#b13e53", nav: "#1a1c2c", card: "#29366f", accent: "#ffcd75" } },
@@ -2177,6 +3563,7 @@
 	function bindEvents() {
 		bindMetricsEvents();
 		bindMaintenance();
+		bindLiveView();
 		bindSettingsEvents();
 		bindAIEscalateEvents();
 		// cambio de idioma: lo que se dibuja en canvas (gráficos) no pasa por el DOM
@@ -2221,6 +3608,7 @@
 			if (e.target.closest("[data-close-run-open]")) { S.closeRun = {}; renderRunBanner(); $("[data-close-run-form] select")?.focus(); return; }
 			if (e.target.closest("[data-close-run-cancel]")) { S.closeRun = null; renderRunBanner(); return; }
 			if (e.target.closest("[data-banner-interrupted]")) { e.preventDefault(); S.status = "INTERRUPTED"; setView("tests"); }
+			if (e.target.closest("[data-banner-connections]")) { e.preventDefault(); S.maint.focusConn = true; connUI().open.runs = true; setView("maintenance"); }
 		});
 		$("#run-banner").addEventListener("submit", (e) => {
 			const f = e.target.closest("[data-close-run-form]");
@@ -2245,12 +3633,30 @@
 		$("#search-more").addEventListener("click", () => loadRunSearch(false));
 		$("#search-new-runs").addEventListener("click", () => { S.runSearch.newCount = 0; loadRunSearch(); });
 		$("#run-search-results").addEventListener("click", (e) => { if (e.target.closest("[data-search-retry]")) loadRunSearch(); });
-		$("#new-run-badge").addEventListener("click", (e) => switchRun(Number(e.currentTarget.dataset.run)));
+		$("#new-run-badge").addEventListener("click", () => { const { list } = newRunGroups(); const g = list[list.length - 1]; if (g) openNewExec(g); });
+		$("#notify-bell")?.addEventListener("click", (e) => { e.stopPropagation(); toggleNotifyPanel(); });
+		$("#notify-panel")?.addEventListener("click", (e) => {
+			e.stopPropagation();
+			const RN = window.TraceReportsRunNotify, now = Date.now();
+			const sn = e.target.closest("[data-notify-snooze]"), un = e.target.closest("[data-notify-unmute]");
+			if (e.target.closest("[data-notify-resume]")) setNotify(RN.resume(S.notify));
+			else if (sn) setNotify(RN.snooze(S.notify, now, Number(sn.dataset.notifySnooze) * 60000));
+			else if (un) setNotify(RN.unmute(S.notify, un.dataset.notifyUnmute));
+		});
+		document.addEventListener("click", (e) => { if (!e.target.closest?.("#notify-panel, #notify-bell")) toggleNotifyPanel(false); });
+		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && $("#notify-panel") && !$("#notify-panel").hidden) { toggleNotifyPanel(false); $("#notify-bell")?.focus(); } });
+		// la cuenta de la campana y el fin de lo silenciado, aunque no lleguen eventos
+		setInterval(() => {
+			const RN = window.TraceReportsRunNotify, before = S.notify.until;
+			if (RN) S.notify = RN.prune(S.notify, Date.now());
+			if (before && !S.notify.until) renderNewRuns(); else renderNotifyBell();
+		}, 30000);
+		renderNotifyBell();
 		$("#compare-card").addEventListener("click", (e) => {
 			if (e.target.closest("[data-cmp-pick]")) { S.insights.picking = !S.insights.picking; renderInsights(); $("[data-cmp-q]")?.focus(); return; }
 			if (e.target.closest("[data-cmp-ai]")) {
 				const c = S.insights.compare;
-				if (c?.base_run) buddyAsk(cmpQuestion(c, S.run, c.base_run));
+				if (c?.base_run) buddyAskText(cmpQuestion(c, S.run, c.base_run));
 				return;
 			}
 			if (e.target.closest("[data-cmp-pick-close]")) { S.insights.picking = false; renderInsights(); return; }
@@ -2494,6 +3900,7 @@
 			if (S.runId !== before) { S.test = null; await loadRun(); } else { renderView(); renderLive(); }
 			if (S.view === "search") await loadRunSearch();
 			if (S.view === "tests") await loadTest();
+			if (S.view === "live") loadLiveView();
 		});
 
 		bindThemePicker();
@@ -2563,10 +3970,10 @@
 				: sum.state === "ERROR" ? `<p class="ai-err">${icon("i-fail")}<span>${esc(sum.error || "")}</span></p>`
 				: `<p class="ai-headline">${esc(sum.headline)}</p>${sum.summary ? `<p>${esc(sum.summary)}</p>` : ""}
 					${isLocal(sum) ? `<p class="m-hint">${tr("Diagnóstico del motor local de reglas: cada conclusión sale de una regla determinística sobre la evidencia observada, sin IA y sin red.")}</p>`
-						: !sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, o con la misma firma de error.")}</p>` : ""}
+						: !sum.ai ? `<p class="m-hint">${tr("Agrupado sin IA: cada incidente junta los fallos con la misma llamada de backend fallida justo antes del fallo, con la misma firma de error, o en cascada: el primer fallo de un archivo y los siguientes que apuntan a él.")}</p>` : ""}
 					${summaryCoverage(sum)}`;
 			const incidents = (sum?.incidents || []).map((inc) => `<article class="card incident-card">
-				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error") }[inc.kind] || inc.kind)}</span>
+				<header><span class="inc-kind ${esc(inc.kind)}">${esc({ backend: tr("Backend"), ai: tr("Causa IA"), error: tr("Error"), cascade: tr("En cascada") }[inc.kind] || inc.kind)}</span>
 					<h6 data-no-i18n>${esc(AI_LABEL[inc.title] ? tr(AI_LABEL[inc.title]) : inc.title)}</h6>
 					<span class="inc-count">${inc.test_ids.length === 1 ? tr("1 test") : tr("{n} tests", { n: inc.test_ids.length })}</span>${recurrencePill(inc.key)}${incidentVerified(inc)}</header>
 				${incidentEvidence(inc)}
@@ -2634,7 +4041,13 @@
 			baseline: "La última vez que el test pasó (ejecución #{r}) respondió HTTP {s}", other_ctx: " · en otra rama o ambiente",
 			more: "… {n} líneas más en el reporte", clipped: "Respuesta recortada: completa en el reporte",
 			qa_verdict: "Veredicto de QA", qa_clean: "Pasó limpio", qa_observations: "Pasó con observaciones", qa_risks: "Pasó con riesgos",
-			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación" },
+			qa_clean_desc: "Sin señales en red, consola, pasos, reintentos ni historial.", qa_risk: "Riesgo", qa_note: "Observación",
+			doc: "Reporte de escalamiento", ref: "N.º", generated: "Generado", severity: "Severidad", audience: "Audiencia",
+			sev_critical: "Crítica", sev_high: "Alta", sev_medium: "Media", sev_low: "Baja", run_date: "Fecha de ejecución",
+			summary: "Resumen ejecutivo", where: "Dónde falló", step: "Paso que falló", last_ok: "Último paso correcto", error: "Error", selector: "Selector no encontrado",
+			foot: "Generado con TraceReports · {d} · Uso interno",
+			blank_title: "La página estaba en blanco al fallar",
+			blank_desc: "El navegador no llegó a mostrar contenido: todas las capturas del test están en blanco.", blank_view: "Ver la captura" },
 		en: { critical: "Critical severity", high: "High severity", medium: "Medium severity", low: "Low severity",
 			business: "Business", qa: "QA", dev: "Development", what: "What happened", impact: "Impact", cause: "Likely cause",
 			evidence: "Evidence", next: "Next steps", owner: "Suggested owner", calls: "Backend calls that failed",
@@ -2646,8 +4059,28 @@
 			baseline: "The last time the test passed (run #{r}) it answered HTTP {s}", other_ctx: " · on another branch or environment",
 			more: "… {n} more lines in the report", clipped: "Response cut: the full one is in the report",
 			qa_verdict: "QA verdict", qa_clean: "Passed clean", qa_observations: "Passed with observations", qa_risks: "Passed with risks",
-			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation" },
+			qa_clean_desc: "No signals in network, console, steps, retries or history.", qa_risk: "Risk", qa_note: "Observation",
+			doc: "Escalation report", ref: "No.", generated: "Generated", severity: "Severity", audience: "Audience",
+			sev_critical: "Critical", sev_high: "High", sev_medium: "Medium", sev_low: "Low", run_date: "Run date",
+			summary: "Executive summary", where: "Where it failed", step: "Step that failed", last_ok: "Last step that passed", error: "Error", selector: "Selector not found",
+			foot: "Generated with TraceReports · {d} · Internal use",
+			blank_title: "The page was blank at the failure",
+			blank_desc: "The browser never showed any content: every screenshot of the test is blank.", blank_view: "View the screenshot" },
 	};
+
+	/** Número de reporte estable: el mismo fallo (ejecución y test) siempre lleva el mismo. */
+	const escRef = (e) => `ESC-${String(e.run_id).padStart(4, "0")}${e.test_id ? `-${e.test_id}` : ""}`;
+
+	/** La captura del fallo, o el aviso de página en blanco (un recuadro blanco parece una imagen que no cargó). */
+	function escShotHTML(e, L) {
+		const f = e.facts;
+		if (!f.screenshot) return "";
+		if (f.shot_blank) {
+			return `<div class="esc-shot-blank" role="note">${icon("i-warning")}<div><b>${esc(L.blank_title)}</b>
+				<p>${esc(L.blank_desc)} <a href="${esc(f.screenshot)}" target="_blank" rel="noopener">${esc(L.blank_view)} ↗</a></p></div></div>`;
+		}
+		return `<figure class="esc-shot"><img src="${esc(f.screenshot)}" alt="${esc(L.shot)}"><figcaption>${esc(L.shot)}${f.shot_caption ? ` · ${esc(f.shot_caption)}` : ""}</figcaption></figure>`;
+	}
 
 	/** El veredicto de QA de una ejecución sin fallos (lo calcula el servidor): cómo pasó y sus señales. */
 	function escVerdictHTML(e, L) {
@@ -2659,17 +4092,26 @@
 			${signals ? `<ul>${signals}</ul>` : `<p>${esc(L.qa_clean_desc)}</p>`}</section>`;
 	}
 	const escFmt = (s, v) => s.replace(/\{(\w+)\}/g, (m, k) => (k in v ? v[k] : m));
-	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}:${S.esc.evidence}`;
+	/** Qué se escala (ejecución, test, público, idioma, con o sin IA): otro alcance es otro resumen. */
+	const escKey = () => `${S.run?.id}:${S.esc.test}:${S.esc.audience}:${S.esc.lang}:${escNoAI() ? "tpl" : "ai"}`;
 	/** Sin IA: elegido por la persona, o porque no hay IA configurada. */
 	const escNoAI = () => !S.config.ai_enabled || !!S.esc.noAI;
 
-	// El resumen en memoria y las respuestas en vuelo pertenecen a la evidencia anterior.
-	// Retirarlo no genera IA: el cache del servidor valida su huella; regenerar sigue siendo explícito.
+	// Cambió la evidencia de lo que se escala. Con la ejecución terminada, el resumen en memoria y las respuestas
+	// en vuelo son de la evidencia anterior: se retiran (no genera IA: el caché del servidor valida su huella;
+	// regenerar sigue siendo explícito). Con la ejecución todavía corriendo la evidencia llega sin parar: lo que se
+	// ve, o se está armando, NO se borra ni se cancela (eso hacía parpadear la vista y obligaba a pedirlo dos veces);
+	// queda marcado "llegó evidencia nueva", con Regenerar.
 	function invalidateEscalation() {
 		S.esc.evidence++;
-		S.esc.loadedKey = null; S.esc.data = null; S.esc.msg = null; S.esc.loading = false;
+		if (S.run?.status === "RUNNING" && (S.esc.data || S.esc.loading)) { S.esc.stale = true; return; }
+		S.esc.loadedKey = null; S.esc.data = null; S.esc.msg = null; S.esc.loading = false; S.esc.stale = false;
 		turn("escalate"); turn("escalate-cache");
 	}
+	/** Lo de una ejecución que importa a lo que se escala: con un test elegido, ese test (y el análisis general). */
+	const escEvidence = (run) => JSON.stringify(S.esc.test ? [run.tests?.find((t) => t.id === S.esc.test) ?? null, run.summary ?? null] : run);
+	/** ¿Este evento en vivo cambia lo que se está escalando? Un test elegido: solo lo suyo (y el análisis de la ejecución). */
+	const escTouchedBy = (type, e) => !S.esc.test || e.test_id === S.esc.test || type === "triage" || type === "summary";
 
 	function escReportURL(e) {
 		return STATIC ? `${location.href.split("#")[0]}${e.facts.report_path}` : `${location.origin}/${e.facts.report_path}`;
@@ -2685,7 +4127,7 @@
 		const key = escKey();
 		if (S.esc.loadedKey === key) return;
 		const current = turn("escalate-cache");
-		S.esc.loadedKey = key; S.esc.data = null; S.esc.msg = null;
+		S.esc.loadedKey = key; S.esc.data = null; S.esc.msg = null; S.esc.stale = false;
 		if (escNoAI()) { if (S.view === "escalate") renderEscalate(); return; } // la plantilla no se guarda
 		try {
 			const res = await fetch(`/api/v1/runs/${S.run.id}/escalation?test=${S.esc.test}&audience=${S.esc.audience}&lang=${S.esc.lang}`);
@@ -2698,7 +4140,7 @@
 	}
 
 	async function generateEscalation(regenerate) {
-		const key = escKey(), current = turn("escalate");
+		const key = escKey(), current = turn("escalate"), evidence = S.esc.evidence;
 		turn("escalate-cache"); // una lectura anterior no pisa la generación solicitada
 		S.esc.loadedKey = key;
 		S.esc.loading = true; S.esc.msg = null; renderEscalate();
@@ -2707,6 +4149,7 @@
 			// otro test, público o idioma elegido mientras tanto: el resultado y su aviso son de otro escalado
 			if (current() && escKey() === key) {
 				S.esc.data = data;
+				S.esc.stale = S.esc.evidence !== evidence; // llegó evidencia mientras se armaba
 				if (data.ai_error) S.esc.msg = { ok: false, text: tr("La IA no respondió, así que se armó con la plantilla. Detalle: {e}", { e: data.ai_error }) };
 				if (data.ai_skipped === "no_failures") S.esc.msg = { ok: true, text: tr("Esta ejecución todavía no terminó completa: el resumen se armó con los datos del reporte, sin IA, para que no invente un problema que no existe.") };
 				if (data.ai_skipped === "invented_failure") S.esc.msg = { ok: true, text: tr("La IA describió un fallo que esta ejecución no tiene, así que se descartó su texto y el resumen se armó con los datos del reporte.") };
@@ -2756,7 +4199,7 @@
 		return `<div class="esc-dev-test">${named ? `<h4 class="esc-dev-name">${esc(d.test_name)}</h4>` : ""}
 			${ctx.length ? `<dl class="esc-ctx">${ctx.map(([k, v]) => `<div><dt>${esc(k)}</dt><dd>${esc(v)}</dd></div>`).join("")}</dl>` : ""}
 			${d.error || d.error_trace ? `<h4>${esc(L.stack)}</h4>${block([d.error, d.error_trace].filter(Boolean).join("\n\n"))}` : ""}
-			${d.repro?.length ? `<h4>${esc(L.repro)}</h4>${d.repro.map((r) => block(r.cmd)).join("")}` : ""}
+			${d.repro?.length ? `<h4>${esc(L.repro)}</h4>${block(CF.reproScript(d.repro, d.commit, L === ESC_L.en ? "en" : "es"))}` : ""}
 			${calls ? `<h4>${esc(L.calls)}</h4>${calls}` : ""}
 			${consoleText ? `<h4>${esc(L.console)}</h4>${block(consoleText, 12)}` : ""}
 			${d.artifacts?.length ? `<h4>${esc(L.artifacts)}</h4><ul>${d.artifacts.map((a) => `<li><a href="${esc(a.url)}" target="_blank" rel="noopener">${esc(a.kind)}: ${esc(a.name)}</a></li>`).join("")}</ul>` : ""}
@@ -2770,7 +4213,7 @@
 		const ctx = escDevContext(d, L);
 		if (ctx.length) out.push(ctx.map(([k, v]) => `${k}: ${v}`).join(" · "));
 		if (d.error || d.error_trace) out.push("", B(L.stack + ":"), fence([d.error, d.error_trace].filter(Boolean).join("\n\n")));
-		if (d.repro?.length) out.push("", B(L.repro + ":"), fence(d.repro.map((r) => r.cmd).join("\n"), "bash"));
+		if (d.repro?.length) out.push("", B(L.repro + ":"), fence(CF.reproScript(d.repro, d.commit, L === ESC_L.en ? "en" : "es"), "bash"));
 		for (const c of d.calls || []) {
 			out.push("", B(`${c.method} ${c.url} → ${c.outcome}${c.duration_ms ? ` (${c.duration_ms} ms)` : ""}`));
 			const ids = [c.trace_id && `Trace ID ${c.trace_id}`, c.request_id && `Request ID ${c.request_id}`, c.logs_url && `${L.logs}: ${c.logs_url}`, c.trace_url && `${L.trace}: ${c.trace_url}`].filter(Boolean);
@@ -2784,35 +4227,59 @@
 		return out;
 	}
 
+	/**
+	 * El resumen como documento formal: encabezado con número de reporte y fecha, ficha del caso,
+	 * resumen ejecutivo y secciones numeradas. El color va solo en la severidad: el resto es sobrio
+	 * para un correo a gerencia, un ticket o un PDF.
+	 */
+	/** «Dónde falló» (audiencia QA): el test, el paso, el error y el selector, de los datos del reporte. */
+	function escWhere(e) {
+		const w = e.facts?.where, L = ESC_L[e.lang] || ESC_L.es;
+		if (e.audience !== "qa" || !w) return null;
+		const rows = [[L.test, w.test, true], [L.step, w.step], [L.last_ok, w.last_ok], [L.error, w.error, true], [L.selector, w.selector, true]].filter(([, v]) => v);
+		return rows.length > 1 ? rows : null;
+	}
 	function escCard(e) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
-		const meta = [[L.run, f.run_name], [L.env, f.env || "—"], [L.result, escFmt(L.failed, { f: f.failed, t: f.total })], ["", fmtDateTime(f.started_at)]];
 		const showCalls = e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length);
-		return `<article class="esc-card sev-${esc(e.severity)}" id="esc-card" lang="${esc(e.lang)}" data-no-i18n>
-			<div class="esc-band"></div>
+		const generated = fmtDateTime(e.created_at || Date.now());
+		const facts = [
+			[L.severity, `<span class="esc-sev">${esc(L[`sev_${e.severity}`] || e.severity)}</span>`],
+			[L.audience, `<span class="esc-aud">${esc(L[e.audience])}</span>`],
+			[L.run, esc(f.run_name)], [L.env, esc(f.env || "—")],
+			[L.result, esc(escFmt(L.failed, { f: f.failed, t: f.total }))], [L.run_date, esc(fmtDateTime(f.started_at))],
+			...(f.test_name ? [[L.test, `<span class="esc-mono">${esc(f.test_name)}</span>`]] : []),
+			...(e.owner ? [[L.owner, `<b>${esc(e.owner)}</b>`]] : []),
+		];
+		// secciones numeradas, en el orden en que se leen
+		const where = escWhere(e);
+		const sections = [
+			[L.what, `<p>${esc(e.what_happened)}</p>`],
+			...(where ? [[L.where, `<dl class="esc-where">${where.map(([k, v, mono]) => `<dt>${esc(k)}</dt><dd${mono ? ' class="esc-mono"' : ""}>${esc(v)}</dd>`).join("")}</dl>`]] : []),
+			[L.impact, `<p>${esc(e.impact)}</p>`], [L.cause, `<p>${esc(e.root_cause)}</p>`],
+			...(showCalls ? [[L.calls, `<table class="esc-calls">${f.network.map((n) => `<tr><td><b>${esc(n.method)}</b></td><td class="esc-path">${esc(n.path)}</td>
+				<td class="esc-st">${esc(n.outcome)}</td><td class="esc-ms">${n.duration_ms ? `${n.duration_ms} ms` : ""}</td></tr>`).join("")}</table>`]] : []),
+			...(e.evidence?.length || f.flaky ? [[L.evidence, `${e.evidence?.length ? `<ul>${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
+				${f.flaky ? `<p class="esc-flaky">${esc(escFmt(L.flaky, { x: f.flaky }))}</p>` : ""}`]] : []),
+			...(e.next_steps?.length ? [[L.next, `<ol>${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>`]] : []),
+		];
+		return `<article class="esc-card esc-doc sev-${esc(e.severity)}" id="esc-card" lang="${esc(e.lang)}" data-no-i18n data-ref="${esc(escRef(e))}">
 			<header class="esc-head">
-				<div class="esc-tags"><span class="esc-sev">${esc(L[e.severity] || e.severity)}</span><span class="esc-aud">${esc(L[e.audience])}</span></div>
-				<span class="esc-brand">${LOGO_SVG}<span>tracereports<span class="esc-cursor">_</span></span></span>
+				<div class="esc-doc-brand"><span class="esc-brand">${LOGO_SVG}<span>tracereports<span class="esc-cursor">_</span></span></span>
+					<span class="esc-doc-kind">${esc(L.doc)}</span></div>
+				<div class="esc-doc-ref"><b>${esc(L.ref)} ${esc(escRef(e))}</b><span>${esc(L.generated)}: ${esc(generated)}</span></div>
 			</header>
 			<h2 class="esc-title">${esc(e.title)}</h2>
-			<p class="esc-headline">${esc(e.headline)}</p>
-			<dl class="esc-meta">${meta.map(([k, v]) => `<div>${k ? `<dt>${esc(k)}</dt>` : ""}<dd>${esc(v)}</dd></div>`).join("")}</dl>
+			<table class="esc-facts">${facts.reduce((rows, x, i) => (i % 2 ? rows[rows.length - 1].push(x) : rows.push([x]), rows), [])
+				.map((row) => `<tr>${row.map(([k, v]) => `<th scope="row">${esc(k)}</th><td${row.length === 1 ? ' colspan="3"' : ""}>${v}</td>`).join("")}</tr>`).join("")}</table>
+			<section class="esc-summary"><h3>${esc(L.summary)}</h3><p class="esc-headline">${esc(e.headline)}</p></section>
 			${escVerdictHTML(e, L)}
-			${f.screenshot ? `<figure class="esc-shot"><img src="${esc(f.screenshot)}" alt="${esc(L.shot)}"><figcaption>${esc(L.shot)}${f.shot_caption ? ` · ${esc(f.shot_caption)}` : ""}</figcaption></figure>` : ""}
-			<div class="esc-grid">
-				<section><h3>${esc(L.what)}</h3><p>${esc(e.what_happened)}</p></section>
-				<section><h3>${esc(L.impact)}</h3><p>${esc(e.impact)}</p></section>
-				<section class="esc-wide"><h3>${esc(L.cause)}</h3><p>${esc(e.root_cause)}</p></section>
-			</div>
-			${showCalls ? `<section><h3>${esc(L.calls)}</h3><table class="esc-calls">${f.network.map((n) => `<tr><td><b>${esc(n.method)}</b></td><td class="esc-path">${esc(n.path)}</td>
-				<td class="esc-st">${esc(n.outcome)}</td><td class="esc-ms">${n.duration_ms ? `${n.duration_ms} ms` : ""}</td></tr>`).join("")}</table></section>` : ""}
-			${e.evidence?.length ? `<section><h3>${esc(L.evidence)}</h3><ul>${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></section>` : ""}
-			${f.flaky ? `<p class="esc-flaky">${esc(escFmt(L.flaky, { x: f.flaky }))}</p>` : ""}
-			${e.next_steps?.length ? `<section><h3>${esc(L.next)}</h3><ol>${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol></section>` : ""}
-			${e.owner ? `<p class="esc-owner"><span>${esc(L.owner)}</span> <b>${esc(e.owner)}</b></p>` : ""}
-			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name)).join("")}</section>` : ""}
-			<footer class="esc-foot"><a href="${esc(escReportURL(e))}" target="_blank" rel="noopener">${esc(L.report)} ↗</a>
-				<span>${esc(e.source === "ai" ? escFmt(L.by_ai, { m: e.model || "" }) : L.by_tpl)}</span></footer>
+			${escShotHTML(e, L)}
+			${sections.map(([title, body], i) => `<section class="esc-sec"><h3><span class="esc-num">${i + 1}.</span> ${esc(title)}</h3>${body}</section>`).join("")}
+			${f.dev?.length ? `<section class="esc-dev"><h3>${esc(L.tech)}</h3>${f.dev.map((d) => escDevHTML(d, L, !f.test_name || !e.test_id)).join("")}</section>` : ""}
+			<footer class="esc-foot"><div><span>${esc(escFmt(L.foot, { d: generated }))}</span>
+				<span class="esc-by">${esc(e.source === "ai" ? escFmt(L.by_ai, { m: e.model || "" }) : L.by_tpl)}</span></div>
+				<a href="${esc(escReportURL(e))}" target="_blank" rel="noopener">${esc(L.report)} ↗</a></footer>
 		</article>`;
 	}
 
@@ -2853,14 +4320,17 @@
 	function escText(e, style) {
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const B = (s) => (style === "slack" ? `*${s}*` : style === "md" ? `**${s}**` : s);
-		const lines = [`${style === "plain" ? `[${(L[e.severity] || e.severity).toUpperCase()}]` : `${B(L[e.severity] || e.severity)} ·`} ${B(e.title)}`, e.headline, ""];
+		const lines = [`${L.doc} ${escRef(e)}`, `${style === "plain" ? `[${(L[e.severity] || e.severity).toUpperCase()}]` : `${B(L[e.severity] || e.severity)} ·`} ${B(e.title)}`, e.headline, ""];
 		const qa = f.assessment;
 		if (qa) {
 			lines.push(`${B(L.qa_verdict + ":")} ${L[`qa_${qa.verdict}`] || qa.verdict}`);
 			(qa.signals || []).forEach((s) => lines.push(`• [${s.level === "risk" ? L.qa_risk : L.qa_note}] ${s.text}`));
 			lines.push("");
 		}
-		[[L.what, e.what_happened], [L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
+		if (e.what_happened) lines.push(`${B(L.what + ":")} ${e.what_happened}`);
+		const where = escWhere(e);
+		if (where) { lines.push("", B(L.where + ":")); where.forEach(([k, v]) => lines.push(`• ${k}: ${v}`)); lines.push(""); }
+		[[L.impact, e.impact], [L.cause, e.root_cause]].forEach(([k, v]) => v && lines.push(`${B(k + ":")} ${v}`));
 		if (e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length)) {
 			lines.push("", B(L.calls + ":"));
 			f.network.forEach((n) => lines.push(`• ${n.method} ${n.path} → ${n.outcome}${n.duration_ms ? ` (${n.duration_ms} ms)` : ""}`));
@@ -2868,9 +4338,10 @@
 		if (e.evidence?.length) { lines.push("", B(L.evidence + ":")); e.evidence.forEach((x) => lines.push(`• ${x}`)); }
 		if (e.next_steps?.length) { lines.push("", B(L.next + ":")); e.next_steps.forEach((x, i) => lines.push(`${i + 1}. ${x}`)); }
 		if (e.owner) lines.push("", `${B(L.owner + ":")} ${e.owner}`);
-		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name))); }
+		if (f.dev?.length) { lines.push("", B(L.tech + ":")); f.dev.forEach((d) => lines.push(...escDevText(d, L, style, B, !f.test_name || !e.test_id))); }
 		lines.push("", `${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`);
 		lines.push(`${L.report}: ${escReportURL(e)}`);
+		lines.push(escFmt(L.foot, { d: fmtDateTime(e.created_at || Date.now()) }));
 		return lines.join("\n");
 	}
 
@@ -2880,21 +4351,32 @@
 		const color = { critical: "#c62828", high: "#e65100", medium: "#b26a00", low: "#2e7d32" }[e.severity] || "#455a64";
 		const h3 = (t) => `<h3 style="margin:18px 0 6px;font-size:14px;color:#263238">${esc(t)}</h3>`;
 		const p = (t) => `<p style="margin:0;font-size:14px;line-height:1.5;color:#37474f">${esc(t)}</p>`;
-		const shot = f.screenshot ? await toDataURL(f.screenshot).catch(() => "") : "";
-		return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;border:1px solid #e0e0e0;border-top:6px solid ${color};border-radius:8px;padding:20px 24px">
-			<div style="font-size:12px;font-weight:700;color:${color};text-transform:uppercase;letter-spacing:.05em">${esc(L[e.severity])} · ${esc(L[e.audience])}</div>
-			<h2 style="margin:6px 0 4px;font-size:20px;color:#1c2833">${esc(e.title)}</h2>${p(e.headline)}
-			<p style="margin:10px 0 0;font-size:12px;color:#78909c">${esc(L.run)}: ${esc(f.run_name)} · ${esc(f.env || "—")} · ${esc(fmtDateTime(f.started_at))} · ${esc(escFmt(L.failed, { f: f.failed, t: f.total }))}</p>
+		const shot = f.screenshot && !f.shot_blank ? await toDataURL(f.screenshot).catch(() => "") : "";
+		const ink = "#1f3a5f", generated = fmtDateTime(e.created_at || Date.now());
+		const row = (k, v) => `<td style="padding:6px 10px;border:1px solid #dfe5ea;background:#f3f6f9;color:#455a64;font-size:13px;font-weight:600;width:22%">${esc(k)}</td><td style="padding:6px 10px;border:1px solid #dfe5ea;color:#263238;font-size:13px">${v}</td>`;
+		return `<div style="font-family:Segoe UI,Arial,sans-serif;max-width:680px;border:1px solid #dfe5ea;border-top:5px solid ${color};padding:20px 24px">
+			<table style="width:100%;border-collapse:collapse;border-bottom:2px solid ${ink}"><tr>
+				<td style="padding:0 0 10px;font-size:11px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:${ink}">TraceReports · ${esc(L.doc)}</td>
+				<td style="padding:0 0 10px;text-align:right;font-size:12px;color:#607d8b"><b style="color:${ink};font-family:Consolas,monospace">${esc(L.ref)} ${esc(escRef(e))}</b><br>${esc(L.generated)}: ${esc(generated)}</td></tr></table>
+			<h2 style="margin:14px 0 10px;font-size:20px;color:${ink}">${esc(e.title)}</h2>
+			<table style="width:100%;border-collapse:collapse">
+				<tr>${row(L.severity, `<b style="color:#fff;background:${color};padding:1px 8px;border-radius:4px;font-size:12px">${esc(L[`sev_${e.severity}`] || e.severity)}</b>`)}${row(L.audience, esc(L[e.audience]))}</tr>
+				<tr>${row(L.run, esc(f.run_name))}${row(L.env, esc(f.env || "—"))}</tr>
+				<tr>${row(L.result, esc(escFmt(L.failed, { f: f.failed, t: f.total })))}${row(L.run_date, esc(fmtDateTime(f.started_at)))}</tr>
+			</table>
+			<div style="margin-top:14px;padding:10px 14px;background:#f7f9fb;border-left:4px solid ${color}"><div style="font-size:12px;font-weight:700;letter-spacing:.05em;text-transform:uppercase;color:${ink}">${esc(L.summary)}</div>${p(e.headline)}</div>
+			${f.shot_blank ? `<p style="margin:14px 0 0;padding:10px 12px;border:1px dashed #b0bec5;font-size:13px;color:#455a64"><b>${esc(L.blank_title)}</b><br>${esc(L.blank_desc)}</p>` : ""}
 			${f.assessment ? h3(`${L.qa_verdict}: ${L[`qa_${f.assessment.verdict}`] || f.assessment.verdict}`)
 				+ (f.assessment.signals?.length ? `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.assessment.signals.map((s) => `<li><b>${esc(s.level === "risk" ? L.qa_risk : L.qa_note)}:</b> ${esc(s.text)}</li>`).join("")}</ul>` : p(L.qa_clean_desc)) : ""}
 			${shot ? `<img src="${shot}" alt="${esc(L.shot)}" style="margin-top:14px;max-width:100%;border:1px solid #e0e0e0;border-radius:6px">` : ""}
-			${h3(L.what)}${p(e.what_happened)}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
+			${h3(L.what)}${p(e.what_happened)}${escWhere(e) ? h3(L.where) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${escWhere(e).map(([k, v, mono]) => `<li><b>${esc(k)}:</b> ${mono ? `<code>${esc(v)}</code>` : esc(v)}</li>`).join("")}</ul>` : ""}${h3(L.impact)}${p(e.impact)}${h3(L.cause)}${p(e.root_cause)}
 			${e.audience !== "business" && f.network?.length && !f.dev?.some((d) => d.calls?.length) ? h3(L.calls) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${f.network.map((n) => `<li><code>${esc(n.method)} ${esc(n.path)}</code> → ${esc(n.outcome)}</li>`).join("")}</ul>` : ""}
 			${e.evidence?.length ? h3(L.evidence) + `<ul style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.evidence.map((x) => `<li>${esc(x)}</li>`).join("")}</ul>` : ""}
 			${e.next_steps?.length ? h3(L.next) + `<ol style="margin:0;padding-left:20px;font-size:13px;color:#37474f">${e.next_steps.map((x) => `<li>${esc(x)}</li>`).join("")}</ol>` : ""}
 			${e.owner ? `<p style="margin:16px 0 0;font-size:13px;color:#37474f">${esc(L.owner)}: <b>${esc(e.owner)}</b></p>` : ""}
-			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join("") : ""}
+			${f.dev?.length ? h3(L.tech) + f.dev.map((d) => escDevEmail(d, L, !f.test_name || !e.test_id)).join("") : ""}
 			<p style="margin:16px 0 0"><a href="${esc(escReportURL(e))}" style="color:#1565c0">${esc(L.report)}</a></p>
+			<p style="margin:14px 0 0;padding-top:8px;border-top:1px solid #dfe5ea;font-size:11.5px;color:#90a4ae">${esc(escFmt(L.foot, { d: generated }))}</p>
 		</div>`;
 	}
 
@@ -2905,7 +4387,7 @@
 		const ctx = escDevContext(d, L);
 		let html = (named ? `<p style="margin:14px 0 2px;font-size:13.5px;font-weight:700;color:#263238">${esc(d.test_name)}</p>` : "") + (ctx.length ? small(ctx.map(([k, v]) => `${esc(k)}: <b>${esc(v)}</b>`).join(" · ")) : "");
 		if (d.error || d.error_trace) html += small(`<b>${esc(L.stack)}</b>`) + pre([d.error, d.error_trace].filter(Boolean).join("\n\n"));
-		if (d.repro?.length) html += small(`<b>${esc(L.repro)}</b>`) + pre(d.repro.map((r) => r.cmd).join("\n"));
+		if (d.repro?.length) html += small(`<b>${esc(L.repro)}</b>`) + pre(CF.reproScript(d.repro, d.commit, L === ESC_L.en ? "en" : "es"));
 		for (const c of d.calls || []) {
 			html += small(`<b>${esc(c.method)}</b> <code>${esc(c.url)}</code> → <b style="color:#c62828">${esc(c.outcome)}</b>${c.duration_ms ? ` · ${c.duration_ms} ms` : ""}`);
 			if (c.trace_id || c.request_id) html += small([c.trace_id && `Trace ID <code>${esc(c.trace_id)}</code>`, c.request_id && `Request ID <code>${esc(c.request_id)}</code>`,
@@ -2925,7 +4407,7 @@
 		const L = ESC_L[e.lang] || ESC_L.es, f = e.facts;
 		const p = (html) => `<p>${html}</p>`, b = (s) => `<b>${esc(s)}</b>`;
 		const list = (tag, xs) => `<${tag}>${xs.map((x) => `<li>${esc(x)}</li>`).join("")}</${tag}>`;
-		const out = [p(`${b((L[e.severity] || e.severity).toUpperCase())} · ${b(e.title)}`), p(esc(e.headline))];
+		const out = [p(esc(`${L.doc} ${escRef(e)}`)), p(`${b((L[e.severity] || e.severity).toUpperCase())} · ${b(e.title)}`), p(esc(e.headline))];
 		const qa = f.assessment;
 		if (qa) {
 			out.push(p(`${b(L.qa_verdict + ":")} ${esc(L[`qa_${qa.verdict}`] || qa.verdict)}`));
@@ -2938,7 +4420,7 @@
 		if (e.evidence?.length) out.push(p(b(L.evidence + ":")), list("ul", e.evidence));
 		if (e.next_steps?.length) out.push(p(b(L.next + ":")), list("ol", e.next_steps));
 		if (e.owner) out.push(p(`${b(L.owner + ":")} ${esc(e.owner)}`));
-		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name)).join(""));
+		if (f.dev?.length) out.push(p(b(L.tech + ":")), f.dev.map((d) => escDevEmail(d, L, !f.test_name || !e.test_id)).join(""));
 		out.push(p(`${esc(`${L.run}: ${f.run_name} · ${f.env || "—"} · ${fmtDateTime(f.started_at)} · ${escFmt(L.failed, { f: f.failed, t: f.total })}`)}<br>
 			<a href="${esc(escReportURL(e))}">${esc(L.report)}</a>`));
 		return out.join("");
@@ -2974,15 +4456,25 @@
 	}
 
 	/** Convierte la tarjeta en PNG: estilos copiados en línea + SVG foreignObject + canvas (sin librerías). */
+	/**
+	 * El estilo calculado de un elemento de la tarjeta, en línea para el PNG. Un elemento en línea
+	 * (insignia, chip) no lleva su ancho ni su alto: los toma de su texto, como en pantalla. Con el ancho
+	 * fijo de la pantalla (49.84px para «Baja»), al dibujar el PNG a otra escala el texto mide unas
+	 * fracciones más y su última letra salta de línea («BAJ»). Las imágenes y los bloques (las columnas de
+	 * la tabla) sí conservan sus medidas.
+	 */
+	const PNG_SIZE = new Set(["width", "height", "inline-size", "block-size", "min-width", "min-inline-size"]);
+	function pngStyle(n) {
+		const cs = getComputedStyle(n);
+		const fixed = ["IMG", "CANVAS", "svg"].includes(n.tagName) || !cs.display.startsWith("inline");
+		let css = "";
+		for (const prop of cs) if (fixed || !PNG_SIZE.has(prop)) css += `${prop}:${cs.getPropertyValue(prop)};`;
+		return css;
+	}
 	async function cardToPNG(card) {
 		const clone = card.cloneNode(true);
 		const src = [card, ...card.querySelectorAll("*")], dst = [clone, ...clone.querySelectorAll("*")];
-		src.forEach((n, i) => {
-			const cs = getComputedStyle(n);
-			let css = "";
-			for (const prop of cs) css += `${prop}:${cs.getPropertyValue(prop)};`;
-			dst[i].setAttribute("style", css);
-		});
+		src.forEach((n, i) => dst[i].setAttribute("style", pngStyle(n)));
 		clone.querySelectorAll(".esc-copy").forEach((b) => b.remove()); // en la imagen no hay a qué hacer clic
 		for (const img of clone.querySelectorAll("img")) img.src = await toDataURL(img.getAttribute("src")).catch(() => "");
 		const w = card.offsetWidth, h = card.offsetHeight, scale = 2;
@@ -3006,10 +4498,35 @@
 		setTimeout(() => { btn.innerHTML = old; btn.classList.remove("cf-copied", "cf-failed"); }, 1800);
 	}
 
+	/** PDF: una copia del reporte sola en la hoja y la impresión del navegador («Guardar como PDF»).
+	 * El nombre del archivo sale del título del documento: el número del reporte. */
+	function escPrintPDF(e) {
+		const card = $("#esc-card");
+		if (!card) return;
+		document.getElementById("esc-print")?.remove();
+		const holder = document.createElement("div");
+		holder.id = "esc-print";
+		holder.appendChild(card.cloneNode(true)).removeAttribute("id");
+		document.body.appendChild(holder);
+		const title = document.title;
+		document.title = `${escRef(e)} · ${e.title}`.replace(/[\\/:*?"<>|]+/g, " ").slice(0, 120);
+		document.body.classList.add("esc-printing");
+		const done = () => {
+			document.body.classList.remove("esc-printing");
+			document.title = title;
+			holder.remove();
+			window.removeEventListener("afterprint", done);
+		};
+		window.addEventListener("afterprint", done);
+		window.print();
+		setTimeout(() => { if (document.body.classList.contains("esc-printing")) done(); }, 60_000); // si afterprint no llega
+	}
+
 	async function escShare(kind, btn) {
 		const e = S.esc.data;
 		if (!e) return;
 		try {
+			if (kind === "pdf") { escPrintPDF(e); return; }
 			if (kind === "plain" || kind === "md") { CF.copyText(escText(e, kind), btn); return; }
 			if (kind === "teams-copy" || kind === "slack") {
 				// con formato: Teams y Slack muestran los ** o * del texto tal cual al pegarlo
@@ -3109,6 +4626,7 @@
 				<div class="esc-share-group"><span class="esc-share-lbl">${tr("Imagen")}</span>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png" data-tip="${tr("Copia la tarjeta como imagen para pegarla en Teams, Slack o una presentación")}">${icon("i-camera")}${tr("Copiar imagen")}</button>
 					<button class="cf-btn cf-btn-sm" data-esc-share="png-dl" data-tip="${tr("Descarga la tarjeta como PNG")}">${icon("i-download")}PNG</button>
+					<button class="cf-btn cf-btn-sm" data-esc-share="pdf" data-tip="${tr("Abre la impresión con solo el reporte: elige «Guardar como PDF» para adjuntarlo a un correo o ticket")}">${icon("i-download")}PDF</button>
 				</div>
 				${cfg.teams || cfg.slack ? `<div class="esc-share-group"><span class="esc-share-lbl">${tr("Enviar al canal")}</span>
 					${cfg.teams ? `<button class="cf-btn cf-btn-sm esc-send" data-esc-share="teams" data-tip="${tr("Publica el resumen en el canal de Teams configurado (TEAMS_WEBHOOK_URL)")}">${icon("i-teams")}Teams</button>` : ""}
@@ -3118,11 +4636,12 @@
 					${cfg.trackers.map((k) => `<button class="cf-btn cf-btn-sm" data-esc-ticket="${esc(k.id)}" data-tip="${tr("Crea un ticket en {t} con este resumen, la captura y el link al reporte. Si el mismo test ya tiene uno, te muestra ese en vez de duplicarlo.", { t: k.name })}">${icon("i-bug")}${esc(k.name)}</button>`).join("")}
 				</div>` : ""}
 			</div>` : "";
+		const stale = e && st.stale && !st.loading ? `<p class="set-msg ok esc-stale" role="status">${icon("i-info")}<span>${tr("Llegó evidencia nueva desde que se armó este resumen.")} <button class="cf-btn cf-btn-sm" data-esc-gen>${tr("Regenerar")}</button></span></p>` : "";
 		const preview = !canAct() && !STATIC
 			? `<div class="card m-empty">${icon("i-megaphone")}<h5>${tr("Escalar no está disponible desde aquí")}</h5><p>${esc(actReason())}</p></div>`
 			: st.loading ? `<div class="card esc-loading"><div class="shimmer"></div><div class="shimmer"></div><div class="shimmer short"></div>
 				<p class="m-hint">${cfg.ai_enabled ? tr("La IA está escribiendo el resumen para {a}…", { a: tr(AUDIENCES.find((a) => a.id === st.audience).name) }) : tr("Armando el resumen…")}</p></div>`
-			: e ? `<div class="esc-frame">${share}${escCard(e)}${escTimingHTML(e)}</div>`
+			: e ? `${stale}<div class="esc-frame">${share}${escCard(e)}${escTimingHTML(e)}</div>`
 			: `<div class="card m-empty">${icon("i-megaphone")}<h5>${tr("Elige qué escalar y para quién")}</h5>
 				<p>${tr("El resumen junta el error, la captura, las llamadas al backend que fallaron y el diagnóstico, explicado para la audiencia que elijas. Después lo copias como texto o imagen, o lo envías a Teams o Slack.")}</p></div>`;
 		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Escalar un fallo")}</h4>
@@ -3222,8 +4741,24 @@
 	async function apiSend(method, path, body) {
 		const res = await fetch(path, { method, headers: { "Content-Type": "application/json", Accept: "application/json" }, body: JSON.stringify(body ?? {}) });
 		const data = await res.json().catch(() => ({}));
-		if (!res.ok) throw new Error(data.error || `${res.status}`);
+		if (!res.ok) throw new Error(apiErrorText(data, res.status));
 		return data;
+	}
+	/**
+	 * El texto de un error de la API: si el servidor dice la causa (disco lleno, base ocupada...) se
+	 * explica qué hacer; un error interno lleva su referencia, la misma que queda en el log del servidor.
+	 */
+	function apiErrorText(data, status) {
+		const ref = data?.ref ? tr(" (referencia {ref}: búscala en el log del servidor)", { ref: data.ref }) : "";
+		const known = {
+			disk_full: tr("El disco de datos del servidor está lleno: libera espacio o baja la retención."),
+			busy: tr("La base de datos está ocupada: reintenta en un momento."),
+			read_only: tr("El servidor no puede escribir su carpeta de datos (permisos o disco de solo lectura)."),
+			corrupt: tr("El archivo de la base de datos está dañado: restaura un respaldo."),
+		};
+		if (known[data?.kind]) return known[data.kind] + ref;
+		if (data?.ref) return tr("Error interno del servidor.") + ref;
+		return data?.error || `${status}`;
 	}
 
 	async function loadMetrics() {
@@ -3265,9 +4800,126 @@
 	const STALE_CHOICES = [0.5, 1, 2, 6, 12, 24, 48, 0];
 	const staleText = (h) => (h === 0 ? tr("Nunca") : h < 1 ? `${Math.round(h * 60)} min` : `${h} h`);
 
+	async function loadStorage() {
+		const m = S.maint;
+		try {
+			m.storage = await api("/api/v1/maintenance/storage");
+			m.storageError = null;
+		} catch (err) {
+			m.storageError = err.message;
+		}
+		if (S.view === "maintenance") renderMaintenance();
+	}
+
+	/** Mantenimiento > Conexiones de los clientes: runs con problemas de entrega, pedidos lentos, credenciales. */
+	async function loadConnections() {
+		const m = S.maint;
+		try {
+			m.conn = { data: await api("/api/v1/maintenance/connections") };
+		} catch (err) {
+			m.conn = { error: err.message };
+		}
+		if (S.view === "maintenance") renderMaintenance();
+	}
+
+	/**
+	 * Conexiones de los clientes: un resumen arriba (qué hay y cuánto) y cada lista plegada, de a 10
+	 * filas. Con muchos workers, cada ejecución dejaba decenas de runs con el mismo problema y la tarjeta
+	 * era una lista sin fin: ahora los runs van agrupados por ejecución, y la ejecución se abre para verlos.
+	 */
+	const CONN_PAGE = 10;
+	function connUI() {
+		return (S.maint.connUI ||= { open: {}, more: {}, exec: {} });
+	}
+	/** Los runs con problemas de entrega, juntos por ejecución (un run sin ejecución va solo). */
+	function connGroups(runs) {
+		const by = new Map();
+		for (const r of runs) {
+			const key = r.execution_id ? `x:${r.execution_id}` : `r:${r.id}`;
+			if (!by.has(key)) by.set(key, { key, execution: r.execution_id || "", runs: [] });
+			by.get(key).runs.push(r);
+		}
+		const sum = (g, k) => g.runs.reduce((n, r) => n + (r.delivery[k] || 0), 0);
+		return [...by.values()].map((g) => ({
+			...g,
+			late: g.runs.filter((r) => r.delivery.late).length,
+			lost: sum(g, "lost"), dropped: sum(g, "dropped"), rejected: sum(g, "rejected"), spooled: sum(g, "spooled"), retried: sum(g, "retried"),
+			hosts: [...new Set(g.runs.map((r) => r.delivery.host).filter(Boolean))],
+			at: Math.max(...g.runs.map((r) => r.delivery.late_at || r.started_at || 0)),
+		})).sort((a, b) => b.at - a.at);
+	}
+	function connectionsCard() {
+		const c = S.maint.conn, ui = connUI();
+		const head = `<header class="stor-head"><span class="maint-stale-icon">${icon("i-plug")}</span><b>${tr("Conexiones de los clientes")}</b>
+			<button type="button" class="cf-btn cf-btn-sm" data-conn-reload>${tr("Actualizar")}</button></header>`;
+		if (!c) return `<section class="card conn-card" id="maint-connections">${head}<p class="m-hint">${tr("Cargando…")}</p></section>`;
+		if (c.error) return `<section class="card conn-card" id="maint-connections">${head}<p class="m-hint">${esc(tr("No se pudo cargar: {e}", { e: c.error }))}</p></section>`;
+		const d = c.data, runs = d.runs || [], slow = d.slow || [], auth = d.auth || [], stalls = d.stalls || [];
+		const when = (ms) => ms ? `${fmtDateTime(ms)}` : "—";
+		const secs = (ms) => `${window.TraceReportsLive?.num1(ms / 1000) ?? (ms / 1000).toFixed(1)} s`;
+		const what = (v) => [v.late && `<span class="conn-tag late">${v.late === true ? tr("Creado tarde") : tr("{n} creados tarde", { n: v.late })}</span>${v.reason ? ` <span data-no-i18n>${esc(v.reason)}</span>` : ""}`,
+			v.lost && tr("{n} perdidos", { n: v.lost }), v.dropped && tr("{n} descartados", { n: v.dropped }), v.rejected && tr("{n} rechazados", { n: v.rejected }),
+			v.spooled && tr("{n} para reenviar", { n: v.spooled }), v.retried && tr("{n} reintentos", { n: v.retried })].filter(Boolean).join(" · ") || "—";
+		// de a CONN_PAGE filas; "Mostrar más" suma de a 20
+		const page = (sec, rows) => {
+			const n = CONN_PAGE + (ui.more[sec] || 0), rest = rows.length - n;
+			return { rows: rows.slice(0, n), more: rest > 0 ? `<button type="button" class="cf-btn cf-btn-sm conn-more" data-conn-more="${sec}">${tr("Mostrar {n} más", { n: Math.min(20, rest) })} <span class="m-hint">${tr("({n} en total)", { n: rows.length })}</span></button>` : "" };
+		};
+		// una sección plegable: el título dice cuántos hay; con problemas, el número se destaca
+		const section = (sec, title, n, body, okText, foot = "") => `<details class="conn-sec" data-conn-sec="${sec}" ${ui.open[sec] ? "open" : ""}>
+			<summary><span class="conn-sec-title">${esc(title)}</span><span class="conn-count ${n ? "warn" : "ok"}">${n ? n : icon("i-pass")}</span></summary>
+			<div class="conn-sec-body">${n ? body : `<p class="conn-ok">${icon("i-pass")}${esc(okText)}</p>`}${foot}</div></details>`;
+
+		const groups = connGroups(runs), gp = page("runs", groups);
+		const runsBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Ejecución")}</th><th class="lt-num">${tr("Runs")}</th><th>${tr("Qué pasó")}</th><th>${tr("Equipo")}</th><th>${tr("Última vez")}</th></tr></thead><tbody>
+			${gp.rows.map((g) => {
+				const one = g.runs.length === 1, r0 = g.runs[0], open = !one && ui.exec[g.key];
+				const name = one ? `<a href="#run=${r0.id}&view=tests" data-no-i18n>#${r0.id} · ${esc(r0.name)}</a>${g.execution ? `<small data-no-i18n>${esc(g.execution)}</small>` : ""}`
+					: `<button type="button" class="conn-exec" data-conn-exec="${esc(g.key)}" aria-expanded="${open ? "true" : "false"}">${icon("i-chevron")}<span data-no-i18n>${esc(g.execution)}</span></button>`;
+				const sub = open ? g.runs.map((r) => `<tr class="conn-subrow"><td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a></td><td></td>
+					<td>${what(r.delivery)}${r.delivery.detail ? `<small class="conn-mono" data-no-i18n>${esc(r.delivery.detail)}</small>` : ""}</td>
+					<td data-no-i18n>${esc([r.delivery.host, r.delivery.client].filter(Boolean).join(" · ") || "—")}</td><td>${when(r.delivery.late_at || r.started_at)}</td></tr>`).join("") : "";
+				const v = one ? r0.delivery : { ...g, late: g.late };
+				return `<tr class="conn-group"><td>${name}</td><td class="lt-num">${g.runs.length}</td><td>${what(v)}${one && r0.delivery.detail ? `<small class="conn-mono" data-no-i18n>${esc(r0.delivery.detail)}</small>` : ""}</td>
+					<td data-no-i18n>${esc((one ? [r0.delivery.host, r0.delivery.client].filter(Boolean) : g.hosts).join(" · ") || "—")}</td><td>${when(g.at)}</td></tr>${sub}`;
+			}).join("")}</tbody></table></div>${gp.more}`;
+
+		const sp = page("slow", slow);
+		const slowBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th>${tr("Pedido")}</th><th>${tr("Respuesta")}</th><th class="lt-num">${tr("Tardó")}</th></tr></thead><tbody>
+			${sp.rows.map((x) => `<tr><td>${when(x.at)}</td><td class="conn-mono" data-no-i18n>${esc(x.method)} ${esc(x.path)}</td><td>${x.status || "—"}</td><td class="lt-num">${esc(secs(x.ms))}</td></tr>`).join("")}</tbody></table></div>${sp.more}`;
+		const slowFoot = `<p class="m-hint">${tr("Si un test dijo «timed out» y aquí no aparece ningún pedido lento a esa hora, el pedido no llegó al servidor: el problema está en la red o en Docker, no en TraceReports.")}</p>`;
+
+		const tp = page("stalls", stalls);
+		const stallsBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Cuándo")}</th><th class="lt-num">${tr("Duró")}</th><th class="lt-num">${tr("Pedidos trabados")}</th><th>${tr("Qué esperaba")}</th><th class="lt-num">${tr("Espera por la base")}</th><th>${tr("Volcado")}</th></tr></thead><tbody>
+			${tp.rows.map((x) => `<tr><td>${when(x.start)}${x.end ? "" : ` <span class="conn-tag late">${tr("en curso")}</span>`}</td>
+				<td class="lt-num">${x.end ? esc(secs(x.end - x.start)) : "—"}</td><td class="lt-num">${x.max_stuck}</td>
+				<td class="conn-mono" data-no-i18n>${(x.paths || []).map(esc).join("<br>")}</td><td class="lt-num">${x.end ? esc(secs(x.db_wait_ms || 0)) : "—"}</td>
+				<td>${x.dump ? `<a href="/api/v1/maintenance/stalls/${encodeURIComponent(x.dump)}" download data-no-i18n>${esc(x.dump)}</a>` : "—"}</td></tr>`).join("")}</tbody></table></div>${tp.more}
+			<p class="m-hint">${tr("El volcado dice qué estaba haciendo cada tarea del servidor en ese momento (qué tenía tomada la base de datos). Adjúntalo si reportas el problema.")}</p>`;
+
+		const authBody = `<div class="maint-scroll"><table class="stor-table conn-table"><thead><tr><th>${tr("Dirección")}</th><th class="lt-num">${tr("Intentos")}</th><th>${tr("Estado")}</th></tr></thead><tbody>
+			${auth.map((a) => `<tr><td class="conn-mono" data-no-i18n>${esc(a.ip)}</td><td class="lt-num">${a.failures}</td><td>${a.blocked_ms ? `<span class="conn-tag late">${esc(tr("bloqueada {n} min", { n: Math.ceil(a.blocked_ms / 60000) }))}</span>` : tr("en observación")}</td></tr>`).join("")}</tbody></table></div>
+			<p class="m-hint">${tr("Suele ser un token mal puesto en el .env de los tests, o una pestaña con la sesión vencida.")}</p>`;
+
+		// el resumen: cada número lleva a su sección (y la abre)
+		const chips = [["runs", tr("{n} ejecuciones con problemas de entrega", { n: groups.length }), groups.length],
+			["slow", tr("{n} pedidos lentos", { n: slow.length }), slow.length],
+			["stalls", tr("{n} bloqueos", { n: stalls.length }), stalls.length],
+			d.auth ? ["auth", tr("{n} credenciales rechazadas", { n: auth.length }), auth.length] : null].filter(Boolean);
+		const summary = chips.every(([, , n]) => !n) ? `<p class="conn-ok">${icon("i-pass")}${esc(tr("Todo en orden: sin problemas de entrega, pedidos lentos ni bloqueos."))}</p>`
+			: `<div class="conn-status">${chips.map(([sec, text, n]) => `<button type="button" class="conn-chip ${n ? "warn" : "ok"}" data-conn-jump="${sec}"><span class="dot"></span>${esc(text)}</button>`).join("")}</div>`;
+		return `<section class="card conn-card" id="maint-connections" aria-label="${esc(tr("Conexiones de los clientes"))}">${head}${summary}
+			${section("runs", tr("Runs con problemas de entrega (últimos {n} días)", { n: d.days }), groups.length, runsBody, tr("Ningún run con problemas de entrega en los últimos {n} días.", { n: d.days }))}
+			${section("slow", tr("Pedidos lentos del servidor"), slow.length, slowBody, tr("Ningún pedido tardó más de {s} s desde que el servidor arrancó ({t}).", { s: Math.round((d.slow_after_ms || 2000) / 1000), t: fmtDateTime(d.started_at) }), slowFoot)}
+			${section("stalls", tr("Bloqueos del servidor (varios pedidos sin respuesta más de {s} s a la vez)", { s: Math.round((d.stall_after_ms || 10000) / 1000) }), stalls.length, stallsBody, tr("Ningún bloqueo desde que el servidor arrancó ({t}).", { t: fmtDateTime(d.started_at) }))}
+			${d.auth ? section("auth", tr("Credenciales rechazadas (últimos 15 min)"), auth.length, authBody, tr("Ninguna.")) : ""}</section>`;
+	}
+
 	async function loadMaintenance() {
 		const m = S.maint;
 		m.loading = true;
+		loadStorage();
+		loadConnections();
 		const p = new URLSearchParams();
 		if (m.state) p.set("state", m.state);
 		["project", "environment", "branch"].forEach((k) => { if (m[k]) p.set(k, m[k]); });
@@ -3291,7 +4943,7 @@
 		const tests = [`${r.total} tests`, r.running && tr("{n} en curso", { n: r.running }), r.interrupted && tr("{n} interrumpidos", { n: r.interrupted }), r.failed && tr("{n} fallidos", { n: r.failed })].filter(Boolean).join(" · ");
 		const ctx = [r.project, r.environment, r.branch].filter(Boolean).map(esc).join(" · ") || "—";
 		return `<tr class="${m.selected.has(r.id) ? "on" : ""}">
-			${act ? `<td><input type="checkbox" data-maint-pick="${r.id}" ${m.selected.has(r.id) ? "checked" : ""} aria-label="${tr("Elegir")} #${r.id}"></td>` : ""}
+			${act ? `<td><input type="checkbox" data-maint-pick="${r.id}" ${m.selected.has(r.id) ? "checked" : ""} ${m.busy ? "disabled" : ""} aria-label="${tr("Elegir")} #${r.id}"></td>` : ""}
 			<td><a href="#run=${r.id}&view=tests" data-no-i18n>#${r.id} · ${esc(r.name)}</a></td>
 			<td data-no-i18n>${ctx}</td>
 			<td>${statusLabel(r.status)} ${live}</td>
@@ -3303,25 +4955,177 @@
 
 	function maintAction(sel) {
 		const m = S.maint;
+		const busy = m.busy, off = busy ? "disabled" : "";
+		const progress = (text) => `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(text)}</p>`;
 		if (m.action === "close") {
-			const n = sel.filter((r) => r.status === "RUNNING").length;
-			return `<form class="card maint-confirm" data-maint-close-form>
+			const n = sel.filter((r) => r.status === "RUNNING").length, f = m.closeForm || {};
+			return `<form class="card maint-confirm" data-maint-close-form ${busy ? 'aria-busy="true"' : ""}>
 				<label class="field"><span class="field-label">${tr("Motivo")}</span>
-					<select name="reason">${CLOSE_REASONS.map((r) => `<option value="${r}">${tr(r)}</option>`).join("")}</select></label>
-				<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span><input name="detail" maxlength="400"></label>
+					<select name="reason" ${off}>${CLOSE_REASONS.map((r) => `<option value="${r}" ${f.reason === r ? "selected" : ""}>${tr(r)}</option>`).join("")}</select></label>
+				<label class="field"><span class="field-label">${tr("Detalle (opcional)")}</span><input name="detail" maxlength="400" value="${esc(f.detail || "")}" ${off}></label>
 				<p>${tr("Se cerrarán {n} ejecución(es) en curso: sus tests sin terminar quedarán como Interrumpido. Las ya cerradas no cambian.", { n })}</p>
-				<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary" ${m.busy ? "disabled" : ""}>${icon("i-interrupted")}${tr("Cerrar {n} ejecución(es)", { n })}</button>
-					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></form>`;
+				${busy ? progress(tr("Cerrando {n} ejecución(es)… cada una deja sus tests sin terminar como Interrumpido; puede tardar unos segundos.", { n: busy.n })) : ""}
+				<div class="close-run-actions"><button type="submit" class="cf-btn cf-btn-sm cf-btn-primary" ${off}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Cerrando…")}` : `${icon("i-interrupted")}${tr("Cerrar {n} ejecución(es)", { n })}`}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel ${off}>${tr("Cancelar")}</button></div></form>`;
 		}
 		if (m.action === "delete") {
 			const n = sel.filter((r) => r.status !== "RUNNING").length;
 			return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${tr("Eliminar ejecuciones")}">
 				<p><b>${tr("Se eliminarán {n} ejecución(es) con toda su evidencia: pasos, capturas, red y diagnósticos. No se puede deshacer.", { n })}</b></p>
 				<p>${tr("Las que siguen en curso no se eliminan: ciérralas primero.")}</p>
-				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-maint-delete ${m.busy ? "disabled" : ""}>${tr("Eliminar {n} ejecución(es)", { n })}</button>
-					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel>${tr("Cancelar")}</button></div></div>`;
+				${busy ? progress(tr("Eliminando {n} ejecución(es) y su evidencia… puede tardar unos segundos.", { n: busy.n })) : ""}
+				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-maint-delete ${off} ${busy ? 'aria-busy="true"' : ""}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Eliminando…")}` : tr("Eliminar {n} ejecución(es)", { n })}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-maint-cancel ${off}>${tr("Cancelar")}</button></div></div>`;
 		}
 		return "";
+	}
+
+	// cuántos días: opciones rápidas cortas (una suite diaria) y largas; "Otro…" escribe cualquiera
+	const DAY_PRESETS = [1, 2, 3, 7, 14, 30, 60, 90, 180, 365];
+	const MAX_DAYS = 3650;
+	const retentionText = (d) => !d ? tr("Conservar todo") : d === 1 ? tr("1 día") : d === 365 ? tr("1 año")
+		: d >= 60 && d % 30 === 0 ? tr("{n} meses", { n: d / 30 }) : tr("{n} días", { n: d });
+	/**
+	 * Selector de días ("Conservar", "Borrar lo de más de"): opciones rápidas y "Otro…", que abre un
+	 * campo para escribir los días (1 a 3650). Un valor que no está entre las opciones se ve en el campo.
+	 */
+	function daysPicker(key, value, { zero = false, disabled = false } = {}) {
+		const ui = (S.maint.daysCustom ||= {});
+		const custom = ui[key] || (value > 0 && !DAY_PRESETS.includes(value));
+		const off = disabled ? "disabled" : "";
+		const opts = [...(zero ? [0] : []), ...DAY_PRESETS].map((d) => `<option value="${d}" ${!custom && d === value ? "selected" : ""}>${retentionText(d)}</option>`).join("");
+		return `<span class="days-pick"><select data-days-pick="${key}" ${off}>${opts}<option value="custom" ${custom ? "selected" : ""}>${tr("Otro…")}</option></select>
+			${custom ? `<input type="text" inputmode="numeric" pattern="[0-9]*" maxlength="4" class="days-input" data-days-input="${key}" value="${value > 0 ? value : ""}" ${off}
+				aria-label="${esc(tr("Días (de 1 a {n})", { n: MAX_DAYS }))}" placeholder="${esc(tr("días"))}"><span class="days-unit">${tr("días")}</span>` : ""}</span>`;
+	}
+	/** Los días escritos en "Otro…": un entero de 1 a 3650, o null. */
+	function typedDays(input) {
+		const v = input.value.trim(), n = Number(v);
+		return /^[0-9]+$/.test(v) && n >= 1 && n <= MAX_DAYS ? n : null;
+	}
+
+	/** Tarjeta de almacenamiento: disco, lo que ocupa la evidencia, ritmo, proyectos y retención. */
+	function storageCard() {
+		const m = S.maint, st = m.storage;
+		if (m.storageError) return `<div class="card placeholder">${tr("No se pudo leer el almacenamiento: {e}", { e: m.storageError })}</div>`;
+		if (!st) return `<div class="card placeholder">${tr("Midiendo el almacenamiento…")}</div>`;
+		const ret = st.retention, disk = st.disk;
+		const pct = disk ? Math.round(disk.used_percent) : null;
+		const meter = disk ? `<div class="stor-meter ${st.warn ? "warn" : ""}" role="meter" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}" aria-label="${esc(tr("Disco en uso"))}">
+				<i style="width:${Math.min(100, pct)}%"></i></div>
+			<p class="stor-disk">${tr("Disco: {p} % en uso · {free} libres de {total}", { p: pct, free: fmtBytes(disk.free), total: fmtBytes(disk.total) })}</p>` : "";
+		const warn = st.warn ? `<p class="stor-warn" role="alert">${icon("i-warning")}${tr("El disco de los datos está al {u} % (más del {p} %) y TraceReports ocupa {b} de él. Si lo que crece es la evidencia, elige cuántos días conservar o limpia ahora; si no, libera espacio en el servidor.", { u: pct, p: st.warn_percent, b: fmtBytes(st.total_bytes) })}</p>` : "";
+		const full = st.days_until_full !== undefined && st.days_until_full < 3650
+			? tr("~{n} días", { n: st.days_until_full }) : st.bytes_per_day ? tr("más de 10 años") : "—";
+		const stats = `<dl class="stor-stats">
+			<div><dt>${tr("Evidencia guardada")}</dt><dd>${fmtBytes(st.total_bytes)}</dd><small>${tr("Base {db} · capturas y adjuntos {files}", { db: fmtBytes(st.db_bytes), files: fmtBytes(st.files_bytes) })}</small></div>
+			<div><dt>${tr("Ejecuciones")}</dt><dd>${st.runs}</dd><small>${st.oldest_run ? tr("desde {d}", { d: fmtDateTime(st.oldest_run) }) : "—"}</small></div>
+			<div><dt>${tr("Ritmo")}</dt><dd>${st.bytes_per_day ? tr("~{b}/día", { b: fmtBytes(st.bytes_per_day) }) : "—"}</dd><small>${tr("promedio desde la ejecución más antigua")}</small></div>
+			<div><dt>${tr("Se llenaría en")}</dt><dd>${disk ? full : "—"}</dd><small>${tr("a este ritmo, sin limpiar")}</small></div>
+		</dl>`;
+		const orphan = st.orphan_bytes > 0 ? `<p class="m-hint">${tr("{b} son archivos que ninguna ejecución usa (de borrados interrumpidos o versiones anteriores).", { b: fmtBytes(st.orphan_bytes) })}</p>` : "";
+		const projects = st.projects?.length ? `<details class="stor-projects"><summary>${tr("Qué ocupa cada proyecto")}</summary>
+			<table class="stor-table"><thead><tr><th>${tr("Proyecto")}</th><th>${tr("Ejecuciones")}</th><th>Tests</th><th>${tr("Espacio (aprox.)")}</th></tr></thead>
+			<tbody>${st.projects.map((p) => `<tr><td data-no-i18n>${esc(p.project || tr("(sin proyecto)"))}</td><td>${p.runs}</td><td>${p.tests}</td><td>${fmtBytes(p.bytes)}</td></tr>`).join("")}</tbody></table>
+			${st.more_projects ? `<small>${tr("y {n} proyecto(s) más", { n: st.more_projects })}</small>` : ""}</details>` : "";
+		// las páginas del Inspector (TRACEREPORTS_DOM_STEPS): lo que más crece; por ejecución, las más pesadas
+		const dom = st.dom?.pages ? `<details class="stor-projects stor-dom"><summary>${tr("Páginas del Inspector: {b} en {n} páginas", { b: fmtBytes(st.dom.bytes), n: st.dom.pages })}</summary>
+			<p class="m-hint">${tr("Se guardan comprimidas y los íconos una sola vez ({g} compartidos). Las guardadas con una versión anterior se comprimen al compactar.", { g: fmtBytes(st.dom.glyph_bytes || 0) })}</p>
+			<table class="stor-table"><thead><tr><th>${tr("Ejecución")}</th><th>${tr("Páginas")}</th><th>${tr("Espacio")}</th></tr></thead>
+			<tbody>${(st.dom.runs || []).map((r) => `<tr><td><a href="#run=${r.run_id}&view=tests" data-no-i18n>#${r.run_id} ${esc(r.name)}</a></td><td>${r.pages}</td><td>${fmtBytes(r.bytes)}</td></tr>`).join("")}</tbody></table></details>` : "";
+		const last = (ret.last ? tr("Última limpieza: {d} · {r} ejecución(es) · liberó {b}", { d: fmtDateTime(ret.last.at), r: ret.last.runs, b: fmtBytes(ret.last.freed_bytes) }) : tr("Todavía no se limpió nada."))
+			+ (ret.last?.error ? ` · <span class="stor-cut">${tr("se cortó con un error:")} <span data-no-i18n>${esc(ret.last.error)}</span></span>` : "");
+		const next = ret.days && ret.next_at ? ` · ${tr("Próxima: {d}", { d: fmtDateTime(ret.next_at) })}` : "";
+		const retention = `<div class="stor-retention">
+			<label class="m-suite"><span>${tr("Conservar")}</span>${daysPicker("retention", ret.days, { zero: true, disabled: !ret.editable })}</label>
+			<p>${ret.days ? tr("Cada {h} h se borran las ejecuciones terminadas de más de {n} días, con sus capturas.", { h: ret.every_hours, n: ret.days }) : tr("Sin retención: la evidencia se guarda para siempre.")}
+				${ret.source === "env" ? `<small>${tr("Lo fija TRACEREPORTS_RETENTION_DAYS en el servidor.")}</small>` : ""}
+				<small>${last}${next}</small></p>
+			${ret.can_run ? `<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-stor-clean ${ret.running || m.clean ? "disabled" : ""}>${icon("i-close")}${ret.running ? tr("Limpiando…") : tr("Limpiar ahora…")}</button>` : ""}
+		</div>`;
+		return `<section class="card stor-card" aria-label="${esc(tr("Almacenamiento"))}">
+			<header class="stor-head"><span class="maint-stale-icon">${icon("i-server")}</span><b>${tr("Almacenamiento")}</b></header>
+			${warn}${meter}${stats}${orphan}${projects}${dom}${retention}${cleanConfirm()}${compactRow(st.compact)}
+		</section>`;
+	}
+
+	/**
+	 * Compactar la base: devuelve al disco el espacio de lo borrado. Reescribe toda la base (minutos en
+	 * una grande, con la escritura tomada), así que no se hace al borrar: queda pendiente y se hace sola
+	 * cuando no hay ejecuciones en curso, o a mano desde aquí, con una confirmación que dice qué pide.
+	 */
+	function compactRow(c) {
+		if (!c) return "";
+		const m = S.maint, k = m.compact, busy = c.running || k?.busy;
+		const last = c.last ? tr("Última: {d} · liberó {b} en {s}", { d: fmtDateTime(c.last.at), b: fmtBytes(c.last.freed_bytes), s: fmtSecs(c.last.took_ms) }) : tr("Todavía no se compactó.");
+		const state = c.pending && c.reclaimable_bytes > 0
+			? tr("Hay ~{b} de lo borrado por devolver al disco. Se compacta sola cuando no hay ejecuciones en curso y los clientes llevan {m} min sin enviar.", { b: fmtBytes(c.reclaimable_bytes), m: c.quiet_minutes })
+			: tr("Nada por devolver al disco.");
+		const btn = c.can_run ? `<button class="cf-btn cf-btn-sm" data-stor-compact ${busy || k || !(c.reclaimable_bytes > 0) ? "disabled" : ""}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Compactando…")}` : `${icon("i-server")}${tr("Compactar ahora…")}`}</button>` : "";
+		let confirm = "";
+		if (k) {
+			const room = c.free_bytes === undefined || c.free_bytes >= c.need_bytes;
+			const off = k.busy ? "disabled" : "";
+			confirm = `<div class="card maint-confirm" role="alertdialog" aria-label="${esc(tr("Compactar ahora"))}" ${k.busy ? 'aria-busy="true"' : ""}>
+				<p><b>${tr("Se reescribe la base ({db}) para devolver ~{b} al disco.", { db: fmtBytes(m.storage.db_bytes), b: fmtBytes(c.reclaimable_bytes || 0) })}</b></p>
+				<p>${tr("Necesita ~{n} libres en el disco de los datos (hay {f}). Mientras dura, los clientes esperan para guardar sus resultados: hazlo sin ejecuciones en curso.", { n: fmtBytes(c.need_bytes), f: c.free_bytes === undefined ? "—" : fmtBytes(c.free_bytes) })}</p>
+				${c.running_runs ? `<p class="stor-warn">${icon("i-warning")}${tr("Hay {n} ejecución(es) en curso: sus clientes esperarán hasta que termine.", { n: c.running_runs })}</p>` : ""}
+				${!room ? `<p class="set-msg err" role="alert">${tr("No hay espacio suficiente para compactar: libera espacio o borra más ejecuciones antes.")}</p>` : ""}
+				${k.error ? `<p class="set-msg err" role="alert">${esc(k.error)}</p>` : ""}
+				${k.busy ? `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(tr("Compactando la base… con una base grande puede tardar varios minutos; no cierres esta pestaña si quieres ver el resultado."))}</p>` : ""}
+				<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-primary" data-stor-compact-go ${k.busy || !room ? "disabled" : ""}>${k.busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Compactando…")}` : tr("Compactar")}</button>
+					<button type="button" class="cf-btn cf-btn-sm" data-stor-compact-cancel ${off}>${tr("Cancelar")}</button></div></div>`;
+		}
+		return `<div class="stor-retention stor-compact"><p><b>${tr("Compactar la base")}</b> ${esc(state)}<small>${last}</small></p>${btn}</div>${confirm}`;
+	}
+
+	/** Confirmación de "Limpiar ahora": cuántos días conservar y qué se borraría (vista previa). */
+	function cleanConfirm() {
+		const c = S.maint.clean;
+		if (!c) return "";
+		const p = c.preview;
+		// un error no borra la vista previa: se ve qué se intentó y por qué no se pudo
+		const err = c.error ? `<p class="set-msg err" role="alert">${esc(c.error)}</p>` : "";
+		const body = err + (!p && c.error ? "" : !p ? `<p>${tr("Calculando qué se borraría…")}</p>`
+			: !p.runs ? `<p>${tr("No hay ejecuciones terminadas de más de {n} días: no se borraría nada.", { n: c.days })}</p>`
+			: `<p><b>${tr("Se borrarán {r} ejecución(es) terminadas de más de {n} días ({t} tests) y se liberarán ~{b} (lo de la base, al compactarla). No se puede deshacer.", { r: p.runs, n: c.days, t: p.tests, b: fmtBytes(p.freed_bytes_approx) })}</b></p>`);
+		// mientras limpia: dice qué pasa, nada se puede cambiar y un segundo clic no lo repite
+		const busy = c.busy, off = busy ? "disabled" : "";
+		const progress = busy ? `<p class="maint-progress" role="status"><span class="maint-spin" aria-hidden="true"></span>${esc(tr("Limpiando {r} ejecución(es) de más de {n} días… se borran de a tandas y los clientes siguen enviando; con una base grande puede tardar unos minutos.", { r: p?.runs || 0, n: c.days }))}</p>` : "";
+		return `<div class="card maint-confirm danger" role="alertdialog" aria-label="${esc(tr("Limpiar ahora"))}" ${busy ? 'aria-busy="true"' : ""}>
+			<div class="clean-days"><label class="m-suite"><span>${tr("Borrar lo de más de")}</span>${daysPicker("clean", c.days, { disabled: busy })}</label>
+				<small class="m-hint" data-clean-cutoff>${tr("Se borra lo que empezó antes del {d}", { d: fmtDateTime(Date.now() - c.days * 864e5) })}${S.maint.storage?.oldest_run ? ` · ${tr("la ejecución más antigua es del {d}", { d: fmtDateTime(S.maint.storage.oldest_run) })}` : ""}</small></div>
+			${body}${progress}
+			<div class="close-run-actions"><button type="button" class="cf-btn cf-btn-sm cf-btn-danger" data-stor-clean-go ${busy || !p?.runs ? "disabled" : ""}>${busy ? `<span class="maint-spin" aria-hidden="true"></span>${tr("Limpiando…")}` : tr("Limpiar")}</button>
+				<button type="button" class="cf-btn cf-btn-sm" data-stor-clean-cancel ${off}>${tr("Cancelar")}</button></div></div>`;
+	}
+
+	/** Aplica los días elegidos: en "Limpiar ahora", la vista previa; en "Conservar", se guarda. */
+	async function applyDays(key, days) {
+		const m = S.maint;
+		if (key === "clean") {
+			if (m.clean && !m.clean.busy && !(days === m.clean.days && m.clean.preview)) { m.clean.days = days; await previewClean(); }
+			return;
+		}
+		if (key !== "retention" || days === m.storage?.retention?.days) return;
+		try {
+			const r = await apiSend("PUT", "/api/v1/ui/maintenance/retention", { days });
+			m.msg = { ok: true, text: r.days ? tr("Listo: se conservarán los últimos {n} días; lo más antiguo se borra en la próxima limpieza.", { n: r.days }) : tr("Listo: la evidencia se guarda para siempre.") };
+		} catch (err) { m.msg = { ok: false, text: err.message }; }
+		await loadStorage();
+	}
+
+	async function previewClean() {
+		const c = S.maint.clean;
+		if (!c) return;
+		Object.assign(c, { preview: null, error: null });
+		renderMaintenance();
+		const days = c.days;
+		try {
+			const p = await api(`/api/v1/maintenance/storage/preview?days=${days}`);
+			if (S.maint.clean === c && c.days === days) c.preview = p;
+		} catch (err) { c.error = err.message; }
+		renderMaintenance();
 	}
 
 	function renderMaintenance() {
@@ -3348,16 +5152,19 @@
 			: `<div class="card maint-list">
 				${act ? `<div class="maint-bulk" role="toolbar" aria-label="${tr("Acciones en lote")}">
 					<span>${tr("{n} de {t} elegidas", { n: sel.length, t: runs.length })}</span>
-					<button class="cf-btn cf-btn-sm" data-maint-act="close" ${sel.some((r) => r.status === "RUNNING") ? "" : "disabled"}>${icon("i-interrupted")}${tr("Cerrar como interrumpidas…")}</button>
-					<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-maint-act="delete" ${sel.some((r) => r.status !== "RUNNING") ? "" : "disabled"}>${icon("i-close")}${tr("Eliminar…")}</button>
+					<button class="cf-btn cf-btn-sm" data-maint-act="close" ${!m.busy && sel.some((r) => r.status === "RUNNING") ? "" : "disabled"}>${icon("i-interrupted")}${tr("Cerrar como interrumpidas…")}</button>
+					<button class="cf-btn cf-btn-sm cf-btn-danger-outline" data-maint-act="delete" ${!m.busy && sel.some((r) => r.status !== "RUNNING") ? "" : "disabled"}>${icon("i-close")}${tr("Eliminar…")}</button>
 				</div>${maintAction(sel)}` : ""}
 				<div class="maint-scroll"><table class="maint-table"><thead><tr>
-					${act ? `<th><input type="checkbox" data-maint-all ${sel.length && sel.length === runs.length ? "checked" : ""} aria-label="${tr("Elegir todas")}"></th>` : ""}
+					${act ? `<th><input type="checkbox" data-maint-all ${sel.length && sel.length === runs.length ? "checked" : ""} ${m.busy ? "disabled" : ""} aria-label="${tr("Elegir todas")}"></th>` : ""}
 					<th>${tr("Ejecución")}</th><th>${tr("Proyecto · ambiente · rama")}</th><th>${tr("Estado")}</th><th>Tests</th><th>${tr("Inicio")}</th><th>${tr("Cierre")}</th>
 				</tr></thead><tbody>${runs.map((r) => maintRow(r, act)).join("")}</tbody></table></div>
 			</div>`;
+		const typing = document.activeElement?.matches?.("[data-days-input]") ? { key: document.activeElement.dataset.daysInput, at: document.activeElement.selectionStart } : null;
 		setHTML(el, `<div class="page-head"><div><h4 class="page-title">${tr("Mantenimiento")}</h4>
-				<p class="page-sub">${tr("Las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos. Ciérralas como interrumpidas o elimina las que eran pruebas.")}</p></div></div>
+				<p class="page-sub">${tr("Cuánto ocupa la evidencia y cuánto se conserva, y las ejecuciones que quedaron colgadas o se cortaron, de todos los proyectos.")}</p></div></div>
+			${storageCard()}
+			${connectionsCard()}
 			${stale}
 			<div class="m-filters" role="toolbar" aria-label="${tr("Filtros de mantenimiento")}">
 				<div class="seg" role="group" aria-label="${tr("Estado")}">${MAINT_STATES.map(([id, label, tip]) =>
@@ -3368,11 +5175,18 @@
 			</div>
 			${m.msg ? `<p class="set-msg ${m.msg.ok ? "ok" : "err"}" role="status">${esc(m.msg.text)}</p>` : ""}
 			${table}`);
+		if (typing) {
+			const inp = el.querySelector(`[data-days-input="${typing.key}"]`);
+			if (inp && document.activeElement !== inp) { inp.focus(); inp.setSelectionRange(typing.at, typing.at); }
+		}
+		// "Ver conexiones →" del aviso de un run: se llega a esa tarjeta
+		if (m.focusConn && m.conn?.data) { m.focusConn = false; $("#maint-connections")?.scrollIntoView({ block: "start", behavior: "smooth" }); }
 	}
 
 	async function maintRun(path, body, done) {
 		const m = S.maint;
-		m.busy = true;
+		if (m.busy) return; // ya hay una en curso: un segundo clic (o Enter) no la repite
+		m.busy = { kind: path.endsWith("/delete") ? "delete" : "close", n: body.run_ids.length };
 		renderMaintenance();
 		try {
 			const r = await apiSend("POST", path, body);
@@ -3386,18 +5200,72 @@
 			m.msg = { ok: false, text: err.message };
 		}
 		m.busy = false;
+		m.closeForm = null;
 		await loadMaintenance();
 		renderView();
 	}
 
 	function bindMaintenance() {
 		const el = $("#view-maintenance"), m = S.maint;
+		el.addEventListener("toggle", (e) => {
+			const d = e.target.closest?.("[data-conn-sec]");
+			if (d) connUI().open[d.dataset.connSec] = d.open;
+		}, true);
 		el.addEventListener("click", (e) => {
+			if (e.target.closest("[data-conn-reload]")) { m.conn = null; renderMaintenance(); loadConnections(); return; }
+			const cm = e.target.closest("[data-conn-more]");
+			if (cm) { const u = connUI(); u.more[cm.dataset.connMore] = (u.more[cm.dataset.connMore] || 0) + 20; renderMaintenance(); return; }
+			const cx = e.target.closest("[data-conn-exec]");
+			if (cx) { const u = connUI(), k = cx.dataset.connExec; u.exec[k] = !u.exec[k]; renderMaintenance(); el.querySelector(`[data-conn-exec="${CSS.escape(k)}"]`)?.focus(); return; }
+			const cj = e.target.closest("[data-conn-jump]");
+			if (cj) {
+				connUI().open[cj.dataset.connJump] = true; renderMaintenance();
+				const sec = el.querySelector(`[data-conn-sec="${cj.dataset.connJump}"]`);
+				sec?.scrollIntoView({ block: "start", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
+				sec?.querySelector("summary")?.focus({ preventScroll: true });
+				return;
+			}
 			const st = e.target.closest("[data-maint-state]");
 			if (st) { Object.assign(m, { state: st.dataset.maintState, msg: null, action: null }); loadMaintenance(); renderMaintenance(); return; }
+			if (m.busy && e.target.closest("[data-maint-act], [data-maint-cancel], [data-maint-delete]")) return;
 			const a = e.target.closest("[data-maint-act]");
 			if (a) { m.action = a.dataset.maintAct; m.msg = null; renderMaintenance(); return; }
 			if (e.target.closest("[data-maint-cancel]")) { m.action = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-stor-clean]")) {
+				m.clean = { days: m.storage?.retention?.days || 90, preview: null, busy: false };
+				(m.daysCustom ||= {}).clean = false;
+				m.msg = null;
+				previewClean();
+				return;
+			}
+			if (e.target.closest("[data-stor-compact]") && !m.compact) { m.compact = { busy: false }; m.msg = null; renderMaintenance(); return; }
+			if (e.target.closest("[data-stor-compact-cancel]")) { if (!m.compact?.busy) { m.compact = null; renderMaintenance(); } return; }
+			if (e.target.closest("[data-stor-compact-go]") && m.compact && !m.compact.busy) {
+				const k = m.compact;
+				Object.assign(k, { busy: true, error: null });
+				renderMaintenance();
+				apiSend("POST", "/api/v1/ui/maintenance/compact", {}).then(async (r) => {
+					m.compact = null;
+					m.msg = { ok: true, text: tr("Listo: la base se compactó y devolvió {b} al disco ({s}).", { b: fmtBytes(r.freed_bytes), s: fmtSecs(r.took_ms) }) };
+					await loadStorage();
+				}).catch((err) => { k.busy = false; k.error = err.message; renderMaintenance(); });
+				return;
+			}
+			if (e.target.closest("[data-stor-clean-cancel]")) { if (!m.clean?.busy) { m.clean = null; renderMaintenance(); } return; }
+			if (e.target.closest("[data-stor-clean-go]") && m.clean && !m.clean.busy) {
+				const c = m.clean;
+				c.busy = true;
+				c.error = null;
+				renderMaintenance();
+				apiSend("POST", "/api/v1/ui/maintenance/retention/run", { days: c.days }).then(async (r) => {
+					m.clean = null;
+					m.msg = { ok: true, text: tr("Listo: se borraron {r} ejecución(es) y se liberaron {b}.", { r: r.runs, b: fmtBytes(r.freed_bytes) }) };
+					if (S.runId && !(await api(`/api/v1/runs/${S.runId}`).catch(() => null))) Object.assign(S, { runId: null, run: null, testId: null, test: null });
+					await loadRuns();
+					await loadMaintenance();
+				}).catch((err) => { c.busy = false; c.error = err.message; renderMaintenance(); });
+				return;
+			}
 			if (e.target.closest("[data-maint-delete]")) {
 				const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status !== "RUNNING").map((r) => r.id);
 				maintRun("/api/v1/ui/runs/delete", { run_ids: ids }, (r) => tr("Se eliminaron {n} ejecución(es).", { n: r.deleted }));
@@ -3412,6 +5280,29 @@
 			}
 			const f = e.target.closest("[data-maint-filter]");
 			if (f) { m[f.dataset.maintFilter] = f.value; m.msg = null; loadMaintenance(); return; }
+			const dp = e.target.closest("[data-days-pick]");
+			if (dp) {
+				const key = dp.dataset.daysPick, ui = (m.daysCustom ||= {});
+				if (dp.value === "custom") { // abre el campo con lo que había, listo para escribir
+					ui[key] = true;
+					renderMaintenance();
+					const inp = el.querySelector(`[data-days-input="${key}"]`);
+					inp?.focus();
+					inp?.select();
+					return;
+				}
+				ui[key] = false;
+				await applyDays(key, Number(dp.value));
+				return;
+			}
+			const di = e.target.closest("[data-days-input]");
+			if (di) {
+				const n = typedDays(di);
+				if (n === null) { di.setCustomValidity(tr("Escribe un número de días entre 1 y {n}.", { n: MAX_DAYS })); di.reportValidity(); return; }
+				di.setCustomValidity("");
+				await applyDays(di.dataset.daysInput, n);
+				return;
+			}
 			const stale = e.target.closest("[data-maint-stale]");
 			if (stale) {
 				try {
@@ -3422,11 +5313,27 @@
 				renderMaintenance();
 			}
 		});
+		// al limpiar, la vista previa sigue lo que se escribe (sin esperar a salir del campo)
+		let typed = 0;
+		el.addEventListener("input", (e) => {
+			const di = e.target.closest("[data-days-input]");
+			if (!di) return;
+			di.setCustomValidity("");
+			if (di.dataset.daysInput !== "clean") return;
+			clearTimeout(typed);
+			typed = setTimeout(() => { const n = typedDays(di); if (n !== null && m.clean && !m.clean.busy && n !== m.clean.days) applyDays("clean", n); }, 350);
+		});
+		el.addEventListener("keydown", (e) => {
+			const di = e.target.closest("[data-days-input]");
+			if (di && e.key === "Enter") { e.preventDefault(); di.dispatchEvent(new Event("change", { bubbles: true })); }
+		});
 		el.addEventListener("submit", (e) => {
 			const f = e.target.closest("[data-maint-close-form]");
 			if (!f) return;
 			e.preventDefault();
+			if (m.busy) return;
 			const d = new FormData(f), detail = String(d.get("detail") || "").trim();
+			m.closeForm = { reason: String(d.get("reason")), detail };
 			const ids = (m.data?.runs || []).filter((r) => m.selected.has(r.id) && r.status === "RUNNING").map((r) => r.id);
 			maintRun("/api/v1/ui/runs/close", { run_ids: ids, reason: tr(String(d.get("reason"))) + (detail ? `: ${detail}` : "") },
 				(r) => tr("Se cerraron {n} ejecución(es) como interrumpidas.", { n: r.closed }));
@@ -4691,6 +6598,11 @@
 				return;
 			}
 			if (e.target.closest("[data-buddy-mock-open]") && buddy.mockConn) { openMockFor(buddy.mockConn); return; }
+			if (e.target.closest("[data-buddy-inspector]") && S.test) {
+				S.detailTab = "inspector"; renderTestDetail();
+				$("#inspector-panel")?.scrollIntoView({ behavior: "smooth", block: "start" });
+				return;
+			}
 			const ask = e.target.closest("[data-buddy-ask]");
 			if (ask) { buddyAsk(ask.dataset.buddyAsk, ask.textContent); return; }
 			const open = e.target.closest("[data-buddy-test]");
@@ -4965,6 +6877,7 @@
 	const BUDDY_TOOL_WORDS = {
 		curl: /\b(curl|postman|insomnia|replic\w*|reproduc\w*|request|solicitud|petici[oó]n|endpoint|llamada)\b/i,
 		mock: /\b(mock\w*|stub\w*|wiremock|simul\w*|intercept\w*)\b/i,
+		inspector: /\b(dom|html|xpath|css|selector\w*|locator\w*|localizador\w*|elemento\w*|element\w*|esquelet\w*|skeleton\w*|spinner|cargando|loading|loader|wait|espera\w*|inspector|id)\b/i,
 	};
 	function buddyToolsFor(text, testId) {
 		if (!testId) return [];
@@ -4993,6 +6906,13 @@
 				<button class="buddy-tool-btn" type="button" data-buddy-mock-open>${tr("Abrir el generador")}</button></div></div>`;
 	}
 
+	/** La página del fallo está guardada: el Inspector la muestra para probar el XPath y copiar el código. */
+	function buddyInspectorCard() {
+		return `<div class="buddy-tool"><b>${tr("La página del momento del fallo")}</b>
+			<small>${tr("Ábrela en el Inspector: prueba el XPath sobre ella y, con clic derecho sobre un elemento, copia un XPath robusto y la espera para Selenium o Playwright.")}</small>
+			<div class="buddy-tool-actions"><button class="buddy-tool-btn" type="button" data-buddy-inspector>${icon("i-target")}${tr("Abrir en el Inspector")}</button></div></div>`;
+	}
+
 	function buddyGrow(el) {
 		el.style.height = "auto";
 		el.style.height = `${Math.min(el.scrollHeight, 120)}px`;
@@ -5000,8 +6920,10 @@
 
 	/** Una pregunta libre: va con la evidencia del test (o la ejecución) que se está viendo y las últimas
 	 * respuestas de la conversación. El servidor la pasa por la redacción antes de enviarla al modelo. */
-	/** Abre Trace Buddy y le hace una pregunta armada por la interfaz (p. ej. "Explícamelo" de la comparación). */
-	async function buddyAsk(text) {
+	/** Abre Trace Buddy y le hace una pregunta armada por la interfaz (p. ej. "Explícamelo" de la comparación).
+	 * No se llama buddyAsk: esa es la de las preguntas sugeridas (seguridad, ¿funciona la IA?…), y con el
+	 * mismo nombre esta la reemplazaba y cada sugerencia le llegaba al modelo como texto ("security"). */
+	async function buddyAskText(text) {
 		if (!buddyCanChat()) return;
 		buddyToggle(true);
 		const input = $("#buddy-input");
@@ -5031,6 +6953,7 @@
 			buddyFill(el, `<div class="buddy-answer" data-no-i18n>${esc(r.answer).replace(/\n/g, "<br>")}</div>`);
 			if (tools.includes("curl") && r.curl) buddySay(buddyCurlCard(r.curl));
 			if (tools.includes("mock")) { const card = await buddyMockCard(testId); if (card) buddySay(card); }
+			if (tools.includes("inspector") && S.test?.id === testId && hasInspector(S.test)) buddySay(buddyInspectorCard());
 			buddyMood("success", 2000);
 		} catch (err) {
 			buddy.chat.pop(); // la pregunta sin respuesta no queda en el historial que viaja al modelo
@@ -5226,6 +7149,8 @@
 		if (S.liveState === "live") { setTimeout(runsLoop, RUNS_POLL_MS); return; }
 		try {
 			await loadRuns();
+			catchUpNewRuns(); // sin conexión en vivo, el sondeo también avisa las ejecuciones nuevas
+			S.histGen++; // y sin eventos no se sabe qué terminó: el historial se vuelve a pedir
 			if (!S.run && S.runId) { await loadRun(); await loadTest(); }
 		} catch (err) { console.warn("runs refresh failed", err); }
 		setTimeout(runsLoop, RUNS_POLL_MS);
@@ -5246,6 +7171,7 @@
 			S.config = await api("/api/v1/config");
 			window.TraceReportsI18n.setDefault(S.config.language); // idioma del equipo, si el usuario no eligió
 			await loadRuns();
+			S.seenRuns = new Set(S.runs.map((r) => r.id)); // las que ya estaban al abrir la página no se avisan
 			await loadRun();
 			await loadTest();
 			writeHash();
@@ -5255,12 +7181,71 @@
 		if (GLOBAL_VIEWS.has(S.view)) renderView(); // métricas y ajustes funcionan aunque no haya ejecuciones
 		buddyMount();
 		if (S.view === "search" && !STATIC) await loadRunSearch();
+		if (S.view === "live" && !STATIC) loadLiveView();
 		if (STATIC) return; // exported snapshot: nothing to poll
 		try { S.autoScroll = localStorage.getItem("tracereports-autoscroll") !== "off"; } catch { /* ignore */ }
 		new CF.LiveStream("/api/v1/stream", { onEvent: onLive, onStatus: setLiveState }).start();
 		setInterval(renderLive, 30000); // pasa a "Sin actividad" aunque no lleguen eventos
+		// "sin señal" aparece justamente cuando no llega nada: En vivo se vuelve a pedir cada 10 s
+		setInterval(() => { if (S.view === "live" && !document.hidden) loadLiveView(); }, 10000);
 		setTimeout(pollLoop, POLL_MS);
 		setTimeout(runsLoop, RUNS_POLL_MS);
+		sessionWatch();
+	}
+
+	// Con la página de ingreso: el usuario y Salir arriba, y un aviso 2 min antes de que la sesión venza
+	// por inactividad ("Seguir conectado" la renueva). Se consulta cada 30 s sin contar como uso.
+	async function sessionWatch() {
+		const check = async () => {
+			let s;
+			try { s = await (await fetch("/api/v1/auth/session", { headers: { Accept: "application/json" } })).json(); } catch { return; }
+			SESSION.info = s;
+			const btn = $("#session-btn"), warn = $("#session-warn"), box = $("#session-picker");
+			if (!btn || !warn || !box) return;
+			box.hidden = !s.logged_in;
+			if (!s.logged_in) {
+				warn.hidden = true;
+				if (s.login_required && s.expired) toLogin(new Response(JSON.stringify({ error: "session expired" })));
+				return;
+			}
+			$("#session-user").textContent = s.user;
+			const until = (ms) => new Date(ms).toLocaleTimeString(I18N.lang === "en" ? "en-GB" : "es-CL", { hour: "2-digit", minute: "2-digit" });
+			btn.dataset.tip = tr("Sesión de {u} ({r}) · vence a las {h} sin uso · Clic para salir", { u: s.user, r: s.role === "viewer" ? tr("solo lectura") : "admin", h: until(s.idle_until) });
+			$("#session-confirm-d").textContent = tr("Sales como {u}. Para volver, ingresa de nuevo.", { u: s.user });
+			const left = s.idle_until - Date.now();
+			warn.hidden = !(left > 0 && left < 120_000);
+			if (!warn.hidden) $("#session-warn-text").textContent = tr("Tu sesión vence en {n} s por inactividad.", { n: Math.max(1, Math.round(left / 1000)) });
+		};
+		// salir pide confirmación: una ventanita anclada al botón (Cancelar con el foco: lo seguro primero);
+		// Esc o un clic fuera la cierran y el foco vuelve al botón
+		const confirmBox = $("#session-confirm"), sessBtn = $("#session-btn");
+		const openConfirm = (open) => {
+			if (!confirmBox || !sessBtn) return;
+			confirmBox.hidden = !open;
+			sessBtn.setAttribute("aria-expanded", String(open));
+			if (open) confirmBox.querySelector("[data-session-cancel]").focus();
+			else sessBtn.focus();
+		};
+		sessBtn?.addEventListener("click", () => openConfirm(confirmBox.hidden));
+		confirmBox?.addEventListener("click", async (e) => {
+			if (e.target.closest("[data-session-cancel]")) return openConfirm(false);
+			const out = e.target.closest("[data-session-out]");
+			if (!out) return;
+			out.disabled = true;
+			try { await fetch("/api/v1/auth/logout", { method: "POST", headers: { Accept: "application/json" } }); } catch { /* igual se va */ }
+			location.href = "/login/?bye=1";
+		});
+		document.addEventListener("keydown", (e) => { if (e.key === "Escape" && confirmBox && !confirmBox.hidden) { e.stopPropagation(); openConfirm(false); } }, true);
+		document.addEventListener("pointerdown", (e) => { if (confirmBox && !confirmBox.hidden && !e.target.closest("#session-picker")) { confirmBox.hidden = true; sessBtn.setAttribute("aria-expanded", "false"); } });
+		$("#session-warn")?.addEventListener("click", async (e) => {
+			if (!e.target.closest("[data-session-stay]")) return;
+			SESSION.lastInput = Date.now();
+			try { await fetch("/api/v1/config", { headers: { Accept: "application/json" } }); } catch { /* sigue el aviso */ }
+			check();
+		});
+		await check();
+		if (!SESSION.info?.login_required) return; // sin login configurado no hay nada que vigilar
+		setInterval(check, 30_000);
 	}
 
 	init();

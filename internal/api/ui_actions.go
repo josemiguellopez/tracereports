@@ -235,6 +235,7 @@ func (s *Server) escalate(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
 	defer cancel()
 	var e *ai.Escalation
+	facts = s.AI.LocalizedFacts(facts, in.TestID, in.Lang) // después de su huella (revision): la caché no cambia
 	if in.NoAI {
 		e = ai.EscalateTemplate(facts, in.RunID, in.TestID, in.Audience, in.Lang)
 	} else {
@@ -280,6 +281,7 @@ func (s *Server) escalationFor(ctx context.Context, ref escalationRef, noAI bool
 		}
 	}
 	var e *ai.Escalation
+	facts = s.AI.LocalizedFacts(facts, ref.TestID, ref.Lang)
 	if noAI {
 		e = ai.EscalateTemplate(facts, ref.RunID, ref.TestID, ref.Audience, ref.Lang)
 	} else {
@@ -327,7 +329,7 @@ func (s *Server) sendEscalation(w http.ResponseWriter, r *http.Request) {
 		Lists:    [][2]any{{l["evidence"], e.Evidence}, {l["next"], e.NextSteps}}}
 	if base := s.Notify.PublicURL(); base != "" {
 		msg.URL = base + "/" + e.Facts.ReportPath
-		if e.Facts.Screenshot != "" && strings.HasPrefix(e.Facts.Screenshot, "/") {
+		if e.Facts.Screenshot != "" && !e.Facts.ShotBlank && strings.HasPrefix(e.Facts.Screenshot, "/") { // una en blanco no dice nada en un chat
 			msg.ImageURL = base + e.Facts.Screenshot
 		}
 	}

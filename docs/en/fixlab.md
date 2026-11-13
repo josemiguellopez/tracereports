@@ -141,7 +141,14 @@ The Lab makes the server send HTTP requests, so it is treated as an SSRF capabil
   login, only the server's own machine. The ingest token never can.
 - **Where** it may send:
   - From the server's own machine, any host, like your terminal.
-  - On a shared server, only the hosts the test called plus `TRACEREPORTS_LAB_HOSTS`.
+  - On a shared server, only the hosts the test called plus `TRACEREPORTS_LAB_HOSTS`. Those hosts come
+    from ingested data, so a host on the **internal network** (a private IP or this machine, also a name
+    that resolves to one) that is not in `TRACEREPORTS_LAB_HOSTS` asks first: *This call goes to the
+    internal network*, with *Cancel* and *Send anyway*. Nothing is sent until you confirm, and without
+    confirming the connection is also refused when it is made, so a name that resolves differently by
+    then (DNS rebinding) does not skip the question. Hosts in `TRACEREPORTS_LAB_HOSTS` and the base URL
+    you type are sent to without asking; with `TRACEREPORTS_LAB_STRICT=1` an internal host outside the
+    list is never called.
   - **`repro`, `verify` and the MCP** (from your machine, with the secrets of `TRACEREPORTS_LAB_<NAME>`):
     only the hosts the test called, those of `TRACEREPORTS_LAB_HOSTS` and, in the CLI, the URL you pass
     with `-base`. A capsule or a plan comes from ingested data: this way nobody with the ingest token can
@@ -160,7 +167,8 @@ The Lab makes the server send HTTP requests, so it is treated as an SSRF capabil
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `TRACEREPORTS_LAB` | on | `off` disables the Lab |
-| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`) |
+| `TRACEREPORTS_LAB_HOSTS` | — | Extra hosts a shared server's Lab may call, comma separated (`staging.acme.com`, `api.acme.com:8443`, `*.acme.internal`). An internal host listed here is called without asking |
+| `TRACEREPORTS_LAB_STRICT` | off | `1`: a shared server's Lab never calls an internal host outside `TRACEREPORTS_LAB_HOSTS` (without it, you confirm it) |
 | `TRACEREPORTS_LAB_<NAME>` | — | Values of the variables for `repro`, `verify` and `mcp` (`TRACEREPORTS_LAB_PASSWORD`) |
 
 ## Limits
@@ -178,10 +186,10 @@ The Lab makes the server send HTTP requests, so it is treated as an SSRF capabil
 | Method | Path | What it does |
 | --- | --- | --- |
 | GET | `/api/v1/network/{id}/lab` | The plan: the request with `{{variables}}`, the variables, the session step, the original answer, and whether you may send and why not |
-| POST | `/api/v1/ui/lab/send` | `{conn_id, values, base_url?, request?}` → steps, answer and verdict |
+| POST | `/api/v1/ui/lab/send` | `{conn_id, values, base_url?, request?, confirm_internal?}` → steps, answer and verdict. On a shared server, an internal host not in `TRACEREPORTS_LAB_HOSTS` answers `409 {code: "internal_host", hosts}` before sending anything: send again with `confirm_internal: true` (`403` with `strict: true` under `TRACEREPORTS_LAB_STRICT`) |
 | POST | `/api/v1/ui/lab/checks` | `{conn_id, name, request?, base_url?, expect: {status, contains?}}` saves a check |
 | DELETE | `/api/v1/ui/lab/checks/{id}` | Deletes a check |
-| POST | `/api/v1/ui/lab/verify` | `{run_id, incident_key, check_ids?, values, base_url?}` runs the checks and records the result |
+| POST | `/api/v1/ui/lab/verify` | `{run_id, incident_key, check_ids?, values, base_url?, confirm_internal?}` runs the checks and records the result (internal hosts: like `send`) |
 | GET | `/api/v1/runs/{id}/lab` | Checks and last verification of each incident of the run |
 | GET | `/api/v1/network/{id}/capsule` | Capsule of a call |
 | GET | `/api/v1/runs/{id}/lab/capsule?incident=<key>` | Capsule of an incident, with its checks |

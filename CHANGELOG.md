@@ -6,6 +6,709 @@ All notable changes to TraceReports. The format follows
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-12
+
+Python client 0.6.0, JavaScript client 0.5.0 and Java client 0.5.0; the Go client does not change. Validated
+with a team that runs TraceReports in Docker on Windows with suites of 16 workers. The Inspector keeps drawing
+the page from its structure by default (`TRACEREPORTS_DOM_MODE=structure`); the new HTML mode is optional.
+
+### Added (Inspector: a page that looks like the application)
+
+- **Fidelity meter**: the Inspector compares the rebuilt page with the screenshot of the failure and shows
+  «Fidelity: NN %»; under 85 % it suggests «Overlay screenshot». A test that ended in WARNING is measured on the
+  page of its last warning, and every page is compared with **its own step's screenshot** (the closest in time,
+  a WARNING one for a warning page), never with the test's last one. The overlay lines up with a scrolled page and
+  works on every step.
+- **What the page draws**: inline SVGs keep their gradients, clips and masks (a loading skeleton is grey bars, no
+  longer black blocks), vertical tabs (`writing-mode` and `rotate`), borders per side, shadows, background
+  gradients, text cut with «…», the chosen option of a `select`, a placeholder, and «•••» for a typed field.
+- **HTML mode (optional)**: with `TRACEREPORTS_DOM_MODE=html` the Python client also sends the page's HTML and its
+  style sheets (each sheet once per process, by its hash). The server cleans them (nothing that runs, loads or
+  navigates; typed values, hidden and password fields and personal data never travel) and the Inspector draws the
+  real page with its CSS in an isolated iframe (sandbox without scripts, a CSP without network). «Try XPath / CSS»
+  runs on that HTML and «Real page / Reconstruction» switches views. The cursors still build the page and fade to
+  the real one. The nodes travel without their styles in this mode: the viewer computes them from the page.
+- **The cursors build every step**: after the first page, they draw only what changed from the previous step (a
+  step without changes goes by quickly; one that changes more than 60 % is built whole).
+
+### Added (Escalate: what QA needs, and the right cause)
+
+- **«Where it failed»** for the QA audience (card, PNG, shared text and email): the test, the step that failed (or
+  the last step that passed, named as such), the error and the selector that was not found, whole, from the
+  report's data (a client may store the error cut; the FAIL step carries it whole).
+- **A failure while the page was still loading is TIMING («Insufficient wait»), not LOCATOR_CHANGED**: before
+  calling a missing element a broken selector, the failure page and its network are checked for loading signals
+  (skeletons, animated SVGs, spinners, `aria-busy`, backend calls still in flight) and the last PASS pages for the
+  same selector. The local engine concludes TIMING («wait for the load to finish; do not change the selector»),
+  the AI is given the signals, and when a model still blames the selector the rule (triage) or the template
+  (escalation) wins. Saved diagnoses of the last 30 days are revised once when the rules change (`rules-v2`),
+  without Reanalyze and without AI.
+- Titles and evidence show the useful part of an error wrapped by the framework (no more «…file.py: [»), cut on a
+  word by letters; a whole run with a single failure names its test and its summary says the cause; an odd number
+  of facts no longer leaves empty cells.
+
+### Changed (storage: the Inspector's pages take about 14 times less)
+
+- Every page (failure and steps) is stored **compressed**, and its icons once by hash for the whole suite. Pages of
+  an earlier version are read the same and are compressed by **Compact now…**. **Maintenance > Storage** shows what
+  the pages take and the heaviest runs; `GET /api/v1/runs/{id}/dom/size` measures one run.
+- Each page's size is noted when it is stored. Pages stored by an earlier version are measured once in the
+  background, by key and without reading them (`TRACEREPORTS_REMEASURE_PAGES=1` measures them again).
+- **Upgrading**: a version before 0.8.0 cannot read the compressed pages; go back only before running new suites.
+
+### Fixed (a busy database no longer freezes the UI)
+
+- A request with a session (also a `.css` or a font) no longer waits for the connection that writes: the session is
+  read on the read-only connections and kept in memory 15 s. The live view reads its cancels there too, asks
+  `/api/v1/live` one request at a time with a 20 s limit and backs off after an error.
+- Retention deletes in batches of 10 runs with a proportional rest, and compressing old pages pauses between
+  batches. The stall dump shows the read-only connections.
+
+### Fixed (export)
+
+- Short paths inside the ZIP (`runN/`, `css/<16 characters of the hash>.js`): extracted with Windows' «Extract
+  all», the HTML mode's sheets went past the 260-character limit and did not load.
+- The severity badge comes out whole in the escalation PNG at any screen scale (at 125 % its last letter dropped to a hidden second line).
+
+### Security
+
+- **`golang.org/x/net` 0.62.0**: the HTML mode parses pages with `golang.org/x/net/html`, and the version it
+  started with had known parsing vulnerabilities (infinite loops and quadratic cases in `html.Parse`).
+- **Sign-in page: no redirect to another site through `next`**: a `next` such as `/<tab>/evil.example` passed the
+  check and the browser, which drops tabs and newlines from URLs, went to `//evil.example`. `next` is now
+  resolved like the browser does and must be on the same origin.
+- **JavaScript client: the cancel control file goes in a fresh private folder** (`mkdtemp`, mode 0600) instead of
+  a guessable name in the temporary folder.
+- Values from requests are kept on one log line in the new log entries (cancel, sign-in, slow requests, retention).
+- Fixed a data race when the router was built from several goroutines (tests only: the server builds it once).
+
+### Fixed (Live: the map card under the fixed cards, the anomaly cut to one line)
+
+- **The card of a test on the execution map is never covered**: it now opens in the browser's top layer, so the
+  fixed cards of the map (ingest, anomaly, lanes) no longer hide it; it opens below and to the right of the
+  point, or above/left when it does not fit in the window.
+- **Escalate: the probable cause in the summary's language, and which file "Escalate the failures" covers**:
+  the local engine picks its language from the test names, so a Spanish summary could show the probable cause in
+  English; the summary now writes the same rule again in its own language (the stored diagnosis does not change, and
+  if the evidence now concludes another rule the stored text stays). In Live, with failures in several files and no
+  failure picked, the button says which file it escalates ("Escalate the failures of test_checkout.py") and that the
+  other files' failures are escalated by picking them (Escalate works per file).
+- **Live timeline: running bars keep their names**: the shine of a running bar moved with a transform, which
+  counts as overflow even inside a clipped bar, so depending on the instant a bar that fit looked cut and lost its
+  name (and the check failed at random in CI). The shine now moves its background. The timeline also measures its
+  bars again when its width changes without the window changing (a scrollbar appearing, a panel opening), and bars
+  that only show their state icon are measured too.
+- **Escalate keeps the picked failure and no longer flickers while the suite runs**: in Live, the failure opened
+  last stays picked for Escalate after its panel is closed (before, Escalate fell back to all failures and opened
+  another test); an × next to the button lets it go. In Escalate, with a test picked, only that test's evidence
+  touches the summary (the steps of the other tests of a suite that keeps running used to cancel the summary being
+  built, so it flickered and had to be asked for twice); while the execution is still running, new evidence no
+  longer clears or cancels it, it is marked "new evidence arrived" with Regenerate. A finished execution whose
+  evidence changes still drops the old summary.
+- **Live: a third map view, Agents**: the execution as a reactor, a tilted disk seen in perspective that can be
+  turned by dragging. The core glows with the execution and its ring shows what passed and failed; around it, one
+  segment per worker, with a coil on its inner edge in the worker's state color (running, slow, no signal, idle) and
+  its tests inside as cells (spheres) in order, from the inner edge outwards. It scales: cells are big with few
+  tests and shrink as a worker fills its segment; from then on it shows the latest ones and counts the earlier ones
+  next to its name, and failures always show. Each test that ends drops a particle into the core and a failure sends
+  out a wave. Notes point at what matters with a leader line and type themselves (the worker with no signal, the
+  slowest one, the latest failure), placed where they hide no cell or name. Same controls as the Field: pause, zoom
+  (buttons, + / −, Ctrl + wheel towards the mouse) to point at the exact test, drag to turn (to move when zoomed
+  in), 0 to reset, full screen (F, Esc); with a filter, what does not match is dimmed and does not respond. Click a
+  worker's name to filter the table by it; a cell opens the test. Respects "reduce motion".
+  On opening, the model is sketched first: agent cursors, each with a worker's name and its own way of working (a
+  fast one with a shaky hand, one that stops to think with an hourglass, a CAD one with a crosshair, coordinates,
+  endpoint snaps and angle dimensions, one that erases and redoes), draw the outline of their segments out of step;
+  then the reactor switches on over the sketch. Sketch (B) replays it; a click or a key skips it.
+- **Live lists the earlier executions, for any volume**: Live shows what runs now and what ended in the last 2
+  hours; when nothing does, instead of an empty screen it shows the earlier executions master-detail (like the
+  Inspector): on the left a compact list, one line per execution grouped by day, with its own scroll that loads
+  older ones when it reaches the end (the page does not move); on the right the selected one with its results,
+  duration, what failed (with the error), its files, **Open in Live** and **See the report**. ↑/↓ move through
+  it, Enter opens, / searches. The execution picker offers them too. They are
+  searched in the database over the last 90 days (name, project, branch, environment, a file of the execution,
+  or a day: "today", "yesterday", "10-11"), with date chips (Today, Yesterday, 7 days, 30 days), 30 per page with
+  **Load older ones** and "Showing 30 of 6,691": no need to know the execution_id. Measured with 20,000 runs
+  (6,700 executions): 2-60 ms per page. "Today" in the picker is the calendar day, not the last 24 h.
+  API: `GET /api/v1/live/history` (see the API docs); new index `idx_runs_execution`.
+- **Switching executions in Live closes the side panel and clears the filters of the previous one** (they were
+  kept: the reset was inside a code comment).
+- **Escalating from Live escalates the failure you picked**: with several failures, the summary's button kept
+  the test escalated last (or the first failure's run), whatever test was selected. Now, with a failed test picked
+  in Requiere atención, the map or the table, it says **Escalate this failure** and opens Escalate with that test;
+  without one it opens the whole execution. The side panel of a failed test also has **Escalate this failure**.
+- **Long names stay inside their tooltip**: a file name or an error with no spaces wrapped outside the tooltip box
+  (and over the rows below); it now breaks inside it (up to 420 px wide).
+- **A long file name no longer spills out of the Errors card**: under each error and in each of its tests the
+  file is shortened in the middle (the end, with `.py`, stays visible) and shown whole in its tooltip; the
+  anomaly card says "1 file" / "1 test" in the singular.
+- **The anomaly card shows the error in two lines** instead of one cut short, breaking at `/`, `.`, `_`, `:`
+  or `]` of the locator, with "…" at the end; the full text is in its tooltip.
+
+### Changed (Maintenance: choose any number of days)
+
+- **Keep** and **Clean up now…** share one days picker: 1, 2, 3, 7, 14 and 30 days, 2, 3 and 6 months, 1
+  year (and everything, for Keep), plus **Other…** to type any number of days (1 to 3650). In Clean up now the
+  preview follows what you type, and the cutoff date and the oldest run are shown next to it.
+- **A cleanup cut halfway is recorded**: "Last cleanup" said 0 runs after a retention that deleted 875 and then
+  failed; it now shows what was deleted and the error.
+
+### Fixed (deleting and compacting failed with "disk full" while the disk had space)
+
+- **SQLite's temporary files now go next to the database** (`<DATA_DIR>/tmp`), not to `/tmp`. In the container
+  `/tmp` is a 256 MB tmpfs: deleting runs with a lot of evidence (the statement journal of the DELETE), the
+  automatic retention and compacting a database of several GB (VACUUM) needed more than that and failed with
+  "database or disk is full", shown as "the server's data disk is full" while the data disk had hundreds of GB
+  free. Leftover temporary files of a previous run are removed at startup.
+
+### Changed (Maintenance: compacting the database apart from deleting)
+
+- **Deleting no longer compacts the database right away**: compacting (VACUUM) rewrites the whole file; on a
+  database of several GB it took minutes with the only writing connection held (clients waited, "Deleting…"
+  stayed on screen) and needed as much free disk as the database. Now a cleanup or bulk delete answers when the
+  runs are deleted and leaves the compaction pending; it runs by itself when no run is in progress and the
+  clients have sent nothing for 15 min (at most once every 20 h), or by hand with **Compact now…** in
+  Maintenance > Storage, which says how much it would give back, how much free disk it needs (and does not
+  start without it) and whether runs are in progress, and shows "Compacting…" without a second start. What was
+  deleted is still overwritten with zeros right away (secure_delete).
+- A cleanup or bulk delete that fails halfway still removes the files of the runs it already deleted.
+
+### Fixed (Maintenance: cleaning up a big database)
+
+- **Deleting runs no longer scans the whole idempotency table for each run**: deleting a run deletes its
+  idempotency keys (one row per client request, with its response), and that column had no index. On a database
+  of several GB every cleanup or bulk delete held the only writing connection for minutes. New index
+  `idx_idempotency_run` (built once at the first start, which can take a moment on a big database).
+- **Cleanups and bulk deletes go in batches of 25 runs**, each in its own transaction with a passive checkpoint
+  in between: the clients keep writing during a long cleanup and the WAL is reused instead of growing with
+  everything deleted at once (it could fill a tight disk).
+- **"Clean up now" shows it is working**: a spinner, a status line ("deleted in batches… it may take a few
+  minutes"), the days, Cancel and the top button locked, and a second click does not send it again. An error
+  keeps the preview on screen and says the cause and its reference.
+
+### Changed (Maintenance: client connections and errors)
+
+- **Client connections no longer is an endless list**: a summary on top says how many executions had delivery
+  problems, how many slow requests, stalls and rejected credentials (a click opens that list); each list is folded
+  and shows 10 rows with "Show more", and what is open stays open on refresh. Runs with delivery problems are
+  **grouped by execution** (with 16 workers one execution left dozens of identical rows): how many runs, what
+  happened and on which machines, and the execution opens to show its runs.
+- **"internal error" now says what to do and how to find it**: every failed request answers with a reference that
+  is also in the server log next to the full error; a full data disk, a busy database (503 with Retry-After), a
+  data folder that cannot be written or a damaged database file are named, in the UI's language. Nothing of the
+  database goes out to the browser.
+
+### Changed (Live: clicking the execution map)
+
+- **A click shows at once**: the chosen particle gets a ring that opens and fades right away, before its detail
+  arrives. With a slow server, people clicked again and the second click counted as a double click that took
+  them out of Live.
+- **Two quick clicks on a new particle only choose it**; a double click opens the test only on the particle
+  already chosen. **Ctrl/⌘ + click** opens any test directly, like a link, and the side panel says so next to
+  **Open the test**. The map's hint and help line now say "Ctrl + click: open the test".
+
+### Fixed (heavy suites: tests shown as Interrupted, the server waiting on uploads, Live showing "Loading…")
+
+Seen at a client with 16 workers: the stall dumps showed the database free and the server waiting for the
+bytes of network uploads (batches of up to 8 MB of JSON) that came in slowly, while the client retried them in
+full after 10 s. Each worker sends in order, so the test results waited behind those uploads; when `end_run`
+ran out of time the run closed with them still running and the tests showed as Interrupted (the local report
+had them fine).
+
+- **The client sends test results before heavy evidence** (Python): creating and closing tests, steps,
+  screenshots and closing the run go first; network, DOM, console and attachments after. A slow upload waits
+  for its retry on its own instead of holding the queue.
+- **Compressed uploads**: the server accepts `Content-Encoding: gzip` (with a limit on the inflated size) and
+  says so in every response; the Python client compresses JSON over 8 KB only after seeing it, so a new client
+  still works with an older server. `TRACEREPORTS_GZIP=0` turns it off.
+- **Network batches of up to 2 MB** (were 8 MB) and each queued upload waits according to its size before
+  retrying, so a big batch is not uploaded again while the first copy is still arriving.
+- **Heavy reads no longer block the clients**: Maintenance > Storage (it took the only database connection
+  for up to 20 s) and the Live view now read through read-only connections (SQLite WAL), so opening them during
+  a suite does not make the clients wait to save results.
+- **Live no longer goes blank with "Loading…"**: while the execution was being refreshed the view was emptied,
+  and a click on the map during a slow answer showed only "Loading…". What is on screen stays until the new
+  data arrives.
+
+### Added (server stall watchdog)
+
+- **Stalls are caught while they happen**: the slow request log only writes when a request ends, so a server
+  held by one task (the single database connection taken) left no trace until it let go. A watchdog checks the
+  requests in progress every 5 s; when several have been waiting for more than 10 s it logs `server stalled`,
+  saves once a dump of what every server task is doing with the state of the database connection
+  (`DATA_DIR/diagnostics/`, the last 10) and, when it ends, how long it lasted and how long requests waited for
+  the database. **Maintenance > Client connections** lists the stalls; admins download the dump. Seen at a
+  client: 16 workers starting at once waited 40 s for the database while a background task held it.
+
+### Fixed (Maintenance: closing or deleting runs in bulk)
+
+- It could take a while with nothing on screen, so people clicked again: now the button says "Closing…" with a
+  spinner, a status line says what is happening, the form, the checkboxes and the bulk buttons are locked, and a
+  second click (or Enter) does not send it again.
+
+### Changed (client feedback, 10-11: notifications, the execution map, the side panel)
+
+- **New execution notifications, one per execution**: a launcher that opens one run per file (or many
+  parallel workers) used to raise the notification with every run, and "Not now" came back with the next one.
+  Now it is one notification per execution ("An execution started · 12 runs"); "Not now" mutes that execution,
+  **Mute 15 min** mutes all of them (with Undo), and a **bell** in the top bar always shows whether they are on
+  or muted (minutes left) and turns them back on, also per execution. Muted items expire by themselves (15 min /
+  12 h). The "run created" event now carries the run's name and execution, so a burst of runs is never missed.
+- **Execution map**: "now" is drawn in the text color (dashed), not in the red of failures; with a filter, the
+  dimmed particles can no longer be hovered, clicked or reached with the arrow keys, and the click area is a bit
+  larger; the hover card takes the color and icon of the test's status, with its duration, how it compares
+  with normal (highlighted when slow), times and where it ran.
+- **No flicker when switching tests in the side panel**: it used to empty the panel and replay the trace row by
+  row on every pick. Now the header shows the chosen test at once, the previous body stays dimmed with a thin
+  progress bar until the new one arrives, the row-by-row entry only plays when the panel opens, tests already
+  seen show instantly (cached) and hovering a test in the map prefetches it. Measured switching tests with the
+  panel open: 12-18 restarted animations and empty frames → 4 and none.
+
+### Added (Maintenance > Client connections)
+
+- **How the evidence arrived, visible in TraceReports**: the Python client reports it when it closes a run
+  (created late because the server did not answer, the cause, the address it connected to, retries, lost
+  events, machine and version). A run that arrived late says so on top of its report, and **Maintenance >
+  Client connections** lists those runs, the slow requests the server saw (from the `slow request` log) and,
+  for admins, the addresses with rejected credentials. API: `delivery` in `PATCH /runs/{id}/finish` and
+  `GET /maintenance/connections`.
+
+### Fixed (client feedback, 10-11: "POST /api/v1/runs failed: timed out" at random)
+
+- **A short stall no longer costs the run** (Python client): when the run could not be created because the
+  server did not answer, the client records locally as before, and at the end, if the server answers, it
+  uploads the recording by itself (`tracereports push`, idempotent): the run reaches its execution with its
+  tests. `TRACEREPORTS_OFFLINE_PUSH=0` turns it off. Creating the run now retries for up to 30 s (was 15 s);
+  a server that is down (connection refused) still switches to local at once.
+- **The warning says what happened**: "the server did not answer within 30 s", "wrong token" or "server down
+  or unreachable", instead of "server down or wrong token" for everything.
+- **Slow requests are logged** (server): any request over 2 s is logged with its method, path, status and
+  duration (`slow request`, never the query). A client timeout without that line means the request never
+  reached the server (Docker Desktop's port forwarding, a proxy, the network).
+- **Where it got stuck**: the client's timeout warning says where it connected and how long it waited
+  ("connected to 10.0.0.25:8080 in 3 ms, no answer in 10 s"), and a connect timeout says how long it tried.
+  `scripts/watch-health.ps1` checks `localhost:8080/healthz` every 10 s on the Windows machine that runs
+  Docker and logs failures and slow answers: with the server log it tells TraceReports, Docker on that
+  machine and the network apart.
+
+### Added (AI: failures in cascade are one incident)
+
+- **Failures in cascade are one incident**: when the first test of a file fails and the later tests of
+  that file fail because of it (their error names it, or says that data is missing or that the step was
+  skipped because a previous one failed), the run diagnosis shows one incident *In cascade* with the cause
+  of the first test, instead of one incident per test. A test that passes in between breaks the chain. A
+  first test that ran far longer than the rest is shown as hung, and a page that was blank at the failure
+  (DOM snapshot with nothing visible, or a single-color screenshot) is added as evidence. The tests of a
+  cascade no longer count as independent failures for "the environment was probably down".
+- **Local rules engine: `blank_page`** (`INFRA_ERROR`): a page that never finished loading is not reported
+  as a broken selector.
+
+### Changed (AI: incident grouping)
+
+- **Error signature without the line number**: the same error from several lines of a file is one
+  incident (the location lists the lines). The lines of a chained Python exception ("During handling of
+  the above exception…") no longer become the title nor join unrelated errors. Incident keys change
+  once: runs analyzed before this version are not matched as recurrences of the new ones.
+
+### Changed (Live, round 4: lighter, no repeats, group by error, readable numbers)
+
+- **Search no longer freezes the page**: the table redraws once you stop typing (140 ms), not on every key,
+  and it draws 100 rows at a time ("Show 100 more (n hidden)"; a cut group says "and n more in this group").
+  A 1,100-test execution used to draw every row at once.
+- **No repeated information**: "Recent activity" and the field's "Latest signals" repeated the LIVE ticker,
+  and the field's PROGRESS box repeated the header; they are gone.
+- **Group by error**: one row per cause (the signature with its selector shortened, e.g. "TimeoutException
+  in fa-plus-circle") with the tests it hit, the most affected first and "No failure" last.
+- **Trace Buddy shrinks in Live** so it does not cover the table (full size on hover or when its chat is
+  open); the page title shows the execution; the ticker items no longer take Tab stops.
+- **Visual fixes**: multi-line tooltips keep their lines, close minimap marks merge into one mark with a
+  count, test links no longer hide "_" under the underline, "1 new" / "1 already failing" in singular,
+  better contrast for "first time" and the ticker times, backend p95 under one second in ms (it said "0 s"),
+  and error signatures with a long XPath show the shortened selector (the full one in the tooltip).
+- **Times in 24 h and numbers as written in each language**: "×1,7" and "1,3%" in Spanish, "×1.7" in English.
+
+### Changed (Live, round 3: what filters shows, new failures, error details, closing summary, shortcuts)
+
+- **A chosen status now shows in the timeline**: it used to only fade the other bars, so choosing Pass or Fail
+  looked like nothing happened. Now the matching bars stand out, the lanes without a match fold into one line
+  ("9 lanes without matches · show"), the minimap counts only the matches and the title says "3 of 234 tests
+  match". Lane names keep one color; a lane with problems carries a counter with its explanation, and hovering
+  a lane highlights its tests in the table.
+- **New failures**: for each failed test, its history says how it ended in its previous execution: "New" if
+  it passed (a regression of today), "Already failing" if not. Shown in Needs attention, the table and the
+  error groups; "new" is a filter of its own.
+- **Needs attention** has its own search box and status filter (the summary chips), without touching the table.
+- **Grouped errors** open in place with the tests they belong to (name, file, worker, time, new or not); the
+  magnifier filters the table, the map and the timeline by that error.
+- **The side panel** shows the test's lane, with what ran before and after it.
+- **Closing summary**: when the execution ends, a card with its duration, results, new failures and slow
+  tests, and "Escalate the failures" / "See the report".
+- **No more flicker, and a lighter page**: Live rebuilt the whole view (11,000 elements in a 1,200-test
+  execution) with every event, restarting its animations and freezing the page a third of the time. It now
+  patches only what changed (unchanged elements stay the same nodes), formats times with a cached formatter
+  (creating one per call was the most expensive part), measures the ticker only when it changes, draws narrow
+  timeline bars without text, and the field redraws its canvas only when it moves. Measured with a running
+  1,200-test execution over 20 s: frozen time 7.8 s → 1.5 s, longest freeze 449 → 125 ms, restarted
+  animations 687 → 100, 27 → 55 frames per second.
+- **Grouped errors show their new failures while closed** ("1 new · 2 already failing"), signatures with new
+  failures go first, and inside, the new ones are listed first with their mark; long lists show 10 and "see all".
+- **Keyboard**: J/K go to the next/previous test that needs attention (opening its details), O opens the
+  test, P pauses, C toggles a compact mode (no diagnosis cards nor charts, for a small screen or a TV, and
+  remembered), ? shows the shortcuts; a double click on a row opens the test.
+
+### Added (Live: the execution field, an observability console)
+
+- **Execution field**: the execution as a torus of particles that reads like a clock, and every bright
+  particle is a real test. The angle is time (start on top, clockwise, pauses compressed) and each worker or
+  process is one turn around the tube; the particle sits where the test ended (or where it is, on the "now"
+  hand), grows with how slow it was against normal, and failures glow. The tube turns slowly on itself (time
+  never moves) and stops under the mouse so a particle is easy to hit: hover shows it with its trail, a click
+  or Enter opens its detail panel, the arrow keys walk the tests. The rays around it are how many tests ran at
+  each moment, colored by how the ones that ended there finished; the faint dust only gives the torus volume
+  and is not clickable. Around it: channels (tests, failures, network, workers) that filter or group, the
+  real ingestion (events of this execution received through `/api/v1/stream`, with the last minute in 5 s
+  bars; "active" only then, never for a finished or silent execution), progress, the dominant anomaly
+  (filters by its error signature), latest signals and error pressure. Each stream event fires a pulse from
+  its channel to its test. One canvas that survives the view's redraws, at 30 fps at most, stopped
+  off-screen, with "Pause", and static with `prefers-reduced-motion`. The grid of squares stays as the
+  alternative view.
+- **The field can be handled**: drag to rotate and tilt the torus, Shift + drag to move it, zoom with the
+  buttons, the keys or the wheel (Ctrl + wheel in the page, the plain wheel in full screen), full screen with
+  F (Esc returns), Reset (0) back to the usual view. A double click on a particle opens its test; a click
+  keeps opening the side panel. The ticker events at the top open their test too (the ticker stops under the
+  mouse).
+- **Pause from the field**: "Pause view" (or Space) freezes the field and the data to look into something,
+  while ingestion goes on in the server: the field says "PAUSED · ingestion goes on: N new events", the count
+  rises live, and "Resume (+N)" catches up.
+- **"Another execution started" for every file of the same execution**: runs did not carry their
+  `execution_id` in `/api/v1/runs` and `/api/v1/runs/{id}` (only Live read it), so a launcher that opens a run
+  per file triggered the notice with each file, covering the screen. Runs now carry `execution_id` and
+  `planned`, and the notice only fires for a different execution.
+- **The exported report carried a fixed list of files**: a script added to the interface would be missing
+  from the ZIP. A test now checks that every script and stylesheet `index.html` loads is exported.
+
+### Changed (client feedback, 09-11, run 1084: the Live view)
+
+- **Visible answer to every click**: "All / With problems" and "Group by" were loose chips and buttons that
+  gave no sign for a moment, so it looked like nothing happened. They are now segmented controls whose
+  indicator slides to the choice in the same frame as the click; the table, map and timeline dim with a thin
+  progress bar while the list is recomputed, and a status line says what is shown ("Showing 6 of 234 tests ·
+  Only with problems · Grouped by file", with the number counting). Measured with the 270-test suite and
+  with 327 and 518 tests: click to first paint 5-17 ms, click to the redrawn list 82-281 ms.
+- **"P1, P2…" did not say anything**: they are lanes inferred when the client does not report a worker. They
+  are now "Process 1, Process 2…", with the explanation in their tooltip and a legend under the timeline
+  (also for "×1.7 = 1.7 times normal"). "vs p50" is now "vs normal" and the health strip says "typical ·
+  slow duration" with what p50 and p95 mean.
+- **Long test names**: the ellipsis goes in the middle, so the start (`test_004_`) and the end, which tell
+  one test from another, stay visible; full name in the tooltip and a copy button; the Test column widens by
+  dragging its edge (or with the arrow keys) and "Names on 2 lines" shows them whole. Also in the Gantt bars.
+- **Timeline without empty space**: the axis starts at the first test, not at the start of the execution;
+  long pauses with no test running are compressed to a narrow cut (≈) that says how long they lasted; a
+  "now" line moves with the execution; Ctrl + wheel zooms around the pointer, "Fit to window" goes back;
+  idle lanes can be hidden.
+- **Tooltips everywhere**: every control, icon, column, chip and status says what it is and what it does, on
+  hover (300 ms) or on keyboard focus, with its shortcut when there is one; a unit test checks that no button
+  of the view is left without one.
+- **Icons instead of words**: an own status icon set (same grid and stroke) for Pass, Fail, Warning, Skip,
+  Running, Turtle (a drawn turtle, not the word or an emoji), No signal and Interrupted, also inside the Gantt
+  bars and on the minimap; icons for grouping, zoom, fit and folding.
+- **More life, without noise**: a ticker with the latest events (stops on hover), a clock, the execution map
+  (one square per test, a click opens it), sparklines in the health strip, a moving shine on running bars and
+  the progress bar, a pulse of the new color when a test changes status, entering rows slide in, a slow pulse
+  for "no signal" and 150-250 ms transitions; everything off with `prefers-reduced-motion`.
+
+### Fixed (client feedback, 09-11, run 1084: Inspector)
+
+- **Inspector: icons were missing, or showed as loose words**: the structural snapshot did not carry
+  pseudo-elements nor fonts, so Font Awesome icons (drawn in `::before`) were not there, Material ligatures
+  showed their word ("notifications", "vaccines") and inline `<svg>` were an empty box. The Python client now
+  draws each icon-font glyph in the page with the font it already loaded and sends it as a small PNG, once per
+  distinct icon (`glyphs`, referenced by `icons` on each node); inline `<svg>` travel with their colors and
+  `<use>` resolved; same-origin images up to 64 px too. The server keeps only real PNGs within a budget and
+  rebuilds each SVG from a whitelist of shapes and paint attributes (no scripts, events, links, styles or
+  `url()`); the viewer shows them as images, never as HTML. On a page modeled on the client's (Font Awesome 6,
+  Material Icons, an SVG sprite and a PNG icon), the Inspector went from 0 to 23 icons drawn, +4 ms of capture
+  and +23 KB per page. Older snapshots and the JS and Java clients keep the boxes as before.
+
+### Fixed (client feedback, 06-11: Inspector)
+
+- **Inspector: elements on top of each other and black areas**: it painted by tree depth and ignored
+  opacity, so a Bootstrap modal stayed behind the page and its backdrop came out solid black. It now paints
+  like the browser stacking contexts (z-index and document order), applies the opacity of the ancestors,
+  clips nodes to their scroll panels and wraps multi-line text. The Python client captures zIndex, overflow
+  and line breaks; older snapshots fall back to document order.
+- **Inspector: "the selector could not be extracted" when the backend failed**: when a backend call failed
+  just before (no answer, 5xx, 408, 429) the locator report was empty, so the Inspector blamed the error
+  text. The report now carries the selector and that call (method and endpoint, never the query), with no
+  replacements; the Inspector says "the backend answered 504 just before the failure" and suggests no
+  look-alike element. The locator card and the "broken locator" mark still stay hidden in that case.
+- **Inspector: the element count did not change between pages**: it showed the count of the first page
+  built; it now shows the one of the page being viewed.
+- **The exported report (ZIP) had no Inspector**: the pages now go in dom/ (they open from file://), capped
+  at 64 MB with failure pages first, then WARNING pages, then steps; the Inspector says what did not fit.
+  Compare with the last PASS is disabled there, with the reason.
+### Added (client feedback, 06-11)
+
+- **Personal data in DOM snapshots**: RUTs, phone numbers and e-mails are masked in the page snapshot
+  (node text, text attributes, the locator elements, URL and title) as `<rut>`, `<telefono>`, `<correo>`;
+  the locator attributes (id, class, data-test*, placeholder, aria-label) stay and dates are left alone. `TRACEREPORTS_REDACT_PII=off` turns it off.
+- Python client: `TRACEREPORTS_DOM_STEPS=on-problem` keeps the step pages in memory and sends them only
+  when the test fails or had a WARNING, plus a baseline of passing tests when the server has none from the
+  last 7 days. `DOM_STEPS=1` keeps the pages of every test, also the passing ones, and `DOM_ON` does not
+  limit it: now documented.
+### Added (client feedback, 06-11: Live)
+
+- **Cancel the whole execution**: the cancellation is kept per execution for 24 h, so the runs a launcher
+  opens later (a run per file, queued processes) are cancelled too; Live says it stops when the current
+  test ends.
+- Python client: `TRACEREPORTS_PLANNED=off` stops the plugin from reporting planned tests, for a custom
+  launcher that creates a run per file and reports each one (documented with the bridge pattern).
+
+### Changed (client feedback, 06-11: Live redesign)
+
+- **Live, built for large executions** (a suite of 270 tests in 86 runs made the lanes take three
+  screens): a compact execution selector; status tiles with large counts that filter the table (Fail,
+  Turtle, No signal…) and a progress bar with the mix of states; "Only with problems" (fail, interrupted,
+  turtle, no signal), on by default with more than 20 runs or lanes; group by file, worker or status,
+  ordered by severity, with the files without problems in one line; search over test, file, worker and
+  step, which keeps focus and text while the view refreshes.
+- **Timeline**: a minimap of the whole execution (tests running at each moment, stacked by status) where
+  dragging zooms the lanes, plus −, + and Fit; with "Only with problems", the lanes without problems fold
+  into one line. Without `worker` (a run per file) the lanes are reused like processes: each run takes the
+  first lane that is free, so 86 runs in 12 processes show as 12 lanes; lane names drop the common prefix.
+- **Side panel**: clicking a test (row or bar) shows its status, worker, duration against p50, the last 5
+  steps and the latest screenshot without leaving Live, kept up to date; Escape closes it and "Open the
+  test" goes to the detail. The last step is one line without URLs (the full text is in the tooltip).
+- Phone: tiles in three columns, only the minimap, the table as cards.
+
+### Added (Live: observability)
+
+- **Execution health** under the tiles: failure rate of what finished (and the difference in points against
+  the previous execution of the same project), duration p50 · p95 and pace (tests per minute, the last 5
+  minutes while it runs).
+- **Diagnosis cards**: errors grouped by signature (the first line without Playwright's call log and with
+  variable numbers as N, the selector kept; a click filters by it), the tests slower than their history (and
+  the ones with retries), the **backend of the execution** (endpoints of all its runs, errors first, with p95
+  and a link to a test's network; new `GET /api/v1/live/endpoints?key=`) and the recent activity.
+- **Facets** beside the table (status, error, file, worker) with their counts, several at once; the active
+  filters show as chips that are removed with a click. The table sorts by status, name, duration or against
+  p50 (a flat list; the third click groups again).
+- **Anomalies on the minimap**: a ✕ for each failure and a ! for a test without signal, where they happened;
+  they open the test.
+- **The test trace** in the side panel (a waterfall like APM): its steps and its backend calls on one
+  timeline, failed calls in red with their status and the moment of the failure marked; static resources
+  only on request; tabs for the last steps and the screenshot.
+- **Pause**: the view stops updating to analyze it (the data keeps reaching the server); resume catches up.
+- **Charts**: results over time (columns stacked by status), the cumulative failure rate (a line, with the
+  previous execution as a dashed reference) and the duration distribution (a histogram with p50 and p95
+  marked). Every column and point has its tooltip (also from the keyboard) and "Show data" opens the table.
+- **Execution picker**: each execution with its start time, how long ago it started or ended, whether it is
+  running, recent (< 1 h), from today or earlier, a progress bar and its failures and tests without signal.
+  With more than 8 executions it has a search box and groups them by age; arrows, Enter and Escape work.
+- **Motion**: the view rises in on first load, a count that changes counts up and pulses, a test whose
+  status changed flashes, new activity slides in, a new failure drops onto the minimap, the side panel slides
+  in and the trace bars grow. Only what changed animates (the view redraws on every event) and nothing moves
+  with "reduce motion".
+
+### Added (sign-in page)
+
+- **Sign-in page** (`/login/`) instead of the browser's HTTP Basic box: user, password (with show/hide and a Caps
+  Lock warning), **Remember me**, a single message for a wrong user or password, a countdown when the address is
+  blocked, and back to where you were (with its `#`) after signing in; never to another site.
+- **Sessions**: an `HttpOnly`, `SameSite=Strict` cookie (`Secure` with HTTPS); the database keeps only a SHA-256 of
+  the token. It expires after 30 min without use or 8 h anyway (`TRACEREPORTS_SESSION_IDLE_MIN`, `_MAX_HOURS`); Remember
+  me keeps it 7 days (`_REMEMBER_DAYS`). Requests the page makes on its own do not keep it alive. Changing the
+  password ends every session. Sign-in failures share the brute-force brake with HTTP Basic and the tokens, and
+  another site cannot sign a browser in (same-site check). The admin and the read-only login keep their roles.
+- **In the app**: the user and **Sign out** in the top bar, a warning 2 min before the session expires (**Stay
+  signed in**) and, when it expires, back to the sign-in page saying so. A 401 of the UI no longer opens the
+  browser's login box; API clients still get the HTTP Basic challenge and tokens work as before.
+- **The page builds itself** (like a design tool with several people on it): seven agents, each with its cursor,
+  take the tasks whose dependencies are done and work in parallel: rulers, guides with their coordinate,
+  rectangles dragged with their size and painted from the grid agent's palette (a drop of color travels from the
+  swatch), the grid agent sketching the trace of gw0…gw5 with the color of each status, text typed letter by
+  letter, the QA sweep, and a final render that turns the painted mock into the real
+  page; smoke where each piece lands and
+  Trace Buddy telling what happens ("my team of agents is building your sign-in") and how many agents built it.
+  Any key, click or paste finishes it at once (nothing that moves blocks signing in); it does not repeat in the same
+  tab nor with "reduce motion". Animations with Motion (Framer Motion for plain JavaScript, vendored in
+  `web/vendor/motion`).
+- **Skip it, or never see it again**: while the page builds, a bar at the bottom (like a design tool's
+  collaboration bar) shows the agents, the progress and **Skip** with its `Esc` shortcut, plus **Don't show again**,
+  remembered in that browser; **↻ replay** next to the artboard name brings it back.
+- **Sign out asks first**: the session button is the last one in the top bar and opens a small confirmation
+  (Cancel has the focus; Esc or a click outside cancel it).
+- **Trace Buddy talks**: a speech bubble with a header, a brief "typing…" and highlighted words. Showing the
+  password gives him a fright (he jumps back, hands up) and then a cheeky look (red slanted eyes, little horns,
+  rubbing his hands) with a line like "Did you just show me the password?"; hiding it again, he covers his eyes and
+  says he is not looking. He greets the user by name (escaped) when moving on to the password.
+- **Look**: a dark canvas with rulers where six agents (the workers) run tests and leave their trace, the last
+  failure selected as in a design tool; Trace Buddy sits on the card, follows what you type, covers his eyes while
+  the password is hidden, peeks when the pointer goes to the eye and looks when it is shown. Layers move with the
+  pointer; nothing moves with "reduce motion".
+
+### Changed (client feedback, 09-11: Live for monitoring)
+
+- **Needs attention** on top: the tests that failed, stopped sending, were interrupted or run slow (turtle),
+  with file, worker, duration and ×p50; one click opens the detail. Without any, one line says so.
+- **Filters in the link**: the chosen statuses and the search go in the URL (`&f=fail,warn`, `&lq=`), so a
+  shared link opens already filtered. An **All** chip; status chips at 0 stay visible but disabled.
+- **Search shortcut**: `/` focuses the search box from anywhere in the view; `Esc` clears it, then leaves it.
+- **One table, aligned**: fixed column widths for every file and a **Worker** column when the client sends it;
+  **Expand all / Collapse all**. Rows keep their order while their status stays the same (no jumps on every
+  event); when a test moves, its row slides to its new place (FLIP) instead of jumping.
+- **Readable last step**: one line, XPaths shortened to what identifies them
+  (`//div[contains(@class,'modal-dialog')]` → `modal-dialog`) with the full text in the tooltip, and the
+  technical dump (Selenium/Chrome `Stacktrace … (No symbol) [0x7ff…]`, Python, Java) moved to a "stack trace"
+  badge that opens it below the row.
+- **Readable timeline**: the lane label is short and fixed (`gw3`, `P1`) with the current file next to it and
+  every file in the tooltip; a bar shows its name only when it fits, has a gap from the next one, a shape
+  for its status (✕, !, ▲, turtle stripes) and a tooltip with name, file, status, duration, ×p50 and start →
+  end. Clicking a bar opens the detail and scrolls to its row, highlighted. A filter dims the bars that do
+  not match.
+- **Past executions in Live**: an execution that already left the Live list (it ended more than 2 h ago)
+  opens with the same view, by its key (`x:<execution_id>`, `g:<first run>`) or by any of its runs
+  (`exec=r:<run id>`), marked as earlier in the picker. **Observability** in the top bar (not "Live", which the running-run notice already uses) opens the run being
+  looked at (and the other runs of its execution). An unknown key falls back to the newest execution.
+
+### Fixed (client feedback, 06-11: Live)
+
+- A run without tests yet came as `tests: null` and broke Live.
+
+Python client 0.5.2 (pending release); the other clients do not change.
+
+### Added
+
+- **Live**: what is running now, per execution (runs grouped by `execution_id` or, without it, by context
+  and time): progress and ETA with the tests the client collected, *turtle* tests (slower than their p90 or
+  twice their median) and tests *without signal* (nothing for `TRACEREPORTS_NO_SIGNAL_MIN` minutes, server
+  clock), lanes per worker and a table per file and test with what needs action first and the last step.
+  Optional alerts to Teams/Slack (`TRACEREPORTS_LIVE_ALERTS`, `TRACEREPORTS_ALERT_TURTLE`,
+  `TRACEREPORTS_ALERT_FAILURES`). API: `GET /live`, `GET /live/execution`, `POST /runs/{id}/plan`.
+- **Cooperative cancel**: *Cancel execution…* in Live (admin) marks the running runs; Python clients with
+  `TRACEREPORTS_REMOTE_CONTROL=1` see it between tests (`GET /runs/{id}/control`), skip the rest with the
+  reason and close the run. Nothing is killed.
+- Python client: `execution_id` (`TRACEREPORTS_EXECUTION_ID` or the CI build of Azure DevOps, GitHub Actions,
+  GitLab or Jenkins), the planned tests from the pytest plugin (also with xdist) and
+  `TRACEREPORTS_DOM_ON=fail,warning` for the page of each WARNING step.
+- JavaScript client: `execution_id`, the planned tests from the Playwright Test reporter and, with
+  `TRACEREPORTS_REMOTE_CONTROL=1`, the cooperative cancel (the reporter asks the server and a fixture skips
+  the tests left). Java client: `execution_id`, the planned tests from the JUnit test plan (a launcher
+  listener registered on its own) and the cooperative cancel in the JUnit 5 extension.
+- **Inspector: compare with the last PASS**: what is gone, what is new and what changed against the page of
+  the same step in the test's last PASS (`GET /tests/{id}/dom/baseline`). WARNING pages are marked.
+
+- **Inspector**: a test tab that rebuilds the page at the moment of the failure from a structural
+  snapshot, so a missing element no longer forces reproducing the failure. A swarm of cursors draws the
+  page (or *Show instantly*), the test cursor walks the step pages, and the selector that failed is
+  marked: a ghost and the most similar element when it does not exist, or the element itself when it
+  exists (covered, disabled or too early). Inspect any element, try XPath or CSS on the page, overlay the
+  screenshot, and right click for **QA / Automation**: robust XPath (`translate` + `contains`, case and
+  accent insensitive), XPath relative to a stable container, stable CSS, code for Selenium (Python, Java)
+  and Playwright (Python, JS), a Page Object constant, an explicit wait, and *use as replacement* of the
+  failed selector.
+- Python client: the failure snapshot is now the whole page structure (`TRACEREPORTS_DOM=basic` keeps the
+  old one) and `TRACEREPORTS_DOM_STEPS=1` also keeps the page of each step with a screenshot (once per
+  different page, up to 40 per test). Masked elements keep their box but not their text; typed values
+  never travel.
+- API: `GET /tests/{id}/dom`, `GET /tests/{id}/dom/steps` and `GET /tests/{id}/dom/steps/{seq}`; tests
+  report `has_dom` and `dom_steps`. Step snapshots and their labels are encrypted at rest and rotated
+  with `tracereports evidence rekey`.
+- **Python client timeouts from the environment**: `TRACEREPORTS_TIMEOUT` (seconds per JSON request,
+  default 2) and `TRACEREPORTS_RUN_TIMEOUT` (creating and closing the run, default 10, never shorter than
+  `TRACEREPORTS_TIMEOUT`), also as `TraceReports(timeout=..., run_timeout=...)`. Creating and closing the
+  run now wait up to 10 s per attempt by default instead of 2 s, so a busy server is not taken for a
+  down one; all the attempts together take at most 15 s (or one `TRACEREPORTS_RUN_TIMEOUT` if it is
+  longer), so a server that accepts and never answers does not hold every process for 30 s.
+- **Storage in Maintenance**: the disk of the data folder (in use, free, a warning from 80 % that says how
+  much TraceReports takes), the evidence stored (database and files), runs and since when, the growth per
+  day and how long the disk would last, what each project takes and files no run uses.
+- **Retention from the interface**: *Keep* 30, 60, 90, 180, 365 days or everything, applied every 6 hours
+  without a restart (`TRACEREPORTS_RETENTION_DAYS` still wins). **Clean up now…** shows what would be
+  deleted and the space it would free before deleting, and the last and next cleanups are shown. API:
+  `GET /maintenance/storage`, `GET /maintenance/storage/preview`, `PUT /ui/maintenance/retention`,
+  `POST /ui/maintenance/retention/run`.
+- **Escalate → PDF**: prints only the report on a clean A4 page (the browser's *Save as PDF*), named
+  after the report number.
+
+### Changed
+
+- **Escalate reads as a formal report**: a header with the report number (`ESC-<run>-<test>`, the same for
+  the same failure) and when it was generated, a facts table (severity, audience, run, environment,
+  result, run date, test, suggested owner), an executive summary, numbered sections and a footer
+  "Generated with TraceReports · date · Internal use", in a sober navy palette with color only on the
+  severity (the top stripe, the executive summary, the section numbers and bullets: green, amber, orange
+  or red). The text, chat, Markdown and email formats carry the report number too.
+- **Run it locally without `git checkout`**: the command to reproduce a test no longer starts with
+  `git checkout <commit> &&` (it failed with local changes and left a detached HEAD); the run's commit is
+  a note to use only if your copy is on another version. Each test also gets the command for its whole
+  file or class, first when the error says the test needed an earlier one (empty data, a step skipped
+  because a previous one failed): alone it fails for another reason. Same in the test detail, Escalate
+  (Development: one shell block with a comment per command), tickets, the Lab capsule and MCP.
+
+### Fixed
+
+- **Ghost runs (Python client)**: when the server took longer than the client timeout to create the run,
+  the timeout opened the circuit, the retry never went out and the client switched to local recording,
+  while the server did create the run, which stayed *Running* with 0 tests. A timeout waiting for the
+  answer is now retried with the same `Idempotency-Key` (the server returns the same run, never a second
+  one) and opens the circuit only when the retries run out. A refused or timed-out connection (server
+  down) still opens it at once: without a server the client records locally as fast as before.
+- **Test history squares**: opening an older run from a square showed only the runs up to it, so you could
+  not move forward again; the strip now also shows the later runs (`GET /tests/{id}/history?newer=N`), with
+  the one you are viewing outlined.
+- **"Watch live" from Metrics** (and from Search, Maintenance or Settings, also choosing a run in Recents)
+  loaded the run behind the view and nothing changed on screen; it now opens the run's tests.
+- **Recents** did not update while open (a run finishing, a test result, runs deleted in Maintenance): it
+  now follows the live events, at most once every 1.5 s, without F5.
+- **Locator drift said "There is no page snapshot"** when the snapshot did arrive and simply no element
+  fit. The card now tells the cases apart: no snapshot; a snapshot without replacements (a text XPath reads
+  as a content or flow check); or a selector that reached the server cut. The broken selector is taken
+  whole from the trace when the stored error message (cut at 300 characters) ended halfway, and an XPath
+  written between quotes in a team's own message ends at its closing quote. `GET /tests/{id}/locator` adds
+  `has_dom`, `dom_elements` and `failed_selector_truncated`.
+- **Blank screenshot in Escalate**: when every screenshot of a test is blank (the browser never showed
+  the page), the card showed a big white box that looked like an image that failed to load. It now shows
+  *The page was blank at the failure* with a link to the screenshot; the summary no longer says the
+  screen changed nor asks to update a selector (it explains that the page never loaded), and neither the
+  email, the Teams/Slack message nor the ticket attach a blank image.
+- **AI escalation with fields the model did not fill**: a small model (e.g. `llama3.1:8b`) returned the
+  name of a field as the evidence (`"title"`) and repeated the title as the executive summary. Fields left
+  empty, filled with a field name or copying the title are now taken from the template built from the
+  evidence; what the model did write stays.
+- JavaScript and Java clients: the page snapshot no longer carried masked elements at all (their text,
+  label and placeholder went as they were); now they show `•••`, like the Python client.
+- Python client: the page snapshot no longer carries masked text (`[data-tracereports-mask]`,
+  `input[type=password]`, `TRACEREPORTS_SCREENSHOT_MASK`) inside the text of a container that has an id or
+  a role; it shows `•••` instead. Same in the JavaScript (Playwright and Selenium) and Java clients.
+- **Test history squares lost newer runs**: the strip was kept for the whole session, so a test opened
+  before another run finished kept its old history; going back to it from a square hid the newer runs
+  (click the red square and the yellow one disappeared). It is fetched again when a test or run finishes.
+- **New-run notice missed**: a run that started while the page was loading or reconnecting was never
+  announced; on connecting, the page now announces the running runs it did not know.
+- **Trace Buddy asked the same question in a loop** ("which framework?") and could not answer about the
+  DOM. The chat now gets the test's tool and language (detected from the run and the error), the page at
+  the failure from the DOM snapshot, or the last page the test kept (what the failed selector matched and the clickable element around it,
+  loading indicators such as skeletons or spinners and overlays, each with its XPath and CSS), and the
+  Inspector; an answer that repeats an earlier one is retried and, if it repeats again, replaced by an
+  answer built from the snapshot (the loading indicator and the explicit wait in the test's tool). A
+  question about the DOM, a selector or a wait shows *Open in the Inspector*.
+- **Selector not found in a team's own messages**: an XPath written without a cue word
+  (`TimeoutException en (//i[contains(@class,'fa-plus-circle')])[1]`) is now taken, with its index.
+
+### Security
+
+- **FixLab on a shared server asks before calling the internal network**: the hosts a resend may reach
+  come from the network calls the tests upload, so a call planted by whoever has the ingest token could
+  aim at an internal system and be resent by an admin without noticing. Now a host on the internal network
+  (a private IP or the server's own machine, also a name that resolves to one) that is not in
+  `TRACEREPORTS_LAB_HOSTS` shows *This call goes to the internal network* with *Cancel* and *Send anyway*
+  before anything is sent; without confirming, the connection is also refused when it is made (DNS
+  rebinding). Hosts in `TRACEREPORTS_LAB_HOSTS`, the base URL you type, the server's own machine and the
+  CLI (`repro`, `verify`, MCP) do not change. `TRACEREPORTS_LAB_STRICT=1` refuses those hosts instead of
+  asking. API: `/ui/lab/send` and `/ui/lab/verify` answer `409 {code: "internal_host", hosts}` and accept
+  `confirm_internal`.
+
 ## [0.7.0] - 2026-11-04
 
 JavaScript client 0.4.2 (code scanning fixes only); the Python, Java and Go clients do not change. Validated
@@ -571,7 +1274,8 @@ First public release: self-hosted report server (single Go binary with SQLite), 
 themes, AI diagnosis (Gemini, Claude, OpenAI, compatible APIs, Ollama), escalation summaries,
 Teams/Slack notifications and clients for Python, JavaScript/TypeScript, Java and Go.
 
-[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/josemiguellopez/tracereports/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/josemiguellopez/tracereports/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/josemiguellopez/tracereports/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/josemiguellopez/tracereports/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/josemiguellopez/tracereports/compare/v0.6.0...v0.6.1

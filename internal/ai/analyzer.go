@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/josemiguellopez/tracereports/internal/ai/builtin"
+	"github.com/josemiguellopez/tracereports/internal/atrest"
 	"github.com/josemiguellopez/tracereports/internal/db"
 	"github.com/josemiguellopez/tracereports/internal/env"
 	"github.com/josemiguellopez/tracereports/internal/locator"
@@ -32,7 +33,7 @@ const (
 )
 
 // Categories accepted from the model.
-var Categories = []string{"LOCATOR_CHANGED", "BACKEND_TIMEOUT", "LOGIC_BUG", "INFRA_ERROR"}
+var Categories = []string{"LOCATOR_CHANGED", "TIMING", "BACKEND_TIMEOUT", "LOGIC_BUG", "INFRA_ERROR"}
 
 // Result is the structured diagnosis returned by the model.
 type Result struct {
@@ -67,6 +68,9 @@ type Analyzer struct {
 	testsCancel map[int64]context.CancelFunc
 	// Redact masks secrets in every prompt (nil = redact.Default()).
 	Redact *redact.Policy
+	// Shots (optional) is where the screenshots live: a blank one is evidence of a page that never
+	// loaded (grouping.go).
+	Shots atrest.Dir
 	// MaxPerRun limits the automatic per-test analyses of one run (TRACEREPORTS_AI_MAX_PER_RUN,
 	// default 50); the rest are marked SKIPPED and can still be analyzed from the UI.
 	MaxPerRun int
@@ -410,11 +414,14 @@ func (a *Analyzer) analyze(ctx context.Context, testID, rev int64) error {
 		return err
 	}
 	c := a.Config()
+	// la evidencia del motor local (con las señales de carga): también la ve el LLM
+	in, err := a.builtinInput(t, a.builtinLang(t.Name, t.Description))
+	if err != nil {
+		return err
+	}
 	var local builtin.Diagnosis
 	if c.Provider == ProviderBuiltin || builtinHint() {
-		if local, err = a.diagnoseBuiltin(t); err != nil {
-			return err
-		}
+		local = a.redactDiagnosis(builtin.Diagnose(in))
 	}
 	if c.Provider == ProviderBuiltin {
 		if saved, err := a.store.SaveTriageAt(testID, rev, local.Category, local.Summary, local.Suggestion, "", "", ProviderBuiltin, local.Rule); err != nil || !saved {
@@ -437,9 +444,17 @@ func (a *Analyzer) analyze(ctx context.Context, testID, rev int64) error {
 	if err != nil {
 		return err
 	}
-	res, err := a.classify(ctx, buildPrompt(t, lastStep, netErrors, a.language())+consolePromptSection(t.Console)+locatorPromptSection(failed, cands)+builtinPromptSection(local), cands)
+	res, err := a.classify(ctx, buildPrompt(t, lastStep, netErrors, a.language())+consolePromptSection(t.Console)+locatorPromptSection(failed, cands)+
+		loadingPromptSection(in)+builtinPromptSection(local), cands)
 	if err != nil {
 		return err
+	}
+	// con señales de que la página seguía cargando, "cambió el selector" contradice la evidencia: gana la regla
+	if res.Category == "LOCATOR_CHANGED" && (len(in.Loading) > 0 || in.SelectorBefore != "") {
+		d := a.redactDiagnosis(builtin.Diagnose(in))
+		if d.Category == builtin.CategoryTiming {
+			res.Category, res.Summary, res.Suggestion, res.RecommendedLocator, res.LocatorReason = d.Category, d.Summary, d.Suggestion, "", ""
+		}
 	}
 	if saved, err := a.store.SaveTriageAt(testID, rev, res.Category, res.Summary, res.Suggestion, res.RecommendedLocator, res.LocatorReason, c.Provider, ""); err != nil || !saved {
 		return err // !saved: el resultado cambió; el análisis repetido guarda el del nuevo
@@ -516,6 +531,10 @@ func buildPrompt(t *db.Test, lastStep string, netErrors []db.NetConn, lang strin
 	return fmt.Sprintf(`You are a senior QA automation engineer triaging a failed automated UI/API test.
 Classify the root cause into exactly one category:
 - LOCATOR_CHANGED: element not found, stale element, selector/XPath/test-id no longer matches the DOM.
+- TIMING: the element did not show up in time because the page was still loading (skeleton, spinner,
+  aria-busy, backend calls in flight) or the same selector found it the last time the test passed. The
+  selector did not change: the test must wait for the load. Prefer it over LOCATOR_CHANGED when the
+  loading signals below say so.
 - BACKEND_TIMEOUT: slow or unresponsive backend/API, HTTP 5xx, request/wait timeouts caused by the server.
 - LOGIC_BUG: the application behaved incorrectly (wrong value, failed assertion on business data).
 - INFRA_ERROR: browser/driver crash, network/DNS, CI agent, environment or test-data setup problems.

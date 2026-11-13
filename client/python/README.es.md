@@ -20,7 +20,9 @@ pytest --tracereports                     # reporta tu suite de pytest sin cambi
   `tracereports report <carpeta>` arma el reporte HTML y `tracereports push <carpeta>` lo sube después.
   Con `TRACEREPORTS_OFFLINE=both` además guarda esa copia local mientras envía al servidor
   ([guía del reporte local][local-report]).
-- **Configuración** desde el entorno o el `.env` del proyecto (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`…).
+- **Configuración** desde el entorno o el `.env` del proyecto (`TRACEREPORTS_URL`, `TRACEREPORTS_TOKEN`,
+  `TRACEREPORTS_TIMEOUT`, `TRACEREPORTS_RUN_TIMEOUT`…). Un servidor lento se reintenta con la misma
+  `Idempotency-Key` (nunca crea otra ejecución); uno caído pasa a grabar en local al instante.
 
 Documentación completa: [docs/es/python.md][python].
 
@@ -32,3 +34,10 @@ Sin binario instalado, al cerrar se descarga y verifica el renderer v0.2.0 en la
 [python]: https://github.com/josemiguellopez/tracereports/blob/main/docs/es/python.md
 [offline]: https://github.com/josemiguellopez/tracereports/blob/main/docs/es/offline.md
 [readme-en]: https://github.com/josemiguellopez/tracereports/blob/main/client/python/README.md
+
+## Páginas para el Inspector
+
+- `TRACEREPORTS_DOM_STEPS=1`: guarda la página de cada paso de **todos** los tests, también los PASS.
+- `TRACEREPORTS_DOM_STEPS=on-problem`: solo de los que fallan o tienen un WARNING (y una base de
+  comparación de los que pasan cada 7 días).
+- `TRACEREPORTS_DOM_ON=fail,warning` no limita lo anterior: solo agrega la página de cada WARNING.

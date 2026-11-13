@@ -8,148 +8,176 @@ import (
 // textos del resumen sin IA, en los dos idiomas de la interfaz
 var tpl = map[string]map[string]string{
 	"es": {
-		"run_title":      "%s: %d de %d tests fallaron",
-		"run_ok":         "%s: todos los tests pasaron",
-		"test_title":     "Falló \"%s\"",
-		"headline_run":   "%d de %d tests de la ejecución \"%s\" fallaron en %s.",
-		"headline_test":  "El test \"%s\" falló en %s.",
-		"what_backend":   "El sistema no pudo completar la operación porque un servicio del backend respondió con error o no respondió.",
-		"what_locator":   "La pantalla cambió y la automatización ya no encuentra un elemento: es mantenimiento del test, no un error del producto.",
-		"what_logic":     "La aplicación respondió, pero con un resultado distinto del esperado.",
-		"what_infra":     "Falló el entorno de pruebas (navegador, red o datos de prueba), no necesariamente la aplicación.",
-		"what_unknown":   "El test no pudo completar su flujo.",
-		"impact_biz":     "Mientras no se resuelva, los usuarios podrían no completar \"%s\".",
-		"impact_qa":      "%d de %d tests de la suite fallaron; los resultados de esta ejecución no son confiables para aprobar la versión.",
-		"impact_maint":   "No afecta a los usuarios: la automatización necesita un ajuste para seguir validando este flujo.",
-		"ev_run":         "Ejecución \"%s\" (%s): %d pasaron, %d fallaron, %d omitidos.",
-		"ev_error":       "Error: %s",
-		"ev_net":         "Backend: %s %s → %s (%d ms).",
-		"ev_shot":        "Captura del momento del fallo: %s.",
-		"ev_flaky":       "Historial: el test es inestable, falló %s de sus últimas ejecuciones.",
-		"cause_unknown":  "Causa por confirmar con la evidencia del reporte.",
-		"step_report":    "Revisar el reporte completo: pasos, capturas y llamadas al backend.",
-		"step_backend":   "Revisar los logs y la disponibilidad del servicio %s.",
-		"step_svc":       "El equipo técnico revisa el servicio que dejó de responder.",
-		"step_locator":   "Actualizar el selector del test%s.",
-		"step_bug":       "Abrir un bug con esta evidencia para el equipo de desarrollo.",
-		"step_rerun":     "Volver a ejecutar la suite cuando el entorno esté estable.",
-		"owner_backend":  "Equipo de backend",
-		"owner_qa":       "QA automatización",
-		"owner_dev":      "Equipo de desarrollo",
-		"owner_infra":    "Infraestructura / DevOps",
-		"what_incidents": "%d tests fallaron por %d problemas distintos. El más grande afecta a %d tests: %s.",
-		"what_incident1": "Los %d tests fallaron con la misma evidencia: %s.",
-		"what_distinct":  "%d tests fallaron, cada uno por un problema distinto. El primero: %s.",
-		"ev_incident":    "%s (%d tests).",
-		"ev_incident1":   "%s (1 test).",
-		"step_incident":  "Empezar por: %s.",
-		"ok_headline":    "Los %d tests de la ejecución \"%s\" pasaron en %s.",
-		"ok_headline_1":  "El único test de la ejecución \"%s\" pasó en %s.",
-		"ok_what":        "La ejecución terminó sin fallos: todos los flujos probados funcionaron como se esperaba.",
-		"ok_what_warn":   "La ejecución terminó sin fallos, pero %d tests terminaron con advertencias que conviene revisar.",
-		"ok_impact_biz":  "Sin impacto para los usuarios: los flujos probados de \"%s\" funcionan.",
-		"ok_impact_qa":   "%d de %d tests pasaron (%d omitidos): los resultados permiten aprobar la versión en este ambiente.",
-		"ok_cause":       "No hay fallos que analizar.",
-		"ok_step":        "No se requiere acción: la versión puede avanzar con esta evidencia.",
-		"ok_step_warn":   "Revisar las advertencias antes de aprobar.",
-		"ok_step_skip":   "Confirmar que los %d tests omitidos se omitieron a propósito.",
-		"owner_none":     "Sin responsable: no hay acciones pendientes",
-		"qa_obs_title":   "%s: pasó con observaciones",
-		"qa_risk_title":  "%s: pasó con riesgos",
-		"qa_headline":    "Ningún test falló, pero la revisión de QA encontró señales que conviene mirar (riesgos: %d · observaciones: %d).",
-		"qa_what":        "Ningún test falló. Al revisar lo que entregaron (red, consola, pasos, reintentos e historial) aparecieron señales que no rompieron los flujos, pero que un QA debería conocer antes de firmar la ejecución.",
-		"qa_impact_obs":  "Los flujos funcionaron y las observaciones no bloquean la versión, pero conviene registrarlas.",
-		"qa_impact_risk": "No hay fallos, pero las señales de riesgo pueden esconder un defecto real o un test poco confiable: conviene revisarlas antes de aprobar la versión.",
-		"run_pending":    "%s: en curso",
-		"pend_headline":  "La ejecución \"%s\" sigue en curso: terminaron %d de %d tests y %d todavía corren.",
-		"pend_what":      "La ejecución todavía no terminó: los resultados son parciales y no muestran el resultado final.",
-		"pend_impact":    "Sin conclusión todavía (%d pasaron, %d omitidos, %d en curso): no sirve para aprobar la versión hasta que termine.",
-		"pend_step":      "Esperar a que termine la ejecución y revisar el reporte de nuevo.",
-		"run_incomplete": "%s: ejecución incompleta",
-		"inc_headline":   "La ejecución \"%s\" se cerró en %s sin que terminaran todos sus tests.",
-		"inc_what":       "La ejecución se interrumpió (worker caído, timeout o cancelación): no registró fallos, pero su resultado no está completo.",
-		"inc_impact":     "%d de %d tests pasaron y el resto no terminó: estos resultados no sirven para aprobar la versión.",
-		"inc_step":       "Revisar por qué se interrumpió y volver a correr la suite completa.",
-		"run_skipped":    "%s: todos los tests se omitieron",
-		"skip_headline":  "Ningún test de la ejecución \"%s\" corrió en %s: los %d se omitieron.",
-		"skip_what":      "No hubo fallos porque no se probó nada.",
-		"skip_impact":    "Sin evidencia: esta ejecución no sirve para aprobar la versión.",
-		"skip_step":      "Revisar por qué se omitieron (filtros, marcas o condiciones del ambiente) y volver a correr.",
-		"run_warn":       "%s: sin fallos, %d con advertencias",
-		"warn_headline":  "%d de %d tests de la ejecución \"%s\" pasaron en %s y %d terminaron con advertencias.",
-		"warn_impact":    "%d de %d tests pasaron y %d terminaron con advertencias: revisarlas antes de aprobar la versión.",
+		"run_title":              "%s: %d de %d tests fallaron",
+		"run_ok":                 "%s: todos los tests pasaron",
+		"test_title":             "Falló \"%s\"",
+		"headline_run":           "%d de %d tests de la ejecución \"%s\" fallaron en %s.",
+		"headline_one":           "Falló %d de %d tests: %s.",
+		"reason_TIMING":          "la página seguía cargando cuando el test buscó el elemento (espera insuficiente, no un cambio de la interfaz)",
+		"reason_LOCATOR_CHANGED": "la automatización ya no encuentra un elemento de la pantalla (mantenimiento del test)",
+		"reason_BACKEND_TIMEOUT": "un servicio del backend respondió con error o no respondió",
+		"reason_LOGIC_BUG":       "la aplicación respondió distinto a lo esperado",
+		"reason_INFRA_ERROR":     "falló el ambiente o el navegador, no el flujo probado",
+		"headline_test":          "El test \"%s\" falló en %s.",
+		"what_backend":           "El sistema no pudo completar la operación porque un servicio del backend respondió con error o no respondió.",
+		"what_locator":           "La pantalla cambió y la automatización ya no encuentra un elemento: es mantenimiento del test, no un error del producto.",
+		"what_timing":            "El elemento no alcanzó a aparecer: la página seguía cargando cuando el test lo buscó. Es una espera del test, no un cambio de la interfaz ni un error del producto.",
+		"cause_timing":           "El test buscó el elemento antes de que terminara la carga de la página (%s). El selector no cambió.",
+		"ev_loading":             "Al fallar, la página seguía cargando: %s.",
+		"step_timing":            "Esperar a que termine la carga (que desaparezca el indicador de carga o llegue la respuesta del backend) antes de buscar el elemento; no cambiar el selector.",
+		"what_logic":             "La aplicación respondió, pero con un resultado distinto del esperado.",
+		"what_infra":             "Falló el entorno de pruebas (navegador, red o datos de prueba), no necesariamente la aplicación.",
+		"what_blank":             "La página no llegó a cargar: el navegador quedó en blanco y el test no pudo continuar. No es un cambio de la interfaz ni un selector roto.",
+		"cause_blank":            "Probablemente la aplicación o el ambiente no respondieron a tiempo al abrir la página (carga del servidor, red o demasiadas sesiones en paralelo).",
+		"ev_shot_blank":          "Las capturas del test están en blanco: la página no se mostró.",
+		"step_blank":             "Revisar la carga del ambiente en ese momento y que el test verifique que la página cargó antes de seguir; después, volver a ejecutarlo.",
+		"what_unknown":           "El test no pudo completar su flujo.",
+		"impact_biz":             "Mientras no se resuelva, los usuarios podrían no completar \"%s\".",
+		"impact_qa":              "%d de %d tests de la suite fallaron; los resultados de esta ejecución no son confiables para aprobar la versión.",
+		"impact_maint":           "No afecta a los usuarios: la automatización necesita un ajuste para seguir validando este flujo.",
+		"ev_run":                 "Ejecución \"%s\" (%s): %d pasaron, %d fallaron, %d omitidos.",
+		"ev_error":               "Error: %s",
+		"ev_net":                 "Backend: %s %s → %s (%d ms).",
+		"ev_shot":                "Captura del momento del fallo: %s.",
+		"ev_flaky":               "Historial: el test es inestable, falló %s de sus últimas ejecuciones.",
+		"cause_unknown":          "Causa por confirmar con la evidencia del reporte.",
+		"step_report":            "Revisar el reporte completo: pasos, capturas y llamadas al backend.",
+		"step_backend":           "Revisar los logs y la disponibilidad del servicio %s.",
+		"step_svc":               "El equipo técnico revisa el servicio que dejó de responder.",
+		"step_locator":           "Actualizar el selector del test%s.",
+		"step_bug":               "Abrir un bug con esta evidencia para el equipo de desarrollo.",
+		"step_rerun":             "Volver a ejecutar la suite cuando el entorno esté estable.",
+		"owner_backend":          "Equipo de backend",
+		"owner_qa":               "QA automatización",
+		"owner_dev":              "Equipo de desarrollo",
+		"owner_infra":            "Infraestructura / DevOps",
+		"what_incidents":         "%d tests fallaron por %d problemas distintos. El más grande afecta a %d tests: %s.",
+		"what_incident1":         "Los %d tests fallaron con la misma evidencia: %s.",
+		"what_distinct":          "%d tests fallaron, cada uno por un problema distinto. El primero: %s.",
+		"ev_incident":            "%s (%d tests).",
+		"ev_incident1":           "%s (1 test).",
+		"step_incident":          "Empezar por: %s.",
+		"ok_headline":            "Los %d tests de la ejecución \"%s\" pasaron en %s.",
+		"ok_headline_1":          "El único test de la ejecución \"%s\" pasó en %s.",
+		"ok_what":                "La ejecución terminó sin fallos: todos los flujos probados funcionaron como se esperaba.",
+		"ok_what_warn":           "La ejecución terminó sin fallos, pero %d tests terminaron con advertencias que conviene revisar.",
+		"ok_impact_biz":          "Sin impacto para los usuarios: los flujos probados de \"%s\" funcionan.",
+		"ok_impact_qa":           "%d de %d tests pasaron (%d omitidos): los resultados permiten aprobar la versión en este ambiente.",
+		"ok_cause":               "No hay fallos que analizar.",
+		"ok_step":                "No se requiere acción: la versión puede avanzar con esta evidencia.",
+		"ok_step_warn":           "Revisar las advertencias antes de aprobar.",
+		"ok_step_skip":           "Confirmar que los %d tests omitidos se omitieron a propósito.",
+		"owner_none":             "Sin responsable: no hay acciones pendientes",
+		"qa_obs_title":           "%s: pasó con observaciones",
+		"qa_risk_title":          "%s: pasó con riesgos",
+		"qa_headline":            "Ningún test falló, pero la revisión de QA encontró señales que conviene mirar (riesgos: %d · observaciones: %d).",
+		"qa_what":                "Ningún test falló. Al revisar lo que entregaron (red, consola, pasos, reintentos e historial) aparecieron señales que no rompieron los flujos, pero que un QA debería conocer antes de firmar la ejecución.",
+		"qa_impact_obs":          "Los flujos funcionaron y las observaciones no bloquean la versión, pero conviene registrarlas.",
+		"qa_impact_risk":         "No hay fallos, pero las señales de riesgo pueden esconder un defecto real o un test poco confiable: conviene revisarlas antes de aprobar la versión.",
+		"run_pending":            "%s: en curso",
+		"pend_headline":          "La ejecución \"%s\" sigue en curso: terminaron %d de %d tests y %d todavía corren.",
+		"pend_what":              "La ejecución todavía no terminó: los resultados son parciales y no muestran el resultado final.",
+		"pend_impact":            "Sin conclusión todavía (%d pasaron, %d omitidos, %d en curso): no sirve para aprobar la versión hasta que termine.",
+		"pend_step":              "Esperar a que termine la ejecución y revisar el reporte de nuevo.",
+		"run_incomplete":         "%s: ejecución incompleta",
+		"inc_headline":           "La ejecución \"%s\" se cerró en %s sin que terminaran todos sus tests.",
+		"inc_what":               "La ejecución se interrumpió (worker caído, timeout o cancelación): no registró fallos, pero su resultado no está completo.",
+		"inc_impact":             "%d de %d tests pasaron y el resto no terminó: estos resultados no sirven para aprobar la versión.",
+		"inc_step":               "Revisar por qué se interrumpió y volver a correr la suite completa.",
+		"run_skipped":            "%s: todos los tests se omitieron",
+		"skip_headline":          "Ningún test de la ejecución \"%s\" corrió en %s: los %d se omitieron.",
+		"skip_what":              "No hubo fallos porque no se probó nada.",
+		"skip_impact":            "Sin evidencia: esta ejecución no sirve para aprobar la versión.",
+		"skip_step":              "Revisar por qué se omitieron (filtros, marcas o condiciones del ambiente) y volver a correr.",
+		"run_warn":               "%s: sin fallos, %d con advertencias",
+		"warn_headline":          "%d de %d tests de la ejecución \"%s\" pasaron en %s y %d terminaron con advertencias.",
+		"warn_impact":            "%d de %d tests pasaron y %d terminaron con advertencias: revisarlas antes de aprobar la versión.",
 	},
 	"en": {
-		"run_title":      "%s: %d of %d tests failed",
-		"run_ok":         "%s: all tests passed",
-		"test_title":     "\"%s\" failed",
-		"headline_run":   "%d of %d tests of the run \"%s\" failed in %s.",
-		"headline_test":  "The test \"%s\" failed in %s.",
-		"what_backend":   "The system could not complete the operation because a backend service returned an error or did not answer.",
-		"what_locator":   "The screen changed and the automation no longer finds an element: it is test maintenance, not a product bug.",
-		"what_logic":     "The application answered, but with a different result than expected.",
-		"what_infra":     "The test environment failed (browser, network or test data), not necessarily the application.",
-		"what_unknown":   "The test could not complete its flow.",
-		"impact_biz":     "Until it is fixed, users might not be able to complete \"%s\".",
-		"impact_qa":      "%d of %d tests of the suite failed; this run's results cannot be used to approve the release.",
-		"impact_maint":   "Users are not affected: the automation needs an update to keep checking this flow.",
-		"ev_run":         "Run \"%s\" (%s): %d passed, %d failed, %d skipped.",
-		"ev_error":       "Error: %s",
-		"ev_net":         "Backend: %s %s → %s (%d ms).",
-		"ev_shot":        "Screenshot at the moment of failure: %s.",
-		"ev_flaky":       "History: the test is flaky, it failed %s of its recent runs.",
-		"cause_unknown":  "Cause to be confirmed with the report's evidence.",
-		"step_report":    "Review the full report: steps, screenshots and backend calls.",
-		"step_backend":   "Check the logs and availability of the %s service.",
-		"step_svc":       "The technical team checks the service that stopped answering.",
-		"step_locator":   "Update the test selector%s.",
-		"step_bug":       "Open a bug with this evidence for the development team.",
-		"step_rerun":     "Re-run the suite once the environment is stable.",
-		"owner_backend":  "Backend team",
-		"owner_qa":       "QA automation",
-		"owner_dev":      "Development team",
-		"owner_infra":    "Infrastructure / DevOps",
-		"what_incidents": "%d tests failed for %d different problems. The largest one affects %d tests: %s.",
-		"what_incident1": "The %d tests failed with the same evidence: %s.",
-		"what_distinct":  "%d tests failed, each one for a different problem. The first one: %s.",
-		"ev_incident":    "%s (%d tests).",
-		"ev_incident1":   "%s (1 test).",
-		"step_incident":  "Start with: %s.",
-		"ok_headline":    "All %d tests of the run \"%s\" passed in %s.",
-		"ok_headline_1":  "The only test of the run \"%s\" passed in %s.",
-		"ok_what":        "The run finished without failures: every tested flow worked as expected.",
-		"ok_what_warn":   "The run finished without failures, but %d tests ended with warnings worth reviewing.",
-		"ok_impact_biz":  "No impact for users: the tested flows of \"%s\" work.",
-		"ok_impact_qa":   "%d of %d tests passed (%d skipped): the results support approving the release in this environment.",
-		"ok_cause":       "There are no failures to analyze.",
-		"ok_step":        "No action needed: the release can move forward with this evidence.",
-		"ok_step_warn":   "Review the warnings before approving.",
-		"ok_step_skip":   "Confirm that the %d skipped tests were skipped on purpose.",
-		"owner_none":     "No owner: nothing pending",
-		"qa_obs_title":   "%s: passed with observations",
-		"qa_risk_title":  "%s: passed with risks",
-		"qa_headline":    "No test failed, but the QA review found signals worth a look (risks: %d · observations: %d).",
-		"qa_what":        "No test failed. Reviewing what they delivered (network, console, steps, retries and history) turned up signals that did not break the flows, but that QA should know before signing off the run.",
-		"qa_impact_obs":  "The flows worked and the observations do not block the release, but they are worth recording.",
-		"qa_impact_risk": "There are no failures, but the risk signals can hide a real defect or an unreliable test: review them before approving the release.",
-		"run_pending":    "%s: run in progress",
-		"pend_headline":  "The run \"%s\" is still in progress: %d of %d tests finished and %d are still running.",
-		"pend_what":      "The run has not finished yet: the results are partial and do not show the final outcome.",
-		"pend_impact":    "No conclusion yet (%d passed, %d skipped, %d running): it cannot approve the release until it finishes.",
-		"pend_step":      "Wait for the run to finish and check the report again.",
-		"run_incomplete": "%s: incomplete run",
-		"inc_headline":   "The run \"%s\" was closed in %s before all its tests finished.",
-		"inc_what":       "The run was interrupted (crashed worker, timeout or cancellation): it recorded no failures, but its result is not complete.",
-		"inc_impact":     "%d of %d tests passed and the rest did not finish: these results cannot approve the release.",
-		"inc_step":       "Check why it was interrupted and re-run the full suite.",
-		"run_skipped":    "%s: every test was skipped",
-		"skip_headline":  "No test of the run \"%s\" ran in %s: all %d were skipped.",
-		"skip_what":      "There were no failures because nothing was tested.",
-		"skip_impact":    "No evidence: this run cannot approve the release.",
-		"skip_step":      "Check why they were skipped (filters, markers or environment conditions) and re-run.",
-		"run_warn":       "%s: no failures, %d with warnings",
-		"warn_headline":  "%d of %d tests of the run \"%s\" passed in %s and %d ended with warnings.",
-		"warn_impact":    "%d of %d tests passed and %d ended with warnings: review them before approving the release.",
+		"run_title":              "%s: %d of %d tests failed",
+		"run_ok":                 "%s: all tests passed",
+		"test_title":             "\"%s\" failed",
+		"headline_run":           "%d of %d tests of the run \"%s\" failed in %s.",
+		"headline_one":           "%d of %d tests failed: %s.",
+		"reason_TIMING":          "the page was still loading when the test looked for the element (an insufficient wait, not a UI change)",
+		"reason_LOCATOR_CHANGED": "the automation no longer finds an element on the screen (test maintenance)",
+		"reason_BACKEND_TIMEOUT": "a backend service answered with an error or did not answer",
+		"reason_LOGIC_BUG":       "the application answered differently than expected",
+		"reason_INFRA_ERROR":     "the environment or the browser failed, not the flow under test",
+		"headline_test":          "The test \"%s\" failed in %s.",
+		"what_backend":           "The system could not complete the operation because a backend service returned an error or did not answer.",
+		"what_locator":           "The screen changed and the automation no longer finds an element: it is test maintenance, not a product bug.",
+		"what_timing":            "The element did not show up in time: the page was still loading when the test looked for it. It is a wait in the test, not a UI change nor a product bug.",
+		"cause_timing":           "The test looked for the element before the page finished loading (%s). The selector did not change.",
+		"ev_loading":             "When the test failed, the page was still loading: %s.",
+		"step_timing":            "Wait for the load to finish (the loading indicator gone or the backend's answer in) before looking for the element; do not change the selector.",
+		"what_logic":             "The application answered, but with a different result than expected.",
+		"what_infra":             "The test environment failed (browser, network or test data), not necessarily the application.",
+		"what_blank":             "The page never loaded: the browser stayed blank and the test could not go on. It is not a UI change nor a broken selector.",
+		"cause_blank":            "The application or the environment probably did not answer in time when the page was opened (server load, network or too many parallel sessions).",
+		"ev_shot_blank":          "The test's screenshots are blank: the page was never shown.",
+		"step_blank":             "Check the load of the environment at that moment and that the test checks the page loaded before going on; then run it again.",
+		"what_unknown":           "The test could not complete its flow.",
+		"impact_biz":             "Until it is fixed, users might not be able to complete \"%s\".",
+		"impact_qa":              "%d of %d tests of the suite failed; this run's results cannot be used to approve the release.",
+		"impact_maint":           "Users are not affected: the automation needs an update to keep checking this flow.",
+		"ev_run":                 "Run \"%s\" (%s): %d passed, %d failed, %d skipped.",
+		"ev_error":               "Error: %s",
+		"ev_net":                 "Backend: %s %s → %s (%d ms).",
+		"ev_shot":                "Screenshot at the moment of failure: %s.",
+		"ev_flaky":               "History: the test is flaky, it failed %s of its recent runs.",
+		"cause_unknown":          "Cause to be confirmed with the report's evidence.",
+		"step_report":            "Review the full report: steps, screenshots and backend calls.",
+		"step_backend":           "Check the logs and availability of the %s service.",
+		"step_svc":               "The technical team checks the service that stopped answering.",
+		"step_locator":           "Update the test selector%s.",
+		"step_bug":               "Open a bug with this evidence for the development team.",
+		"step_rerun":             "Re-run the suite once the environment is stable.",
+		"owner_backend":          "Backend team",
+		"owner_qa":               "QA automation",
+		"owner_dev":              "Development team",
+		"owner_infra":            "Infrastructure / DevOps",
+		"what_incidents":         "%d tests failed for %d different problems. The largest one affects %d tests: %s.",
+		"what_incident1":         "The %d tests failed with the same evidence: %s.",
+		"what_distinct":          "%d tests failed, each one for a different problem. The first one: %s.",
+		"ev_incident":            "%s (%d tests).",
+		"ev_incident1":           "%s (1 test).",
+		"step_incident":          "Start with: %s.",
+		"ok_headline":            "All %d tests of the run \"%s\" passed in %s.",
+		"ok_headline_1":          "The only test of the run \"%s\" passed in %s.",
+		"ok_what":                "The run finished without failures: every tested flow worked as expected.",
+		"ok_what_warn":           "The run finished without failures, but %d tests ended with warnings worth reviewing.",
+		"ok_impact_biz":          "No impact for users: the tested flows of \"%s\" work.",
+		"ok_impact_qa":           "%d of %d tests passed (%d skipped): the results support approving the release in this environment.",
+		"ok_cause":               "There are no failures to analyze.",
+		"ok_step":                "No action needed: the release can move forward with this evidence.",
+		"ok_step_warn":           "Review the warnings before approving.",
+		"ok_step_skip":           "Confirm that the %d skipped tests were skipped on purpose.",
+		"owner_none":             "No owner: nothing pending",
+		"qa_obs_title":           "%s: passed with observations",
+		"qa_risk_title":          "%s: passed with risks",
+		"qa_headline":            "No test failed, but the QA review found signals worth a look (risks: %d · observations: %d).",
+		"qa_what":                "No test failed. Reviewing what they delivered (network, console, steps, retries and history) turned up signals that did not break the flows, but that QA should know before signing off the run.",
+		"qa_impact_obs":          "The flows worked and the observations do not block the release, but they are worth recording.",
+		"qa_impact_risk":         "There are no failures, but the risk signals can hide a real defect or an unreliable test: review them before approving the release.",
+		"run_pending":            "%s: run in progress",
+		"pend_headline":          "The run \"%s\" is still in progress: %d of %d tests finished and %d are still running.",
+		"pend_what":              "The run has not finished yet: the results are partial and do not show the final outcome.",
+		"pend_impact":            "No conclusion yet (%d passed, %d skipped, %d running): it cannot approve the release until it finishes.",
+		"pend_step":              "Wait for the run to finish and check the report again.",
+		"run_incomplete":         "%s: incomplete run",
+		"inc_headline":           "The run \"%s\" was closed in %s before all its tests finished.",
+		"inc_what":               "The run was interrupted (crashed worker, timeout or cancellation): it recorded no failures, but its result is not complete.",
+		"inc_impact":             "%d of %d tests passed and the rest did not finish: these results cannot approve the release.",
+		"inc_step":               "Check why it was interrupted and re-run the full suite.",
+		"run_skipped":            "%s: every test was skipped",
+		"skip_headline":          "No test of the run \"%s\" ran in %s: all %d were skipped.",
+		"skip_what":              "There were no failures because nothing was tested.",
+		"skip_impact":            "No evidence: this run cannot approve the release.",
+		"skip_step":              "Check why they were skipped (filters, markers or environment conditions) and re-run.",
+		"run_warn":               "%s: no failures, %d with warnings",
+		"warn_headline":          "%d of %d tests of the run \"%s\" passed in %s and %d ended with warnings.",
+		"warn_impact":            "%d of %d tests passed and %d ended with warnings: review them before approving the release.",
 	},
 }
 
@@ -279,7 +307,8 @@ func templateEscalation(e *Escalation) {
 		e.Title = fmt.Sprintf(t["run_ok"], clip(f.RunName, 50))
 		e.Headline = e.Title
 	}
-	if e.TestID == 0 && f.RunHeadline != "" {
+	// el titular del diagnóstico de la ejecución (de la IA), salvo que culpe al selector con la página cargando
+	if e.TestID == 0 && f.RunHeadline != "" && !(len(f.Loading) > 0 && blamesSelector(f.RunHeadline)) {
 		e.Headline = f.RunHeadline
 	}
 	if e.TestID == 0 && f.Failed == 0 && f.Total > 0 {
@@ -287,11 +316,27 @@ func templateEscalation(e *Escalation) {
 		return
 	}
 
+	// página en blanco: el elemento nunca pudo aparecer, así que "cambió la interfaz" sería falso, y
+	// "falló el entorno" se queda corto. Un backend que falló o un bug con evidencia propia mandan.
+	blank := f.ShotBlank && (cat == "LOCATOR_CHANGED" || cat == "INFRA_ERROR" || cat == "")
+	if blank {
+		cat = "INFRA_ERROR"
+	}
+	// la página seguía cargando al fallar (skeleton, spinner, red en curso) o el mismo selector encontró el
+	// elemento en el último PASS: no cambió la interfaz, el test no esperó. Gana sobre el diagnóstico guardado
+	// del test (que pudo hacerse antes de mirar estas señales) y sobre una causa sin categoría.
+	staleTriage := false
+	if !blank && len(f.Loading) > 0 && (cat == "LOCATOR_CHANGED" || cat == "TIMING" || cat == "") {
+		staleTriage = cat != "TIMING"
+		cat = "TIMING"
+	}
 	switch cat {
 	case "BACKEND_TIMEOUT":
 		e.WhatHappened, e.Severity, e.Owner = t["what_backend"], "high", t["owner_backend"]
 	case "LOCATOR_CHANGED":
 		e.WhatHappened, e.Severity, e.Owner = t["what_locator"], "low", t["owner_qa"]
+	case "TIMING":
+		e.WhatHappened, e.Severity, e.Owner = t["what_timing"], "low", t["owner_qa"]
 	case "LOGIC_BUG":
 		e.WhatHappened, e.Severity, e.Owner = t["what_logic"], "high", t["owner_dev"]
 	case "INFRA_ERROR":
@@ -299,10 +344,26 @@ func templateEscalation(e *Escalation) {
 	default:
 		e.WhatHappened, e.Severity, e.Owner = t["what_unknown"], "medium", t["owner_qa"]
 	}
-	if e.TestID == 0 && f.Total > 0 && f.Failed*2 >= f.Total && cat != "LOCATOR_CHANGED" {
+	if blank {
+		e.WhatHappened = t["what_blank"]
+	}
+	// la ejecución completa con un solo fallo: el resumen dice la causa ("1 incidente principal" no dice nada)
+	if e.TestID == 0 && f.Failed == 1 {
+		reason := t["reason_"+cat]
+		if blank {
+			reason = t["reason_INFRA_ERROR"]
+		}
+		if reason == "" {
+			reason = shownError(f.Error, 140)
+		}
+		if reason != "" {
+			e.Headline = fmt.Sprintf(t["headline_one"], f.Failed, f.Total, strings.TrimSuffix(reason, "."))
+		}
+	}
+	if e.TestID == 0 && f.Total > 0 && f.Failed*2 >= f.Total && cat != "LOCATOR_CHANGED" && cat != "TIMING" {
 		e.Severity = "critical"
 	}
-	if e.Audience == "dev" && f.AISummary != "" {
+	if e.Audience == "dev" && f.AISummary != "" && !blank && !staleTriage {
 		e.WhatHappened = f.AISummary
 	}
 	// ejecución completa sin causa clara: los incidentes agrupados dicen más que "no pudo completar su flujo"
@@ -327,7 +388,7 @@ func templateEscalation(e *Escalation) {
 		flow = f.RunName
 	}
 	switch {
-	case cat == "LOCATOR_CHANGED":
+	case cat == "LOCATOR_CHANGED" || cat == "TIMING":
 		e.Impact = t["impact_maint"]
 	case e.Audience == "business":
 		e.Impact = fmt.Sprintf(t["impact_biz"], flow)
@@ -337,7 +398,11 @@ func templateEscalation(e *Escalation) {
 
 	e.Evidence = []string{fmt.Sprintf(t["ev_run"], f.RunName, env, f.Passed, f.Failed, f.Skipped)}
 	if e.Audience != "business" && f.Error != "" {
-		e.Evidence = append(e.Evidence, fmt.Sprintf(t["ev_error"], firstLine(f.Error)))
+		e.Evidence = append(e.Evidence, fmt.Sprintf(t["ev_error"], shownError(f.Error, 300)))
+	}
+	if cat == "TIMING" && len(f.Loading) > 0 {
+		e.loadingEvidence = fmt.Sprintf(t["ev_loading"], strings.Join(f.Loading, "; "))
+		e.Evidence = append(e.Evidence, e.loadingEvidence)
 	}
 	if e.Audience != "business" {
 		for i, n := range f.Network {
@@ -347,7 +412,9 @@ func templateEscalation(e *Escalation) {
 			e.Evidence = append(e.Evidence, fmt.Sprintf(t["ev_net"], n.Method, n.Path, n.Outcome, n.DurationMs))
 		}
 	}
-	if f.Screenshot != "" && f.ShotCaption != "" {
+	if f.ShotBlank {
+		e.Evidence = append(e.Evidence, t["ev_shot_blank"])
+	} else if f.Screenshot != "" && f.ShotCaption != "" {
 		e.Evidence = append(e.Evidence, fmt.Sprintf(t["ev_shot"], f.ShotCaption))
 	}
 	if f.Flaky != "" {
@@ -367,9 +434,14 @@ func templateEscalation(e *Escalation) {
 	}
 
 	e.RootCause = t["cause_unknown"]
-	if f.AISummary != "" {
+	switch {
+	case blank: // el diagnóstico del test (selector roto) no vio que la página estaba en blanco
+		e.RootCause = t["cause_blank"]
+	case cat == "TIMING" && len(f.Loading) > 0 && (staleTriage || f.AISummary == ""):
+		e.RootCause = fmt.Sprintf(t["cause_timing"], strings.Join(f.Loading, "; "))
+	case f.AISummary != "":
 		e.RootCause = f.AISummary
-	} else if len(f.Incidents) > 0 && f.Incidents[0].Cause != "" {
+	case len(f.Incidents) > 0 && f.Incidents[0].Cause != "":
 		e.RootCause = f.Incidents[0].Cause
 	}
 
@@ -391,15 +463,21 @@ func templateEscalation(e *Escalation) {
 			hint = ": " + f.LocatorPick
 		}
 		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["step_locator"], hint))
+	case "TIMING":
+		e.NextSteps = append(e.NextSteps, t["step_timing"])
 	case "LOGIC_BUG":
 		e.NextSteps = append(e.NextSteps, t["step_bug"])
 	case "INFRA_ERROR":
-		e.NextSteps = append(e.NextSteps, t["step_rerun"])
+		if blank {
+			e.NextSteps = append(e.NextSteps, t["step_blank"])
+		} else {
+			e.NextSteps = append(e.NextSteps, t["step_rerun"])
+		}
 	}
 	if incidents {
 		e.NextSteps = append(e.NextSteps, fmt.Sprintf(t["step_incident"], clip(f.Incidents[0].Title, 140)))
 	}
-	if f.AISuggest != "" && e.Audience != "business" {
+	if f.AISuggest != "" && e.Audience != "business" && !blank && !staleTriage { // un consejo de "cambia el selector" ya no vale // con página en blanco sugeriría tocar un selector
 		e.NextSteps = append([]string{f.AISuggest}, e.NextSteps...)
 	}
 	e.NextSteps = append(e.NextSteps, t["step_report"])

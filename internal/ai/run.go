@@ -25,6 +25,7 @@ var categoryLabel = map[string]string{
 	"BACKEND_TIMEOUT": "Backend lento o caído",
 	"LOGIC_BUG":       "Bug de lógica",
 	"INFRA_ERROR":     "Error de infraestructura",
+	"TIMING":          "Espera insuficiente",
 }
 
 // AnalyzeRunAsync builds the diagnosis of a finished run in the background and then calls
@@ -158,14 +159,37 @@ func (a *Analyzer) analyzeRun(ctx context.Context, runID int64) (*db.RunTriage, 
 func (a *Analyzer) groupFailures(run *db.RunDetail) ([]db.Incident, error) {
 	byKey := map[string]*db.Incident{}
 	var order []string
+	// fallos en cascada (cascade.go): el primero del archivo y los siguientes que apuntan a él son
+	// un solo incidente, con la causa del primero
+	chains := cascades(run.Tests)
+	rootOf := map[int64]int64{}
+	for root, followers := range chains {
+		for _, f := range followers {
+			rootOf[f.ID] = root
+		}
+	}
+	cascadeOf := map[int64]db.Incident{} // id del primero -> incidente de su cascada
+	for _, root := range orderedRoots(run.Tests, chains) {
+		in, err := a.incidentFor(root)
+		if err != nil {
+			return nil, err
+		}
+		cascadeOf[root.ID] = cascadeIncident(in, root, chains[root.ID])
+	}
 	for i := range run.Tests {
 		t := &run.Tests[i]
 		if t.Status != "FAIL" {
 			continue
 		}
-		in, err := a.incidentFor(t)
-		if err != nil {
-			return nil, err
+		in, ok := cascadeOf[t.ID]
+		if root, follows := rootOf[t.ID]; follows {
+			in, ok = cascadeOf[root], true
+		}
+		if !ok {
+			var err error
+			if in, err = a.incidentFor(t); err != nil {
+				return nil, err
+			}
 		}
 		cur := byKey[in.Key]
 		if cur == nil {
@@ -173,8 +197,11 @@ func (a *Analyzer) groupFailures(run *db.RunDetail) ([]db.Incident, error) {
 			cur = &in
 			byKey[in.Key] = cur
 			order = append(order, in.Key)
-		} else if len(cur.TestIDs) < 3 { // evidencia de los primeros tests, no de todos
-			cur.Evidence = append(cur.Evidence, in.Evidence...)
+		} else if in.Kind != "cascade" {
+			cur.Location = mergeLocation(cur.Location, in.Location)
+			if len(cur.TestIDs) < 3 { // evidencia de los primeros tests, no de todos
+				cur.Evidence = append(cur.Evidence, in.Evidence...)
+			}
 		}
 		cur.TestIDs = append(cur.TestIDs, t.ID)
 		cur.TestNames = append(cur.TestNames, t.Name)
@@ -193,6 +220,8 @@ func defaultHeadline(run *db.RunDetail, incidents []db.Incident) string {
 		return fmt.Sprintf("Los %d tests terminaron sin fallos.", run.Total)
 	case run.Failed == 0:
 		return "La ejecución no tiene tests."
+	case len(incidents) == 1 && run.Failed > 1 && incidents[0].Kind == "cascade":
+		return fmt.Sprintf("%d tests fallaron en cascada desde el primero de su archivo: %s.", run.Failed, incidents[0].Title)
 	case len(incidents) == 1 && run.Failed > 1:
 		return fmt.Sprintf("%d tests fallaron con la misma evidencia: %s.", run.Failed, incidents[0].Title)
 	case len(incidents) == 1:
@@ -219,7 +248,9 @@ func (a *Analyzer) summarizeRun(ctx context.Context, run *db.RunDetail, incident
 	var b strings.Builder
 	fmt.Fprintf(&b, `You are the QA lead summarizing an automated test run for the team and for non-technical stakeholders.
 The failed tests were already grouped into incidents by shared evidence (the same failing backend call
-right before the failure, or the same error signature). The evidence lines are observed facts; what you
+right before the failure, the same error signature, or a cascade: the first failed test of a file and
+the later tests of that file whose failure points to it, e.g. missing data the first one should have created).
+In a cascade, explain the cause of the first test: the others are its consequence. The evidence lines are observed facts; what you
 write about causes is a hypothesis and must be phrased as probable, never as confirmed. Write:
 - "headline": one sentence with the conclusion (how many incidents, which is the main one).
 - "summary": 2-3 sentences in plain language: impact, whether failures look like product bugs,

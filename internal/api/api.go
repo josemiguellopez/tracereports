@@ -3,6 +3,7 @@ package api
 
 import (
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -16,6 +17,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -48,6 +50,8 @@ var (
 
 // Server bundles the dependencies of the HTTP handlers.
 type Server struct {
+	// sessions: the UI sessions read lately (session_cache.go)
+	sessions sessionCache
 	// Demo is set by `tracereports demo`: the UI explains how to turn the AI on there.
 	Demo           bool
 	Store          *db.Store
@@ -55,6 +59,8 @@ type Server struct {
 	Notify         *notify.Notifier
 	Live           *live.Hub // eventos en vivo (SSE); nil = desactivado
 	Auth           Auth
+	authFails      *authFailures // fallos de credenciales por IP (Basic, tokens y la página de ingreso)
+	authFailsOnce  sync.Once     // authFails se crea una vez aunque Router se llame desde varias goroutines
 	ScreenshotsDir string
 	// Vault encrypts the evidence at rest (TRACEREPORTS_ENCRYPT_AT_REST): the files of
 	// ScreenshotsDir and, through the Store, the DOM snapshots. nil = in clear, as before.
@@ -92,6 +98,13 @@ type Server struct {
 	probe probeCache
 	// chat limits Trace Buddy's free questions per hour (see buddy.go).
 	chat chatLimiter
+	// retention is the cleanup in progress and the next automatic one (see storage.go).
+	retention retentionState
+	compact   compactState // compactar la base aparte de borrar (compact.go)
+	// Live: thresholds (read once) and the usual duration of each test (see live_view.go).
+	liveOnce  sync.Once
+	liveCfgV  liveConfig
+	liveStats statsCache
 }
 
 // redactor returns the masking policy applied to every incoming text.
@@ -102,21 +115,36 @@ func (s *Server) redactor() *redact.Policy {
 	return s.Redact
 }
 
+// authFailures is the one counter of failed credentials for HTTP Basic, tokens and the sign-in page,
+// created on first use (a Server built in a test has none until then).
+func (s *Server) authFailures() *authFailures {
+	s.authFailsOnce.Do(func() {
+		if s.authFails == nil {
+			s.authFails = newAuthFailures()
+		}
+	})
+	return s.authFails
+}
+
 // Router builds the chi router.
 func (s *Server) Router() http.Handler {
 	r := chi.NewRouter()
 	// el filtro por IP va primero, con la dirección real de la conexión (RealIP la reescribe después)
-	r.Use(peerAddr, s.Net.middleware, middleware.RealIP, middleware.Recoverer,
+	// el primero: mide el pedido completo (filtros y credenciales incluidos)
+	r.Use(slowRequests, peerAddr, s.Net.middleware, middleware.RealIP, middleware.Recoverer,
 		securityHeaders(contentSecurityPolicy(s.Web)),
 		middleware.Compress(5, "application/json", "text/html", "text/css", "application/javascript"))
 	// freno a la fuerza bruta, CSRF de otros sitios y después las credenciales
-	r.Use(s.authThrottle(newAuthFailures()), sameSiteWrites, s.Auth.middleware, s.hostGuard)
+	r.Use(s.authThrottle(s.authFailures()), sameSiteWrites, s.sessionAuth, s.Auth.middleware, s.hostGuard)
 
 	r.Route("/api/v1", func(r chi.Router) {
-		r.Use(s.trackActivity, s.idempotent)
+		r.Use(gzipBodies, s.trackActivity, s.idempotent)
 		r.Get("/config", s.getConfig)
 		r.Get("/settings", s.getSettings)
 		r.Get("/auth/check", s.checkToken)
+		r.Get("/auth/session", s.getSession)
+		r.Post("/auth/login", s.postLogin)
+		r.Post("/auth/logout", s.postLogout)
 		r.Put("/settings", s.putSettings)
 		r.Post("/settings/ai/test", s.testAISettings)
 		r.Delete("/settings/ai", s.resetAISettings)
@@ -129,11 +157,18 @@ func (s *Server) Router() http.Handler {
 		r.Post("/ui/ai/probe", s.aiProbe)
 		r.Post("/ui/ai/chat", s.aiChat)
 		r.Post("/ui/tests/{test_id}/analyze", s.reanalyzeTest)
+		r.Put("/ui/tests/{test_id}/dom/fidelity", s.putDOMFidelity)
+		r.Get("/runs/{run_id}/dom/fidelity", s.runDOMFidelity)
+		r.Get("/runs/{run_id}/dom/size", s.runDOMSize)
 		r.Post("/ui/runs/{run_id}/analyze", s.reanalyzeRun)
 		r.Post("/ui/runs/{run_id}/close", s.closeRunByHand)
+		r.Post("/ui/live/cancel", s.cancelExecution)
 		r.Post("/ui/runs/close", s.closeRunsByHand)
 		r.Post("/ui/runs/delete", s.deleteRuns)
 		r.Put("/ui/maintenance/stale", s.setStaleHours)
+		r.Put("/ui/maintenance/retention", s.setRetention)
+		r.Post("/ui/maintenance/retention/run", s.runRetention)
+		r.Post("/ui/maintenance/compact", s.compactNowHandler)
 		r.Post("/ui/escalate", s.escalate)
 		r.Post("/ui/escalate/send", s.sendEscalation)
 		r.Post("/ui/tickets", s.createTicket)
@@ -155,8 +190,17 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/search", s.searchRuns)
 		r.Get("/runs/facets", s.runFacets)
 		r.Get("/maintenance", s.maintenance)
+		r.Get("/maintenance/storage", s.storage)
+		r.Get("/maintenance/connections", s.connections)
+		r.Get("/maintenance/stalls/{name}", s.stallDump)
+		r.Get("/maintenance/storage/preview", s.storagePreview)
 		r.Post("/runs", s.createRun)
 		r.Get("/runs/{run_id}", s.getRun)
+		r.Get("/runs/{run_id}/control", s.runControl)
+		r.Get("/live", s.getLive)
+		r.Get("/live/execution", s.getLiveExecution)
+		r.Get("/live/history", s.getLiveHistory)
+		r.Get("/live/endpoints", s.liveEndpoints)
 		r.Get("/runs/{run_id}/export", s.exportRun)
 		r.Get("/runs/{run_id}/tickets", s.listTickets)
 		r.Get("/runs/{run_id}/release", s.runRelease)
@@ -164,6 +208,7 @@ func (s *Server) Router() http.Handler {
 		r.Get("/runs/{run_id}/baselines", s.runBaselines)
 		r.Get("/runs/{run_id}/endpoints", s.runEndpoints)
 		r.Patch("/runs/{run_id}/finish", s.finishRun)
+		r.Post("/runs/{run_id}/plan", s.setPlanned)
 		r.Post("/runs/{run_id}/tests", s.createTest)
 		r.Post("/import/junit", s.importJUnit)
 		r.Post("/import/allure", s.importAllure)
@@ -176,6 +221,11 @@ func (s *Server) Router() http.Handler {
 		r.Patch("/tests/{test_id}/finish", s.finishTest)
 		r.Get("/tests/{test_id}/history", s.testHistory)
 		r.Get("/tests/{test_id}/locator", s.testLocator)
+		r.Get("/tests/{test_id}/dom", s.getDOM)
+		r.Get("/tests/{test_id}/dom/steps", s.domSteps)
+		r.Get("/tests/{test_id}/dom/steps/{seq}", s.domStep)
+		r.Get("/tests/{test_id}/dom/baseline", s.domBaseline)
+		r.Get("/dom/css/{hash}", s.getDOMCSS)
 		r.Post("/tests/{test_id}/dom", s.addDOM)
 		r.Get("/tests/{test_id}/drift", s.testDrift)
 		r.Get("/tests/{test_id}/network", s.listNetwork)
@@ -381,7 +431,8 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	commit, warnings := runCommit(in.Commit)
-	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: commit, Framework: clean(in.Framework, 60)}
+	meta := db.RunMeta{Project: clean(s.label(in.Project), 200), Branch: clean(s.label(in.Branch), 200), Commit: commit, Framework: clean(in.Framework, 60),
+		ExecutionID: clean(s.label(in.ExecutionID), 120), Planned: min(max(in.Planned, 0), maxPlanned)}
 	name, environment := strings.TrimSpace(s.label(in.Name)), strings.TrimSpace(s.label(in.Environment))
 	var id int64
 	err := s.commit(w, r, func(tx *db.Store) (int, any, error) {
@@ -404,7 +455,11 @@ func (s *Server) createRun(w http.ResponseWriter, r *http.Request) {
 		serverError(w, err)
 		return
 	}
-	s.publish("run", id, 0, map[string]string{"action": "created"})
+	s.inheritCancel(id, meta.ExecutionID) // su ejecución ya se canceló desde En vivo: nace cancelada
+	// lo que la UI necesita para avisarlo sin pedir la lista (que, con muchas corridas en paralelo,
+	// puede no traerla todavía): su nombre y su ejecución
+	s.publish("run", id, 0, map[string]string{"action": "created", "name": name, "execution_id": meta.ExecutionID,
+		"environment": environment, "branch": meta.Branch})
 }
 
 // runCommit validates the commit of a run: it must be a Git commit id (4 to 64 hex characters,
@@ -443,6 +498,8 @@ func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Interrupted bool `json:"interrupted"` // el cliente no llegó a terminar todos sus tests
+		// cómo llegó su evidencia, según el cliente (opcional): creado tarde, reintentos, perdidos
+		Delivery *db.RunDelivery `json:"delivery"`
 	}
 	if !decode(w, r, &in) {
 		return
@@ -450,6 +507,12 @@ func (s *Server) finishRun(w http.ResponseWriter, r *http.Request) {
 	run, first, err := s.Store.CloseRun(id, in.Interrupted)
 	if respondErr(w, err, "run") {
 		return
+	}
+	if d := cleanDelivery(in.Delivery); d != nil {
+		if err := s.Store.SetRunDelivery(id, *d); err != nil {
+			serverError(w, err)
+			return
+		}
 	}
 	if ts := eventTime(r); ts > 0 && first { // un cierre repetido conserva la hora del primero
 		if err := s.Store.SetRunEnded(id, ts); err != nil {
@@ -868,9 +931,36 @@ func respondErr(w http.ResponseWriter, err error, what string) bool {
 	return true
 }
 
+// serverError answers a failed request without leaking its cause to the browser, but with a
+// reference that is also in the server log (find it with: docker compose logs | grep <ref>) and,
+// when the cause is one a person can act on (a full disk, a busy database), its kind and status.
 func serverError(w http.ResponseWriter, err error) {
-	slog.Error("request failed", "err", err)
-	writeError(w, http.StatusInternalServerError, "internal error")
+	ref := errorRef()
+	kind := db.ErrKind(err)
+	slog.Error("request failed", "ref", ref, "kind", kind, "err", err)
+	code, msg := http.StatusInternalServerError, "internal error"
+	switch kind {
+	case db.ErrKindDiskFull:
+		// sigue siendo 500: los clientes reintentan un 5xx (y lo guardan para reenviar), un 507 lo darían por perdido
+		msg = "the server's data disk is full: free space or lower the retention"
+	case db.ErrKindBusy:
+		code, msg = http.StatusServiceUnavailable, "the database is busy: try again in a moment"
+	case db.ErrKindReadOnly:
+		msg = "the server cannot write its data folder (permissions or a read-only disk)"
+	case db.ErrKindCorrupt:
+		msg = "the database file is damaged: restore a backup (see the docs: backup)"
+	}
+	if code == http.StatusServiceUnavailable {
+		w.Header().Set("Retry-After", "5")
+	}
+	writeJSON(w, code, map[string]string{"error": msg + " (ref " + ref + ")", "ref": ref, "kind": kind})
+}
+
+// errorRef is a short id to find a failed request in the log.
+func errorRef() string {
+	var b [4]byte
+	_, _ = rand.Read(b[:])
+	return hex.EncodeToString(b[:])
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

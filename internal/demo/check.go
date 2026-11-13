@@ -182,7 +182,7 @@ func Verify(ctx context.Context, base string, sc Scenario, runID int64) []Check 
 		add("passed after retry (flaky)", flaky, "attempts of the tests: %s", attempts(watched))
 	}
 	if e.Command != "" && len(watched) > 0 {
-		cmds := repro.Commands(run.Framework, watched[0].Key, run.Commit)
+		cmds := repro.Commands(run.Framework, watched[0].Key)
 		got := ""
 		for _, c := range cmds {
 			got += c.Cmd + " | "

@@ -58,10 +58,15 @@ func TestStoredHostileCommitNeverReachesTheCommands(t *testing.T) {
 	b, _ := json.Marshal(map[string]any{"run_id": runID, "test_id": testID, "audience": "dev", "lang": "es"})
 	var e ai.Escalation
 	json.Unmarshal(call(t, srv, "POST", "/api/v1/ui/escalate", string(b)).Body.Bytes(), &e)
-	if len(e.Facts.Dev) != 1 || len(e.Facts.Dev[0].Repro) != 1 {
+	if len(e.Facts.Dev) != 1 || len(e.Facts.Dev[0].Repro) != 2 {
 		t.Fatalf("dev detail: %+v", e.Facts.Dev)
 	}
-	if cmd := e.Facts.Dev[0].Repro[0].Cmd; strings.Contains(cmd, "MARK") || cmd != "pytest 'tests/test_login.py::test_admin'" {
-		t.Fatalf("stored commit used in the command: %s", cmd)
+	for _, c := range e.Facts.Dev[0].Repro {
+		if strings.Contains(c.Cmd, "MARK") || strings.Contains(c.Cmd, "git") {
+			t.Fatalf("stored commit used in the command: %s", c.Cmd)
+		}
+	}
+	if cmd := e.Facts.Dev[0].Repro[0].Cmd; cmd != "pytest 'tests/test_login.py::test_admin'" {
+		t.Fatalf("this test first: %s", cmd)
 	}
 }
