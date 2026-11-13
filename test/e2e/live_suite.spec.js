@@ -9,6 +9,12 @@ test.describe.configure({ mode: "parallel" });
 const { liveSuite, liveSuiteEndpoints, liveSuiteTest } = require("./fixtures/live_suite.js");
 
 let served = 0;
+/** La vista se refresca (cada 10 s): se adelanta el reloj en vez de esperar, y llega un pedido nuevo. */
+async function refreshed(page, before) {
+	await page.clock.fastForward(10_500);
+	await expect.poll(() => served).toBeGreaterThan(before);
+}
+
 test.beforeEach(async ({ page }, info) => {
 	info.errors_ = [];
 	page.on("pageerror", (e) => info.errors_.push(`pageerror: ${e.message}`));
@@ -23,6 +29,8 @@ test.beforeEach(async ({ page }, info) => {
 	await page.route(/\/api\/v1\/tests\/\d+\/history/, (r) => r.fulfill({ json: [] }));
 	await page.route(/\/api\/v1\/tests\/\d+\/network$/, (r) => r.fulfill({ json: liveSuiteTest(1).network }));
 	await page.route(/\/api\/v1\/tests\/\d+$/, (r) => r.fulfill({ json: liveSuiteTest(Number(r.request().url().split("/").pop())).test }));
+	// reloj de Playwright (corre solo, como el real): un test que espera el refresco de 10 s lo adelanta (refreshed)
+	await page.clock.install();
 	await page.goto("/#view=live&exec=x%3Asuite-demo");
 	await expect(page.locator("#view-live .live-tiles")).toBeVisible();
 	await expect(page.locator("#view-live")).not.toHaveClass(/live-enter/, { timeout: 5000 }); // terminó la entrada animada
@@ -90,7 +98,7 @@ test("los tiles filtran; agrupar por estado; un grupo se cierra y sigue cerrado 
 	await expect(fails).toHaveAttribute("aria-expanded", "false");
 	await expect(view.locator("tr.lt-row")).toHaveCount(3);
 	const n = served;
-	await expect.poll(() => served, { timeout: 15_000 }).toBeGreaterThan(n); // la vista se refrescó
+	await refreshed(page, n); // la vista se refrescó
 	await expect(view.locator('[data-live-group="FAIL"]')).toHaveAttribute("aria-expanded", "false");
 });
 
@@ -101,7 +109,7 @@ test("buscar no pierde el foco ni lo escrito cuando la vista se refresca", async
 	await q.pressSequentially("checkout");
 	await expect(view.locator("tr.lt-row").first()).toBeVisible();
 	const n = served;
-	await expect.poll(() => served, { timeout: 15_000 }).toBeGreaterThan(n);
+	await refreshed(page, n);
 	await page.keyboard.type("_card");
 	await expect(view.locator("[data-live-q]")).toHaveValue("checkout_card");
 	await expect(view.locator("[data-live-q]")).toBeFocused();
@@ -221,7 +229,7 @@ test("pausar congela la vista (no pide datos) y reanudar la pone al día", async
 	await view.locator(".live-title [data-live-pause]").click();
 	await expect(view.locator(".live-paused")).toContainText("En pausa");
 	const n = served;
-	await page.waitForTimeout(11_000); // más que el refresco de 10 s
+	await page.clock.fastForward(11_000); // más que el refresco de 10 s
 	expect(served).toBe(n);
 	await view.locator(".live-title [data-live-pause]").click();
 	await expect(view.locator(".live-paused")).toHaveCount(0);
@@ -273,7 +281,7 @@ test("gráficos: resultados en el tiempo, tasa de fallo acumulada y duraciones, 
 	await expect(table).toBeVisible();
 	await expect(table.locator("tbody tr")).toHaveCount(7);
 	const n = served;
-	await expect.poll(() => served, { timeout: 15_000 }).toBeGreaterThan(n);
+	await refreshed(page, n);
 	await expect(view.locator(".live-chart").nth(2).locator(".lch-table")).toBeVisible();
 });
 
@@ -319,7 +327,7 @@ test("selector de ejecución: hora y antigüedad; con muchas, buscador agrupado 
 });
 
 test.describe("animaciones", () => {
-	test("al abrir se anima la entrada; un número que cambia late y cuenta", async ({ page }) => {
+	test("al abrir se anima la entrada; un número que cambia late y cuenta", { tag: "@motion" }, async ({ page }) => {
 		const view = page.locator("#view-live");
 		await page.goto("/#view=tests");
 		await page.goto("/#view=live&exec=x%3Asuite-demo");
@@ -419,7 +427,7 @@ test("nombres largos: elipsis en el medio, copiar el nombre, columna más ancha 
 	await page.evaluate(() => localStorage.removeItem("tr-live-prefs"));
 });
 
-test("mapa de la ejecución y cinta de eventos: un cuadro por test que abre su detalle; la cinta avanza y se detiene", async ({ page }) => {
+test("mapa de la ejecución y cinta de eventos: un cuadro por test que abre su detalle; la cinta avanza y se detiene", { tag: "@motion" }, async ({ page }) => {
 	const view = page.locator("#view-live");
 	await view.locator('[data-live-fieldview="grid"]').click(); // el campo es la vista por defecto
 	await expect(view.locator(".hm-c[data-live-test]")).toHaveCount(234);
@@ -699,7 +707,7 @@ test("sin parpadeo: al refrescarse, la vista no se rehace (los elementos que no 
 	// marcas en elementos que no cambian entre un refresco y otro: si la vista se rehiciera, se perderían
 	await view.evaluate((v) => { for (const el of v.querySelectorAll(".live-tile, .seg, .lf-lane, tr.lt-row")) el.__keep = 1; });
 	const n0 = served;
-	await expect.poll(() => served, { timeout: 15_000 }).toBeGreaterThan(n0); // la vista se refrescó con datos nuevos
+	await refreshed(page, n0); // la vista se refrescó con datos nuevos
 	await page.waitForTimeout(400);
 	const kept = await view.evaluate((v) => [...v.querySelectorAll(".live-tile, .seg, .lf-lane, tr.lt-row")].map((el) => !!el.__keep));
 	expect(kept.length).toBeGreaterThan(10);
@@ -733,7 +741,9 @@ test("Requiere atención: 'ver más' abre la lista con su propio scroll; 'ver me
 test("buscar no congela: la vista se redibuja una vez al dejar de escribir, no con cada letra", async ({ page }) => {
 	const view = page.locator("#view-live");
 	await view.locator(".seg-o[data-live-all]").click();
-	const before = await view.locator("tr.lt-row").count();
+	// la tabla con «Todos» ya dibujada: dos lecturas iguales seguidas (contar justo después del clic veía la anterior)
+	let before = -1;
+	await expect.poll(async () => { const c = await view.locator("tr.lt-row").count(); const same = c === before; before = c; return same; }).toBe(true);
 	// dos letras seguidas en el mismo instante: todavía no se filtra (antes, cada letra rehacía la tabla entera)
 	const same = await page.evaluate(() => {
 		const q = document.querySelector("#view-live [data-live-q]");
@@ -781,7 +791,7 @@ test("En vivo: el título dice la ejecución, Trace Buddy se achica para no tapa
 	await expect(page.locator("body")).not.toHaveClass(/view-live/);
 });
 
-test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no responde al mouse, al clic ni al teclado", async ({ page }) => {
+test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no responde al mouse, al clic ni al teclado", { tag: "@motion" }, async ({ page }) => {
 	const view = page.locator("#view-live");
 	await expect(view.locator(".live-map.is-field .lf-canvas")).toBeVisible();
 	await page.evaluate(() => document.querySelector("#view-live .live-map").scrollIntoView({ block: "center" }));
