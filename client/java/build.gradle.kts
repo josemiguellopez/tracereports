@@ -20,14 +20,14 @@ dependencies {
     // los tests planificados de En vivo (PlannedTestsListener): lo trae el launcher de JUnit del proyecto
     compileOnly("org.junit.platform:junit-platform-launcher:6.1.3")
     compileOnly("org.seleniumhq.selenium:selenium-api:4.52.0")
-    compileOnly("com.microsoft.playwright:playwright:1.64.0")
+    compileOnly("com.microsoft.playwright:playwright:1.65.0")
 
     testImplementation(platform("org.junit:junit-bom:6.1.3"))
     testImplementation("org.junit.jupiter:junit-jupiter")
     testImplementation("org.junit.jupiter:junit-jupiter-params")
     testImplementation("org.junit.platform:junit-platform-testkit")
     // la captura de Playwright se prueba con un Response simulado (sin navegador)
-    testImplementation("com.microsoft.playwright:playwright:1.64.0")
+    testImplementation("com.microsoft.playwright:playwright:1.65.0")
     // el enmascarado de Selenium se prueba con un driver simulado y sus scripts en un navegador real
     testImplementation("org.seleniumhq.selenium:selenium-api:4.52.0")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
