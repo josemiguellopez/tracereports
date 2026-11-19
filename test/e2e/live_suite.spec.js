@@ -286,10 +286,15 @@ test("gráficos: resultados en el tiempo, tasa de fallo acumulada y duraciones, 
 });
 
 test("selector de ejecución: hora y antigüedad; con muchas, buscador agrupado y teclado", async ({ page }) => {
-	// 30 ejecuciones: la grande en curso y otras de hoy y anteriores
-	const now = Date.now();
+	// 30 ejecuciones: la grande en curso y otras de hoy y anteriores. La hora se fija a mediodía: con la
+	// hora real, pasada la medianoche (la CI a las 00:17 UTC) todas las anteriores caían en el día de ayer
+	// y no había grupo «De hoy»
+	const noon = new Date();
+	noon.setHours(12, 0, 0, 0);
+	const now = noon.getTime();
+	await page.clock.setSystemTime(now);
 	await page.route("**/api/v1/live", (r) => {
-		const base = liveSuite(Date.now()).list;
+		const base = liveSuite(now).list;
 		const old = Array.from({ length: 29 }, (_, i) => ({ ...base.executions[1], key: `x:old-${i}`, title: `acme_${i % 2 ? "web" : "admin"} · build ${100 + i}`,
 			started_at: now - (i + 2) * 3600e3, ended_at: now - (i + 1) * 3600e3, running: false }));
 		return r.fulfill({ json: { ...base, executions: [base.executions[0], ...old] } });
@@ -792,6 +797,13 @@ test("En vivo: el título dice la ejecución, Trace Buddy se achica para no tapa
 });
 
 test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no responde al mouse, al clic ni al teclado", { tag: "@motion" }, async ({ page }) => {
+	// la misma ejecución en cada pedido (un solo `now`): las posiciones que calcula el test son las que dibujó
+	// la página. Antes, cada pedido traía otro `now`, los tests en curso se alargaban y la escala de tiempo
+	// cambiaba: el test apuntaba a donde el punto ya no estaba y fallaba seguido en la CI
+	const fixed = liveSuite(Date.now());
+	await page.route("**/api/v1/live", (r) => r.fulfill({ json: fixed.list }));
+	await page.route("**/api/v1/live/execution?**", (r) => { served++; return r.fulfill({ json: fixed.execution }); });
+	await page.reload();
 	const view = page.locator("#view-live");
 	await expect(view.locator(".live-map.is-field .lf-canvas")).toBeVisible();
 	await page.evaluate(() => document.querySelector("#view-live .live-map").scrollIntoView({ block: "center" }));
@@ -813,15 +825,17 @@ test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no
 	// el campo gira hasta que el mouse lo detiene: según el ángulo de ese instante puede no haber un punto
 	// solo; se busca de nuevo hasta encontrarlo (antes, una sola vez: fallaba al azar en la CI)
 	let fail, pass;
-	await expect.poll(async () => {
-		fail = await where("FAIL"); pass = await where("PASS");
+	const findLone = (b, onlySame = false) => expect.poll(async () => {
+		fail = await where("FAIL", onlySame); pass = await where("PASS");
 		if (fail && pass) return true;
 		// quieto en un ángulo sin un punto solo: se lo deja girar un momento y se lo vuelve a detener
-		await page.mouse.move(box.x - 40, box.y - 40);
+		await page.mouse.move(b.x - 40, b.y - 40);
 		await page.waitForTimeout(400);
-		await page.mouse.move(box.x + 6, box.y + 6);
+		await page.mouse.move(b.x + 6, b.y + 6);
+		await page.waitForTimeout(100);
 		return false;
-	}, { timeout: 20_000 }).toBe(true);
+	}, { timeout: 10_000 }).toBe(true);
+	await findLone(box);
 	const tip = view.locator(".lf-tip");
 	await page.mouse.move(fail.x, fail.y);
 	await expect(tip).toHaveClass(/lf-card st-fail/);
@@ -843,7 +857,7 @@ test("mapa: la tarjeta lleva el color de su estado; con un filtro, lo apagado no
 	const box2 = await view.locator(".lf-canvas").boundingBox();
 	await page.mouse.move(box2.x + 6, box2.y + 6); // de vuelta en el mapa: deja de girar y se recalcula dónde quedó cada uno
 	await page.waitForTimeout(300);
-	fail = await where("FAIL", true); pass = await where("PASS");
+	await findLone(box2, true); // antes una sola vez: sin un punto solo en ese ángulo, fallaba
 	await page.mouse.move(pass.x, pass.y);
 	await expect(tip).toBeHidden();
 	await page.mouse.click(pass.x, pass.y);
