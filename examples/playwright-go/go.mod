@@ -4,7 +4,7 @@ go 1.22
 
 require (
 	github.com/josemiguellopez/tracereports/client/go v0.0.0
-	github.com/mxschmitt/playwright-go v0.6201.1
+	github.com/mxschmitt/playwright-go v0.6401.0
 )
 
 require (
