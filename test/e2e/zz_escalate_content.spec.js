@@ -2,6 +2,7 @@
 // run con «…espontanea.py: ["): la evidencia muestra la parte útil, QA ve dónde falló y la ficha de la
 // ejecución completa con un solo fallo nombra el test. Va al final (zz_): crea una ejecución.
 const { test, expect } = require("@playwright/test");
+const { settled } = require("./fixtures/settled.js");
 
 test.describe.configure({ mode: "serial" });
 
@@ -17,6 +18,7 @@ test.beforeAll(async ({ request }) => {
 	await request.post(`/api/v1/tests/${failed}/logs`, { data: { status: "FAIL", message: WRAPPED } });
 	await request.patch(`/api/v1/tests/${failed}/finish`, { data: { status: "FAIL", error_message: WRAPPED } });
 	await request.patch(`/api/v1/runs/${run}/finish`, { data: {} });
+	await settled(request, run); // si el análisis termina después de generar, la tarjeta se descarta
 });
 
 test.beforeEach(async ({ page }, info) => {

@@ -3,6 +3,7 @@
 // decimales y, al dibujar el PNG a otra escala, la última letra saltaba de línea («BAJ»). Va al final
 // (zz_): crea una ejecución nueva.
 const { test, expect } = require("@playwright/test");
+const { settled } = require("./fixtures/settled.js");
 
 test.describe.configure({ mode: "serial" });
 test.use({ deviceScaleFactor: 1.25, acceptDownloads: true, viewport: { width: 1280, height: 1000 } });
@@ -14,6 +15,7 @@ test.beforeAll(async ({ request }) => {
 	testId = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "test_agregar_registro_desde_la_lista" } })).json()).test_id;
 	await request.patch(`/api/v1/tests/${testId}/finish`, { data: { status: "FAIL", error_message: "TimeoutError: esperando elemento //div[@class='fila']" } });
 	await request.patch(`/api/v1/runs/${run}/finish`, { data: {} });
+	await settled(request, run); // si el análisis termina después de generar, la tarjeta se descarta
 });
 
 /**
