@@ -4,6 +4,7 @@
 // como aviso y no como un recuadro blanco que parece una imagen que no cargó (un caso real).
 const zlib = require("node:zlib");
 const { test, expect } = require("@playwright/test");
+const { settled } = require("./fixtures/settled.js");
 
 test.describe.configure({ mode: "serial" });
 
@@ -53,6 +54,7 @@ test.beforeAll(async ({ request }) => {
 	blankTest = await add("test_crear_pedido_pagina_en_blanco", true);
 	pageTest = await add("test_crear_pedido_con_pagina", false);
 	await request.patch(`/api/v1/runs/${run}/finish`, { data: {} });
+	await settled(request, run); // si el análisis termina después de generar, la tarjeta se descarta
 });
 
 test.beforeEach(async ({ page }, info) => {
@@ -80,6 +82,8 @@ async function generate(page, testId, { audience = "business", lang = "es" } = {
 		await view.locator("[data-esc-gen]").click();
 		await expect(card).toBeVisible({ timeout: 3000 });
 	}).toPass({ timeout: 20_000 });
+	// la tarjeta ya generada en este idioma (la del idioma anterior sigue a la vista mientras llega la nueva)
+	await expect(card).toHaveAttribute("lang", lang);
 	return card;
 }
 

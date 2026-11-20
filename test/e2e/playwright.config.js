@@ -10,8 +10,10 @@ const PORT = process.env.E2E_PORT || "8199";
 // borran las de corridas anteriores aquí y no al terminar, porque en Windows la base sigue
 // abierta hasta que Playwright cierra el servidor (después del teardown).
 if (!process.env.E2E_DATA_DIR) {
+	// solo las de hace más de 2 h: con run.js corren varias tandas a la vez, cada una con la suya
 	for (const d of fs.readdirSync(os.tmpdir()).filter((d) => d.startsWith("tracereports-e2e-"))) {
-		try { fs.rmSync(path.join(os.tmpdir(), d), { recursive: true, force: true }); } catch { /* en uso */ }
+		const full = path.join(os.tmpdir(), d);
+		try { if (Date.now() - fs.statSync(full).mtimeMs > 2 * 3600_000) fs.rmSync(full, { recursive: true, force: true }); } catch { /* en uso */ }
 	}
 	process.env.E2E_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "tracereports-e2e-"));
 }
@@ -73,12 +75,14 @@ if (!process.env.E2E_FAKE_LAB) {
 
 module.exports = defineConfig({
 	testDir: ".",
+	// cada tanda de run.js la suya: Playwright vacía esta carpeta al empezar y se borraban los archivos de la otra
+	outputDir: process.env.E2E_OUTPUT_DIR || "test-results",
 	timeout: 30_000,
 	expect: { timeout: 10_000 },
 	fullyParallel: false,
-	workers: 1,
+	workers: Number(process.env.E2E_WORKERS || 1), // run.js da más a la tanda de los archivos en paralelo
 	forbidOnly: !!process.env.CI,
-	retries: 0,
+	retries: Number(process.env.E2E_RETRIES || 0), // run.js: 1 (un test que pasa al segundo intento sale como «flaky»)
 	reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
 	globalSetup: require.resolve("./seed.js"),
 	use: {
@@ -90,8 +94,15 @@ module.exports = defineConfig({
 		trace: "retain-on-failure",
 		screenshot: "only-on-failure",
 	},
+	// sin animaciones (la app respeta prefers-reduced-motion): menos CPU y GPU y tests más rápidos. Los tests que
+	// prueban una animación llevan { tag: "@motion" } y corren aparte, con movimiento
+	projects: [
+		{ name: "default", grepInvert: /@motion/, use: { reducedMotion: "reduce" } },
+		{ name: "motion", grep: /@motion/, use: { reducedMotion: "no-preference" } },
+	],
 	webServer: {
-		command: "go run ./cmd",
+		// run.js compila el servidor una vez (E2E_SERVER_BIN) para todas las tandas; solo, go run
+		command: process.env.E2E_SERVER_BIN ? `"${process.env.E2E_SERVER_BIN}"` : "go run ./cmd",
 		cwd: path.join(__dirname, "..", ".."),
 		url: `${process.env.E2E_BASE_URL}/api/v1/runs`,
 		timeout: 180_000,

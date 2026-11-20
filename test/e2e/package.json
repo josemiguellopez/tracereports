@@ -3,7 +3,9 @@
   "private": true,
   "description": "Smoke tests of the web UI against a real server (Playwright).",
   "scripts": {
-    "test": "playwright test"
+    "test": "playwright test",
+    "test:fast": "node run.js",
+    "test:light": "node -e \"process.env.E2E_SHARDS='1';process.env.E2E_PAR_WORKERS='1';require('./run.js')\""
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1"

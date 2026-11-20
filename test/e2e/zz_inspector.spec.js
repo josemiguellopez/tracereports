@@ -613,7 +613,7 @@ test("modo HTML: la página real con su CSS, aislada, con XPath sobre el HTML y 
 
 // Modo HTML con la animación: los cursores arman la reconstrucción como en el modo normal y al terminar
 // se funde a la página real (el iframe visible y las cajas transparentes, como siempre en ese modo).
-test("modo HTML: los cursores arman la página y termina en la página real", async ({ page: p, request }, info) => {
+test("modo HTML: los cursores arman la página y termina en la página real", { tag: "@motion" }, async ({ page: p, request }, info) => {
 	const crypto = require("node:crypto");
 	const css = ".top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}body{margin:0;background:rgb(246, 244, 239)}";
 	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector modo HTML animado", environment: "qa" } })).json()).run_id;
@@ -646,7 +646,7 @@ test("modo HTML: los cursores arman la página y termina en la página real", as
 
 // La fidelidad del modo HTML se mide cuando la página real ya tiene sus hojas: con la descarga de las
 // hojas lenta (2 s, como 450 KB por la red interna) la cifra sale igual de alta, no la de una página vacía.
-test("modo HTML: la fidelidad espera las hojas de estilo aunque tarden", async ({ page: p, request, browser }, info) => {
+test("modo HTML: la fidelidad espera las hojas de estilo aunque tarden", { tag: "@motion" }, async ({ page: p, request, browser }, info) => {
 	const crypto = require("node:crypto");
 	const css = "body{margin:0;background:rgb(60, 70, 90);font:14px Arial}.top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}" +
 		".modal{position:absolute;left:250px;top:180px;width:500px;height:234px;background:#fff}";
@@ -680,7 +680,7 @@ test("modo HTML: la fidelidad espera las hojas de estilo aunque tarden", async (
 // Un test que terminó en WARNING no tiene página del fallo: sus páginas llegan como pasos, el último con
 // kind "warning". La fidelidad se mide sobre ese último warning con su captura (antes no había cifra para
 // 20 de los 22 tests con problemas de una suite real).
-test("un test WARNING mide la fidelidad sobre la página de su último warning", async ({ page: p, request, browser }) => {
+test("un test WARNING mide la fidelidad sobre la página de su último warning", { tag: "@motion" }, async ({ page: p, request, browser }) => {
 	const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
 	await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">
 		<div style="position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69)"></div>
@@ -713,7 +713,7 @@ test("un test WARNING mide la fidelidad sobre la página de su último warning",
 
 // Modo HTML: el servidor no guarda los estilos de los nodos (los da la página real). El visor los calcula
 // del HTML con su CSS, y la reconstrucción (y la animación) se dibujan con los colores de la página.
-test("modo HTML: la reconstrucción toma los estilos de la página real, que no se guardan dos veces", async ({ page: p, request }, info) => {
+test("modo HTML: la reconstrucción toma los estilos de la página real, que no se guardan dos veces", { tag: "@motion" }, async ({ page: p, request }, info) => {
 	const crypto = require("node:crypto");
 	const css = "body{margin:0;background:rgb(246, 244, 239)}.top{position:absolute;left:0;top:0;width:1000px;height:60px;background:rgb(31, 95, 69);color:#fff}";
 	const h = crypto.createHash("sha256").update(css).digest("hex");
@@ -741,7 +741,7 @@ test("modo HTML: la reconstrucción toma los estilos de la página real, que no 
 
 // Los pasos siguientes también se animan, pero solo con lo que cambió desde el anterior: un paso igual
 // pasa rápido y en la página del fallo los cursores dibujan solo el botón que apareció.
-test("los cursores arman en cada paso solo lo que cambió desde el anterior", async ({ page: p, request }) => {
+test("los cursores arman en cada paso solo lo que cambió desde el anterior", { tag: "@motion" }, async ({ page: p, request }) => {
 	const run = (await (await request.post("/api/v1/runs", { data: { name: "Inspector pasos animados", environment: "qa" } })).json()).run_id;
 	const id = (await (await request.post(`/api/v1/runs/${run}/tests`, { data: { name: "tres paginas" } })).json()).test_id;
 	const base = page("Zapatilla Trail", { pay: false });
@@ -772,7 +772,7 @@ test("los cursores arman en cada paso solo lo que cambió desde el anterior", as
 
 // Un WARNING se compara con SU captura, no con la última del test: en un caso real, la página del warning era
 // un modal y la última captura (38 s después) la agenda sin el modal, y la fidelidad daba 20 %.
-test("un WARNING usa la captura de su warning para superponer y medir, no la última del test", async ({ page: p, request, browser }) => {
+test("un WARNING usa la captura de su warning para superponer y medir, no la última del test", { tag: "@motion" }, async ({ page: p, request, browser }) => {
 	const shot = async (html) => {
 		const real = await browser.newPage({ viewport: { width: 1000, height: 600 } });
 		await real.setContent(`<body style="margin:0;background:rgb(246, 244, 239);font:14px Arial">${html}</body>`);
