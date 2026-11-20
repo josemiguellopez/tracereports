@@ -4,6 +4,9 @@
 // y Worker, el último paso en una línea (XPath corto, stack trace a pedido), Expandir/Colapsar todo y
 // el Gantt legible (gw3, texto solo si cabe, clic → su fila). No crea datos.
 const { test, expect } = require("@playwright/test");
+
+// todo simulado con page.route (no escribe en el servidor): sus tests corren en paralelo (run.js)
+test.describe.configure({ mode: "parallel" });
 const { liveWorkers, liveSuiteEndpoints, liveSuiteTest } = require("./fixtures/live_suite.js");
 
 let mutate = null;
@@ -32,6 +35,7 @@ test.afterEach(async ({}, info) => {
 });
 
 const open = async (page, extra = "") => {
+	await page.clock.install(); // corre solo; un test que espera el refresco de 10 s lo adelanta
 	await page.goto(`/#view=live&exec=x%3Asuite-laptop${extra}`);
 	await expect(page.locator("#view-live .live-tiles")).toBeVisible();
 	await expect(page.locator("#view-live")).not.toHaveClass(/live-enter/, { timeout: 5000 });
@@ -77,7 +81,8 @@ test("el enlace con &f=fail abre filtrado (solo el fallo, arriba y abierto); los
 	await expect(page).not.toHaveURL(/[#&]f=/);
 	// un chip en 0 se ve, pero no se puede elegir
 	mutate = (e) => { e.counts = { ...e.counts, turtle: 0 }; };
-	await expect(view.locator('.live-tile[data-live-state="turtle"]')).toBeDisabled({ timeout: 15_000 });
+	await page.clock.fastForward(10_500); // el refresco trae el cambio
+	await expect(view.locator('.live-tile[data-live-state="turtle"]')).toBeDisabled();
 	await expect(view.locator('.live-tile[data-live-state="turtle"]')).toBeVisible();
 });
 
@@ -171,7 +176,7 @@ test("Gantt legible: gw3 con el archivo actual, nombre solo si cabe, tooltip com
 	await expect(view.locator(".lg-bar.fail")).toHaveClass(/sel/);
 });
 
-test("si un test cambia de estado y de lugar, la fila se desliza (no salta)", async ({ page }) => {
+test("si un test cambia de estado y de lugar, la fila se desliza (no salta)", { tag: "@motion" }, async ({ page }) => {
 	await page.addInitScript(() => {
 		const animate = Element.prototype.animate;
 		window.__flips = 0;
@@ -188,7 +193,8 @@ test("si un test cambia de estado y de lugar, la fila se desliza (no salta)", as
 		Object.assign(t, { state: "FAIL", status: "FAIL" });
 		e.counts = { ...e.counts, FAIL: (e.counts.FAIL || 0) + 1, running: e.counts.running - 1 };
 	};
-	await expect(view.locator(".la-row")).toHaveCount(4, { timeout: 15_000 });
+	await page.clock.fastForward(10_500); // el refresco trae el cambio
+	await expect(view.locator(".la-row")).toHaveCount(4);
 	await expect.poll(() => page.evaluate(() => window.__flips)).toBeGreaterThan(0);
 	await expect(view.locator(".la-list li.la-new")).toHaveCount(1);
 });
@@ -242,7 +248,7 @@ test("una clave que no existe vuelve a la ejecución más nueva, sin error", asy
 	const info = test.info();
 	info.errors_ = info.errors_.filter((e) => !/status of 404/.test(e));
 });
-test("mapa Agentes: el reactor señala lo importante; el nombre de un worker filtra la tabla; con «Fallo» lo que pasó no responde; zoom para apuntar al que falló, girarlo y pantalla completa", async ({ page }) => {
+test("mapa Agentes: el reactor señala lo importante; el nombre de un worker filtra la tabla; con «Fallo» lo que pasó no responde; zoom para apuntar al que falló, girarlo y pantalla completa", { tag: "@motion" }, async ({ page }) => {
 	await open(page);
 	const view = page.locator("#view-live");
 	await view.locator('[data-live-fieldview="agents"]').click();

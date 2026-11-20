@@ -63,6 +63,20 @@ You only need the toolchain of the part you are changing.
 | UI logic | Node.js 22+ | — | `node --test "test/web/*.test.js"` |
 | UI smoke (end to end) | Go 1.26+, Node.js 22+ | — | `cd test/e2e && npm ci && npx playwright install chromium && npx playwright test` |
 
+The UI smoke suite has three ways to run (in `test/e2e`):
+
+| Command | How | Load on the machine |
+| --- | --- | --- |
+| `npx playwright test` | One browser, one server, in order (what CI runs) | Low |
+| `npm run test:light` | Builds the server once; one shard in order plus the fully mocked Live files | Medium |
+| `npm run test:fast` | Two shards in order plus the Live files in two browsers, each shard with its own server and data | Higher, fastest |
+
+`run.js` (behind `test:fast` and `test:light`) spreads the files by how long each took last time
+(`e2e-timings.json`), keeps `zz_` files last within a shard and retries a failed test once, listing it as
+unstable. The suite runs with reduced motion; tests that check an animation carry `{ tag: "@motion" }` and run
+in the `motion` project. A test that waits for the Live view's 10 s refresh moves Playwright's clock forward
+(`page.clock`) instead of waiting.
+
 To see your changes with real data, start the server and run one of the
 [examples](examples) against it.
 
