@@ -207,7 +207,9 @@ test.describe("la obra: un equipo de agentes construye la página (como Swarm)",
 		// el agente grid abre la paleta y los rectángulos quedan pintados con sus colores (el boceto)
 		await expect(page.locator(".palette .sw")).toHaveCount(8);
 		// el agente grid bosqueja la traza de gw0…gw5 (las barras con el color de su estado) antes de la animación
-		await expect(page.locator(".lane-label").first()).toHaveText("gw0", { timeout: 6000 });
+		// grid (gw0-gw1) y qa (gw2-gw3) bosquejan a la vez: cualquiera puede poner su etiqueta primero, así que
+		// se busca la de gw0 donde esté (antes, la primera del DOM: a veces era gw2 y fallaba al azar)
+		await expect(page.locator(".lane-label", { hasText: /^gw0$/ })).toBeAttached({ timeout: 6000 });
 		await expect.poll(() => page.locator(".lane-bar .lbl").evaluateAll((ls) => ls.some((l) => l.textContent.startsWith("test_"))), { timeout: 8000 }).toBe(true); // el nombre del test, escrito
 		await expect.poll(() => page.locator(".lane-bar").count(), { timeout: 8000 }).toBeGreaterThan(6);
 		await expect(page.locator(".palette")).toContainText("lime");
