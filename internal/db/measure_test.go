@@ -149,7 +149,9 @@ func TestMeasuringDoesNotRescan(t *testing.T) {
 }
 
 // No bloquea: mientras mide 2 000 páginas de 400 KB, una escritura de la ingesta (un paso) responde en
-// menos de 200 ms (p99).
+// menos de 400 ms (p99). En una máquina normal son unos ms; en los runners compartidos de la CI, un
+// fsync lento llegó a 200 ms justos y fallaba con el límite anterior (200 ms). Retener la escritura
+// durante la medición se vería en segundos, no en cientos de ms.
 func TestMeasuringDoesNotHoldTheWriter(t *testing.T) {
 	if testing.Short() {
 		t.Skip("slow: 800 MB of pages")
@@ -182,7 +184,7 @@ func TestMeasuringDoesNotHoldTheWriter(t *testing.T) {
 			sort.Slice(slat, func(i, j int) bool { return slat[i] < slat[j] })
 			sp99 := slat[len(slat)*99/100]
 			t.Logf("%d writes during the measuring, p99 %s; session p99 %s", len(lat), p99, sp99)
-			if p99 > slowdown*200*time.Millisecond {
+			if p99 > slowdown*400*time.Millisecond {
 				t.Fatalf("an ingestion write waited %s (p99)", p99)
 			}
 			if sp99 > slowdown*50*time.Millisecond {
