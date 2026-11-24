@@ -177,15 +177,19 @@ fails**. Save it as a check and **Verify** the incident once the backend is fixe
       <h3>🧠 Run diagnosis</h3>
       Groups failures that share evidence (the same failed backend call, the same error signature)
       into incidents, with the likely cause and what to check first.
-      <br /><br />
-      <img src="./.github/assets/diagnosis.png" alt="Run diagnosis grouping failures into backend incidents" />
     </td>
     <td width="50%" valign="top">
       <h3>⏱️ Timeline</h3>
       Steps, screenshots and network calls on one timeline. See exactly what the test was waiting
       for when the backend answered 500.
-      <br /><br />
-      <img src="./.github/assets/timeline.png" alt="Timeline mixing steps, screenshots and network calls" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/diagnosis.png" width="100%" alt="Run diagnosis grouping failures into backend incidents" />
+    </td>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/timeline.png" width="100%" alt="Timeline mixing steps, screenshots and network calls" />
     </td>
   </tr>
   <tr>
@@ -193,15 +197,19 @@ fails**. Save it as a check and **Verify** the incident once the backend is fixe
       <h3>🌐 The network the browser saw</h3>
       Status, timings, headers and bodies, with <i>Copy as cURL</i> and a Playwright, Cypress or
       WireMock stub generated from the failed call. Passwords and cookies arrive already masked.
-      <br /><br />
-      <img src="./.github/assets/network.png" alt="Network tab showing a failed POST with masked password and cookie" />
     </td>
     <td width="50%" valign="top">
       <h3>▶️ Replay</h3>
       Plays the test back step by step with its screenshots, like a video. Play, pause, 1x/2x and
       keyboard shortcuts.
-      <br /><br />
-      <img src="./.github/assets/replay.png" alt="Step-by-step replay of a failed login test" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/network.png" width="100%" alt="Network tab showing a failed POST with masked password and cookie" />
+    </td>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/replay.png" width="100%" alt="Step-by-step replay of a failed login test" />
     </td>
   </tr>
 </table>

@@ -302,11 +302,15 @@ test("gráficos: resultados en el tiempo, tasa de fallo acumulada y duraciones, 
 test("selector de ejecución: hora y antigüedad; con muchas, buscador agrupado y teclado", async ({ page }) => {
 	// 30 ejecuciones: la grande en curso y otras de hoy y anteriores. La hora se fija a mediodía: con la
 	// hora real, pasada la medianoche (la CI a las 00:17 UTC) todas las anteriores caían en el día de ayer
-	// y no había grupo «De hoy»
+	// y no había grupo «De hoy». La página, con la misma hora fija
 	const noon = new Date();
 	noon.setHours(12, 0, 0, 0);
 	const now = noon.getTime();
-	await page.clock.setSystemTime(now);
+	await page.clock.setFixedTime(now);
+	// la ejecución y el historial también traen su «ahora» y la vista lo usa: con la hora real del proceso, la
+	// primera anterior quedaba en el futuro (o a menos de 1 h) y salía «Recientes» (la CI a las 00:24 UTC)
+	await page.route("**/api/v1/live/history?**", (r) => r.fulfill({ json: { now, total: 0, next: 0, executions: [] } }));
+	await page.route("**/api/v1/live/execution?**", (r) => { served++; return r.fulfill({ json: liveSuite(now).execution }); });
 	await page.route("**/api/v1/live", (r) => {
 		const base = liveSuite(now).list;
 		const old = Array.from({ length: 29 }, (_, i) => ({ ...base.executions[1], key: `x:old-${i}`, title: `acme_${i % 2 ? "web" : "admin"} · build ${100 + i}`,

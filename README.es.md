@@ -179,15 +179,19 @@ Guárdala como check y **Verifica** el incidente cuando el backend esté arregla
       <h3>🧠 Diagnóstico de la ejecución</h3>
       Agrupa en incidentes los fallos que comparten evidencia (la misma llamada de backend fallida,
       la misma firma de error), con la causa probable y qué revisar primero.
-      <br /><br />
-      <img src="./.github/assets/diagnosis.es.png" alt="Diagnóstico que agrupa los fallos en incidentes de backend" />
     </td>
     <td width="50%" valign="top">
       <h3>⏱️ Timeline</h3>
       Pasos, capturas y llamadas de red en una sola línea de tiempo. Ves exactamente qué esperaba el
       test cuando el backend respondió 500.
-      <br /><br />
-      <img src="./.github/assets/timeline.es.png" alt="Timeline con pasos, capturas y llamadas de red" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/diagnosis.es.png" width="100%" alt="Diagnóstico que agrupa los fallos en incidentes de backend" />
+    </td>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/timeline.es.png" width="100%" alt="Timeline con pasos, capturas y llamadas de red" />
     </td>
   </tr>
   <tr>
@@ -196,15 +200,19 @@ Guárdala como check y **Verifica** el incidente cuando el backend esté arregla
       Status, tiempos, headers y bodies, con <i>Copiar como cURL</i> y un stub para Playwright,
       Cypress o WireMock generado desde la llamada fallida. Contraseñas y cookies llegan ya
       enmascaradas.
-      <br /><br />
-      <img src="./.github/assets/network.es.png" alt="Pestaña Red con un POST fallido y la contraseña y la cookie enmascaradas" />
     </td>
     <td width="50%" valign="top">
       <h3>▶️ Replay</h3>
       Reproduce el test paso a paso con sus capturas, como un video. Play, pausa, 1x/2x y atajos de
       teclado.
-      <br /><br />
-      <img src="./.github/assets/replay.es.png" alt="Replay paso a paso de un test de login fallido" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/network.es.png" width="100%" alt="Pestaña Red con un POST fallido y la contraseña y la cookie enmascaradas" />
+    </td>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/replay.es.png" width="100%" alt="Replay paso a paso de un test de login fallido" />
     </td>
   </tr>
 </table>
