@@ -54,9 +54,9 @@ Not using pytest? TraceReports works the same with **Playwright Test**, **Seleni
 language over the **REST API**: [pick your language](#2-run-an-example-in-your-language).
 
 <p align="center">
-  <img src="./.github/assets/tour.gif" alt="Tour of a TraceReports run: run diagnosis, AI failure triage, timeline, network, broken locators, search and escalation" width="100%" />
+  <img src="./.github/assets/live-agents.gif" alt="Live view, Agents map: a 270-test suite running on 12 workers drawn as a reactor; the agents sketch it, failures arrive in red with notes for the latest failure, the slowest test and the one with no signal, and hovering a failure shows its card" width="100%" />
   <br />
-  <sub>A real run of the <a href="examples/orangehrm">OrangeHRM example suite</a> with simulated backend failures, in the Pixel theme.</sub>
+  <sub><b>Live, Agents view:</b> a 270-test suite on 12 workers while it runs. Each worker is a segment of the reactor and each test a cell; the notes point at the latest failure, the slowest test and the one that stopped sending data. Simulated data.</sub>
 </p>
 
 ## Meet Trace Buddy: your senior QA buddy, powered by AI
@@ -125,57 +125,37 @@ The AI cause is always shown as a hypothesis, next to the evidence it relies on.
 
 ## What's inside
 
-<table>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>🧠 Run diagnosis</h3>
-      Groups failures that share evidence (the same failed backend call, the same error signature)
-      into incidents, with the likely cause and what to check first.
-      <br /><br />
-      <img src="./.github/assets/diagnosis.png" alt="Run diagnosis grouping failures into backend incidents" />
-    </td>
-    <td width="50%" valign="top">
-      <h3>⏱️ Timeline</h3>
-      Steps, screenshots and network calls on one timeline. See exactly what the test was waiting
-      for when the backend answered 500.
-      <br /><br />
-      <img src="./.github/assets/timeline.png" alt="Timeline mixing steps, screenshots and network calls" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>🌐 The network the browser saw</h3>
-      Status, timings, headers and bodies, with <i>Copy as cURL</i> and a Playwright, Cypress or
-      WireMock stub generated from the failed call. Passwords and cookies arrive already masked.
-      <br /><br />
-      <img src="./.github/assets/network.png" alt="Network tab showing a failed POST with masked password and cookie" />
-    </td>
-    <td width="50%" valign="top">
-      <h3>🎯 Broken locators</h3>
-      When a selector stops matching, it reads the DOM at the moment of failure and suggests
-      robust replacements, ready to copy and highlighted on the screenshot.
-      <br /><br />
-      <img src="./.github/assets/locators.png" alt="Broken selector with suggested get_by_role replacements" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>📣 Escalate in one click</h3>
-      A summary for Business, QA or Development with the screenshot, the failed calls and the
-      diagnosis. Copy it formatted for Teams or Slack, as Markdown, email or image, or send it to the
-      channel. When everything passed, it says whether it passed clean, with observations or with risks.
-      <br /><br />
-      <img src="./.github/assets/escalate.png" alt="Escalation summary for developers with severity and screenshot" />
-    </td>
-    <td width="50%" valign="top">
-      <h3>▶️ Replay</h3>
-      Plays the test back step by step with its screenshots, like a video. Play, pause, 1x/2x and
-      keyboard shortcuts.
-      <br /><br />
-      <img src="./.github/assets/replay.png" alt="Step-by-step replay of a failed login test" />
-    </td>
-  </tr>
-</table>
+### 📡 Live: watch the suite while it runs
+
+Progress, failures and slow tests as they happen, without waiting for the run to end. *Needs attention* puts first
+the test with no signal, the failures and the turtles; one click opens a test's trace (steps and backend calls, the
+504 marked) and the timeline shows each worker's lane. Big suites stay readable: facets, grouping, search and a
+phone layout.
+
+<p align="center">
+  <img src="./.github/assets/live-board.gif" alt="Live view: progress and counters going up, Needs attention with the failures first, a failed test's trace with its 504 calls, and the timeline with one lane per worker" width="100%" />
+</p>
+
+### 🔍 Inspector: the page at the moment of failure
+
+The page the test saw, rebuilt from the evidence: inspect elements, try XPath or CSS and right-click any element
+for robust locators and code ready for Selenium or Playwright, without reproducing the failure again. When a
+selector broke, it marks it and suggests the element that replaced it.
+
+<p align="center">
+  <img src="./.github/assets/inspector.gif" alt="Inspector rebuilding the demo shop page at double speed, marking the selector that failed, suggesting data-testid add-to-cart and showing robust XPath, CSS and Selenium and Playwright code on right click" width="100%" />
+</p>
+
+### 📣 Escalate in one click
+
+A numbered report for Business, QA or Development: severity, executive summary, screenshot, what happened, impact,
+likely cause, evidence, next steps and, for Development, the stack trace, the command to run it locally and the
+failed call as cURL with its response. Copy it for Teams or Slack, as Markdown, email, image, PNG or PDF. When
+everything passed, it says whether it passed clean, with observations or with risks.
+
+<p align="center">
+  <img src="./.github/assets/escalate.gif" alt="Escalate view: picking the failed test and the Development audience, generating the report without AI and scrolling through it down to the cURL and the DB_POOL_EXHAUSTED response, then copying it as an image" width="100%" />
+</p>
 
 ### 🧪 FixLab: does it still fail?
 
@@ -185,13 +165,67 @@ fails**. Save it as a check and **Verify** the incident once the backend is fixe
 `.http`; run it from your terminal or CI with `tracereports repro` / `verify`, or let Claude Code do it with
 `tracereports mcp`. See the [FixLab guide](docs/en/fixlab.md).
 
+<p align="center">
+  <img src="./.github/assets/fixlab.gif" alt="FixLab: from the failed POST /api/orders 500 to the Lab, typing the password, Send says Reproduced with the same 500; after the backend is fixed, Send again says No longer fails: 500 in the run, 201 now" width="100%" />
+</p>
+
+### And the report of every run
+
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🧠 Run diagnosis</h3>
+      Groups failures that share evidence (the same failed backend call, the same error signature)
+      into incidents, with the likely cause and what to check first.
+    </td>
+    <td width="50%" valign="top">
+      <h3>⏱️ Timeline</h3>
+      Steps, screenshots and network calls on one timeline. See exactly what the test was waiting
+      for when the backend answered 500.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/diagnosis.png" width="100%" alt="Run diagnosis grouping failures into backend incidents" />
+    </td>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/timeline.png" width="100%" alt="Timeline mixing steps, screenshots and network calls" />
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <h3>🌐 The network the browser saw</h3>
+      Status, timings, headers and bodies, with <i>Copy as cURL</i> and a Playwright, Cypress or
+      WireMock stub generated from the failed call. Passwords and cookies arrive already masked.
+    </td>
+    <td width="50%" valign="top">
+      <h3>▶️ Replay</h3>
+      Plays the test back step by step with its screenshots, like a video. Play, pause, 1x/2x and
+      keyboard shortcuts.
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/network.png" width="100%" alt="Network tab showing a failed POST with masked password and cookie" />
+    </td>
+    <td width="50%" valign="top">
+      <img src="./.github/assets/replay.png" width="100%" alt="Step-by-step replay of a failed login test" />
+    </td>
+  </tr>
+</table>
+
+<p align="center">
+  <img src="./.github/assets/tour.gif" alt="Tour of a run of the demo: the failed test with its AI triage, the run diagnosis with its incidents, the timeline, the failed call in the network tab and a search by endpoint across every run" width="100%" />
+  <br />
+  <sub>A tour of the run you get with <code>tracereports demo</code>: triage, run diagnosis, timeline, network and search by endpoint.</sub>
+</p>
+
 And also:
 
 - **Flaky vs. broken.** History per test that tells a flaky test from a persistent failure.
 - **Latency regressions.** Flags tests whose network got slower (p95) than in previous runs.
 - **Run comparison.** This run next to the previous one (or one you search by date or #id), a
   plain-language summary and, per test, before → now. If they share no tests, it says so.
-- **Live.** Steps show up while the tests are still running.
 - **Metrics.** Pass rate, the tests that waste the most time, flaky tests and failure causes over
   time, plus a weekly summary in Teams or Slack.
 - **Share offline.** Export a run as a ZIP that opens without a server or internet.
@@ -243,6 +277,13 @@ Pixel.
 
 <p align="center">
   <img src="./.github/assets/themes.gif" alt="The same report in the six themes: Pixel, Trace, Trace Dark, Midnight, Paper and Terminal" width="100%" />
+</p>
+
+Even the sign-in page has its show: seven agents build it in front of you (rulers, guides, a test trace sketched
+lane by lane and the form), and Trace Buddy promises not to look at your password. You can skip it or turn it off.
+
+<p align="center">
+  <img src="./.github/assets/login-build.gif" alt="The sign-in page being built by seven agents: palette, guides, worker lanes with test bars, measurements and the form, then Trace Buddy says it took 9.8 s" width="100%" />
 </p>
 
 ## How it works
