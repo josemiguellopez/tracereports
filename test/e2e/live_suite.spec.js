@@ -255,6 +255,20 @@ test("la traza del test: pasos y llamadas en una línea de tiempo, el 504 y el f
 	await expect(panel).toContainText("Todavía sin capturas.");
 });
 
+test("en inglés: la pestaña Trace, 1 signature y 1 static resource en singular (antes «Traza», «1 signatures», «1 static resources»)", async ({ page }) => {
+	await page.evaluate(() => localStorage.setItem("tracereports-lang", "en"));
+	await page.reload();
+	const view = page.locator("#view-live");
+	await expect(view.locator(".live-tiles")).toBeVisible();
+	await expect(view.locator(".live-map")).toContainText("1 signature");
+	await expect(view.locator(".live-map")).not.toContainText("1 signatures");
+	await view.locator("tr.lt-row.fail").first().locator("td.lt-step").click();
+	const panel = view.locator(".live-panel");
+	await expect(panel.locator('[data-live-ptab="trace"]')).toHaveText("Trace");
+	await expect(panel.locator("[data-live-trace-all]")).toHaveText("include 1 static resource");
+	await page.evaluate(() => localStorage.removeItem("tracereports-lang"));
+});
+
 test("gráficos: resultados en el tiempo, tasa de fallo acumulada y duraciones, con tooltip y tabla de datos", async ({ page }) => {
 	const view = page.locator("#view-live");
 	const charts = view.locator(".live-chart");

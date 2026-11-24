@@ -55,9 +55,9 @@ temporales y no salen de tu PC. **[Inicio rápido: la demo en 5 minutos](docs/es
 cualquier lenguaje vía **API REST**: [elige tu lenguaje](#2-corre-un-ejemplo-en-tu-lenguaje).
 
 <p align="center">
-  <img src="./.github/assets/tour.gif" alt="Recorrido por una ejecución de TraceReports: diagnóstico, triage con IA, timeline, red, locators rotos, búsqueda y escalamiento" width="100%" />
+  <img src="./.github/assets/live-agents-es.gif" alt="Vista En vivo, mapa Agentes: una suite de 270 tests corriendo en 12 workers dibujada como un reactor; los agentes la bosquejan, los fallos llegan en rojo con notas para el último fallo, el test más lento y el que está sin señal, y al pasar el mouse sobre un fallo aparece su tarjeta" width="100%" />
   <br />
-  <sub>Una ejecución real de la <a href="examples/orangehrm">suite de ejemplo de OrangeHRM</a> con fallos de backend simulados, en el tema Pixel.</sub>
+  <sub><b>En vivo, vista Agentes:</b> una suite de 270 tests en 12 workers mientras corre. Cada worker es un segmento del reactor y cada test una celda; las notas apuntan al último fallo, al test más lento y al que dejó de enviar datos. Datos simulados.</sub>
 </p>
 
 ## Conoce a Trace Buddy: tu QA senior con IA, siempre contigo
@@ -127,6 +127,52 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
 
 ## Qué incluye
 
+### 📡 En vivo: mira la suite mientras corre
+
+El avance, los fallos y los tests lentos en el momento, sin esperar a que termine la ejecución. *Requiere atención*
+pone primero el test sin señal, los fallos y las tortugas; un clic abre la traza de un test (pasos y llamadas al
+backend, con el 504 marcado) y la línea de tiempo muestra el carril de cada worker. Las suites grandes se siguen
+leyendo bien: facetas, agrupación, búsqueda y una vista para el celular.
+
+<p align="center">
+  <img src="./.github/assets/live-board-es.gif" alt="Vista En vivo: el avance y los contadores subiendo, Requiere atención con los fallos primero, la traza de un test fallido con sus llamadas 504 y la línea de tiempo con un carril por worker" width="100%" />
+</p>
+
+### 🔍 Inspector: la página del momento del fallo
+
+La página que vio el test, reconstruida desde la evidencia: inspecciona elementos, prueba XPath o CSS y con clic
+derecho sobre cualquier elemento obtienes locators robustos y código listo para Selenium o Playwright, sin volver a
+reproducir el fallo. Si un selector se rompió, lo marca y sugiere el elemento que lo reemplazó.
+
+<p align="center">
+  <img src="./.github/assets/inspector-es.gif" alt="El Inspector reconstruye la página de la tienda de demo a doble velocidad, marca el selector que falló, sugiere data-testid add-to-cart y con clic derecho muestra XPath robusto, CSS y código para Selenium y Playwright" width="100%" />
+</p>
+
+### 📣 Escala en un clic
+
+Un reporte numerado para Negocio, QA o Desarrollo: severidad, resumen ejecutivo, captura, qué pasó, impacto, causa
+probable, evidencia, siguientes pasos y, para Desarrollo, el stack trace, el comando para correrlo en local y la
+llamada que falló como cURL con su respuesta. Cópialo para Teams o Slack, como Markdown, correo, imagen, PNG o PDF.
+Si todo pasó, dice si pasó limpio, con observaciones o con riesgos.
+
+<p align="center">
+  <img src="./.github/assets/escalate-es.gif" alt="Vista Escalar: se elige el test que falló y la audiencia Desarrollo, se genera el reporte sin IA y se recorre hasta el cURL y la respuesta DB_POOL_EXHAUSTED, y se copia como imagen" width="100%" />
+</p>
+
+### 🧪 FixLab: ¿sigue fallando?
+
+**Abrir en Lab** en una llamada fallida o en un incidente de backend reenvía la petición real con una sesión nueva
+(repite el login grabado; tú solo escribes la contraseña) y te dice si el fallo **se reproduce** o **ya no falla**.
+Guárdala como check y **Verifica** el incidente cuando el backend esté arreglado; expórtala a Postman, Bruno o
+`.http`; ejecútala desde tu terminal o CI con `tracereports repro` / `verify`, o deja que Claude Code lo haga con
+`tracereports mcp`. Ver la [guía de FixLab](docs/es/fixlab.md).
+
+<p align="center">
+  <img src="./.github/assets/fixlab-es.gif" alt="FixLab: desde el POST /api/orders 500 que falló al Lab, se escribe la contraseña y Enviar dice Se reproduce con el mismo 500; con el backend arreglado, Enviar de nuevo dice Ya no falla: 500 en la ejecución, 201 ahora" width="100%" />
+</p>
+
+### Y el reporte de cada ejecución
+
 <table>
   <tr>
     <td width="50%" valign="top">
@@ -154,23 +200,6 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
       <img src="./.github/assets/network.es.png" alt="Pestaña Red con un POST fallido y la contraseña y la cookie enmascaradas" />
     </td>
     <td width="50%" valign="top">
-      <h3>🎯 Locators rotos</h3>
-      Cuando un selector deja de funcionar, lee el DOM del momento del fallo y propone reemplazos
-      robustos, listos para copiar y marcados sobre la captura.
-      <br /><br />
-      <img src="./.github/assets/locators.es.png" alt="Selector roto con reemplazos sugeridos con get_by_role" />
-    </td>
-  </tr>
-  <tr>
-    <td width="50%" valign="top">
-      <h3>📣 Escala en un clic</h3>
-      Un resumen para Negocio, QA o Desarrollo con la captura, las llamadas fallidas y el
-      diagnóstico. Cópialo con formato para Teams o Slack, como Markdown, correo o imagen, o envíalo
-      al canal. Si todo pasó, dice si pasó limpio, con observaciones o con riesgos.
-      <br /><br />
-      <img src="./.github/assets/escalate.es.png" alt="Resumen de escalamiento para desarrollo con severidad y captura" />
-    </td>
-    <td width="50%" valign="top">
       <h3>▶️ Replay</h3>
       Reproduce el test paso a paso con sus capturas, como un video. Play, pausa, 1x/2x y atajos de
       teclado.
@@ -180,13 +209,11 @@ La causa que sugiere la IA siempre se presenta como hipótesis, junto a la evide
   </tr>
 </table>
 
-### 🧪 FixLab: ¿sigue fallando?
-
-**Abrir en Lab** en una llamada fallida o en un incidente de backend reenvía la petición real con una sesión nueva
-(repite el login grabado; tú solo escribes la contraseña) y te dice si el fallo **se reproduce** o **ya no falla**.
-Guárdala como check y **Verifica** el incidente cuando el backend esté arreglado; expórtala a Postman, Bruno o
-`.http`; ejecútala desde tu terminal o CI con `tracereports repro` / `verify`, o deja que Claude Code lo haga con
-`tracereports mcp`. Ver la [guía de FixLab](docs/es/fixlab.md).
+<p align="center">
+  <img src="./.github/assets/tour-es.gif" alt="Recorrido por una ejecución de la demo: el test que falló con su clasificación de IA, el diagnóstico de la ejecución con sus incidentes, la línea de tiempo, la llamada fallida en la pestaña Red y una búsqueda por endpoint en todas las ejecuciones" width="100%" />
+  <br />
+  <sub>Un recorrido por la ejecución que trae <code>tracereports demo</code>: clasificación, diagnóstico de la ejecución, línea de tiempo, red y búsqueda por endpoint.</sub>
+</p>
 
 Y además:
 
@@ -194,7 +221,6 @@ Y además:
 - **Regresiones de latencia.** Marca los tests cuya red se volvió más lenta (p95) que en ejecuciones anteriores.
 - **Comparación de ejecuciones.** Esta ejecución junto a la anterior (o la que busques por fecha o #id), un
   resumen en palabras y, por test, antes → ahora. Si no comparten tests, lo dice.
-- **En vivo.** Los pasos aparecen mientras los tests siguen corriendo.
 - **Métricas.** Tasa de éxito, los tests que más tiempo hacen perder, los flaky y las causas de
   fallo en el tiempo, más un resumen semanal en Teams o Slack.
 - **Comparte sin servidor.** Exporta una ejecución como ZIP que se abre sin servidor ni internet.
@@ -250,6 +276,14 @@ supuesto, Pixel.
 
 <p align="center">
   <img src="./.github/assets/themes.gif" alt="El mismo reporte en los seis temas: Pixel, Trace, Trace Dark, Midnight, Paper y Terminal" width="100%" />
+</p>
+
+Hasta la pantalla de ingreso tiene su espectáculo: siete agentes la construyen frente a ti (reglas, guías, una traza
+de tests bosquejada carril por carril y el formulario), y Trace Buddy promete no mirar tu clave. Se puede saltar o
+desactivar.
+
+<p align="center">
+  <img src="./.github/assets/login-build-es.gif" alt="La pantalla de ingreso construida por siete agentes: paleta, guías, carriles de workers con barras de tests, medidas y el formulario; al final Trace Buddy dice que tardaron 9,7 s" width="100%" />
 </p>
 
 ## Cómo funciona

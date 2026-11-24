@@ -80,11 +80,21 @@ test("render: lo del cliente entra escapado; lo que pide acción con ícono y te
 test("todo t(\"…\") de live.js tiene traducción", () => {
 	const src = read("live.js");
 	const used = [...src.matchAll(/\bt\("((?:[^"\\]|\\.)+)"/g)].map((m) => m[1]);
+	// las pestañas del panel pasan su texto a tabBtn(…, "…"), que lo traduce adentro («Traza» quedaba sin inglés)
+	used.push(...[...src.matchAll(/\btabBtn\("[^"]+", "((?:[^"\\]|\\.)+)"/g)].map((m) => m[1]));
 	used.push(...Object.values(L.STATES).map((s) => s.label).filter((s) => !["Pass", "Skip", "Warning"].includes(s)));
 	// iguales en inglés
 	const same = new Set(["Error / test", "{n}/min", "TESTS", "WORKERS", "warning", "{n} tests", "Test", "vs p50", "ETA {t}", "{n} workers", "zoom {a}–{b}", "Worker / test", "Worker", "{n} tests/min", "Endpoint", "{n} endpoints", "Error", "{n} tests", "Total", "p50 {a} · p95 {b}", "Tests", "{a} → {b}", "stack trace"]);
 	assert.ok(used.length > 25);
 	assert.deepEqual([...new Set(used)].filter((s) => !same.has(s) && en.t(s) === s), []);
+});
+
+test("una firma de error y un recurso estático se dicen en singular, en los dos idiomas", () => {
+	const html = L.render({ list: [exec], exec, now: 600000, ui: {} }, h);
+	assert.ok(html.includes("1 firma") && !html.includes("1 firmas"), "antes decía «1 firmas»");
+	assert.equal(en.t("1 firma"), "1 signature");
+	assert.equal(en.t("incluir 1 recurso estático"), "include 1 static resource");
+	assert.equal(en.t("Traza"), "Trace");
 });
 
 test("una corrida recién abierta, sin tests (null o []), no rompe la vista", () => {
@@ -311,7 +321,7 @@ test("traza del test: pasos y llamadas en una línea de tiempo, el fallo marcado
 	assert.equal(L.traceLayout({ start: 1000, end: 11000, logs, network, all: true }).rows.length, 5);
 	const html = L.render({ list: [exec], exec, now: 600000, ui: {}, panel: { id: 21, test: { id: 21, logs }, net: network } }, h);
 	assert.ok(html.includes('class="ltr req fail"') && html.includes("lt-trace-fail") && !html.includes("token=x"));
-	assert.ok(html.includes("incluir 1 recursos estáticos"));
+	assert.ok(html.includes("incluir 1 recurso estático") && !html.includes("1 recursos"), "en singular");
 });
 
 test("gráficos: resultados por tramo, tasa de fallo acumulada e histograma de duraciones (con p50/p95)", () => {
