@@ -990,7 +990,7 @@
 		const lanes = [
 			lane("pass", "01", t("TESTS"), `<span data-count="f-done" data-n="${done}">${done}</span>`, `${t("{n} terminados", { n: done })}${per("test")}`, "data-live-all",
 				t("Tests terminados de la ejecución. Clic: ver todos.")),
-			lane("fail", "02", t("FALLOS"), `<span data-count="f-fail" data-n="${fails}">${fails}</span>`, `${t("{n} firmas", { n: errs.length })}${per("fail")}`, `data-live-state="FAIL"`,
+			lane("fail", "02", t("FALLOS"), `<span data-count="f-fail" data-n="${fails}">${fails}</span>`, `${errs.length === 1 ? t("1 firma") : t("{n} firmas", { n: errs.length })}${per("fail")}`, `data-live-state="FAIL"`,
 				t("Tests en fallo o interrumpidos, agrupados por la firma de su error. Clic: ver solo esos.")),
 			lane("net", "03", t("RED"), String(calls), eps.length ? t("{n} con error", { n: epErr }) : t("sin llamadas"), `data-live-scroll=".lc-backend"`,
 				t("Llamadas al backend de todas las corridas (las captura el cliente con Playwright). Clic: ir al backend de la ejecución.")),
@@ -1519,7 +1519,7 @@
 
 
 		return `<div class="live-insights">
-			${card("lc-errors", t("Errores agrupados"), errs.length ? t("{n} firmas", { n: errs.length }) : "", errBody)}
+			${card("lc-errors", t("Errores agrupados"), errs.length === 1 ? t("1 firma") : errs.length ? t("{n} firmas", { n: errs.length }) : "", errBody)}
 			${card("lc-slow", t("Más lentos que su historial"), "", slowBody)}
 			${card("lc-backend", t("Backend de la ejecución"), eps?.length ? t("{n} endpoints", { n: eps.length }) : "", epBody)}
 </div>`; // la actividad reciente es la cinta EN VIVO de arriba: aquí repetía lo mismo
@@ -1606,7 +1606,7 @@
 					return `<div class="ltr ${r.kind} ${cls}" role="listitem" data-tip="${esc(tip)}" style="--i:${Math.min(i, 30)}"><span class="ltr-label" data-no-i18n>${r.kind === "req" ? `<b>${esc(r.code)}</b> ` : ""}${esc(r.label)}</span>
 						<span class="ltr-track">${r.kind === "req" ? `<i style="left:${r.left.toFixed(2)}%;width:${r.width.toFixed(2)}%"></i>` : `<i class="pt" style="left:${r.left.toFixed(2)}%"></i>`}</span></div>`;
 				}).join("")}</div>
-				<p class="m-hint lt-trace-foot">${esc(t("{n} pasos y llamadas", { n: tr.rows.length }))}${tr.cut ? ` · ${esc(t("{n} más sin mostrar", { n: tr.cut }))}` : ""}${tr.hidden ? ` · <button type="button" class="lf-more" data-live-trace-all>${esc(panel.all ? t("solo API") : t("incluir {n} recursos estáticos", { n: tr.hidden }))}</button>` : ""}</p>`
+				<p class="m-hint lt-trace-foot">${esc(t("{n} pasos y llamadas", { n: tr.rows.length }))}${tr.cut ? ` · ${esc(t("{n} más sin mostrar", { n: tr.cut }))}` : ""}${tr.hidden ? ` · <button type="button" class="lf-more" data-live-trace-all>${esc(panel.all ? t("solo API") : (tr.hidden === 1 ? t("incluir 1 recurso estático") : t("incluir {n} recursos estáticos", { n: tr.hidden })))}</button>` : ""}</p>`
 				: netState || `<p class="m-hint">${esc(t("Todavía sin pasos."))}</p>`;
 		}
 		const tabBtn = (k, label) => `<button type="button" role="tab" class="live-ptab ${tab === k ? "on" : ""}" aria-selected="${tab === k}" data-live-ptab="${k}">${esc(t(label))}</button>`;

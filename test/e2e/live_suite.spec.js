@@ -255,6 +255,20 @@ test("la traza del test: pasos y llamadas en una línea de tiempo, el 504 y el f
 	await expect(panel).toContainText("Todavía sin capturas.");
 });
 
+test("en inglés: la pestaña Trace, 1 signature y 1 static resource en singular (antes «Traza», «1 signatures», «1 static resources»)", async ({ page }) => {
+	await page.evaluate(() => localStorage.setItem("tracereports-lang", "en"));
+	await page.reload();
+	const view = page.locator("#view-live");
+	await expect(view.locator(".live-tiles")).toBeVisible();
+	await expect(view.locator(".live-map")).toContainText("1 signature");
+	await expect(view.locator(".live-map")).not.toContainText("1 signatures");
+	await view.locator("tr.lt-row.fail").first().locator("td.lt-step").click();
+	const panel = view.locator(".live-panel");
+	await expect(panel.locator('[data-live-ptab="trace"]')).toHaveText("Trace");
+	await expect(panel.locator("[data-live-trace-all]")).toHaveText("include 1 static resource");
+	await page.evaluate(() => localStorage.removeItem("tracereports-lang"));
+});
+
 test("gráficos: resultados en el tiempo, tasa de fallo acumulada y duraciones, con tooltip y tabla de datos", async ({ page }) => {
 	const view = page.locator("#view-live");
 	const charts = view.locator(".live-chart");
@@ -288,11 +302,15 @@ test("gráficos: resultados en el tiempo, tasa de fallo acumulada y duraciones, 
 test("selector de ejecución: hora y antigüedad; con muchas, buscador agrupado y teclado", async ({ page }) => {
 	// 30 ejecuciones: la grande en curso y otras de hoy y anteriores. La hora se fija a mediodía: con la
 	// hora real, pasada la medianoche (la CI a las 00:17 UTC) todas las anteriores caían en el día de ayer
-	// y no había grupo «De hoy»
+	// y no había grupo «De hoy». La página, con la misma hora fija
 	const noon = new Date();
 	noon.setHours(12, 0, 0, 0);
 	const now = noon.getTime();
-	await page.clock.setSystemTime(now);
+	await page.clock.setFixedTime(now);
+	// la ejecución y el historial también traen su «ahora» y la vista lo usa: con la hora real del proceso, la
+	// primera anterior quedaba en el futuro (o a menos de 1 h) y salía «Recientes» (la CI a las 00:24 UTC)
+	await page.route("**/api/v1/live/history?**", (r) => r.fulfill({ json: { now, total: 0, next: 0, executions: [] } }));
+	await page.route("**/api/v1/live/execution?**", (r) => { served++; return r.fulfill({ json: liveSuite(now).execution }); });
 	await page.route("**/api/v1/live", (r) => {
 		const base = liveSuite(now).list;
 		const old = Array.from({ length: 29 }, (_, i) => ({ ...base.executions[1], key: `x:old-${i}`, title: `acme_${i % 2 ? "web" : "admin"} · build ${100 + i}`,
